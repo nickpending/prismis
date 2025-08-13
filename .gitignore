@@ -71,3 +71,5 @@ Thumbs.db
 
 # Project specific
 # uv manages dependencies per project
+.workflow/
+.claude/

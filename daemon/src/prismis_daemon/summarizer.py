@@ -67,6 +67,8 @@ class ContentSummarizer:
         title: str = "",
         url: str = "",
         source_type: str = "",
+        source_name: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[ContentSummary]:
         """Generate summary with universal structured analysis.
 
@@ -90,7 +92,9 @@ class ContentSummarizer:
 
         try:
             # Build the analysis prompt (from legacy system)
-            prompt = self._build_prompt(content, title, url, source_type)
+            prompt = self._build_prompt(
+                content, title, url, source_type, source_name, metadata or {}
+            )
 
             # Call LLM
             logger.debug(f"Calling {self.model} for content analysis")
@@ -228,7 +232,13 @@ GUIDELINES:
 - All lists should contain actual items from the content, not placeholders"""
 
     def _build_prompt(
-        self, content: str, title: str, url: str, source_type: str
+        self,
+        content: str,
+        title: str,
+        url: str,
+        source_type: str,
+        source_name: str,
+        metadata: Dict[str, Any],
     ) -> str:
         """Build the analysis prompt for the LLM.
 
@@ -237,6 +247,8 @@ GUIDELINES:
             title: Title of the content
             url: URL of the content
             source_type: Source type/category
+            source_name: Name of the source (e.g., @unsupervised-learning, r/rust)
+            metadata: Additional metadata (author, subreddit, view count, etc.)
 
         Returns:
             Formatted prompt string
@@ -246,11 +258,25 @@ GUIDELINES:
             f"Sending full content to LLM for analysis: {len(content):,} characters"
         )
 
+        # Build metadata string
+        metadata_str = ""
+        if source_name:
+            metadata_str += f"Source Name: {source_name}\n"
+        if metadata:
+            if metadata.get("author"):
+                metadata_str += f"Author: {metadata['author']}\n"
+            if metadata.get("subreddit"):
+                metadata_str += f"Subreddit: r/{metadata['subreddit']}\n"
+            if metadata.get("view_count"):
+                metadata_str += f"View Count: {metadata['view_count']:,}\n"
+
         return f"""Analyze this content and extract structured insights:
 
 Title: {title}
-Source: {source_type}
-URL: {url}
+Source Type: {source_type}
+{metadata_str}URL: {url}
+
+IMPORTANT: Use the provided metadata above. Do NOT infer or guess author names, channel names, or other metadata not explicitly provided.
 
 CONTENT:
 {content}"""

@@ -143,11 +143,18 @@ class DaemonOrchestrator:
                 )
                 try:
                     # Step 3a: Summarize and extract insights
+                    # Pass source name and metadata for context
+                    metadata = {}
+                    if hasattr(item, "analysis") and item.analysis:
+                        metadata = item.analysis.get("metrics", {})
+
                     summary_result = self.summarizer.summarize_with_analysis(
                         content=item.content,
                         title=item.title,
                         url=item.url,
                         source_type=source.get("type", "rss"),
+                        source_name=source.get("name", ""),
+                        metadata=metadata,
                     )
 
                     if not summary_result:

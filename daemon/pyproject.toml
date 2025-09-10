@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "prismis-daemon"
+version = "0.1.3"
+description = "Prismis daemon for content fetching and analysis"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "apscheduler",
+    "fastapi>=0.116.1",
+    "feedparser",
+    "httpx",
+    "litellm",
+    "praw>=7.8.1",
+    "pydantic",
+    "rich",
+    "trafilatura",
+    "typer",
+    "uvicorn>=0.35.0",
+]
+
+[project.scripts]
+prismis-daemon = "prismis_daemon.__main__:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/prismis_daemon"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]

@@ -73,3 +73,5 @@ Thumbs.db
 # uv manages dependencies per project
 .workflow/
 .claude/
+.claudex-guard/
+.claudex-guard.yaml

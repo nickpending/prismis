@@ -1,0 +1,253 @@
+"""Main entry point for Prismis daemon - just wiring, no logic."""
+
+import asyncio
+import signal
+import sys
+
+import typer
+import uvicorn
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from rich.console import Console
+
+from .config import Config
+from .storage import Storage
+from .fetchers.rss import RSSFetcher
+from .fetchers.reddit import RedditFetcher
+from .fetchers.youtube import YouTubeFetcher
+from .summarizer import ContentSummarizer
+from .evaluator import ContentEvaluator
+from .notifier import Notifier
+from .defaults import ensure_config
+from .orchestrator import DaemonOrchestrator
+
+console = Console()
+scheduler = None  # Global for signal handler
+api_server = None  # Global for API server
+
+
+async def run_scheduler(test_mode: bool = False) -> None:
+    """Run the daemon with APScheduler for periodic fetching."""
+    global scheduler
+
+    try:
+        # Ensure config files exist
+        ensure_config()
+
+        # Load configuration
+        console.print("📂 Loading configuration...")
+        config = Config.from_file()
+
+        # Initialize components
+        console.print("🔧 Initializing components...")
+        storage = Storage()
+
+        # Create all fetchers with config
+        rss_fetcher = RSSFetcher(config=config)
+        reddit_fetcher = RedditFetcher(config=config)
+        youtube_fetcher = YouTubeFetcher(config=config)
+
+        # Create LLM config dict for summarizer and evaluator
+        llm_config = {
+            "provider": config.llm_provider,
+            "model": config.llm_model,
+            "api_key": config.llm_api_key,
+        }
+        notification_config = {
+            "high_priority_only": config.high_priority_only,
+            "command": config.notification_command,
+        }
+
+        summarizer = ContentSummarizer(llm_config)
+        evaluator = ContentEvaluator(llm_config)
+        notifier = Notifier(notification_config)
+
+        # Create orchestrator with all dependencies
+        orchestrator = DaemonOrchestrator(
+            storage=storage,
+            rss_fetcher=rss_fetcher,
+            reddit_fetcher=reddit_fetcher,
+            youtube_fetcher=youtube_fetcher,
+            summarizer=summarizer,
+            evaluator=evaluator,
+            notifier=notifier,
+            config={"context": config.context},  # Only pass context for now
+            console=console,
+        )
+
+        # Create scheduler
+        scheduler = AsyncIOScheduler()
+
+        # Determine interval based on mode
+        if test_mode:
+            interval_trigger = IntervalTrigger(seconds=5)
+            interval_msg = "5 seconds"
+        else:
+            interval_trigger = IntervalTrigger(minutes=30)
+            interval_msg = "30 minutes"
+
+        # Add job to run periodically
+        scheduler.add_job(
+            func=run_orchestrator_sync,
+            args=(orchestrator,),
+            trigger=interval_trigger,
+            id="fetch_and_analyze",
+            name="Fetch and analyze content",
+            replace_existing=True,
+            max_instances=1,  # Prevent overlapping runs
+        )
+
+        # Also run immediately on startup
+        scheduler.add_job(
+            func=run_orchestrator_sync,
+            args=(orchestrator,),
+            trigger="date",  # Run once immediately
+            id="initial_run",
+            name="Initial fetch on startup",
+        )
+
+        # Setup signal handlers for graceful shutdown
+        def signal_handler(sig, frame) -> None:
+            console.print(
+                "\n[yellow]Received shutdown signal, stopping scheduler...[/yellow]"
+            )
+            if scheduler and scheduler.running:
+                scheduler.shutdown(wait=False)
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+        # Start scheduler
+        scheduler.start()
+        console.print(
+            f"[green]✅ Scheduler started - will fetch content every {interval_msg}[/green]"
+        )
+
+        # Start API server
+        console.print("[yellow]🌐 Starting API server on port 8989...[/yellow]")
+        from .api import app
+
+        # Create API server config
+        api_config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=8989,
+            log_level="warning",  # Reduce noise
+            access_log=False,  # Disable access logs for cleaner output
+        )
+        api_server = uvicorn.Server(api_config)
+
+        # Run API server in background
+        asyncio.create_task(api_server.serve())
+        console.print("[green]✅ API server running on http://127.0.0.1:8989[/green]")
+        console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+        # Keep the event loop running
+        try:
+            await asyncio.Event().wait()
+        except KeyboardInterrupt:
+            pass
+
+    except Exception as e:
+        console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
+        sys.exit(1)
+    finally:
+        if scheduler and scheduler.running:
+            scheduler.shutdown(wait=True)
+
+
+def run_orchestrator_sync(orchestrator: DaemonOrchestrator) -> None:
+    """Synchronous wrapper to run orchestrator for scheduler."""
+    from datetime import datetime
+
+    console.print(
+        f"\n[blue]⏰ Running scheduled fetch at {datetime.now().strftime('%H:%M:%S')}[/blue]"
+    )
+    stats = orchestrator.run_once()
+    if stats["total_items"] > 0:
+        console.print(
+            f"[green]Completed: {stats['total_analyzed']} items analyzed[/green]\n"
+        )
+    else:
+        console.print("[dim]No new items found[/dim]\n")
+
+
+app = typer.Typer()
+
+
+@app.command()
+def main(
+    once: bool = typer.Option(False, "--once", help="Run once and exit"),
+    test_mode: bool = typer.Option(
+        False, "--test", help="Test mode with 5 second intervals"
+    ),
+) -> None:
+    """Main entry point for Prismis daemon."""
+    if once:
+        console.print("[bold blue]Starting Prismis daemon (--once mode)[/bold blue]")
+
+        try:
+            # Ensure config files exist
+            ensure_config()
+
+            # Load configuration
+            console.print("📂 Loading configuration...")
+            config = Config.from_file()
+
+            # Initialize components
+            console.print("🔧 Initializing components...")
+            storage = Storage()
+
+            # Create all fetchers with config
+            rss_fetcher = RSSFetcher(config=config)
+            reddit_fetcher = RedditFetcher(config=config)
+            youtube_fetcher = YouTubeFetcher(config=config)
+
+            # Create LLM config dict for summarizer and evaluator
+            llm_config = {
+                "provider": config.llm_provider,
+                "model": config.llm_model,
+                "api_key": config.llm_api_key,
+            }
+            notification_config = {
+                "high_priority_only": config.high_priority_only,
+                "command": config.notification_command,
+            }
+
+            summarizer = ContentSummarizer(llm_config)
+            evaluator = ContentEvaluator(llm_config)
+            notifier = Notifier(notification_config)
+
+            # Create and run orchestrator with all dependencies
+            orchestrator = DaemonOrchestrator(
+                storage=storage,
+                rss_fetcher=rss_fetcher,
+                reddit_fetcher=reddit_fetcher,
+                youtube_fetcher=youtube_fetcher,
+                summarizer=summarizer,
+                evaluator=evaluator,
+                notifier=notifier,
+                config={"context": config.context},  # Only pass context for now
+                console=console,
+            )
+
+            stats = orchestrator.run_once()
+
+            # Exit with error if there were problems
+            if stats["errors"] and stats["total_analyzed"] == 0:
+                sys.exit(1)
+
+        except Exception as e:
+            console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
+            sys.exit(1)
+    else:
+        mode = "test mode (5 second intervals)" if test_mode else "scheduler mode"
+        console.print(f"[bold blue]Starting Prismis daemon ({mode})[/bold blue]")
+
+        # Run the scheduler
+        asyncio.run(run_scheduler(test_mode=test_mode))
+
+
+if __name__ == "__main__":
+    app()

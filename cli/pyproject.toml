@@ -1,0 +1,27 @@
+[project]
+name = "prismis-cli"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "prismis-daemon",
+    "rich>=14.1.0",
+    "typer>=0.16.0",
+]
+
+[project.scripts]
+prismis-cli = "cli.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+prismis-daemon = { path = "../daemon", editable = true }

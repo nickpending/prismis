@@ -1,0 +1,1 @@
+- use make from the project root to build and/or install

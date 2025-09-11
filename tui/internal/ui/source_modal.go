@@ -8,15 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/nickpending/prismis-local/internal/api"
 	"github.com/nickpending/prismis-local/internal/db"
 )
-
-// sourceOperationSuccessMsg is sent when a source operation completes successfully
-type sourceOperationSuccessMsg struct {
-	message string
-	success bool  // true for success, false for error
-}
 
 // detectSourceType detects the type of source from the URL
 func detectSourceType(url string) string {
@@ -48,7 +41,6 @@ type SourceModal struct {
 	mode       string // "list", "add", "edit", "confirm_remove"
 	editBuffer string // For text input (deprecated - use formFields)
 	errorMsg   string
-	apiClient  *api.APIClient // API client for backend operations
 
 	// Form fields for add/edit modes
 	formFields     map[string]string // Stores "url", "name" values
@@ -65,9 +57,6 @@ type SourceModal struct {
 
 // NewSourceModal creates a new SourceModal instance
 func NewSourceModal() SourceModal {
-	// Try to create API client, but don't fail if config is missing
-	apiClient, _ := api.NewClient()
-	
 	vp := viewport.New(0, 0)
 
 	return SourceModal{
@@ -75,7 +64,6 @@ func NewSourceModal() SourceModal {
 		mode:        "list",
 		formFields:  make(map[string]string),
 		activeField: "url", // Default to URL field
-		apiClient:   apiClient,
 		viewport:    vp,
 		ready:       false,
 	}
@@ -240,12 +228,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 					m.activeField = "url"
 				}
 			case "enter":
-				// Update source via API
-				if m.apiClient == nil {
-					m.errorMsg = "API client not configured - check config.toml"
-					return m, nil
-				}
-
+				// Prepare to update source
 				if m.cursor >= len(m.sources) {
 					m.errorMsg = "No source selected"
 					return m, nil
@@ -264,60 +247,26 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 					return m, nil
 				}
 
-				// Create update request
-				request := api.SourceRequest{
-					URL:  url,
-					Type: source.Type, // Keep same type
+				// Build updates map for the update command
+				updates := map[string]interface{}{
+					"url":  url,
+					"type": source.Type, // Keep same type
 				}
-
-				// Add name if provided
 				if name != "" {
-					request.Name = &name
+					updates["name"] = name
 				}
 
-				// Call API
-				_, err := m.apiClient.UpdateSource(source.ID, request)
-				if err != nil {
-					// Parse different error types for user-friendly messages
-					errStr := err.Error()
-					if strings.Contains(errStr, "validation error") {
-						// Extract the actual validation error message
-						parts := strings.SplitN(errStr, ": ", 2)
-						if len(parts) >= 2 {
-							m.errorMsg = parts[1]
-						} else {
-							m.errorMsg = errStr
-						}
-					} else if strings.Contains(errStr, "network error") {
-						m.errorMsg = "Cannot connect to daemon - is it running?"
-					} else if strings.Contains(errStr, "authentication failed") {
-						m.errorMsg = "Invalid API key - check config.toml"
-					} else if strings.Contains(errStr, "source not found") {
-						m.errorMsg = "Source no longer exists"
-					} else {
-						// For any other error, show it directly
-						m.errorMsg = err.Error()
-					}
-					// Stay in edit mode with error displayed
-					m.UpdateContent()
-					return m, nil
-				}
-
-				// Success - return to list with status message
-				m.statusMessage = "Source updated successfully"
+				// Clear form and go back to list
+				// The actual update will happen via the command
 				m.mode = "list"
 				m.formFields = make(map[string]string)
 				m.errorMsg = ""
 				
 				// Update content before returning
 				m.UpdateContent()
-				// Return command to refresh sources and clear flash after delay
-				return m, tea.Batch(
-					fetchSources(),
-					tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
-						return clearStatusMsg{}
-					}),
-				)
+				
+				// Return the update command directly (like add/remove/pause/resume)
+				return m, doUpdateSource(source.ID, updates)
 			case "esc":
 				m.mode = "list"
 				m.formFields = make(map[string]string)
@@ -340,13 +289,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 		case "confirm_remove":
 			switch msg.String() {
 			case "y":
-				// Delete source via API
-				if m.apiClient == nil {
-					m.errorMsg = "API client not configured - check config.toml"
-					m.mode = "list"
-					return m, nil
-				}
-
+				// Delete source
 				if m.sourceToDelete == "" {
 					m.errorMsg = "No source selected for deletion"
 					m.mode = "list"

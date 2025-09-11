@@ -125,8 +125,8 @@ func (c *CommandMode) Update(msg tea.Msg) (CommandMode, tea.Cmd) {
 			// Add to history
 			c.addToHistory(cmd)
 			
-			// Parse command and arguments
-			parts := strings.Fields(cmd)
+			// Parse command and arguments with quote support
+			parts := parseCommandWithQuotes(cmd)
 			if len(parts) == 0 {
 				c.Hide()
 				return *c, nil
@@ -262,4 +262,55 @@ func (c *CommandMode) addToHistory(cmd string) {
 	}
 	
 	c.history = append(c.history, cmd)
+}
+
+// parseCommandWithQuotes parses a command string with quote support
+func parseCommandWithQuotes(cmd string) []string {
+	var args []string
+	var current strings.Builder
+	var inQuotes bool
+	var escaped bool
+	
+	runes := []rune(cmd)
+	
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		
+		switch {
+		case escaped:
+			// Previous character was backslash, add this literally
+			current.WriteRune(r)
+			escaped = false
+			
+		case r == '\\':
+			// Escape next character
+			escaped = true
+			
+		case r == '"' && !escaped:
+			// Toggle quote mode
+			inQuotes = !inQuotes
+			
+		case r == ' ' && !inQuotes:
+			// Space outside quotes - end current arg
+			if current.Len() > 0 {
+				args = append(args, current.String())
+				current.Reset()
+			}
+			// Skip consecutive spaces
+			for i+1 < len(runes) && runes[i+1] == ' ' {
+				i++
+			}
+			
+		default:
+			// Regular character
+			current.WriteRune(r)
+		}
+	}
+	
+	// Add final argument if any
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+	
+	return args
 }

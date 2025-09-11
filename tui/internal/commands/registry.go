@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"strings"
+	
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -30,6 +32,7 @@ func NewRegistry() *Registry {
 	r.Register("cleanup", cmdCleanup)
 	r.Register("pause", cmdPause)
 	r.Register("resume", cmdResume)
+	r.Register("edit", cmdEdit)
 	
 	return r
 }
@@ -141,6 +144,24 @@ func cmdResume(args []string) tea.Cmd {
 	}
 }
 
+// cmdEdit edits a source's name
+func cmdEdit(args []string) tea.Cmd {
+	return func() tea.Msg {
+		if len(args) < 2 {
+			return ErrorMsg{Message: "edit: requires identifier and new name"}
+		}
+		
+		identifier := args[0]
+		// Join remaining args as the new name (handles spaces without quotes for now)
+		newName := strings.Join(args[1:], " ")
+		
+		return EditSourceMsg{
+			Identifier: identifier,
+			NewName:    newName,
+		}
+	}
+}
+
 // showError returns a command that shows an error message
 func showError(msg string) tea.Cmd {
 	return func() tea.Msg {
@@ -185,4 +206,10 @@ type PauseSourceMsg struct {
 // ResumeSourceMsg signals to resume a source
 type ResumeSourceMsg struct {
 	URL string
+}
+
+// EditSourceMsg signals to edit a source's name
+type EditSourceMsg struct {
+	Identifier string
+	NewName    string
 }

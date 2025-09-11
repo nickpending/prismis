@@ -363,6 +363,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Resume source (refresh happens in response to success message)
 		return m, doResumeSource(msg.URL)
 		
+	case commands.EditSourceMsg:
+		// Edit source name using the identifier lookup
+		return m, doEditSourceName(msg.Identifier, msg.NewName)
+		
 	case tea.KeyMsg:
 		// Check if command mode should be disabled for normal keys
 		if m.commandMode.IsActive() {

@@ -8,6 +8,12 @@ import (
 	"github.com/nickpending/prismis-local/internal/api"
 )
 
+// sourceOperationSuccessMsg is sent when a source operation completes successfully
+type sourceOperationSuccessMsg struct {
+	message string
+	success bool  // true for success, false for error
+}
+
 // normalizeSourceURL normalizes special protocol URLs to real URLs (copied from daemon)
 func normalizeSourceURL(url string, sourceType string) string {
 	url = strings.TrimSpace(url)
@@ -198,12 +204,12 @@ func lookupSourceByIdentifier(identifier string, apiClient *api.APIClient) (stri
 	normalizedURL := normalizeSourceURL(identifier, sourceType)
 	
 	// Try to find source by:
-	// 1. Exact URL match
-	// 2. Normalized URL match  
+	// 1. Exact URL match (case insensitive)
+	// 2. Normalized URL match (case insensitive)
 	// 3. Name match (case insensitive)
 	for _, source := range sourcesResp.Sources {
-		// Check URL matches
-		if source.URL == identifier || source.URL == normalizedURL {
+		// Check URL matches (case insensitive)
+		if strings.EqualFold(source.URL, identifier) || strings.EqualFold(source.URL, normalizedURL) {
 			name := source.URL
 			if source.Name != nil {
 				name = *source.Name
@@ -329,6 +335,69 @@ func doResumeSource(identifier string) tea.Cmd {
 	}
 }
 
+// DoUpdateSourceTest is exported for testing
+func DoUpdateSourceTest(sourceID string, updates map[string]interface{}) tea.Cmd {
+	return doUpdateSource(sourceID, updates)
+}
+
+// doEditSourceName edits just the name of a source using identifier lookup
+func doEditSourceName(identifier string, newName string) tea.Cmd {
+	return func() tea.Msg {
+		apiClient, err := api.NewClient()
+		if err != nil {
+			return sourceOperationSuccessMsg{
+				message: fmt.Sprintf("Failed to create API client: %v", err),
+				success: false,
+			}
+		}
+		
+		// Use shared helper to find source
+		sourceID, _, err := lookupSourceByIdentifier(identifier, apiClient)
+		if err != nil {
+			return sourceOperationSuccessMsg{
+				message: err.Error(),
+				success: false,
+			}
+		}
+		
+		// Get the current source data to preserve URL and Type
+		sourcesResp, err := apiClient.GetSources()
+		if err != nil {
+			return sourceOperationSuccessMsg{
+				message: fmt.Sprintf("Failed to get source details: %v", err),
+				success: false,
+			}
+		}
+		
+		// Find the source to get current URL and Type
+		var currentURL, currentType string
+		for _, source := range sourcesResp.Sources {
+			if source.ID == sourceID {
+				currentURL = source.URL
+				currentType = source.Type
+				break
+			}
+		}
+		
+		if currentURL == "" || currentType == "" {
+			return sourceOperationSuccessMsg{
+				message: "Could not find source details",
+				success: false,
+			}
+		}
+		
+		// Update with current URL/Type and new name
+		updates := map[string]interface{}{
+			"url":  currentURL,
+			"type": currentType,
+			"name": newName,
+		}
+		
+		// Use the existing doUpdateSource logic
+		return doUpdateSource(sourceID, updates)()
+	}
+}
+
 // doUpdateSource updates a source (name, category, etc.)
 func doUpdateSource(sourceID string, updates map[string]interface{}) tea.Cmd {
 	return func() tea.Msg {
@@ -341,21 +410,32 @@ func doUpdateSource(sourceID string, updates map[string]interface{}) tea.Cmd {
 		}
 		
 		// Build the update request
+		// URL and Type are REQUIRED by the API
 		request := api.SourceRequest{}
 		
-		// Set URL if provided
-		if url, ok := updates["url"].(string); ok {
+		// Set URL (required)
+		if url, ok := updates["url"].(string); ok && url != "" {
 			request.URL = url
+		} else {
+			return sourceOperationSuccessMsg{
+				message: "URL is required for update",
+				success: false,
+			}
 		}
 		
-		// Set name if provided
+		// Set type (required) 
+		if sourceType, ok := updates["type"].(string); ok && sourceType != "" {
+			request.Type = sourceType
+		} else {
+			return sourceOperationSuccessMsg{
+				message: "Type is required for update",
+				success: false,
+			}
+		}
+		
+		// Set name if provided (optional)
 		if name, ok := updates["name"].(string); ok && name != "" {
 			request.Name = &name
-		}
-		
-		// Set type if provided (though usually we keep the same type)
-		if sourceType, ok := updates["type"].(string); ok {
-			request.Type = sourceType
 		}
 		
 		// Call the update API

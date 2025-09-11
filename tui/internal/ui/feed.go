@@ -107,7 +107,8 @@ func RenderList(m Model) string {
 	header := RenderWithGradientBackground(headerContent, m.width, "#00D9FF", "#9F4DFF")
 
 	// Main content area
-	contentHeight := m.height - 5 // header + empty line + status + borders
+	// Reserve space: header(1) + empty(1) + status(1) + command(1) + borders(1) = 5
+	contentHeight := m.height - 5
 
 	// Left sidebar (25% width)
 	sidebarWidth := m.width / 4
@@ -151,25 +152,61 @@ func RenderList(m Model) string {
 		Width(m.width).
 		Padding(0, 1)
 
-	// Show status message if present, otherwise show help
-	var statusText string
-	if m.statusMessage != "" {
-		// Show status message with highlighted style
-		statusText = lipgloss.NewStyle().
-			Foreground(theme.Cyan).
-			Bold(true).
-			Render(m.statusMessage)
-	} else {
-		statusText = "j/k:navigate  enter:read  m:mark  o:open browser  c:copy  y:yank URL  u:unread/all  d:date sort  s:source filter  1/2/3/a:priority  0:unprioritized  q:quit"
+	// Build status bar (always shows counts and help)
+	// Count priorities for quick reference
+	var highCount, medCount, lowCount int
+	for _, item := range m.items {
+		if !item.Read {
+			switch item.Priority {
+			case "high":
+				highCount++
+			case "medium":
+				medCount++
+			case "low":
+				lowCount++
+			}
+		}
 	}
-	status := statusStyle.Render(statusText)
+	
+	// Status bar always shows counts
+	statusText := fmt.Sprintf("HIGH: %d  MED: %d  LOW: %d  |  Press ? for help", 
+		highCount, medCount, lowCount)
+	// Always show status bar
+	statusBar := statusStyle.Render(statusText)
+	
+	// Bottom line: command/message area (like vim)
+	var bottomLine string
+	if m.commandMode.IsActive() {
+		// Show command input
+		bottomLine = m.commandMode.View()
+	} else if m.statusMessage != "" {
+		// Show status message (errors, success messages)
+		// Use different colors for errors vs success
+		messageColor := theme.Cyan // Default for success messages
+		if strings.Contains(strings.ToLower(m.statusMessage), "failed") || 
+		   strings.Contains(strings.ToLower(m.statusMessage), "error") {
+			messageColor = theme.VibrantPurple // Vibrant purple for errors - noticeable but not harsh
+		}
+		messageStyle := lipgloss.NewStyle().
+			Foreground(messageColor).
+			Width(m.width).
+			Padding(0, 1)
+		bottomLine = messageStyle.Render(m.statusMessage)
+	} else {
+		// Empty line when no message or command
+		emptyStyle := lipgloss.NewStyle().
+			Width(m.width).
+			Height(1)
+		bottomLine = emptyStyle.Render(" ")
+	}
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
 		"",
 		main,
-		status,
+		statusBar,
+		bottomLine,
 	)
 }
 

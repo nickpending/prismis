@@ -99,7 +99,18 @@ def normalize_source_url(url: str, source_type: str) -> str:
             # Default to @handle format
             return f"https://www.youtube.com/@{channel}"
 
-    # For RSS and already-normalized URLs, return as-is
+    # Handle RSS protocol
+    elif source_type == "rss":
+        if url.startswith("rss://"):
+            # Convert rss://example.com/feed to https://example.com/feed
+            feed_url = url[6:].lstrip("/")
+
+            # Add https:// if not already present
+            if not feed_url.startswith(("http://", "https://")):
+                return f"https://{feed_url}"
+            return feed_url
+
+    # For already-normalized URLs, return as-is
     return url
 
 

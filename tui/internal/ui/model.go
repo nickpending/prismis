@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/nickpending/prismis-local/internal/commands"
 	"github.com/nickpending/prismis-local/internal/config"
 	"github.com/nickpending/prismis-local/internal/db"
 	"github.com/nickpending/prismis-local/internal/service"
@@ -41,6 +42,7 @@ type Model struct {
 	sourceModal SourceModal // Modal for managing sources
 	readerModal ReaderModal // Modal for reading articles
 	helpModal   HelpModal   // Modal for keyboard shortcuts help
+	commandMode CommandMode // Neovim-style command mode
 	// Auto-refresh state
 	refreshInterval time.Duration // Interval for auto-refresh (0 = disabled)
 }
@@ -90,6 +92,7 @@ func NewModel() Model {
 		sourceModal:   NewSourceModal(), // Initialize source modal
 		readerModal:   NewReaderModal(), // Initialize reader modal
 		helpModal:     NewHelpModal(),   // Initialize help modal
+		commandMode:   NewCommandMode(), // Initialize command mode
 	}
 }
 
@@ -131,8 +134,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sourceModal.SetSize(msg.Width, msg.Height)
 		m.readerModal.SetSize(msg.Width, msg.Height)
 		m.helpModal.SetSize(msg.Width, msg.Height)
+		m.commandMode.SetWidth(msg.Width)
 	}
 
+	// Handle command mode updates first (highest priority)
+	if m.commandMode.IsActive() {
+		m.commandMode, cmd = m.commandMode.Update(msg)
+		
+		// Handle command messages
+		if !m.commandMode.IsActive() {
+			// Command mode was just closed, check for command execution
+			cmds = append(cmds, cmd)
+		}
+		
+		return m, tea.Batch(cmds...)
+	}
+	
 	// Handle source modal updates if it's visible
 	if m.sourceModal.IsVisible() {
 		// CRITICAL: Handle sourcesLoadedMsg even when modal is visible
@@ -307,8 +324,60 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case commands.RefreshMsg:
+		// Handle refresh command
+		m.loading = true
+		return m, fetchItemsWithState(m)
+		
+	case commands.ErrorMsg:
+		// Show error in command line instead of status
+		cmd := m.commandMode.SetError(msg.Message)
+		return m, cmd
+		
+	case commands.HelpMsg:
+		// Show the help modal (same as pressing ?)
+		m.helpModal.Show()
+		return m, nil
+		
+	case commands.AddSourceMsg:
+		// Add source (refresh happens in response to success message)
+		return m, doAddSource(msg.URL, "")
+		
+	case commands.RemoveSourceMsg:
+		// Remove source (refresh happens in response to success message)
+		return m, doRemoveSource(msg.Identifier)
+		
+	case commands.ShowLogsMsg:
+		// Show logs (placeholder for now)
+		return m, doShowLogs()
+		
+	case commands.CleanupMsg:
+		// Cleanup (refresh happens in response to success message)
+		return m, doCleanupUnprioritized()
+		
+	case commands.PauseSourceMsg:
+		// Pause source (refresh happens in response to success message)
+		return m, doPauseSource(msg.URL)
+		
+	case commands.ResumeSourceMsg:
+		// Resume source (refresh happens in response to success message)
+		return m, doResumeSource(msg.URL)
+		
 	case tea.KeyMsg:
+		// Check if command mode should be disabled for normal keys
+		if m.commandMode.IsActive() {
+			// Command mode is active, don't process normal navigation keys
+			// Let command mode handle everything
+			m.commandMode, cmd = m.commandMode.Update(msg)
+			return m, cmd
+		}
+		
 		switch msg.String() {
+		case ":":
+			// Activate command mode
+			m.commandMode.Show()
+			return m, nil
+			
 		case "q", "ctrl+c":
 			return m, tea.Quit
 
@@ -706,9 +775,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case sourceOperationSuccessMsg:
-		// Handle success message from source modal operations
+		// Handle success message from source operations
 		m.statusMessage = msg.message
-		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+		
+		// Check if operation was successful
+		if msg.success {
+			// Success! Refresh the UI
+			cmds = append(cmds, 
+				fetchSources(),           // Refresh source list
+				fetchItemsWithState(m),   // Refresh content
+				clearStatusAfterDelay(2*time.Second),
+			)
+		} else {
+			// Error - just clear status after delay
+			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+		}
 	case readerStatusMsg:
 		// Handle status message from reader modal operations
 		m.statusMessage = msg.message
@@ -835,6 +916,7 @@ func extractReadingSummary(analysisJSON string) string {
 
 	return ""
 }
+
 
 // openInBrowser opens the given URL in the default browser.
 // It detects the OS and uses the appropriate command.

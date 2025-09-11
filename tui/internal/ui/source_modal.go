@@ -15,6 +15,7 @@ import (
 // sourceOperationSuccessMsg is sent when a source operation completes successfully
 type sourceOperationSuccessMsg struct {
 	message string
+	success bool  // true for success, false for error
 }
 
 // detectSourceType detects the type of source from the URL
@@ -173,9 +174,14 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 					m.errorMsg = ""
 				}
 			case "p":
-				// Pause/unpause - would be wired to backend
-				if len(m.sources) > 0 {
-					m.errorMsg = "Pause/unpause not yet implemented"
+				// Toggle pause/resume for selected source
+				if len(m.sources) > 0 && m.cursor < len(m.sources) {
+					source := m.sources[m.cursor]
+					if source.Active {
+						return m, doPauseSource(source.ID)
+					} else {
+						return m, doResumeSource(source.ID)
+					}
 				}
 			case "d":
 				if len(m.sources) > 0 && m.cursor < len(m.sources) {
@@ -199,75 +205,15 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 					m.activeField = "url"
 				}
 			case "enter":
-				// Add source via API
-				if m.apiClient == nil {
-					m.errorMsg = "API client not configured - check config.toml"
-					return m, nil
-				}
-
+				// Add source using shared function
 				url := strings.TrimSpace(m.formFields["url"])
 				if url == "" {
 					m.errorMsg = "URL is required"
 					return m, nil
 				}
-
-				// Detect source type from URL
-				sourceType := detectSourceType(url)
-
-				// Create request
-				request := api.SourceRequest{
-					URL:  url,
-					Type: sourceType,
-				}
-
-				// Add name if provided
-				name := strings.TrimSpace(m.formFields["name"])
-				if name != "" {
-					request.Name = &name
-				}
-
-				// Call API
-				_, err := m.apiClient.AddSource(request)
-				if err != nil {
-					// Parse different error types for user-friendly messages
-					errStr := err.Error()
-					if strings.Contains(errStr, "validation error") {
-						// Extract the actual validation error message
-						// The error string format is "validation error: <actual message>"
-						parts := strings.SplitN(errStr, ": ", 2)
-						if len(parts) >= 2 {
-							m.errorMsg = parts[1]
-						} else {
-							m.errorMsg = errStr
-						}
-					} else if strings.Contains(errStr, "network error") {
-						m.errorMsg = "Cannot connect to daemon - is it running?"
-					} else if strings.Contains(errStr, "authentication failed") {
-						m.errorMsg = "Invalid API key - check config.toml"
-					} else {
-						// For any other error, show it directly
-						m.errorMsg = err.Error()
-					}
-					// Stay in add mode with error displayed
-					m.UpdateContent()
-					return m, nil
-				}
-
-				// Success - return to list with status message
-				m.statusMessage = "Source added successfully"
-				m.mode = "list"
-				m.formFields = make(map[string]string)
-				m.errorMsg = ""
 				
-				// Update content before returning
-				m.UpdateContent()
-				// Return command to refresh sources and clear flash after delay
-				return m, tea.Batch(
-					fetchSources(),
-					tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
-						return clearStatusMsg{}
-					}),
-				)
+				name := strings.TrimSpace(m.formFields["name"])
+				return m, doAddSource(url, name)
 			case "esc":
 				m.mode = "list"
 				m.formFields = make(map[string]string)
@@ -407,42 +353,8 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 					return m, nil
 				}
 
-				// Call API to delete
-				_, err := m.apiClient.DeleteSource(m.sourceToDelete)
-				if err != nil {
-					// Parse different error types for user-friendly messages
-					errStr := err.Error()
-					if strings.Contains(errStr, "not found") {
-						m.errorMsg = "Source no longer exists"
-					} else if strings.Contains(errStr, "network error") {
-						m.errorMsg = "Cannot connect to daemon - is it running?"
-					} else if strings.Contains(errStr, "authentication failed") {
-						m.errorMsg = "Invalid API key - check config.toml"
-					} else {
-						// For any other error, show it directly
-						m.errorMsg = err.Error()
-					}
-					m.mode = "list"
-					// Update content before returning
-					m.UpdateContent()
-					return m, nil
-				}
-
-				// Success - return to list with status message
-				m.statusMessage = "Source removed successfully"
-				m.mode = "list"
-				m.sourceToDelete = ""
-				m.errorMsg = ""
-				
-				// Update content before returning
-				m.UpdateContent()
-				// Return command to refresh sources and clear flash after delay
-				return m, tea.Batch(
-					fetchSources(),
-					tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
-						return clearStatusMsg{}
-					}),
-				)
+				// Use shared removal function
+				return m, doRemoveSource(m.sourceToDelete)
 
 			case "n", "esc":
 				m.mode = "list"
@@ -451,6 +363,30 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 			}
 		}
 	
+	case sourceOperationSuccessMsg:
+		if msg.success {
+			// Success: return to list mode with status message
+			m.statusMessage = msg.message
+			m.mode = "list"
+			m.formFields = make(map[string]string)
+			m.sourceToDelete = "" // Clear deletion state
+			m.errorMsg = ""
+			m.UpdateContent()
+			return m, tea.Batch(
+				fetchSources(),
+				tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+					return clearStatusMsg{}
+				}),
+			)
+		} else {
+			// Error: show error and return to list mode
+			m.errorMsg = msg.message
+			m.mode = "list"
+			m.sourceToDelete = "" // Clear deletion state
+			m.UpdateContent()
+			return m, nil
+		}
+		
 	case clearStatusMsg:
 		m.statusMessage = ""
 		// Update content to refresh status bar

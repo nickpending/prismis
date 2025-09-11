@@ -215,6 +215,82 @@ func (c *APIClient) UpdateSource(sourceID string, request SourceRequest) (*APIRe
 	return &apiResp, nil
 }
 
+// PauseSource pauses a content source (sets inactive)
+func (c *APIClient) PauseSource(sourceID string) (*APIResponse, error) {
+	// Create HTTP request
+	req, err := http.NewRequest("PATCH", c.baseURL+"/api/sources/"+sourceID+"/pause", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("X-API-Key", c.apiKey)
+
+	// Send request
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Parse response
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Check for API-level errors
+	if !apiResp.Success {
+		return &apiResp, fmt.Errorf(apiResp.Message)
+	}
+
+	return &apiResp, nil
+}
+
+// ResumeSource resumes a paused content source (sets active)
+func (c *APIClient) ResumeSource(sourceID string) (*APIResponse, error) {
+	// Create HTTP request
+	req, err := http.NewRequest("PATCH", c.baseURL+"/api/sources/"+sourceID+"/resume", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("X-API-Key", c.apiKey)
+
+	// Send request
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Parse response
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Check for API-level errors
+	if !apiResp.Success {
+		return &apiResp, fmt.Errorf(apiResp.Message)
+	}
+
+	return &apiResp, nil
+}
+
 // GetSources retrieves all content sources from the API
 func (c *APIClient) GetSources() (*SourceListResponse, error) {
 	// Create HTTP request

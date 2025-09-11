@@ -51,15 +51,15 @@ def extract_name_from_url(url: str) -> str:
 
     # For YouTube channels
     if "youtube.com" in url or "youtu.be" in url:
-        # Try to extract channel name
+        # Try to extract channel name (matching API behavior)
         if "@" in url:
             match = re.search(r"@([^/\?]+)", url)
             if match:
-                return f"YouTube: @{match.group(1)}"
+                return f"@{match.group(1)}"
         elif "channel/" in url:
             match = re.search(r"channel/([^/\?]+)", url)
             if match:
-                return f"YouTube Channel: {match.group(1)[:20]}"
+                return match.group(1)[:20]
         return "YouTube Channel"
 
     # For regular domains, use the domain name

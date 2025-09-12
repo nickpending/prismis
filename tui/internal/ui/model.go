@@ -12,7 +12,7 @@ import (
 	"github.com/nickpending/prismis-local/internal/commands"
 	"github.com/nickpending/prismis-local/internal/config"
 	"github.com/nickpending/prismis-local/internal/db"
-	"github.com/nickpending/prismis-local/internal/service"
+	"github.com/nickpending/prismis-local/internal/ui/operations"
 )
 
 // Model represents the application state for the TUI
@@ -184,8 +184,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case commands.RefreshMsg:
 		// Handle refresh command
-		m.loading = true
-		return m, fetchItemsWithState(m)
+		if msg.PreserveCursor && m.view == "list" && !m.loading {
+			// Save current item ID to restore position if possible
+			var currentItemID string
+			if m.cursor < len(m.items) && m.cursor >= 0 {
+				currentItemID = m.items[m.cursor].ID
+			}
+
+			m.loading = true
+
+			// Create refresh command that preserves position (same as old 'r' key)
+			refreshCmd := func() tea.Msg {
+				items, hiddenCount, err := db.GetContentWithFilters(
+					m.priority,
+					m.showUnprioritized,
+					m.showAll,
+					m.filterType,
+					m.sortNewest,
+				)
+
+				return itemsLoadedMsg{
+					items:          items,
+					hiddenCount:    hiddenCount,
+					err:            err,
+					preserveCursor: true,
+					targetItemID:   currentItemID,
+				}
+			}
+
+			return m, refreshCmd
+		} else {
+			// Simple refresh without cursor preservation
+			m.loading = true
+			return m, fetchItemsWithState(m)
+		}
 		
 	case commands.ErrorMsg:
 		// Show error in command line instead of status
@@ -199,74 +231,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 	case commands.AddSourceMsg:
 		// Add source (refresh happens in response to success message)
-		return m, doAddSource(msg.URL, "")
+		return m, operations.AddSource(msg.URL, "")
 		
 	case commands.RemoveSourceMsg:
 		// Remove source (refresh happens in response to success message)
-		return m, doRemoveSource(msg.Identifier)
+		return m, operations.RemoveSource(msg.Identifier)
 		
 	case commands.ShowLogsMsg:
 		// Show logs (placeholder for now)
-		return m, doShowLogs()
+		return m, operations.ShowLogs()
 		
 	case commands.CleanupMsg:
 		// Cleanup (refresh happens in response to success message)
-		return m, doCleanupUnprioritized()
+		return m, operations.CleanupUnprioritized()
 		
 	case commands.PauseSourceMsg:
 		// Pause source (refresh happens in response to success message)
-		return m, doPauseSource(msg.URL)
+		return m, operations.PauseSource(msg.URL)
 		
 	case commands.ResumeSourceMsg:
 		// Resume source (refresh happens in response to success message)
-		return m, doResumeSource(msg.URL)
+		return m, operations.ResumeSource(msg.URL)
 		
 	case commands.EditSourceMsg:
 		// Edit source name using the identifier lookup
-		return m, doEditSourceName(msg.Identifier, msg.NewName)
+		return m, operations.EditSourceName(msg.Identifier, msg.NewName)
 		
 	// Reader command handlers
 	case commands.MarkMsg:
 		// Toggle read/unread status (works in both list and reader views)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
 			item := m.items[m.cursor]
-			if item.Read {
-				err := service.MarkAsUnread(item.ID)
-				if err != nil {
-					m.statusMessage = fmt.Sprintf("Failed to mark unread: %v", err)
-				} else {
-					m.items[m.cursor].Read = false
-					m.statusMessage = "Marked as unread"
-				}
-			} else {
-				err := service.MarkAsRead(item.ID)
-				if err != nil {
-					m.statusMessage = fmt.Sprintf("Failed to mark read: %v", err)
-				} else {
-					m.items[m.cursor].Read = true
-					m.statusMessage = "Marked as read"
-				}
-			}
-			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+			// Use the operations package to toggle read status
+			return m, operations.ToggleArticleRead(item)
 		}
 		
 	case commands.FavoriteMsg:
 		// Toggle favorite status (works in both list and reader views)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
 			item := m.items[m.cursor]
-			newFavStatus := !item.Favorited
-			err := service.ToggleFavorite(item.ID, newFavStatus)
-			if err != nil {
-				m.statusMessage = fmt.Sprintf("Failed to toggle favorite: %v", err)
-			} else {
-				m.items[m.cursor].Favorited = newFavStatus
-				if newFavStatus {
-					m.statusMessage = "★ Favorited"
-				} else {
-					m.statusMessage = "☆ Unfavorited"
-				}
-			}
-			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+			// Use the operations package to toggle favorite status
+			return m, operations.ToggleArticleFavorite(item)
 		}
 		
 	case commands.OpenMsg:
@@ -453,38 +458,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				return m, fetchItemsWithState(m)
 			}
-		// Manual refresh (preserves current filters and position)
-		case "r", "R":
-			if m.view == "list" && !m.loading {
-				// Save current item ID to restore position if possible
-				var currentItemID string
-				if m.cursor < len(m.items) && m.cursor >= 0 {
-					currentItemID = m.items[m.cursor].ID
-				}
-
-				m.loading = true
-
-				// Create refresh command that preserves position
-				refreshCmd := func() tea.Msg {
-					items, hiddenCount, err := db.GetContentWithFilters(
-						m.priority,
-						m.showUnprioritized,
-						m.showAll,
-						m.filterType,
-						m.sortNewest,
-					)
-
-					return itemsLoadedMsg{
-						items:          items,
-						hiddenCount:    hiddenCount,
-						err:            err,
-						preserveCursor: true,
-						targetItemID:   currentItemID,
-					}
-				}
-
-				return m, refreshCmd
-			}
 		// Toggle date sort (newest/oldest)
 		case "d":
 			if m.view == "list" {
@@ -644,12 +617,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sourceModal.LoadSources(msg.sources)
 		}
 
-	case sourceOperationSuccessMsg:
-		// Handle success message from source operations
-		m.statusMessage = msg.message
+	case operations.SourceOperationMsg:
+		// Handle source operation message from operations package
+		m.statusMessage = msg.Message
 		
 		// Check if operation was successful
-		if msg.success {
+		if msg.Success {
 			// Success! Refresh the UI
 			cmds = append(cmds, 
 				fetchSources(),           // Refresh source list
@@ -660,6 +633,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Error - just clear status after delay
 			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 		}
+		
+	// Article operation messages from operations package
+	case operations.ArticleMarkedMsg:
+		if msg.Success {
+			// Update the item in our local state
+			for i, item := range m.items {
+				if item.ID == msg.ID {
+					m.items[i].Read = msg.Read
+					break
+				}
+			}
+			if msg.Read {
+				m.statusMessage = "Marked as read"
+			} else {
+				m.statusMessage = "Marked as unread"
+			}
+		} else {
+			m.statusMessage = fmt.Sprintf("Failed to mark: %v", msg.Error)
+		}
+		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+		
+	case operations.ArticleFavoritedMsg:
+		if msg.Success {
+			// Update the item in our local state
+			for i, item := range m.items {
+				if item.ID == msg.ID {
+					m.items[i].Favorited = msg.Favorited
+					break
+				}
+			}
+			if msg.Favorited {
+				m.statusMessage = "★ Favorited"
+			} else {
+				m.statusMessage = "☆ Unfavorited"
+			}
+		} else {
+			m.statusMessage = fmt.Sprintf("Failed to toggle favorite: %v", msg.Error)
+		}
+		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 	}
 
 	if len(cmds) > 0 {

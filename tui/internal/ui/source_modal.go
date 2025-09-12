@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/nickpending/prismis-local/internal/db"
+	"github.com/nickpending/prismis-local/internal/ui/operations"
 )
 
 // detectSourceType detects the type of source from the URL
@@ -166,9 +167,9 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				if len(m.sources) > 0 && m.cursor < len(m.sources) {
 					source := m.sources[m.cursor]
 					if source.Active {
-						return m, doPauseSource(source.ID)
+						return m, operations.PauseSource(source.ID)
 					} else {
-						return m, doResumeSource(source.ID)
+						return m, operations.ResumeSource(source.ID)
 					}
 				}
 			case "d":
@@ -201,7 +202,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				}
 				
 				name := strings.TrimSpace(m.formFields["name"])
-				return m, doAddSource(url, name)
+				return m, operations.AddSource(url, name)
 			case "esc":
 				m.mode = "list"
 				m.formFields = make(map[string]string)
@@ -266,7 +267,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				m.UpdateContent()
 				
 				// Return the update command directly (like add/remove/pause/resume)
-				return m, doUpdateSource(source.ID, updates)
+				return m, operations.UpdateSource(source.ID, updates)
 			case "esc":
 				m.mode = "list"
 				m.formFields = make(map[string]string)
@@ -297,7 +298,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				}
 
 				// Use shared removal function
-				return m, doRemoveSource(m.sourceToDelete)
+				return m, operations.RemoveSource(m.sourceToDelete)
 
 			case "n", "esc":
 				m.mode = "list"
@@ -306,10 +307,10 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 			}
 		}
 	
-	case sourceOperationSuccessMsg:
-		if msg.success {
+	case operations.SourceOperationMsg:
+		if msg.Success {
 			// Success: return to list mode with status message
-			m.statusMessage = msg.message
+			m.statusMessage = msg.Message
 			m.mode = "list"
 			m.formFields = make(map[string]string)
 			m.sourceToDelete = "" // Clear deletion state
@@ -323,7 +324,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 			)
 		} else {
 			// Error: show error and return to list mode
-			m.errorMsg = msg.message
+			m.errorMsg = msg.Message
 			m.mode = "list"
 			m.sourceToDelete = "" // Clear deletion state
 			m.UpdateContent()

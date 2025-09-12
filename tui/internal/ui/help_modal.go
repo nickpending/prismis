@@ -92,6 +92,19 @@ func (m HelpModal) View() string {
 	content.WriteString(titleStyle.Render(centeredTitle))
 	content.WriteString("\n\n")
 
+	// Add intro text about command mode
+	introStyle := lipgloss.NewStyle().
+		Foreground(theme.Gray).
+		Italic(true)
+	introText := "Press : to enter command mode for actions like mark, copy, favorite, etc."
+	introPadding := (m.width - 4 - lipgloss.Width(introText)) / 2
+	if introPadding < 0 {
+		introPadding = 0
+	}
+	centeredIntro := strings.Repeat(" ", introPadding) + introText
+	content.WriteString(introStyle.Render(centeredIntro))
+	content.WriteString("\n\n")
+
 	// Section header style (like in reader modal)
 	sectionStyle := lipgloss.NewStyle().
 		Foreground(theme.Cyan).
@@ -163,13 +176,27 @@ func (m HelpModal) View() string {
 	// ACTIONS section
 	content.WriteString(sectionHeader("ACTIONS"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("Enter", "Read article", "r", "Refresh content"))
+	content.WriteString(format2Col("Enter", "Read article", ":", "Command mode"))
+	content.WriteString("\n\n")
+
+	// COMMAND MODE section - NEW
+	content.WriteString(sectionHeader("COMMAND MODE (:)"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("m", "Mark as read", "y", "Copy URL"))
+	content.WriteString(format2Col(":help", "Show this help", ":quit", "Exit application"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("f", "Toggle favorite", "o", "Open in browser"))
+	content.WriteString(format2Col(":refresh", "Refresh content", ":add <url>", "Add new source"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("c", "Copy content", "", ""))
+	content.WriteString(format2Col(":mark", "Toggle read status", ":favorite", "Toggle favorite"))
+	content.WriteString("\n")
+	content.WriteString(format2Col(":copy", "Copy content", ":yank", "Copy URL"))
+	content.WriteString("\n")
+	content.WriteString(format2Col(":open", "Open in browser", ":remove <id>", "Remove source"))
+	content.WriteString("\n")
+	content.WriteString(format2Col(":cleanup", "Remove unprioritized", ":logs", "Show daemon logs"))
+	content.WriteString("\n")
+	content.WriteString(format2Col(":pause <url>", "Pause source", ":resume <url>", "Resume source"))
+	content.WriteString("\n")
+	content.WriteString(format2Col(":edit <id> <name>", "Edit source name", "", ""))
 	content.WriteString("\n\n")
 
 	// MODALS section
@@ -185,9 +212,9 @@ func (m HelpModal) View() string {
 	content.WriteString("\n")
 	content.WriteString(format2Col("l/→", "Next article", "k/↑", "Scroll up"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("m", "Toggle read", "f", "Toggle favorite"))
-	content.WriteString("\n")
 	content.WriteString(format2Col("Space", "Page down", "ESC", "Close reader"))
+	content.WriteString("\n")
+	content.WriteString(format2Col(":", "Command mode", "q", "Back to list"))
 	content.WriteString("\n\n")
 
 	// SOURCE MANAGER section

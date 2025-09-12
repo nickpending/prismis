@@ -97,10 +97,10 @@ func cmdQuit(args []string) tea.Cmd {
 	return tea.Quit
 }
 
-// cmdRefresh triggers a content refresh
+// cmdRefresh triggers a content refresh with cursor preservation
 func cmdRefresh(args []string) tea.Cmd {
 	return func() tea.Msg {
-		return RefreshMsg{}
+		return RefreshMsg{PreserveCursor: true}
 	}
 }
 
@@ -239,7 +239,9 @@ func showError(msg string) tea.Cmd {
 // Message types for commands
 
 // RefreshMsg signals that content should be refreshed
-type RefreshMsg struct{}
+type RefreshMsg struct{
+	PreserveCursor bool // If true, try to maintain cursor position
+}
 
 // ErrorMsg contains an error message to display
 type ErrorMsg struct {

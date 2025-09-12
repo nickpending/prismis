@@ -40,7 +40,6 @@ type Model struct {
 	flashItem     int    // Index of item to flash (-1 for none)
 	// Modal state
 	sourceModal SourceModal // Modal for managing sources
-	readerModal ReaderModal // Modal for reading articles
 	helpModal   HelpModal   // Modal for keyboard shortcuts help
 	commandMode CommandMode // Neovim-style command mode
 	// Auto-refresh state
@@ -90,7 +89,6 @@ func NewModel() Model {
 		statusMessage: "",               // No status message initially
 		flashItem:     -1,               // No item flashing initially
 		sourceModal:   NewSourceModal(), // Initialize source modal
-		readerModal:   NewReaderModal(), // Initialize reader modal
 		helpModal:     NewHelpModal(),   // Initialize help modal
 		commandMode:   NewCommandMode(), // Initialize command mode
 	}
@@ -132,7 +130,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		// Update modal sizes
 		m.sourceModal.SetSize(msg.Width, msg.Height)
-		m.readerModal.SetSize(msg.Width, msg.Height)
 		m.helpModal.SetSize(msg.Width, msg.Height)
 		m.commandMode.SetWidth(msg.Width)
 	}
@@ -170,145 +167,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Handle reader modal updates if it's visible
-	if m.readerModal.IsVisible() {
-		// Handle messages that need main model handling before the early return
-		switch msg.(type) {
-		case clearStatusMsg:
-			m.statusMessage = ""
-			// Don't pass to modal, just clear and continue
-		case clearFlashMsg:
-			m.flashItem = -1
-			m.readerModal.flashActive = false
-			// Don't pass to modal, already handled
-		default:
-			m.readerModal, cmd = m.readerModal.Update(msg)
-		}
-
-		// Update main cursor to match reader modal cursor (for operations)
-		m.cursor = m.readerModal.cursor
-		
-		// Check if reader modal was just closed and refresh the list if so
-		if !m.readerModal.IsVisible() {
-			// Modal was closed, refresh items from database to get updated state
-			// This ensures any changes made in the reader modal are reflected
-			return m, fetchItemsWithState(m)
-		}
-
-		// Handle clipboard and browser operations from reader
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			if m.cursor < len(m.items) {
-				item := m.items[m.cursor]
-				switch msg.String() {
-				case "y":
-					// Yank URL
-					err := CopyToClipboard(item.URL)
-					if err != nil {
-						m.statusMessage = "Failed to copy URL"
-					} else {
-						m.statusMessage = "URL copied to clipboard"
-						// Flash the reader modal
-						m.readerModal.flashActive = true
-						cmds = append(cmds, flashItemCmd())
-					}
-					cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
-				case "c":
-					// Copy content (same as list view - use reading summary)
-					readingSummary := extractReadingSummary(item.Analysis)
-					if readingSummary == "" {
-						m.statusMessage = "No content available"
-						cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
-						break
-					}
-
-					err := CopyToClipboard(readingSummary)
-					if err != nil {
-						m.statusMessage = "Failed to copy content"
-					} else {
-						m.statusMessage = "Content copied to clipboard"
-						// Flash the reader modal
-						m.readerModal.flashActive = true
-						cmds = append(cmds, flashItemCmd())
-					}
-					cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
-				case "o":
-					// Open in browser
-					var openCmd *exec.Cmd
-					switch runtime.GOOS {
-					case "darwin":
-						openCmd = exec.Command("open", item.URL)
-					case "linux":
-						openCmd = exec.Command("xdg-open", item.URL)
-					case "windows":
-						openCmd = exec.Command("cmd", "/c", "start", item.URL)
-					}
-					if openCmd != nil {
-						err := openCmd.Start()
-						if err != nil {
-							m.statusMessage = "Failed to open browser"
-						} else {
-							m.statusMessage = "Opening in browser..."
-						}
-						cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
-					}
-				case "m":
-					// Toggle read/unread status
-					if item.Read {
-						err := service.MarkAsUnread(item.ID)
-						if err != nil {
-							m.statusMessage = fmt.Sprintf("Failed to mark unread: %v", err)
-						} else {
-							// Update both main items and reader modal items
-							m.items[m.cursor].Read = false
-							m.readerModal.items[m.cursor].Read = false
-							m.statusMessage = "Marked as unread"
-							// Flash the reader modal
-							m.readerModal.flashActive = true
-							cmds = append(cmds, flashItemCmd())
-						}
-					} else {
-						err := service.MarkAsRead(item.ID)
-						if err != nil {
-							m.statusMessage = fmt.Sprintf("Failed to mark read: %v", err)
-						} else {
-							// Update both main items and reader modal items
-							m.items[m.cursor].Read = true
-							m.readerModal.items[m.cursor].Read = true
-							m.statusMessage = "Marked as read"
-							// Flash the reader modal
-							m.readerModal.flashActive = true
-							cmds = append(cmds, flashItemCmd())
-						}
-					}
-					cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
-				case "f":
-					// Toggle favorite status
-					newFavStatus := !item.Favorited
-					err := service.ToggleFavorite(item.ID, newFavStatus)
-					if err != nil {
-						m.statusMessage = fmt.Sprintf("Failed to toggle favorite: %v", err)
-					} else {
-						// Update both main items and reader modal items
-						m.items[m.cursor].Favorited = newFavStatus
-						m.readerModal.items[m.cursor].Favorited = newFavStatus
-						if newFavStatus {
-							m.statusMessage = "★ Favorited"
-						} else {
-							m.statusMessage = "☆ Unfavorited"
-						}
-						// Flash the reader modal
-						m.readerModal.flashActive = true
-						cmds = append(cmds, flashItemCmd())
-					}
-					cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
-				}
-			}
-		}
-
-		cmds = append(cmds, cmd)
-		return m, tea.Batch(cmds...)
-	}
 
 	// Handle help modal updates if it's visible
 	if m.helpModal.IsVisible() {
@@ -367,6 +225,96 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Edit source name using the identifier lookup
 		return m, doEditSourceName(msg.Identifier, msg.NewName)
 		
+	// Reader command handlers
+	case commands.MarkMsg:
+		// Toggle read/unread status (works in both list and reader views)
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			if item.Read {
+				err := service.MarkAsUnread(item.ID)
+				if err != nil {
+					m.statusMessage = fmt.Sprintf("Failed to mark unread: %v", err)
+				} else {
+					m.items[m.cursor].Read = false
+					m.statusMessage = "Marked as unread"
+				}
+			} else {
+				err := service.MarkAsRead(item.ID)
+				if err != nil {
+					m.statusMessage = fmt.Sprintf("Failed to mark read: %v", err)
+				} else {
+					m.items[m.cursor].Read = true
+					m.statusMessage = "Marked as read"
+				}
+			}
+			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+		}
+		
+	case commands.FavoriteMsg:
+		// Toggle favorite status (works in both list and reader views)
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			newFavStatus := !item.Favorited
+			err := service.ToggleFavorite(item.ID, newFavStatus)
+			if err != nil {
+				m.statusMessage = fmt.Sprintf("Failed to toggle favorite: %v", err)
+			} else {
+				m.items[m.cursor].Favorited = newFavStatus
+				if newFavStatus {
+					m.statusMessage = "★ Favorited"
+				} else {
+					m.statusMessage = "☆ Unfavorited"
+				}
+			}
+			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+		}
+		
+	case commands.OpenMsg:
+		// Open URL in browser (works in both list and reader views)
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			err := openInBrowser(item.URL)
+			if err != nil {
+				m.statusMessage = "Failed to open browser"
+			} else {
+				m.statusMessage = "Opening in browser..."
+			}
+			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+		}
+		
+	case commands.YankMsg:
+		// Copy URL to clipboard (works in both list and reader views)
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			err := CopyToClipboard(item.URL)
+			if err != nil {
+				m.statusMessage = "Failed to copy URL"
+			} else {
+				m.statusMessage = "URL copied to clipboard"
+			}
+			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+		}
+		
+	case commands.CopyMsg:
+		// Copy content to clipboard (works in both list and reader views)
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			readingSummary := extractReadingSummary(item.Analysis)
+			
+			if readingSummary == "" {
+				m.statusMessage = "No content available"
+				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
+			} else {
+				err := CopyToClipboard(readingSummary)
+				if err != nil {
+					m.statusMessage = "Failed to copy content"
+				} else {
+					m.statusMessage = "Content copied to clipboard"
+				}
+				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
+			}
+		}
+		
 	case tea.KeyMsg:
 		// Check if command mode should be disabled for normal keys
 		if m.commandMode.IsActive() {
@@ -382,138 +330,61 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.commandMode.Show()
 			return m, nil
 			
-		case "q", "ctrl+c":
+		case "q":
+			if m.view == "reader" {
+				// In reader view, q goes back to list
+				m.view = "list"
+				return m, nil
+			}
+			// In list view, q quits
+			return m, tea.Quit
+			
+		case "ctrl+c":
 			return m, tea.Quit
 
-		// Open reader modal
+		// Switch to reader view
 		case "enter":
-			if m.view == "list" && len(m.items) > 0 && !m.readerModal.IsVisible() {
-				// Ensure modal has correct size
-				m.readerModal.SetSize(m.width, m.height)
-				// Set items and cursor for reader modal
-				m.readerModal.SetItems(m.items, m.cursor)
-				// Show the modal
-				m.readerModal.Show()
+			if m.view == "list" && len(m.items) > 0 {
+				m.view = "reader"
+				// Update viewport with current article content
+				m.updateReaderContent()
 			}
 		case "esc":
 			if m.view == "reader" {
 				m.view = "list"
 			}
 
-		// Toggle read/unread status
-		case "m":
-			if len(m.items) > 0 && m.cursor < len(m.items) {
-				item := m.items[m.cursor]
-				if item.Read {
-					// Mark as unread
-					err := service.MarkAsUnread(item.ID)
-					if err != nil {
-						m.statusMessage = fmt.Sprintf("Error marking unread: %v", err)
-					} else {
-						m.items[m.cursor].Read = false
-						m.statusMessage = "Marked as unread"
-					}
-					cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
-				} else {
-					// Mark as read
-					err := service.MarkAsRead(item.ID)
-					if err != nil {
-						m.statusMessage = fmt.Sprintf("Error marking read: %v", err)
-					} else {
-						if m.showAll {
-							// When showing all items, just update the Read status
-							m.items[m.cursor].Read = true
-							m.statusMessage = "Marked as read"
-						} else {
-							// When showing unread only, remove from list
-							m.items = append(m.items[:m.cursor], m.items[m.cursor+1:]...)
-							// Adjust cursor if needed
-							if m.cursor >= len(m.items) && m.cursor > 0 {
-								m.cursor--
-							}
-							m.statusMessage = "Marked as read"
-						}
-					}
-					cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
-				}
-			}
-		// Toggle favorite status
-		case "f":
-			if len(m.items) > 0 && m.cursor < len(m.items) {
-				item := m.items[m.cursor]
-				newFavStatus := !item.Favorited
-				
-				err := service.ToggleFavorite(item.ID, newFavStatus)
-				if err != nil {
-					m.statusMessage = fmt.Sprintf("Error toggling favorite: %v", err)
-				} else {
-					m.items[m.cursor].Favorited = newFavStatus
-					if newFavStatus {
-						m.statusMessage = "★ Favorited"
-					} else {
-						m.statusMessage = "☆ Unfavorited"
-					}
-				}
-				cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
-			}
-		// Copy article content to clipboard (reader view markdown)
-		case "c":
-			if len(m.items) > 0 && m.cursor < len(m.items) {
-				item := m.items[m.cursor]
-				// Extract the formatted reading summary (same as reader view)
-				readingSummary := extractReadingSummary(item.Analysis)
+		// NOTE: Actions like mark, favorite, copy, yank, open are now :commands
+		// They can be executed with :m, :f, :c, :y, :o (or full names)
 
-				if readingSummary == "" {
-					m.statusMessage = "No content available"
-					cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
-					break
-				}
-
-				err := CopyToClipboard(readingSummary)
-				if err != nil {
-					m.statusMessage = "Failed to copy content"
-				} else {
-					m.statusMessage = "Content copied to clipboard"
-					m.flashItem = m.cursor
-					cmds = append(cmds, flashItemCmd())
-				}
-				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
-			}
-		// Yank (copy) URL to clipboard
-		case "y":
-			if len(m.items) > 0 && m.cursor < len(m.items) {
-				item := m.items[m.cursor]
-				err := CopyToClipboard(item.URL)
-				if err != nil {
-					m.statusMessage = "Failed to copy URL"
-				} else {
-					m.statusMessage = "URL copied to clipboard"
-					m.flashItem = m.cursor
-					cmds = append(cmds, flashItemCmd())
-				}
-				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
-			}
-		// Open article URL in browser
-		case "o":
-			if len(m.items) > 0 && m.cursor < len(m.items) {
-				item := m.items[m.cursor]
-				err := openInBrowser(item.URL)
-				if err != nil {
-					m.statusMessage = "Failed to open browser"
-				} else {
-					m.statusMessage = "Opening in browser..."
-				}
-				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
-			}
-
-		// Navigation in list view
+		// Navigation - different behavior based on view
 		case "j", "down":
 			if m.view == "list" && m.cursor < len(m.items)-1 {
 				m.cursor++
+			} else if m.view == "reader" {
+				// In reader, j scrolls down
+				m.viewport.LineDown(1)
 			}
 		case "k", "up":
 			if m.view == "list" && m.cursor > 0 {
 				m.cursor--
+			} else if m.view == "reader" {
+				// In reader, k scrolls up
+				m.viewport.LineUp(1)
+			}
+		
+		// Reader-specific navigation
+		case "h", "left":
+			if m.view == "reader" && m.cursor > 0 {
+				// Previous article
+				m.cursor--
+				m.updateReaderContent()
+			}
+		case "l", "right":
+			if m.view == "reader" && m.cursor < len(m.items)-1 {
+				// Next article
+				m.cursor++
+				m.updateReaderContent()
 			}
 		case "g":
 			if m.view == "list" {
@@ -654,7 +525,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		// Open help modal
 		case "?":
-			if m.view == "list" && !m.sourceModal.IsVisible() && !m.readerModal.IsVisible() {
+			if m.view == "list" && !m.sourceModal.IsVisible() {
 				// Only open help from main view when no other modals are open
 				m.helpModal.SetSize(m.width, m.height)
 				m.helpModal.Show()
@@ -727,15 +598,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMessage = ""
 	case clearFlashMsg:
 		m.flashItem = -1
-		// Also clear flash on reader modal if it's visible
-		if m.readerModal.IsVisible() {
-			m.readerModal.flashActive = false
-			// No need to call UpdateContent() - the view will re-render automatically
-		}
 
 	case autoRefreshMsg:
 		// Handle automatic refresh - only if not already loading and in list view
-		if !m.loading && m.view == "list" && !m.sourceModal.IsVisible() && !m.readerModal.IsVisible() {
+		if !m.loading && m.view == "list" && !m.sourceModal.IsVisible() {
 			// Save current item ID to restore position
 			var currentItemID string
 			if m.cursor < len(m.items) && m.cursor >= 0 {
@@ -794,10 +660,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Error - just clear status after delay
 			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 		}
-	case readerStatusMsg:
-		// Handle status message from reader modal operations
-		m.statusMessage = msg.message
-		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 	}
 
 	if len(cmds) > 0 {
@@ -808,15 +670,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the current model state
 func (m Model) View() string {
-	// Always render the feed as base view now
+	// RenderList now handles both list and reader views
 	baseView := RenderList(m)
-
-	// Overlay reader modal if visible (with dimming)
-	if m.readerModal.IsVisible() {
-		// Pass status message to reader modal
-		m.readerModal.mainStatusMessage = m.statusMessage
-		return m.readerModal.ViewWithOverlay(baseView, m.width, m.height)
-	}
 
 	// Overlay source modal if visible (with dimming)
 	if m.sourceModal.IsVisible() {

@@ -122,8 +122,13 @@ func RenderList(m Model) string {
 	// Build sidebar
 	sidebar := renderSidebar(m, sidebarWidth, contentHeight, theme)
 
-	// Build main content list
-	content := renderContentList(m, contentWidth, contentHeight, theme)
+	// Build main content - either list or reader based on view
+	var content string
+	if m.view == "reader" {
+		content = renderReaderContent(m, contentWidth, contentHeight, theme)
+	} else {
+		content = renderContentList(m, contentWidth, contentHeight, theme)
+	}
 
 	// Combine sidebar and content
 	sidebarStyle := lipgloss.NewStyle().
@@ -446,19 +451,6 @@ func renderContentList(m Model, width, height int, theme StyleTheme) string {
 		timeAgo := formatTime(time.Since(item.Published))
 		metaStyle := lipgloss.NewStyle().Foreground(theme.Gray)
 
-		// Use actual source information
-		var sourceTypeStr string
-		switch item.SourceType {
-		case "reddit":
-			sourceTypeStr = "reddit"
-		case "youtube":
-			sourceTypeStr = "youtube"
-		case "rss":
-			sourceTypeStr = "rss"
-		default:
-			sourceTypeStr = "web"
-		}
-
 		// Build metadata line with real data
 		var line2 string
 		tags := extractTags(item.Analysis)
@@ -467,10 +459,7 @@ func renderContentList(m Model, width, height int, theme StyleTheme) string {
 		// Build metadata components
 		var metaParts []string
 
-		// Source type (always show)
-		metaParts = append(metaParts, metaStyle.Render(sourceTypeStr))
-
-		// Source name if available
+		// Source name if available (no need for source type - it's obvious from the name)
 		if item.SourceName != "" {
 			metaParts = append(metaParts, metaStyle.Render(item.SourceName))
 		}
@@ -754,6 +743,109 @@ func extractAllTags(analysis string) string {
 	// Join all tags with separator (no container for clean look)
 	tagString := strings.Join(tagsToShow, " • ")
 	return tagStyle.Render(tagString)
+}
+
+// renderReaderContent renders the article reader in the content pane (right side)
+func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
+	if m.cursor >= len(m.items) || len(m.items) == 0 {
+		return lipgloss.NewStyle().
+			Foreground(theme.Gray).
+			Italic(true).
+			Render("No content selected. Press 'q' to return.")
+	}
+
+	item := m.items[m.cursor]
+	var content strings.Builder
+
+	// Article position indicator
+	positionText := fmt.Sprintf("ARTICLE %d of %d", m.cursor+1, len(m.items))
+	positionStyle := lipgloss.NewStyle().Foreground(theme.Cyan).Bold(true)
+	content.WriteString(positionStyle.Render(positionText))
+	content.WriteString("\n\n")
+
+	// Priority dot and title
+	var priorityDot string
+	var dotColor lipgloss.Color
+	
+	if item.Favorited {
+		priorityDot = "♥"
+		dotColor = lipgloss.Color("#9F4DFF")
+	} else {
+		switch item.Priority {
+		case "high":
+			priorityDot = "●"
+			dotColor = theme.Red
+		case "medium":
+			priorityDot = "●"
+			dotColor = theme.Orange
+		case "low":
+			priorityDot = "●"
+			dotColor = theme.Cyan
+		default:
+			priorityDot = "●"
+			dotColor = theme.Gray
+		}
+	}
+
+	priorityDotRendered := lipgloss.NewStyle().Foreground(dotColor).Render(priorityDot)
+	titleStyle := lipgloss.NewStyle().Foreground(theme.White).Bold(true)
+	titleText := titleStyle.Render(item.Title)
+	
+	// Build metadata to go on same line as title
+	timeAgo := formatTime(time.Since(item.Published))
+	metaStyle := lipgloss.NewStyle().Foreground(theme.Gray)
+
+	metaParts := []string{}
+
+	if item.SourceName != "" {
+		metaParts = append(metaParts, metaStyle.Render(item.SourceName))
+	}
+
+	if item.SourceType == "rss" {
+		domain := extractDomain(item.URL)
+		metaParts = append(metaParts, metaStyle.Render(domain))
+	}
+
+	metaParts = append(metaParts, metaStyle.Render(timeAgo))
+
+	if item.SourceType == "reddit" {
+		redditMetrics := extractRedditMetrics(item.Analysis)
+		if redditMetrics.score > 0 {
+			metaParts = append(metaParts,
+				lipgloss.NewStyle().Foreground(theme.Orange).Render(fmt.Sprintf("↑%d", redditMetrics.score)))
+		}
+		if redditMetrics.numComments > 0 {
+			metaParts = append(metaParts, metaStyle.Render(fmt.Sprintf("%dc", redditMetrics.numComments)))
+		}
+	}
+	
+	// Title and metadata on same line with bold grey brackets
+	bulletSeparator := lipgloss.NewStyle().Foreground(theme.Gray).Render(" • ")
+	metadataStr := strings.Join(metaParts, bulletSeparator) // Grey bullet separators
+	leftBracket := lipgloss.NewStyle().Foreground(theme.Gray).Bold(true).Render(" [ ")
+	rightBracket := lipgloss.NewStyle().Foreground(theme.Gray).Bold(true).Render(" ]")
+	content.WriteString(priorityDotRendered + " " + titleText + leftBracket + metadataStr + rightBracket)
+	
+	// Tags on their own line, indented to align with title
+	tags := extractAllTags(item.Analysis)
+	if tags != "" {
+		content.WriteString("\n")
+		content.WriteString("  " + tags) // Two spaces to align with title after "● "
+	}
+	
+	content.WriteString("\n\n")
+
+	// Divider
+	divider := lipgloss.NewStyle().
+		Foreground(theme.Gray).
+		Render(strings.Repeat("─", width-2))
+	content.WriteString(divider)
+	content.WriteString("\n\n")
+
+	// Article content from viewport
+	content.WriteString(m.viewport.View())
+
+	return content.String()
 }
 
 func max(a, b int) int {

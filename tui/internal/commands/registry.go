@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"strings"
 	
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,19 +21,24 @@ func NewRegistry() *Registry {
 		commands: make(map[string]CommandFunc),
 	}
 	
-	// Register built-in commands
-	r.Register("q", cmdQuit)
+	// Register built-in commands (vim-style: full names only, completion handles prefixes)
 	r.Register("quit", cmdQuit)
 	r.Register("refresh", cmdRefresh)
 	r.Register("help", cmdHelp)
 	r.Register("add", cmdAdd)
 	r.Register("remove", cmdRemove)
-	r.Register("rm", cmdRemove) // Alias for remove
 	r.Register("logs", cmdLogs)
 	r.Register("cleanup", cmdCleanup)
 	r.Register("pause", cmdPause)
 	r.Register("resume", cmdResume)
 	r.Register("edit", cmdEdit)
+	
+	// Reader-specific commands (actions only, not navigation)
+	r.Register("mark", cmdMark)
+	r.Register("favorite", cmdFavorite)
+	r.Register("open", cmdOpen)
+	r.Register("yank", cmdYank)
+	r.Register("copy", cmdCopy)
 	
 	return r
 }
@@ -44,10 +50,34 @@ func (r *Registry) Register(name string, fn CommandFunc) {
 
 // Execute runs a command by name with arguments
 func (r *Registry) Execute(name string, args []string) tea.Cmd {
+	// First try exact match
 	if fn, ok := r.commands[name]; ok {
 		return fn(args)
 	}
-	// Return error with just the command name
+	
+	// Then try prefix matching (vim-style)
+	var matches []string
+	var matchedFn CommandFunc
+	lowerName := strings.ToLower(name)
+	
+	for cmdName, fn := range r.commands {
+		if strings.HasPrefix(strings.ToLower(cmdName), lowerName) {
+			matches = append(matches, cmdName)
+			matchedFn = fn
+		}
+	}
+	
+	// If exactly one match, execute it
+	if len(matches) == 1 {
+		return matchedFn(args)
+	}
+	
+	// If multiple matches, show ambiguous command error
+	if len(matches) > 1 {
+		return showError(fmt.Sprintf("Ambiguous command '%s': %s", name, strings.Join(matches, ", ")))
+	}
+	
+	// No matches
 	return showError(name)
 }
 
@@ -162,6 +192,43 @@ func cmdEdit(args []string) tea.Cmd {
 	}
 }
 
+// Reader command implementations
+
+// cmdMark toggles read/unread status of current article
+func cmdMark(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return MarkMsg{}
+	}
+}
+
+// cmdFavorite toggles favorite status of current article
+func cmdFavorite(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return FavoriteMsg{}
+	}
+}
+
+// cmdOpen opens current article URL in browser
+func cmdOpen(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return OpenMsg{}
+	}
+}
+
+// cmdYank copies current article URL to clipboard
+func cmdYank(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return YankMsg{}
+	}
+}
+
+// cmdCopy copies current article content to clipboard
+func cmdCopy(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return CopyMsg{}
+	}
+}
+
 // showError returns a command that shows an error message
 func showError(msg string) tea.Cmd {
 	return func() tea.Msg {
@@ -213,3 +280,20 @@ type EditSourceMsg struct {
 	Identifier string
 	NewName    string
 }
+
+// Reader command messages
+
+// MarkMsg signals to toggle read/unread status
+type MarkMsg struct{}
+
+// FavoriteMsg signals to toggle favorite status
+type FavoriteMsg struct{}
+
+// OpenMsg signals to open URL in browser
+type OpenMsg struct{}
+
+// YankMsg signals to copy URL to clipboard
+type YankMsg struct{}
+
+// CopyMsg signals to copy content to clipboard
+type CopyMsg struct{}

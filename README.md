@@ -22,6 +22,7 @@ Think of it as having a research assistant who reads everything and only interru
 
 - 🚀 **Instant TUI** - Launches in <100ms with gorgeous Bubbletea interface
 - 🧠 **AI-Powered Priority** - LLM analyzes content against YOUR interests (HIGH/MEDIUM/LOW)
+- 🎨 **Fabric Integration** - 200+ AI analysis patterns with tab completion (`:fabric extract_wisdom`)
 - 🔒 **Local-First** - Your data never leaves your machine. SQLite + Go binary
 - 📡 **Multi-Source** - RSS/Atom feeds, Reddit (no API key needed), YouTube transcripts
 - 🎯 **Personal Context** - Define what matters in simple markdown
@@ -64,7 +65,7 @@ prismis-cli source add youtube://UCsBjURrPoezykLs9EqgamOA
 prismis
 ```
 
-Press `1` for HIGH priority. Press `Enter` to read. Press `m` to mark as read. That's it.
+Press `1` for HIGH priority. Press `Enter` to read. Press `:fabric extract_wisdom` for AI analysis. That's it.
 
 ## 🎮 Usage
 
@@ -78,7 +79,7 @@ prismis  # Launch instantly
 - `1/2/3` - View HIGH/MEDIUM/LOW priority content
 - `j/k` - Navigate up/down (vim-style)
 - `Enter` - Read full article
-- `m` - Mark as read (disappears from view)
+- `:` - Command mode (`:fabric extract_wisdom`, `:mark`, `:copy`)
 - `S` - Manage sources
 - `?` - Show all keyboard shortcuts
 - `q` - Quit
@@ -148,6 +149,7 @@ Internet Sources          Python Daemon           Go TUI
 - **Go 1.21+** for the TUI
 - **Python 3.13+** for the daemon
 - **OpenAI API key** (or Anthropic/Ollama for local models)
+- **Fabric** (optional) for AI content analysis patterns
 
 ### Install from Source
 
@@ -181,13 +183,22 @@ model = "llama2"
 api_base = "http://localhost:11434"
 ```
 
-### Fabric Integration (Coming Soon)
+### Fabric Integration
 
-Pipe content to fabric patterns for deeper analysis:
+Built-in AI analysis using 200+ Fabric patterns. Select any article and run patterns directly in the TUI:
 
 ```bash
-prismis get --high | fabric --pattern extract_wisdom
+# In TUI, select an article and press ':'
+:fabric extract_wisdom      # Extracts key insights
+:fabric analyze_claims      # Fact-checks claims
+:fabric summarize          # Creates concise summary
+:fabric extract_patterns   # Finds recurring themes
+
+# Tab completion shows all available patterns
+:fabric ext<TAB>           # Cycles through extract_* patterns
 ```
+
+Results are automatically copied to your clipboard and displayed. Requires [Fabric](https://github.com/danielmiessler/fabric) to be installed.
 
 ### API Access
 
@@ -258,7 +269,7 @@ Some areas we'd love help with:
 - [x] LLM prioritization pipeline
 - [x] Desktop notifications
 - [x] Neovim-style command mode (`:` commands)
-- [ ] Fabric integration for content analysis
+- [x] Fabric integration for content analysis
 - [ ] Daily digest generation
 - [ ] MCP server for AI agents
 - [ ] Mobile app (iOS/Android)

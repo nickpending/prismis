@@ -13,7 +13,7 @@ import (
 // Patterns manages the list of available Fabric patterns
 type Patterns struct {
 	patterns []string
-	cached   bool
+	once     sync.Once
 	mu       sync.RWMutex
 }
 
@@ -21,38 +21,29 @@ type Patterns struct {
 func NewPatterns() *Patterns {
 	return &Patterns{
 		patterns: make([]string, 0),
-		cached:   false,
 	}
 }
 
 // GetPatterns returns the list of available Fabric patterns (cached after first call)
 func (p *Patterns) GetPatterns() []string {
+	// Use sync.Once to ensure patterns are fetched exactly once
+	p.once.Do(func() {
+		patterns, err := p.fetchPatterns()
+
+		p.mu.Lock()
+		defer p.mu.Unlock()
+
+		if err != nil {
+			// Return empty slice on error (graceful degradation)
+			p.patterns = make([]string, 0)
+		} else {
+			p.patterns = patterns
+		}
+	})
+
+	// Return cached patterns with read lock
 	p.mu.RLock()
-	if p.cached {
-		defer p.mu.RUnlock()
-		return p.patterns
-	}
-	p.mu.RUnlock()
-
-	// Need to fetch patterns - upgrade to write lock
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if p.cached {
-		return p.patterns
-	}
-
-	// Fetch patterns from fabric --list
-	patterns, err := p.fetchPatterns()
-	if err != nil {
-		// Return empty slice on error (graceful degradation)
-		p.patterns = make([]string, 0)
-	} else {
-		p.patterns = patterns
-	}
-
-	p.cached = true
+	defer p.mu.RUnlock()
 	return p.patterns
 }
 
@@ -90,8 +81,9 @@ func (p *Patterns) FilterPatterns(prefix string) []string {
 func (p *Patterns) Reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.cached = false
 	p.patterns = make([]string, 0)
+	// Note: sync.Once cannot be reset, so this creates a new instance for testing
+	p.once = sync.Once{}
 }
 
 // fetchPatterns executes 'fabric --list' and parses the output

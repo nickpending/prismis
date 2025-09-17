@@ -8,7 +8,7 @@ import (
 // Detector checks if Fabric is available on the system
 type Detector struct {
 	available bool
-	checked   bool
+	once      sync.Once
 	mu        sync.RWMutex
 }
 
@@ -19,27 +19,19 @@ func NewDetector() *Detector {
 
 // Check detects if Fabric is available (cached after first check)
 func (d *Detector) Check() bool {
+	// Use sync.Once to ensure availability is checked exactly once
+	d.once.Do(func() {
+		// Check if fabric is in PATH
+		_, err := exec.LookPath("fabric")
+
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		d.available = err == nil
+	})
+
+	// Return cached availability with read lock
 	d.mu.RLock()
-	if d.checked {
-		defer d.mu.RUnlock()
-		return d.available
-	}
-	d.mu.RUnlock()
-
-	// Need to check - upgrade to write lock
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if d.checked {
-		return d.available
-	}
-
-	// Check if fabric is in PATH
-	_, err := exec.LookPath("fabric")
-	d.available = err == nil
-	d.checked = true
-
+	defer d.mu.RUnlock()
 	return d.available
 }
 
@@ -54,6 +46,7 @@ func (d *Detector) IsAvailable() bool {
 func (d *Detector) Reset() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.checked = false
 	d.available = false
+	// Note: sync.Once cannot be reset, so this creates a new instance for testing
+	d.once = sync.Once{}
 }

@@ -12,13 +12,15 @@ import (
 
 // Executor handles running Fabric patterns on content
 type Executor struct {
-	timeout time.Duration
+	timeout  time.Duration
+	patterns *Patterns
 }
 
 // NewExecutor creates a new Fabric executor with default 30s timeout
 func NewExecutor() *Executor {
 	return &Executor{
-		timeout: 30 * time.Second,
+		timeout:  30 * time.Second,
+		patterns: NewPatterns(),
 	}
 }
 
@@ -31,6 +33,11 @@ func (e *Executor) ExecutePattern(pattern string, content string) (string, error
 
 	if pattern == "" {
 		return "", fmt.Errorf("no pattern specified")
+	}
+
+	// Validate pattern against available patterns to prevent command injection
+	if !e.patterns.ValidatePattern(pattern) {
+		return "", fmt.Errorf("invalid fabric pattern: %s", pattern)
 	}
 
 	// Create context with timeout

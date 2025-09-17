@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/nickpending/prismis-local/internal/api"
+	"github.com/nickpending/prismis/internal/api"
 )
 
 func main() {

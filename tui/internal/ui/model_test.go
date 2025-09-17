@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nickpending/prismis-local/internal/db"
+	"github.com/nickpending/prismis/internal/db"
 )
 
 func TestNewModel(t *testing.T) {

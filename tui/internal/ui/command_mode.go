@@ -8,8 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/nickpending/prismis-local/internal/commands"
-	"github.com/nickpending/prismis-local/internal/fabric"
+	"github.com/nickpending/prismis/internal/commands"
+	"github.com/nickpending/prismis/internal/fabric"
 )
 
 // CommandMode represents the neovim-style command mode

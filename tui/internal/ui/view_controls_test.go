@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickpending/prismis-local/internal/db"
+	"github.com/nickpending/prismis/internal/db"
 )
 
 // TestSortItemsByDate verifies the date sorting functionality

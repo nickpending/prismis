@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nickpending/prismis-local/internal/api"
+	"github.com/nickpending/prismis/internal/api"
 )
 
 // Source operation result messages

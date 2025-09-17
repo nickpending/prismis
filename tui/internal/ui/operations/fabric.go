@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nickpending/prismis-local/internal/fabric"
+	"github.com/nickpending/prismis/internal/fabric"
 )
 
 // FabricOperationMsg represents the result of a Fabric operation

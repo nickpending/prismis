@@ -1,4 +1,4 @@
-module github.com/nickpending/prismis-local
+module github.com/nickpending/prismis
 
 go 1.24.6
 

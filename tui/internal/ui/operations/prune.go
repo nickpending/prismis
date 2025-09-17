@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nickpending/prismis-local/internal/api"
-	"github.com/nickpending/prismis-local/internal/commands"
+	"github.com/nickpending/prismis/internal/api"
+	"github.com/nickpending/prismis/internal/commands"
 )
 
 // PruneResultMsg contains the result of a prune operation

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/nickpending/prismis-local/internal/db"
+	"github.com/nickpending/prismis/internal/db"
 )
 
 // buildViewStateString creates a formatted string showing current view state

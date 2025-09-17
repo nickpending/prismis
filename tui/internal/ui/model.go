@@ -9,10 +9,10 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nickpending/prismis-local/internal/commands"
-	"github.com/nickpending/prismis-local/internal/config"
-	"github.com/nickpending/prismis-local/internal/db"
-	"github.com/nickpending/prismis-local/internal/ui/operations"
+	"github.com/nickpending/prismis/internal/commands"
+	"github.com/nickpending/prismis/internal/config"
+	"github.com/nickpending/prismis/internal/db"
+	"github.com/nickpending/prismis/internal/ui/operations"
 )
 
 // Model represents the application state for the TUI

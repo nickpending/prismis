@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nickpending/prismis-local/internal/db"
+	"github.com/nickpending/prismis/internal/db"
 )
 
 func TestSourceModal_LoadSources_UpdatesContent(t *testing.T) {

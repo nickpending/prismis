@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nickpending/prismis-local/internal/config"
+	"github.com/nickpending/prismis/internal/config"
 )
 
 // APIClient handles HTTP communication with the daemon

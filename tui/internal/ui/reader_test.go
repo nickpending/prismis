@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/viewport"
-	"github.com/nickpending/prismis-local/internal/db"
+	"github.com/nickpending/prismis/internal/db"
 )
 
 func TestRenderReader(t *testing.T) {

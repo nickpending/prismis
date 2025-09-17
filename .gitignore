@@ -29,7 +29,9 @@ dmypy.json
 *.out
 vendor/
 prismis
+prismis-tui
 tui/prismis
+tui/prismis-local
 tui/cmd/prismis/prismis
 
 # SQLite

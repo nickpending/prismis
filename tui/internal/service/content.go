@@ -3,7 +3,7 @@ package service
 import (
 	"fmt"
 
-	"github.com/nickpending/prismis-local/internal/api"
+	"github.com/nickpending/prismis/internal/api"
 )
 
 // ContentService handles content operations via API

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nickpending/prismis-local/internal/api"
-	"github.com/nickpending/prismis-local/internal/config"
+	"github.com/nickpending/prismis/internal/api"
+	"github.com/nickpending/prismis/internal/config"
 )
 
 // ReportOperationMsg represents the result of a report generation operation

@@ -26,18 +26,16 @@ scheduler = None  # Global for signal handler
 api_server = None  # Global for API server
 
 
-async def run_scheduler(test_mode: bool = False) -> None:
-    """Run the daemon with APScheduler for periodic fetching."""
+async def run_scheduler(config: Config, test_mode: bool = False) -> None:
+    """Run the daemon with APScheduler for periodic fetching.
+
+    Args:
+        config: Already loaded and validated configuration
+        test_mode: Whether to run in test mode with 5 second intervals
+    """
     global scheduler
 
     try:
-        # Ensure config files exist
-        ensure_config()
-
-        # Load configuration
-        console.print("📂 Loading configuration...")
-        config = Config.from_file()
-
         # Initialize components
         console.print("🔧 Initializing components...")
         storage = Storage()
@@ -53,6 +51,9 @@ async def run_scheduler(test_mode: bool = False) -> None:
             "model": config.llm_model,
             "api_key": config.llm_api_key,
         }
+        # Add api_base if configured (for Ollama)
+        if config.llm_api_base:
+            llm_config["api_base"] = config.llm_api_base
         notification_config = {
             "high_priority_only": config.high_priority_only,
             "command": config.notification_command,
@@ -176,6 +177,60 @@ def run_orchestrator_sync(orchestrator: DaemonOrchestrator) -> None:
 app = typer.Typer()
 
 
+def validate_llm_config(config: Config) -> None:
+    """Validate LLM configuration at startup.
+
+    Args:
+        config: Loaded configuration
+
+    Raises:
+        SystemExit: If LLM configuration is invalid
+    """
+    console.print("🔌 Validating LLM configuration...")
+    from .analyzer import Analyzer
+    import litellm
+
+    test_config = {
+        "provider": config.llm_provider,
+        "model": config.llm_model,
+        "api_key": config.llm_api_key,
+    }
+    if config.llm_api_base:
+        test_config["api_base"] = config.llm_api_base
+
+    try:
+        # This will raise ValueError if Ollama missing api_base
+        test_analyzer = Analyzer(test_config)
+
+        # Test actual LLM connection using LiteLLM's built-in health check
+        console.print("🧪 Testing LLM connection...")
+
+        # Build model params for health check
+        model_params = {"model": config.llm_model}
+        if test_analyzer.api_key:
+            model_params["api_key"] = test_analyzer.api_key
+        if test_analyzer.api_base:
+            model_params["api_base"] = test_analyzer.api_base
+
+        # Use LiteLLM's health check
+        import asyncio
+
+        asyncio.run(litellm.ahealth_check(model_params))
+
+        console.print(
+            f"[green]✅ LLM connection successful: {config.llm_provider} / {config.llm_model}[/green]"
+        )
+    except ValueError as e:
+        console.print(f"[bold red]❌ LLM configuration error: {e}[/bold red]")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"[bold red]❌ LLM connection failed: {e}[/bold red]")
+        console.print(
+            "[yellow]💡 Check your model name format and server availability[/yellow]"
+        )
+        sys.exit(1)
+
+
 @app.command()
 def main(
     once: bool = typer.Option(False, "--once", help="Run once and exit"),
@@ -184,17 +239,25 @@ def main(
     ),
 ) -> None:
     """Main entry point for Prismis daemon."""
+    # Common setup for both modes
+    try:
+        # Ensure config files exist
+        ensure_config()
+
+        # Load configuration
+        console.print("📂 Loading configuration...")
+        config = Config.from_file()
+
+        # Validate LLM configuration at startup (before any mode-specific code)
+        validate_llm_config(config)
+    except Exception as e:
+        console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
+        sys.exit(1)
+
     if once:
         console.print("[bold blue]Starting Prismis daemon (--once mode)[/bold blue]")
 
         try:
-            # Ensure config files exist
-            ensure_config()
-
-            # Load configuration
-            console.print("📂 Loading configuration...")
-            config = Config.from_file()
-
             # Initialize components
             console.print("🔧 Initializing components...")
             storage = Storage()
@@ -210,6 +273,9 @@ def main(
                 "model": config.llm_model,
                 "api_key": config.llm_api_key,
             }
+            # Add api_base if configured (for Ollama)
+            if config.llm_api_base:
+                llm_config["api_base"] = config.llm_api_base
             notification_config = {
                 "high_priority_only": config.high_priority_only,
                 "command": config.notification_command,
@@ -245,8 +311,8 @@ def main(
         mode = "test mode (5 second intervals)" if test_mode else "scheduler mode"
         console.print(f"[bold blue]Starting Prismis daemon ({mode})[/bold blue]")
 
-        # Run the scheduler
-        asyncio.run(run_scheduler(test_mode=test_mode))
+        # Run the scheduler with already validated config
+        asyncio.run(run_scheduler(config, test_mode=test_mode))
 
 
 if __name__ == "__main__":

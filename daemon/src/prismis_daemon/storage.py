@@ -3,7 +3,7 @@
 import json
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union, Tuple, Set
 
@@ -525,6 +525,63 @@ class Storage:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content by priority: {e}")
 
+    def get_content_since(self, hours: int = 24) -> List[Dict[str, Any]]:
+        """Get all content from the last N hours.
+
+        Args:
+            hours: Number of hours to look back (default 24)
+
+        Returns:
+            List of content dictionaries with source information
+        """
+        try:
+            # Calculate the cutoff time (use UTC for consistency)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+            cursor = self.conn.execute(
+                """
+                SELECT c.*, s.name as source_name, s.type as source_type
+                FROM content c
+                JOIN sources s ON c.source_id = s.id
+                WHERE c.published_at > ? AND c.priority IS NOT NULL
+                ORDER BY c.priority ASC, c.published_at DESC
+                """,
+                (cutoff_time.strftime("%Y-%m-%d %H:%M:%S+00:00"),),
+            )
+
+            content = []
+            for row in cursor.fetchall():
+                # Parse JSON analysis if present
+                analysis = None
+                if row["analysis"]:
+                    analysis = json.loads(row["analysis"])
+
+                content.append(
+                    {
+                        "id": row["id"],
+                        "source_id": row["source_id"],
+                        "source_name": row["source_name"],
+                        "source_type": row["source_type"],
+                        "external_id": row["external_id"],
+                        "title": row["title"],
+                        "url": row["url"],
+                        "content": row["content"],
+                        "summary": row["summary"],
+                        "analysis": analysis,
+                        "priority": row["priority"],
+                        "published_at": row["published_at"],
+                        "fetched_at": row["fetched_at"],
+                        "read": bool(row["read"]),
+                        "favorited": bool(row["favorited"]),
+                        "notes": row["notes"],
+                    }
+                )
+
+            return content
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get content since {hours} hours ago: {e}")
+
     def mark_content_read(self, content_id: str) -> bool:
         """Mark a content item as read.
 
@@ -652,9 +709,9 @@ class Storage:
             # Return True if a row was updated
             return cursor.rowcount > 0
 
-        except sqlite3.Error as e:
+        except sqlite3.Error:
             self.conn.rollback()
-            logger.error(f"Failed to update source: {e}")
+            # Failed to update source
             return False
 
     def get_all_sources(self) -> List[Dict[str, Any]]:
@@ -893,3 +950,82 @@ class Storage:
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content by ID: {e}")
+
+    def count_unprioritized(self, days: Optional[int] = None) -> int:
+        """Count unprioritized content items, optionally filtered by age.
+
+        Args:
+            days: If provided, only count items older than this many days
+
+        Returns:
+            Count of unprioritized items
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            query = """
+                SELECT COUNT(*)
+                FROM content
+                WHERE (priority IS NULL OR priority = '')
+            """
+            params = []
+
+            if days is not None:
+                # Calculate cutoff datetime
+                cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+                query += " AND published_at < ?"
+                params.append(cutoff.isoformat())
+
+            cursor = self.conn.execute(query, params)
+            return cursor.fetchone()[0]
+
+        except Exception as e:
+            # Return 0 on error for safety
+            print(f"Error counting unprioritized items: {e}")
+            return 0
+
+    def delete_unprioritized(self, days: Optional[int] = None) -> int:
+        """Delete unprioritized content items, optionally filtered by age.
+
+        Uses a transaction for safety and returns the count of deleted items.
+
+        Args:
+            days: If provided, only delete items older than this many days
+
+        Returns:
+            Number of items deleted
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            # First get the count for return value
+            count = self.count_unprioritized(days)
+
+            if count == 0:
+                return 0
+
+            query = """
+                DELETE FROM content
+                WHERE (priority IS NULL OR priority = '')
+            """
+            params = []
+
+            if days is not None:
+                # Calculate cutoff datetime
+                cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+                query += " AND published_at < ?"
+                params.append(cutoff.isoformat())
+
+            # Execute deletion in a transaction
+            cursor = self.conn.execute(query, params)
+            self.conn.commit()
+
+            # Return the actual number of rows deleted
+            return cursor.rowcount
+
+        except Exception as e:
+            # Rollback on error
+            self.conn.rollback()
+            raise sqlite3.Error(f"Failed to delete unprioritized items: {e}")

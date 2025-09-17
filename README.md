@@ -110,12 +110,17 @@ The daemon fetches and analyzes content every 30 minutes:
 # One-time fetch (testing)
 prismis-daemon --once
 
-# Run as background service (macOS)
-make start-daemon
+# Run continuously in background
+prismis-daemon &
 
-# Check daemon logs
-tail -f ~/Library/Logs/prismis-daemon.log
+# Or run in foreground to see logs
+prismis-daemon
+
+# Stop the daemon
+make stop
 ```
+
+**Note**: You can run the daemon however you prefer - in a tmux session, as a background process, or with any process manager you're comfortable with. It's just a regular Python program.
 
 ## 🏗️ Architecture
 
@@ -160,7 +165,7 @@ export OPENAI_API_KEY="sk-..."  # Add to your shell profile
 Prismis follows XDG standards:
 - Config: `~/.config/prismis/`
 - Data: `~/.local/share/prismis/`
-- Logs: `~/Library/Logs/` (macOS)
+- Logs: Wherever you redirect them (stdout/stderr by default)
 
 ## 🚀 Advanced Features
 
@@ -252,7 +257,7 @@ Some areas we'd love help with:
 - [x] Instant-launch TUI (<100ms)
 - [x] LLM prioritization pipeline
 - [x] Desktop notifications
-- [ ] Neovim-style command mode (`:` commands)
+- [x] Neovim-style command mode (`:` commands)
 - [ ] Fabric integration for content analysis
 - [ ] Daily digest generation
 - [ ] MCP server for AI agents

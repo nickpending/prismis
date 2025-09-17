@@ -21,9 +21,10 @@ class Analyzer:
 
         Args:
             config: Optional configuration dict with:
-                - model: LLM model name (default: gpt-4.1-mini)
+                - model: LLM model name (e.g., gpt-4o-mini, ollama/llama2, claude-3-haiku)
                 - api_key: API key for the provider
-                - provider: Optional provider name
+                - provider: Provider name (openai, ollama, anthropic, groq)
+                - api_base: Optional API base URL (for Ollama)
                 - temperature: Optional temperature setting
         """
         self.config = config or {}
@@ -33,11 +34,16 @@ class Analyzer:
             raise ValueError("Model must be specified in config")
         self.model = self.config["model"]
 
-        # Set API key if provided
-        if "api_key" in self.config:
-            import os
+        # Store credentials for direct passing to litellm
+        self.api_key = self.config.get("api_key")
+        self.api_base = self.config.get("api_base")
 
-            os.environ["OPENAI_API_KEY"] = self.config["api_key"]
+        # Validate Ollama configuration
+        provider = self.config.get("provider", "openai").lower()
+        if provider == "ollama" and not self.api_base:
+            raise ValueError(
+                "Ollama provider requires 'api_base' in config (e.g., 'http://localhost:11434')"
+            )
 
         # Optional: Set other LiteLLM settings
         if "temperature" in self.config:
@@ -48,7 +54,9 @@ class Analyzer:
         # Optional: Configure LiteLLM settings
         litellm.drop_params = True  # Drop unsupported params instead of erroring
 
-        logger.info(f"Analyzer initialized with model: {self.model}")
+        logger.info(
+            f"Analyzer initialized with {provider} provider, model: {self.model}"
+        )
 
     def analyze(self, content: str, context: str) -> Dict[str, Any]:
         """Analyze content against user context to determine priority and topics.
@@ -74,18 +82,27 @@ class Analyzer:
             # Call LLM with structured output request
             logger.debug(f"Calling {self.model} for content analysis")
 
-            response = litellm.completion(
-                model=self.model,
-                messages=[
+            # Build kwargs for litellm call
+            kwargs = {
+                "model": self.model,
+                "messages": [
                     {
                         "role": "system",
                         "content": "You are a content analysis assistant. Analyze content and return structured JSON.",
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=self.temperature,
-                response_format={"type": "json_object"},  # Request JSON response
-            )
+                "temperature": self.temperature,
+                "response_format": {"type": "json_object"},  # Request JSON response
+            }
+
+            # Add credentials if provided
+            if self.api_key:
+                kwargs["api_key"] = self.api_key
+            if self.api_base:
+                kwargs["api_base"] = self.api_base
+
+            response = litellm.completion(**kwargs)
 
             # Extract and parse response
             response_text = response.choices[0].message.content

@@ -15,9 +15,28 @@ max_items_youtube = 10  # maximum items to fetch from YouTube (transcripts are e
 max_days_lookback = 30  # ignore content older than this
 
 [llm]
-provider = "openai"  # or "anthropic", "ollama"
-model = "gpt-4.1-mini"  # cost-effective model for content analysis
-api_key = "env:OPENAI_API_KEY"  # reads from environment variable
+# Choose ONE provider configuration below:
+
+# OpenAI
+provider = "openai"
+model = "gpt-4o-mini"
+api_key = "env:OPENAI_API_KEY"
+
+# Ollama (local models) - replace above config with:
+# provider = "ollama"
+# model = "ollama/llama2"  # Must use ollama/ prefix
+# api_base = "http://localhost:11434"  # REQUIRED for Ollama
+# api_key = ""  # Not needed for Ollama
+
+# Anthropic Claude - replace above config with:
+# provider = "anthropic"
+# model = "claude-3-haiku-20240307"
+# api_key = "env:ANTHROPIC_API_KEY"
+
+# Groq (fast inference) - replace above config with:
+# provider = "groq"
+# model = "groq/mixtral-8x7b-32768"  # Must use groq/ prefix
+# api_key = "env:GROQ_API_KEY"
 
 [reddit]
 client_id = "env:REDDIT_CLIENT_ID"  # Reddit API client ID

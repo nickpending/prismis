@@ -44,6 +44,8 @@ type Model struct {
 	commandMode CommandMode // Neovim-style command mode
 	// Auto-refresh state
 	refreshInterval time.Duration // Interval for auto-refresh (0 = disabled)
+	// Prune confirmation state
+	pruneConfirm pruneConfirmState
 }
 
 // itemsLoadedMsg represents content items loaded from database
@@ -70,6 +72,13 @@ type clearFlashMsg struct{}
 
 // autoRefreshMsg is sent by the timer to trigger automatic refresh
 type autoRefreshMsg struct{}
+
+// pruneConfirmState tracks the prune confirmation workflow
+type pruneConfirmState struct {
+	active bool
+	count  int
+	days   *int
+}
 
 // NewModel creates a new Model instance
 func NewModel() Model {
@@ -149,16 +158,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	
 	// Handle source modal updates if it's visible
 	if m.sourceModal.IsVisible() {
-		// CRITICAL: Handle sourcesLoadedMsg even when modal is visible
-		// Otherwise the modal never gets updated sources after add/delete
-		switch msg := msg.(type) {
-		case sourcesLoadedMsg:
-			if msg.err == nil {
-				m.sources = msg.sources
-				m.sourceModal.LoadSources(msg.sources)
-			}
-		}
-
 		m.sourceModal, cmd = m.sourceModal.Update(msg)
 		// If modal was closed, refresh sources
 		if !m.sourceModal.IsVisible() {
@@ -241,9 +240,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Show logs (placeholder for now)
 		return m, operations.ShowLogs()
 		
-	case commands.CleanupMsg:
-		// Cleanup (refresh happens in response to success message)
-		return m, operations.CleanupUnprioritized()
+	case commands.PruneMsg:
+		// Handle prune command with optional confirmation
+		return m, operations.HandlePruneCommand(msg)
 		
 	case commands.PauseSourceMsg:
 		// Pause source (refresh happens in response to success message)
@@ -256,6 +255,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case commands.EditSourceMsg:
 		// Edit source name using the identifier lookup
 		return m, operations.EditSourceName(msg.Identifier, msg.NewName)
+		
+	case commands.ReportMsg:
+		// Generate report with specified period
+		return m, operations.GenerateReport(msg.Period)
+
+	case commands.FabricMsg:
+		// Execute Fabric pattern on current item's full content
+		currentContent := ""
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			// Only use full content - no fallback to summary
+			currentContent = item.Content
+		}
+		return m, operations.ExecuteFabricCommand(msg.Pattern, msg.ListOnly, currentContent)
 		
 	// Reader command handlers
 	case commands.MarkMsg:
@@ -321,6 +334,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		
 	case tea.KeyMsg:
+		// Check if waiting for prune confirmation
+		if m.pruneConfirm.active {
+			switch msg.String() {
+			case "y", "Y":
+				// Execute the prune
+				m.pruneConfirm.active = false
+				m.statusMessage = "Pruning..."
+				return m, operations.ExecutePrune(m.pruneConfirm.days)
+			case "n", "N", "esc":
+				// Cancel the prune
+				m.pruneConfirm = pruneConfirmState{}
+				m.statusMessage = "Prune cancelled"
+				return m, nil
+			default:
+				// Ignore other keys during confirmation
+				return m, nil
+			}
+		}
+
 		// Check if command mode should be disabled for normal keys
 		if m.commandMode.IsActive() {
 			// Command mode is active, don't process normal navigation keys
@@ -328,7 +360,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.commandMode, cmd = m.commandMode.Update(msg)
 			return m, cmd
 		}
-		
+
 		switch msg.String() {
 		case ":":
 			// Activate command mode
@@ -505,6 +537,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case sourcesLoadedMsg:
+		// Handle source updates regardless of modal visibility
+		if msg.err == nil {
+			m.sources = msg.sources
+			// Update modal if it's visible
+			if m.sourceModal.IsVisible() {
+				m.sourceModal.LoadSources(msg.sources)
+			}
+		}
+
 	case itemsLoadedMsg:
 		m.loading = false
 		m.err = msg.err
@@ -610,29 +652,89 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, autoRefreshCmd(m.refreshInterval))
 		}
 
-	case sourcesLoadedMsg:
-		if msg.err == nil {
-			m.sources = msg.sources
-			// Also update the source modal with fresh data
-			m.sourceModal.LoadSources(msg.sources)
+	case operations.PruneCountMsg:
+		// Received count for prune confirmation or display
+		if msg.Count == 0 {
+			m.statusMessage = "No unprioritized items to prune"
+		} else if msg.ShowOnly {
+			// Just show the count (for :prune? or :prune count)
+			statusMsg := fmt.Sprintf("%d unprioritized items", msg.Count)
+			if msg.Days != nil {
+				statusMsg = fmt.Sprintf("%d unprioritized items older than %d days", msg.Count, *msg.Days)
+			}
+			m.statusMessage = statusMsg
+		} else {
+			// Store state for confirmation
+			m.pruneConfirm = pruneConfirmState{
+				active: true,
+				count:  msg.Count,
+				days:   msg.Days,
+			}
+
+			// Show vim-style confirmation prompt
+			confirmPrompt := fmt.Sprintf("Delete %d unprioritized items", msg.Count)
+			if msg.Days != nil {
+				confirmPrompt = fmt.Sprintf("Delete %d unprioritized items older than %d days", msg.Count, *msg.Days)
+			}
+			m.statusMessage = confirmPrompt + "? (y/n) "
+		}
+
+	case operations.PruneResultMsg:
+		// Handle prune operation result
+		m.pruneConfirm = pruneConfirmState{} // Clear confirmation state
+
+		if msg.Error != nil {
+			m.statusMessage = fmt.Sprintf("Prune failed: %v", msg.Error)
+		} else if msg.Deleted == 0 {
+			m.statusMessage = "No items were pruned"
+		} else {
+			m.statusMessage = fmt.Sprintf("Pruned %d unprioritized items", msg.Deleted)
+			// Trigger refresh to update the UI
+			cmds = append(cmds, func() tea.Msg {
+				return commands.RefreshMsg{PreserveCursor: true}
+			})
 		}
 
 	case operations.SourceOperationMsg:
 		// Handle source operation message from operations package
 		m.statusMessage = msg.Message
-		
-		// Check if operation was successful
+
+		// If operation was successful, trigger a refresh to show changes
 		if msg.Success {
-			// Success! Refresh the UI
-			cmds = append(cmds, 
-				fetchSources(),           // Refresh source list
-				fetchItemsWithState(m),   // Refresh content
-				clearStatusAfterDelay(2*time.Second),
-			)
-		} else {
-			// Error - just clear status after delay
-			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+			// Trigger content refresh to show new/updated sources
+			refreshCmd := func() tea.Msg {
+				return commands.RefreshMsg{PreserveCursor: false}
+			}
+			cmds = append(cmds, refreshCmd)
+
+			// Also refresh the sources panel to show updated source list
+			cmds = append(cmds, fetchSources())
 		}
+		
+	case operations.ReportOperationMsg:
+		// Handle report generation message from operations package
+		m.statusMessage = msg.Message
+
+		// Clear status message after delay (success or error)
+		cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
+
+	case operations.FabricOperationMsg:
+		// Handle Fabric operation results
+		if msg.Success {
+			if msg.Result != "" {
+				// Show result in reader view or modal (for now, just status)
+				m.statusMessage = msg.Message
+				// TODO: Display full result in a modal or reader view
+			} else {
+				// Show patterns list or success message
+				m.statusMessage = msg.Message
+			}
+		} else {
+			m.statusMessage = msg.Message
+		}
+
+		// Clear status message after delay
+		cmds = append(cmds, clearStatusAfterDelay(5*time.Second))
 		
 	// Article operation messages from operations package
 	case operations.ArticleMarkedMsg:
@@ -648,6 +750,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusMessage = "Marked as read"
 			} else {
 				m.statusMessage = "Marked as unread"
+			}
+
+			// If we're in unread-only mode and just marked as read, refresh to filter it out
+			// Or if we're showing all and just marked as unread, refresh to ensure proper display
+			if (!m.showAll && msg.Read) || (m.showAll && !msg.Read) {
+				// If we're in reader view and this item will be filtered out,
+				// go back to list view to avoid showing empty content
+				if m.view == "reader" && !m.showAll && msg.Read {
+					m.view = "list"
+				}
+
+				// Trigger content refresh to update filtered view
+				refreshCmd := func() tea.Msg {
+					return commands.RefreshMsg{PreserveCursor: true}
+				}
+				cmds = append(cmds, refreshCmd)
 			}
 		} else {
 			m.statusMessage = fmt.Sprintf("Failed to mark: %v", msg.Error)

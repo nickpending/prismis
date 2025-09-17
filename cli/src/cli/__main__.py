@@ -8,7 +8,7 @@ import sys
 daemon_src = Path(__file__).parent.parent.parent.parent / "daemon" / "src"
 sys.path.insert(0, str(daemon_src))
 
-from cli import source  # noqa: E402
+from cli import source, prune, report  # noqa: E402
 
 app = typer.Typer(
     name="prismis-cli",
@@ -16,8 +16,10 @@ app = typer.Typer(
     add_completion=False,
 )
 
-# Add source management commands
+# Add command modules
 app.add_typer(source.app, name="source", help="Manage content sources")
+app.add_typer(prune.app, name="prune", help="Clean up unprioritized content")
+app.add_typer(report.app, name="report", help="Generate content reports")
 
 
 def main() -> None:

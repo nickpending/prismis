@@ -25,7 +25,7 @@ class Config:
     max_days_lookback: int
 
     # LLM settings
-    llm_provider: str
+    llm_provider: str  # openai, ollama, anthropic, groq
     llm_model: str
     llm_api_key: str
 
@@ -43,6 +43,9 @@ class Config:
 
     # Context content
     context: str
+
+    # Optional fields with defaults must come last
+    llm_api_base: Optional[str] = None  # For Ollama and custom endpoints
 
     def get_max_items(self, source_type: str) -> int:
         """Get max items limit for a specific source type.
@@ -179,6 +182,7 @@ class Config:
                 llm_provider=llm["provider"],
                 llm_model=llm["model"],
                 llm_api_key=api_key,
+                llm_api_base=llm.get("api_base"),  # Optional for Ollama/custom
                 reddit_client_id=reddit_client_id,
                 reddit_client_secret=reddit_client_secret,
                 reddit_user_agent=reddit["user_agent"],

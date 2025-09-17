@@ -1,6 +1,7 @@
 """REST API server for Prismis daemon."""
 
 import re
+from typing import Optional
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -20,6 +21,7 @@ from .api_errors import (
 from .auth import verify_api_key
 from .storage import Storage
 from .validator import SourceValidator
+from .reports import ReportGenerator
 
 
 app = FastAPI(
@@ -454,3 +456,165 @@ async def health_check(storage: Storage = Depends(get_storage)) -> dict:
     except Exception as e:
         # Let the exception handler format it consistently
         raise ServerError(f"Health check failed: {str(e)}")
+
+
+@app.get("/api/reports", dependencies=[Depends(verify_api_key)])
+async def get_reports(
+    period: str = "24h",
+    storage: Storage = Depends(get_storage),
+) -> dict:
+    """Generate a content report for the specified period.
+
+    Args:
+        period: Time period to report on. Formats:
+                - "24h" (default) - Last 24 hours
+                - "7d" - Last 7 days
+                - "30d" - Last 30 days
+                - Or any number followed by 'h' (hours) or 'd' (days)
+        storage: Storage instance injected by FastAPI
+
+    Returns:
+        JSON response with markdown report and metadata
+    """
+    try:
+        # Parse the period parameter
+        import re
+
+        match = re.match(r"(\d+)([hd])", period.lower())
+        if not match:
+            raise ValidationError(
+                f"Invalid period format: {period}. Use format like '24h' or '7d'"
+            )
+
+        amount = int(match.group(1))
+        unit = match.group(2)
+
+        # Convert to hours
+        if unit == "d":
+            hours = amount * 24
+        else:
+            hours = amount
+
+        # Reasonable limits
+        if hours > 720:  # 30 days max
+            raise ValidationError("Period cannot exceed 30 days (720 hours)")
+        if hours < 1:
+            raise ValidationError("Period must be at least 1 hour")
+
+        # Generate the report
+        generator = ReportGenerator(storage)
+        report = generator.generate_daily_report(hours=hours)
+        markdown = generator.format_as_markdown(report)
+
+        return {
+            "success": True,
+            "message": f"Report generated for last {period}",
+            "data": {
+                "markdown": markdown,
+                "period": period,
+                "period_hours": hours,
+                "generated_at": report.generated_at.isoformat(),
+                "statistics": {
+                    "total_items": report.total_items,
+                    "high_priority": len(report.high_priority),
+                    "medium_priority": len(report.medium_priority),
+                    "low_priority": len(report.low_priority),
+                    "top_sources": [
+                        {"name": name, "count": count}
+                        for name, count in report.top_sources
+                    ],
+                    "key_themes": report.key_themes,
+                },
+            },
+        }
+
+    except ValidationError:
+        raise  # Re-raise validation errors
+    except Exception as e:
+        raise ServerError(f"Failed to generate report: {str(e)}")
+
+
+@app.post("/api/prune", dependencies=[Depends(verify_api_key)])
+async def prune_unprioritized(
+    days: Optional[int] = None,
+    storage: Storage = Depends(get_storage),
+) -> dict:
+    """Prune (delete) unprioritized content items.
+
+    Args:
+        days: Optional age filter - only delete items older than this many days
+        storage: Storage instance injected by FastAPI
+
+    Returns:
+        JSON response with count of deleted items
+    """
+    try:
+        # First get the count for user information
+        count = storage.count_unprioritized(days)
+
+        if count == 0:
+            return {
+                "success": True,
+                "message": "No unprioritized items to prune",
+                "data": {
+                    "deleted": 0,
+                    "days_filter": days,
+                },
+            }
+
+        # Perform the deletion
+        deleted = storage.delete_unprioritized(days)
+
+        # Build appropriate message
+        if days:
+            message = f"Pruned {deleted} unprioritized items older than {days} days"
+        else:
+            message = f"Pruned {deleted} unprioritized items"
+
+        return {
+            "success": True,
+            "message": message,
+            "data": {
+                "deleted": deleted,
+                "days_filter": days,
+            },
+        }
+
+    except Exception as e:
+        raise ServerError(f"Failed to prune items: {str(e)}")
+
+
+@app.get("/api/prune/count", dependencies=[Depends(verify_api_key)])
+async def count_unprioritized(
+    days: Optional[int] = None,
+    storage: Storage = Depends(get_storage),
+) -> dict:
+    """Count unprioritized content items that would be pruned.
+
+    Args:
+        days: Optional age filter - only count items older than this many days
+        storage: Storage instance injected by FastAPI
+
+    Returns:
+        JSON response with count of items that would be deleted
+    """
+    try:
+        count = storage.count_unprioritized(days)
+
+        # Build appropriate message
+        if days:
+            message = f"Found {count} unprioritized items older than {days} days"
+        else:
+            message = f"Found {count} unprioritized items"
+
+        return {
+            "success": True,
+            "message": message,
+            "data": {
+                "count": count,
+                "days_filter": days,
+            },
+        }
+
+    except Exception as e:
+        raise ServerError(f"Failed to count unprioritized items: {str(e)}")

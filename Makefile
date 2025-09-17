@@ -8,7 +8,6 @@ XDG_DATA_HOME ?= $(HOME)/.local/share
 INSTALL_DIR := $(HOME)/.local/bin
 CONFIG_DIR := $(XDG_CONFIG_HOME)/prismis
 DATA_DIR := $(XDG_DATA_HOME)/prismis
-LAUNCHD_DIR := $(HOME)/Library/LaunchAgents
 
 .PHONY: help
 help: ## Show available targets
@@ -66,15 +65,18 @@ build-cli: ## Setup Python CLI dependencies
 	@echo "✓ CLI ready"
 
 .PHONY: install
-install: check-deps build stop-daemon install-binaries install-config restart-daemon ## Install everything (binaries + config) with daemon restart
+install: check-deps build stop install-binaries install-config ## Install everything (binaries + config)
 	@echo "========================================="
 	@echo "Installation complete!"
 	@echo "Binaries installed to: $(INSTALL_DIR)"
 	@echo "Config files in: $(CONFIG_DIR)"
 	@echo ""
 	@echo "Next steps:"
-	@echo "  prismis-cli source add https://example.com/feed"
-	@echo "  prismis  # Launch TUI"
+	@echo "1. Edit ~/.config/prismis/config.toml and set your LLM API key"
+	@echo "2. Start daemon: prismis-daemon &"
+	@echo "3. Launch TUI: prismis"
+	@echo "4. Add sources with: :add https://example.com/feed"
+	@echo "5. Press ':refresh' or wait for automatic fetch"
 	@echo "========================================="
 
 .PHONY: install-binaries
@@ -171,83 +173,22 @@ install-config: ## Create default config files (never overwrites existing)
 	@echo "Initializing database..."
 	@cd daemon && uv run python -c "from prismis_daemon.database import init_db; init_db()" 2>/dev/null || echo "✓ Database ready"
 
-.PHONY: install-daemon
-install-daemon: ## Install launchd service WITHOUT starting (macOS)
-	@echo "Installing daemon service (NOT auto-starting)..."
-	@if [[ "$$(uname)" == "Darwin" ]]; then \
-		mkdir -p $(LAUNCHD_DIR); \
-		mkdir -p $(HOME)/Library/Logs; \
-		cp scripts/com.prismis.daemon.plist $(LAUNCHD_DIR)/; \
-		DAEMON_PATH=$$(which prismis-daemon 2>/dev/null || echo "$(INSTALL_DIR)/prismis-daemon"); \
-		sed -i '' "s|DAEMON_PATH_PLACEHOLDER|$$DAEMON_PATH|g" $(LAUNCHD_DIR)/com.prismis.daemon.plist; \
-		sed -i '' "s|LOG_PATH_PLACEHOLDER|$(HOME)/Library/Logs|g" $(LAUNCHD_DIR)/com.prismis.daemon.plist; \
-		sed -i '' "s|HOME_PATH_PLACEHOLDER|$(HOME)|g" $(LAUNCHD_DIR)/com.prismis.daemon.plist; \
-		echo "✓ Daemon service installed but NOT activated"; \
-		echo ""; \
-		echo "To activate auto-start:"; \
-		echo "  launchctl load $(LAUNCHD_DIR)/com.prismis.daemon.plist"; \
-		echo ""; \
-		echo "To run manually:"; \
-		echo "  prismis-daemon"; \
-	else \
-		echo "✗ This target is for macOS only. For Linux, use systemd."; \
-	fi
 
-.PHONY: stop-daemon
-stop-daemon: ## Stop the daemon service gracefully
-	@echo "Stopping daemon service (if running)..."
-	@# First kill any processes using port 8989
+.PHONY: stop
+stop: ## Stop any running prismis processes
+	@echo "Stopping prismis processes..."
+	@# Kill any processes using port 8989
 	@lsof -ti:8989 | xargs kill -9 2>/dev/null || true
-	@# Then kill any prismis-daemon processes
+	@# Kill any prismis-daemon processes
 	@pkill -f prismis-daemon 2>/dev/null || true
 	@pkill -f "python.*prismis_daemon" 2>/dev/null || true
-	@if [[ "$$(uname)" == "Darwin" ]]; then \
-		if launchctl list | grep -q com.prismis.daemon; then \
-			launchctl stop com.prismis.daemon 2>/dev/null || true; \
-			launchctl unload $(LAUNCHD_DIR)/com.prismis.daemon.plist 2>/dev/null || true; \
-		fi; \
-	fi
-	@echo "✓ Daemon service stopped"
+	@echo "✓ All prismis processes stopped"
 
-.PHONY: restart-daemon
-restart-daemon: install-daemon ## Restart the daemon service after installation (production)
-	@echo "Starting daemon service via launchctl..."
-	@if [[ "$$(uname)" == "Darwin" ]]; then \
-		launchctl load -w $(LAUNCHD_DIR)/com.prismis.daemon.plist 2>/dev/null || true; \
-		sleep 3; \
-		if launchctl list | grep -q com.prismis.daemon; then \
-			echo "✓ Daemon service started and registered with launchctl"; \
-			echo "  Status: launchctl list | grep prismis"; \
-			echo "  Logs: tail -f ~/Library/Logs/prismis-daemon.log"; \
-		else \
-			echo "❌ Daemon service failed to start"; \
-			echo "  Check error log: tail -f ~/Library/Logs/prismis-daemon.error.log"; \
-			exit 1; \
-		fi; \
-	else \
-		echo "✓ Linux: Start daemon manually with: prismis-daemon"; \
-	fi
 
-.PHONY: start-daemon
-start-daemon: ## Actually start the daemon service
-	@if [[ "$$(uname)" == "Darwin" ]]; then \
-		launchctl load $(LAUNCHD_DIR)/com.prismis.daemon.plist 2>/dev/null || true; \
-		launchctl start com.prismis.daemon; \
-		echo "✓ Daemon service activated and started"; \
-		echo "Check status: launchctl list | grep prismis"; \
-	else \
-		echo "✗ This target is for macOS only."; \
-	fi
 
 .PHONY: uninstall
 uninstall: ## Remove all installed components
 	@echo "Uninstalling Prismis..."
-	# Stop and remove daemon service
-	@if [[ "$$(uname)" == "Darwin" ]] && [ -f $(LAUNCHD_DIR)/com.prismis.daemon.plist ]; then \
-		launchctl unload $(LAUNCHD_DIR)/com.prismis.daemon.plist 2>/dev/null || true; \
-		rm -f $(LAUNCHD_DIR)/com.prismis.daemon.plist; \
-		echo "✓ Removed daemon service"; \
-	fi
 	# Remove binaries
 	@rm -f $(INSTALL_DIR)/prismis
 	@uv tool uninstall prismis-daemon 2>/dev/null || true
@@ -301,7 +242,7 @@ status: ## Check installation status
 	@[ -f $(CONFIG_DIR)/context.md ] && echo "✓ Context exists: $(CONFIG_DIR)/context.md" || echo "✗ Context not found"
 	@[ -f $(CONFIG_DIR)/prismis.db ] && echo "✓ Database exists: $(CONFIG_DIR)/prismis.db" || echo "✗ Database not found"
 	@if [[ "$$(uname)" == "Darwin" ]]; then \
-		launchctl list | grep -q prismis && echo "✓ Daemon service running" || echo "✗ Daemon service not running"; \
+		pgrep -f prismis-daemon > /dev/null && echo "✓ Daemon running" || echo "✗ Daemon not running"; \
 	fi
 
 # Default target

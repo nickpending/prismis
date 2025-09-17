@@ -10,6 +10,8 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "apscheduler",
+    "backoff",
+    "cryptography",
     "fastapi>=0.116.1",
     "feedparser",
     "httpx",

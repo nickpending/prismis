@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -8,18 +9,22 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/nickpending/prismis-local/internal/commands"
+	"github.com/nickpending/prismis-local/internal/fabric"
 )
 
 // CommandMode represents the neovim-style command mode
 type CommandMode struct {
-	active      bool
-	input       textinput.Model
-	history     []string
-	historyIdx  int
-	suggestions []string
-	registry    *commands.Registry
-	width       int
-	error       string // Error message to display
+	active           bool
+	input            textinput.Model
+	history          []string
+	historyIdx       int
+	suggestions      []string
+	suggestionIdx    int    // Current index in suggestions for cycling
+	completionBase   string // The base text we're completing from
+	registry         *commands.Registry
+	patterns         *fabric.Patterns
+	width            int
+	error            string // Error message to display
 }
 
 // clearErrorMsg is sent to clear command error after delay
@@ -40,6 +45,7 @@ func NewCommandMode() CommandMode {
 		historyIdx:  -1,
 		suggestions: []string{},
 		registry:    commands.NewRegistry(),
+		patterns:    fabric.NewPatterns(),
 		width:       80,
 	}
 }
@@ -57,6 +63,10 @@ func (c *CommandMode) Show() {
 	c.input.SetValue("")
 	c.historyIdx = len(c.history)
 	c.error = "" // Clear any error
+	// Reset completion state
+	c.suggestions = nil
+	c.suggestionIdx = 0
+	c.completionBase = ""
 }
 
 // Hide deactivates command mode
@@ -66,6 +76,10 @@ func (c *CommandMode) Hide() {
 	c.input.SetValue("")
 	c.historyIdx = -1
 	c.error = ""
+	// Reset completion state
+	c.suggestions = nil
+	c.suggestionIdx = 0
+	c.completionBase = ""
 }
 
 // IsActive returns whether command mode is currently active
@@ -163,28 +177,46 @@ func (c *CommandMode) Update(msg tea.Msg) (CommandMode, tea.Cmd) {
 			return *c, nil
 			
 		case tea.KeyTab:
-			// Tab completion
+			// Tab completion with cycling
 			current := c.input.Value()
 			if current == "" {
 				return *c, nil
 			}
-			
-			// Get completions from registry
-			completions := c.Complete(current)
-			if len(completions) == 0 {
-				return *c, nil
+
+			// Check if we need to get new completions
+			needNewCompletions := false
+			if len(c.suggestions) == 0 {
+				// No suggestions yet
+				needNewCompletions = true
+			} else if c.suggestionIdx > 0 && current == c.suggestions[c.suggestionIdx-1] {
+				// We're cycling through existing completions
+				needNewCompletions = false
+			} else if c.suggestionIdx == 0 && current == c.suggestions[len(c.suggestions)-1] {
+				// We wrapped around to the beginning
+				needNewCompletions = false
+			} else if current != c.completionBase {
+				// User typed something new
+				needNewCompletions = true
 			}
-			
-			// If only one match, complete it
-			if len(completions) == 1 {
-				c.input.SetValue(completions[0])
-				c.input.CursorEnd()
-			} else {
-				// TODO: Show multiple matches (future enhancement)
-				// For now, complete to longest common prefix
-				c.input.SetValue(completions[0])
-				c.input.CursorEnd()
+
+			if needNewCompletions {
+				// Get new completions
+				c.completionBase = current
+				c.suggestions = c.Complete(current)
+				c.suggestionIdx = 0
+
+				if len(c.suggestions) == 0 {
+					return *c, nil
+				}
 			}
+
+			// Set the current suggestion
+			c.input.SetValue(c.suggestions[c.suggestionIdx])
+			c.input.CursorEnd()
+
+			// Move to next suggestion for next tab press
+			c.suggestionIdx = (c.suggestionIdx + 1) % len(c.suggestions)
+
 			return *c, nil
 			
 		case tea.KeyBackspace:
@@ -198,7 +230,16 @@ func (c *CommandMode) Update(msg tea.Msg) (CommandMode, tea.Cmd) {
 	
 	// Let textinput handle other input
 	var cmd tea.Cmd
+	oldValue := c.input.Value()
 	c.input, cmd = c.input.Update(msg)
+
+	// Reset completion state if the value changed (user typed something)
+	if c.input.Value() != oldValue {
+		c.suggestions = nil
+		c.suggestionIdx = 0
+		c.completionBase = ""
+	}
+
 	return *c, cmd
 }
 
@@ -207,7 +248,7 @@ func (c CommandMode) View() string {
 	if !c.active {
 		return ""
 	}
-	
+
 	// If there's an error, show it with vibrant purple
 	if c.error != "" {
 		theme := CleanCyberTheme
@@ -217,14 +258,27 @@ func (c CommandMode) View() string {
 			Padding(0, 1)
 		return errorStyle.Render("Unknown command: " + c.error)
 	}
-	
+
 	// Normal command line style - clean, no background
 	style := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#00D9FF")).
 		Width(c.width).
 		Padding(0, 1)
-	
-	return style.Render(c.input.View())
+
+	content := c.input.View()
+
+	// Add completion indicator if we have multiple suggestions
+	if len(c.suggestions) > 1 {
+		// Show current position (1-based) - but remember suggestionIdx points to NEXT
+		currentPos := c.suggestionIdx
+		if currentPos == 0 {
+			currentPos = len(c.suggestions)
+		}
+		indicator := fmt.Sprintf(" [%d/%d]", currentPos, len(c.suggestions))
+		content += indicator
+	}
+
+	return style.Render(content)
 }
 
 // Complete returns command completions for the given prefix
@@ -232,20 +286,39 @@ func (c *CommandMode) Complete(prefix string) []string {
 	if c.registry == nil {
 		return nil
 	}
-	
-	// Get all command names
+
+	// Check if we're completing fabric patterns
+	if strings.HasPrefix(strings.ToLower(prefix), "fabric ") {
+		// Extract the pattern prefix after "fabric "
+		patternPrefix := strings.TrimSpace(prefix[7:]) // Remove "fabric " (7 chars)
+
+		// Get fabric patterns matching the prefix
+		if c.patterns != nil {
+			fabricMatches := c.patterns.FilterPatterns(patternPrefix)
+
+			// Format as complete commands
+			var matches []string
+			for _, pattern := range fabricMatches {
+				matches = append(matches, "fabric "+pattern)
+			}
+			return matches
+		}
+		return nil
+	}
+
+	// Regular command completion
 	commands := c.registry.GetCommands()
-	
+
 	// Filter by prefix (case-insensitive)
 	var matches []string
 	lowerPrefix := strings.ToLower(prefix)
-	
+
 	for _, cmd := range commands {
 		if strings.HasPrefix(strings.ToLower(cmd), lowerPrefix) {
 			matches = append(matches, cmd)
 		}
 	}
-	
+
 	return matches
 }
 

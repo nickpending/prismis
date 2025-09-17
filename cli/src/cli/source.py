@@ -295,5 +295,23 @@ def resume(
         raise typer.Exit(1)
 
 
+@app.command()
+def edit(
+    source_id: str = typer.Argument(..., help="UUID of the source to edit"),
+    name: str = typer.Argument(..., help="New name for the source"),
+) -> None:
+    """Edit a source's name."""
+    try:
+        api_client = APIClient()
+        api_client.edit_source(source_id, name)
+        console.print(f"[green]✅ Updated source name to:[/green] {name}")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[red]❌ Failed to edit source:[/red] {str(e)}")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()

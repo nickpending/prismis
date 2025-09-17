@@ -28,11 +28,15 @@ func NewRegistry() *Registry {
 	r.Register("add", cmdAdd)
 	r.Register("remove", cmdRemove)
 	r.Register("logs", cmdLogs)
-	r.Register("cleanup", cmdCleanup)
+	r.Register("unprioritized", cmdUnprioritized)
+	r.Register("prune", cmdPrune)
+	r.Register("prune!", cmdPruneForce)
 	r.Register("pause", cmdPause)
 	r.Register("resume", cmdResume)
 	r.Register("edit", cmdEdit)
-	
+	r.Register("report", cmdReport)
+	r.Register("fabric", cmdFabric)
+
 	// Reader-specific commands (actions only, not navigation)
 	r.Register("mark", cmdMark)
 	r.Register("favorite", cmdFavorite)
@@ -143,10 +147,94 @@ func cmdLogs(args []string) tea.Cmd {
 	}
 }
 
-// cmdCleanup removes unprioritized content
-func cmdCleanup(args []string) tea.Cmd {
+// cmdUnprioritized shows count of unprioritized items
+func cmdUnprioritized(args []string) tea.Cmd {
 	return func() tea.Msg {
-		return CleanupMsg{}
+		// Parse optional age filter
+		var days *int
+		if len(args) > 0 {
+			parsedDays := parseAge(args[0])
+			if parsedDays < 0 {
+				return ErrorMsg{Message: fmt.Sprintf("unprioritized: invalid age filter '%s' (use format like 7d, 2w, 1m)", args[0])}
+			}
+			days = &parsedDays
+		}
+
+		return PruneMsg{
+			Days:      days,
+			CountOnly: true,
+		}
+	}
+}
+
+// cmdPrune removes unprioritized content with confirmation
+func cmdPrune(args []string) tea.Cmd {
+	return func() tea.Msg {
+		// Parse optional age filter
+		var days *int
+		if len(args) > 0 {
+			parsedDays := parseAge(args[0])
+			if parsedDays < 0 {
+				return ErrorMsg{Message: fmt.Sprintf("prune: invalid age filter '%s' (use format like 7d, 2w, 1m)", args[0])}
+			}
+			days = &parsedDays
+		}
+
+		return PruneMsg{
+			Days:      days,
+			Force:     false,
+			CountOnly: false,
+		}
+	}
+}
+
+// cmdPruneForce removes unprioritized content without confirmation
+func cmdPruneForce(args []string) tea.Cmd {
+	return func() tea.Msg {
+		// Parse optional age filter
+		var days *int
+		if len(args) > 0 {
+			parsedDays := parseAge(args[0])
+			if parsedDays < 0 {
+				return ErrorMsg{Message: fmt.Sprintf("prune!: invalid age filter '%s' (use format like 7d, 2w, 1m)", args[0])}
+			}
+			days = &parsedDays
+		}
+
+		return PruneMsg{
+			Days:      days,
+			Force:     true,
+			CountOnly: false,
+		}
+	}
+}
+
+// parseAge parses age strings like "7d", "2w", "1m" to days
+func parseAge(age string) int {
+	if len(age) < 2 {
+		return -1
+	}
+
+	// Extract number and unit
+	numStr := age[:len(age)-1]
+	unit := age[len(age)-1:]
+
+	// Parse the number
+	var num int
+	if _, err := fmt.Sscanf(numStr, "%d", &num); err != nil {
+		return -1
+	}
+
+	// Convert to days based on unit
+	switch unit {
+	case "d":
+		return num
+	case "w":
+		return num * 7
+	case "m":
+		return num * 30 // Approximate
+	default:
+		return -1
 	}
 }
 
@@ -229,6 +317,37 @@ func cmdCopy(args []string) tea.Cmd {
 	}
 }
 
+// cmdReport generates a daily report and saves to configured location
+func cmdReport(args []string) tea.Cmd {
+	return func() tea.Msg {
+		// Parse optional period argument (default to 24h)
+		period := "24h"
+		if len(args) > 0 {
+			period = args[0]
+		}
+
+		return ReportMsg{Period: period}
+	}
+}
+
+// cmdFabric executes Fabric patterns on current content
+func cmdFabric(args []string) tea.Cmd {
+	return func() tea.Msg {
+		if len(args) == 0 {
+			return ErrorMsg{Message: "fabric: pattern required (use tab completion to see available patterns)"}
+		}
+
+		// Execute pattern on current content
+		pattern := args[0]
+
+		return FabricMsg{
+			Pattern:   pattern,
+			ListOnly:  false,
+			Content:   "", // Content will be populated by the handler
+		}
+	}
+}
+
 // showError returns a command that shows an error message
 func showError(msg string) tea.Cmd {
 	return func() tea.Msg {
@@ -265,7 +384,12 @@ type RemoveSourceMsg struct {
 type ShowLogsMsg struct{}
 
 // CleanupMsg signals to cleanup unprioritized content
-type CleanupMsg struct{}
+// PruneMsg signals to prune unprioritized content
+type PruneMsg struct {
+	Days      *int // Optional age filter in days
+	Force     bool // If true, skip confirmation
+	CountOnly bool // If true, just show count
+}
 
 // PauseSourceMsg signals to pause a source
 type PauseSourceMsg struct {
@@ -299,3 +423,15 @@ type YankMsg struct{}
 
 // CopyMsg signals to copy content to clipboard
 type CopyMsg struct{}
+
+// ReportMsg signals to generate a daily report
+type ReportMsg struct {
+	Period string // Time period like "24h", "7d"
+}
+
+// FabricMsg signals to execute a Fabric pattern
+type FabricMsg struct {
+	Pattern  string // Pattern name to execute, or "--list" for pattern list
+	ListOnly bool   // If true, just show available patterns
+	Content  string // Content to process (populated by handler)
+}

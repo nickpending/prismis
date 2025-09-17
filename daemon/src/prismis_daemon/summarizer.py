@@ -43,17 +43,16 @@ class ContentSummarizer:
             raise ValueError("Model must be specified in config")
         self.model = self.config["model"]
 
-        # Set API key if provided
-        if "api_key" in self.config:
-            import os
+        # Store credentials for direct passing to litellm
+        self.api_key = self.config.get("api_key")
+        self.api_base = self.config.get("api_base")
 
-            # Handle env: prefix
-            api_key = self.config["api_key"]
-            if api_key.startswith("env:"):
-                env_var = api_key[4:]
-                api_key = os.environ.get(env_var, "")
-            if api_key:
-                os.environ["OPENAI_API_KEY"] = api_key
+        # Validate Ollama configuration
+        provider = self.config.get("provider", "openai").lower()
+        if provider == "ollama" and not self.api_base:
+            raise ValueError(
+                "Ollama provider requires 'api_base' in config (e.g., 'http://localhost:11434')"
+            )
 
         # Configure LiteLLM settings
         litellm.drop_params = True  # Drop unsupported params instead of erroring
@@ -99,18 +98,27 @@ class ContentSummarizer:
             # Call LLM
             logger.debug(f"Calling {self.model} for content analysis")
 
-            response = litellm.completion(
-                model=self.model,
-                messages=[
+            # Build kwargs for litellm call
+            kwargs = {
+                "model": self.model,
+                "messages": [
                     {
                         "role": "system",
                         "content": self._get_system_prompt(),
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=self.temperature,
-                response_format={"type": "json_object"},  # Request JSON response
-            )
+                "temperature": self.temperature,
+                "response_format": {"type": "json_object"},  # Request JSON response
+            }
+
+            # Add credentials if provided
+            if self.api_key:
+                kwargs["api_key"] = self.api_key
+            if self.api_base:
+                kwargs["api_base"] = self.api_base
+
+            response = litellm.completion(**kwargs)
 
             # Extract and parse response
             response_text = response.choices[0].message.content

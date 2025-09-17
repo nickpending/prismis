@@ -96,7 +96,7 @@ func (m HelpModal) View() string {
 	introStyle := lipgloss.NewStyle().
 		Foreground(theme.Gray).
 		Italic(true)
-	introText := "Press : to enter command mode for actions like mark, copy, favorite, etc."
+	introText := "Press : to enter command mode. Use Tab to complete commands and fabric patterns."
 	introPadding := (m.width - 4 - lipgloss.Width(introText)) / 2
 	if introPadding < 0 {
 		introPadding = 0
@@ -156,79 +156,61 @@ func (m HelpModal) View() string {
 	// NAVIGATION section
 	content.WriteString(sectionHeader("NAVIGATION"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("j/↓", "Move down", "g", "Jump to top"))
+	content.WriteString(format2Col("j/k", "Move up/down", "g/G", "Jump to top/bottom"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("k/↑", "Move up", "G", "Jump to bottom"))
+	content.WriteString(format2Col("Enter", "Read article", "q", "Quit/Back"))
+	content.WriteString("\n")
+	content.WriteString(format2Col(":", "Command mode", "?", "This help"))
+	content.WriteString("\n")
+	content.WriteString(format2Col("S", "Source manager", "", ""))
 	content.WriteString("\n\n")
 
-	// VIEWS & FILTERS section
-	content.WriteString(sectionHeader("VIEWS & FILTERS"))
+	// FILTERS & SORTING section
+	content.WriteString(sectionHeader("FILTERS & SORTING"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("1", "HIGH priority", "a", "Show all items"))
+	content.WriteString(format2Col("1/2/3", "HIGH/MED/LOW", "0", "Unprioritized"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("2", "MEDIUM priority", "u", "Toggle unread"))
+	content.WriteString(format2Col("a", "Show all", "u", "Toggle unread"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("3", "LOW priority", "d", "Toggle date sort"))
-	content.WriteString("\n")
-	content.WriteString(format2Col("0", "Unprioritized", "s", "Cycle sources"))
+	content.WriteString(format2Col("d", "Toggle date sort", "s", "Cycle sources"))
 	content.WriteString("\n\n")
 
-	// ACTIONS section
-	content.WriteString(sectionHeader("ACTIONS"))
+	// ARTICLE COMMANDS section - Most used commands
+	content.WriteString(sectionHeader("ARTICLE COMMANDS (:)"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("Enter", "Read article", ":", "Command mode"))
+	content.WriteString(format2Col(":mark", "Toggle read", ":favorite", "Toggle star"))
+	content.WriteString("\n")
+	content.WriteString(format2Col(":open", "Open in browser", ":yank", "Copy URL"))
+	content.WriteString("\n")
+	content.WriteString(format2Col(":copy", "Copy content", ":fabric <pattern>", "AI analysis"))
+	content.WriteString("\n")
+	content.WriteString(format2Col(":report", "Daily report", "", ""))
 	content.WriteString("\n\n")
 
-	// COMMAND MODE section - NEW
-	content.WriteString(sectionHeader("COMMAND MODE (:)"))
+	// SOURCE COMMANDS section
+	content.WriteString(sectionHeader("SOURCE COMMANDS (:)"))
 	content.WriteString("\n")
-	content.WriteString(format2Col(":help", "Show this help", ":quit", "Exit application"))
-	content.WriteString("\n")
-	content.WriteString(format2Col(":refresh", "Refresh content", ":add <url>", "Add new source"))
-	content.WriteString("\n")
-	content.WriteString(format2Col(":mark", "Toggle read status", ":favorite", "Toggle favorite"))
-	content.WriteString("\n")
-	content.WriteString(format2Col(":copy", "Copy content", ":yank", "Copy URL"))
-	content.WriteString("\n")
-	content.WriteString(format2Col(":open", "Open in browser", ":remove <id>", "Remove source"))
-	content.WriteString("\n")
-	content.WriteString(format2Col(":cleanup", "Remove unprioritized", ":logs", "Show daemon logs"))
+	content.WriteString(format2Col(":add <url>", "Add source", ":remove <id>", "Remove source"))
 	content.WriteString("\n")
 	content.WriteString(format2Col(":pause <url>", "Pause source", ":resume <url>", "Resume source"))
 	content.WriteString("\n")
-	content.WriteString(format2Col(":edit <id> <name>", "Edit source name", "", ""))
+	content.WriteString(format2Col(":edit <id> <name>", "Rename source", "", ""))
 	content.WriteString("\n\n")
 
-	// MODALS section
-	content.WriteString(sectionHeader("MODALS"))
+	// MAINTENANCE COMMANDS section
+	content.WriteString(sectionHeader("MAINTENANCE (:)"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("S", "Source manager", "?", "This help"))
+	content.WriteString(format2Col(":unprioritized", "Count unprioritized", ":prune", "Delete unprioritized"))
+	content.WriteString("\n")
+	content.WriteString(format2Col(":prune!", "Force delete", ":prune 7d", "Delete older than 7 days"))
 	content.WriteString("\n\n")
 
-	// READER MODE section
+	// READER MODE section - Simplified
 	content.WriteString(sectionHeader("READER MODE"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("h/←", "Previous article", "j/↓", "Scroll down"))
+	content.WriteString(format2Col("j/k", "Scroll up/down", "h/l", "Prev/Next article"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("l/→", "Next article", "k/↑", "Scroll up"))
-	content.WriteString("\n")
-	content.WriteString(format2Col("Space", "Page down", "ESC", "Close reader"))
-	content.WriteString("\n")
-	content.WriteString(format2Col(":", "Command mode", "q", "Back to list"))
-	content.WriteString("\n\n")
-
-	// SOURCE MANAGER section
-	content.WriteString(sectionHeader("SOURCE MANAGER"))
-	content.WriteString("\n")
-	content.WriteString(format2Col("a", "Add source", "d", "Delete source"))
-	content.WriteString("\n")
-	content.WriteString(format2Col("Enter", "Edit source", "ESC", "Close modal"))
-	content.WriteString("\n\n")
-
-	// SYSTEM section
-	content.WriteString(sectionHeader("SYSTEM"))
-	content.WriteString("\n")
-	content.WriteString(formatCmd("q", "Quit application"))
+	content.WriteString(format2Col("Space", "Page down", "ESC/q", "Back to list"))
 	content.WriteString("\n\n")
 
 	// Footer hint

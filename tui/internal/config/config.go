@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -16,6 +17,9 @@ type Config struct {
 	TUI struct {
 		RefreshInterval int `toml:"refresh_interval"` // Auto-refresh interval in seconds, 0 disables
 	} `toml:"tui"`
+	Reports *struct {
+		OutputPath string `toml:"output_path"` // Directory to save reports, required
+	} `toml:"reports"`
 }
 
 // LoadConfig loads configuration from the standard XDG config path with sensible defaults
@@ -61,4 +65,37 @@ func LoadConfig() (*Config, error) {
 // Returns 0 if auto-refresh is disabled
 func (c *Config) GetRefreshInterval() int {
 	return c.TUI.RefreshInterval
+}
+
+// ValidateReports validates that reports configuration is present and valid
+func (c *Config) ValidateReports() error {
+	if c.Reports == nil {
+		return fmt.Errorf("reports configuration missing. Add [reports] section to config.toml with output_path")
+	}
+	
+	if c.Reports.OutputPath == "" {
+		return fmt.Errorf("reports.output_path not configured. Add output_path to [reports] section in config.toml")
+	}
+	
+	return nil
+}
+
+// GetReportsOutputPath returns the configured reports output path, expanding ~ to home directory
+func (c *Config) GetReportsOutputPath() (string, error) {
+	if err := c.ValidateReports(); err != nil {
+		return "", err
+	}
+	
+	outputPath := c.Reports.OutputPath
+	
+	// Expand ~ to home directory
+	if strings.HasPrefix(outputPath, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory for reports path: %w", err)
+		}
+		outputPath = filepath.Join(home, outputPath[2:])
+	}
+	
+	return outputPath, nil
 }

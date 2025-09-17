@@ -217,3 +217,158 @@ class APIClient:
                 if isinstance(e, RuntimeError):
                     raise
                 raise RuntimeError(f"Unexpected error: {e}")
+
+    def count_unprioritized(self, days: Optional[int] = None) -> int:
+        """Count unprioritized content items.
+
+        Args:
+            days: Optional age filter - only count items older than this many days
+
+        Returns:
+            Count of unprioritized items
+
+        Raises:
+            RuntimeError: If API request fails
+        """
+        with httpx.Client(timeout=self.timeout) as client:
+            try:
+                params = {"days": days} if days is not None else {}
+                response = client.get(
+                    f"{self.base_url}/api/prune/count",
+                    headers={"X-API-Key": self.api_key},
+                    params=params,
+                )
+
+                data = response.json()
+
+                if response.status_code >= 400:
+                    error_msg = data.get(
+                        "message", f"API error: {response.status_code}"
+                    )
+                    raise RuntimeError(error_msg)
+
+                return data.get("data", {}).get("count", 0)
+
+            except httpx.RequestError as e:
+                raise RuntimeError(f"Network error: {e}")
+            except Exception as e:
+                if isinstance(e, RuntimeError):
+                    raise
+                raise RuntimeError(f"Unexpected error: {e}")
+
+    def prune_unprioritized(self, days: Optional[int] = None) -> dict:
+        """Delete unprioritized content items.
+
+        Args:
+            days: Optional age filter - only delete items older than this many days
+
+        Returns:
+            Dict with count of deleted items
+
+        Raises:
+            RuntimeError: If API request fails
+        """
+        with httpx.Client(timeout=self.timeout) as client:
+            try:
+                params = {"days": days} if days is not None else {}
+                response = client.post(
+                    f"{self.base_url}/api/prune",
+                    headers={"X-API-Key": self.api_key},
+                    params=params,
+                )
+
+                data = response.json()
+
+                if response.status_code >= 400:
+                    error_msg = data.get(
+                        "message", f"API error: {response.status_code}"
+                    )
+                    raise RuntimeError(error_msg)
+
+                return data
+
+            except httpx.RequestError as e:
+                raise RuntimeError(f"Network error: {e}")
+            except Exception as e:
+                if isinstance(e, RuntimeError):
+                    raise
+                raise RuntimeError(f"Unexpected error: {e}")
+
+    def get_report(self, period: str = "24h") -> str:
+        """Generate a content report for the specified period.
+
+        Args:
+            period: Time period like "24h", "7d", "30d"
+
+        Returns:
+            Markdown formatted report
+
+        Raises:
+            RuntimeError: If API request fails
+        """
+        with httpx.Client(timeout=self.timeout) as client:
+            try:
+                response = client.get(
+                    f"{self.base_url}/api/reports",
+                    headers={"X-API-Key": self.api_key},
+                    params={"period": period},
+                )
+
+                data = response.json()
+
+                if response.status_code >= 400:
+                    error_msg = data.get(
+                        "message", f"API error: {response.status_code}"
+                    )
+                    raise RuntimeError(error_msg)
+
+                return data.get("data", {}).get("markdown", "")
+
+            except httpx.RequestError as e:
+                raise RuntimeError(f"Network error: {e}")
+            except Exception as e:
+                if isinstance(e, RuntimeError):
+                    raise
+                raise RuntimeError(f"Unexpected error: {e}")
+
+    def edit_source(self, source_id: str, name: str) -> bool:
+        """Edit a source's name via API.
+
+        Args:
+            source_id: UUID of source to edit
+            name: New name for the source
+
+        Returns:
+            True if successful
+
+        Raises:
+            RuntimeError: If API request fails
+        """
+        with httpx.Client(timeout=self.timeout) as client:
+            try:
+                response = client.patch(
+                    f"{self.base_url}/api/sources/{source_id}",
+                    json={"name": name},
+                    headers={"X-API-Key": self.api_key},
+                )
+
+                data = response.json()
+
+                # Check for API errors
+                if response.status_code >= 400:
+                    error_msg = data.get(
+                        "message", f"API error: {response.status_code}"
+                    )
+                    raise RuntimeError(error_msg)
+
+                if not data.get("success"):
+                    raise RuntimeError(data.get("message", "Unknown error"))
+
+                return True
+
+            except httpx.RequestError as e:
+                raise RuntimeError(f"Network error: {e}")
+            except Exception as e:
+                if isinstance(e, RuntimeError):
+                    raise
+                raise RuntimeError(f"Unexpected error: {e}")

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -40,12 +41,13 @@ type SourceModal struct {
 	sources    []db.Source
 	cursor     int
 	mode       string // "list", "add", "edit", "confirm_remove"
-	editBuffer string // For text input (deprecated - use formFields)
+	editBuffer string // Deprecated - not used anymore
 	errorMsg   string
 
-	// Form fields for add/edit modes
-	formFields     map[string]string // Stores "url", "name" values
-	activeField    string            // Which field is currently being edited
+	// Form fields for add/edit modes - now using textinput.Model
+	urlInput       textinput.Model // URL input field
+	nameInput      textinput.Model // Name input field  
+	activeField    string          // Which field is currently being edited
 	sourceToDelete string            // ID of source being deleted
 	
 	// Status message for temporary feedback (like main/reader modal)
@@ -60,10 +62,23 @@ type SourceModal struct {
 func NewSourceModal() SourceModal {
 	vp := viewport.New(0, 0)
 
+	// Create URL input
+	urlInput := textinput.New()
+	urlInput.Placeholder = "https://example.com/feed.xml"
+	urlInput.Width = 36
+	urlInput.CharLimit = 512
+
+	// Create name input  
+	nameInput := textinput.New()
+	nameInput.Placeholder = "Optional display name"
+	nameInput.Width = 36
+	nameInput.CharLimit = 100
+
 	return SourceModal{
 		Modal:       NewModal("SOURCES", 45, 12),
 		mode:        "list",
-		formFields:  make(map[string]string),
+		urlInput:    urlInput,
+		nameInput:   nameInput,
 		activeField: "url", // Default to URL field
 		viewport:    vp,
 		ready:       false,
@@ -145,21 +160,24 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				}
 			case "a":
 				m.mode = "add"
-				m.formFields = make(map[string]string)
-				m.formFields["url"] = ""
-				m.formFields["name"] = ""
+				// Reset textinput fields
+				m.urlInput.SetValue("")
+				m.nameInput.SetValue("")
 				m.activeField = "url"
+				m.urlInput.Focus()
+				m.nameInput.Blur()
 				m.errorMsg = ""
 			case "enter":
 				// Enter edits the selected source
 				if len(m.sources) > 0 {
 					m.mode = "edit"
 					source := m.sources[m.cursor]
-					m.formFields = make(map[string]string)
-					m.formFields["url"] = source.URL
-					m.formFields["name"] = source.Name
-					m.formFields["type"] = source.Type // Read-only
-					m.activeField = "url"              // Start with URL field for consistency
+					// Set textinput values
+					m.urlInput.SetValue(source.URL)
+					m.nameInput.SetValue(source.Name)
+					m.activeField = "url" // Start with URL field for consistency
+					m.urlInput.Focus()
+					m.nameInput.Blur()
 					m.errorMsg = ""
 				}
 			case "p":
@@ -190,33 +208,39 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				// Switch between URL and name fields
 				if m.activeField == "url" {
 					m.activeField = "name"
+					m.urlInput.Blur()
+					m.nameInput.Focus()
 				} else {
 					m.activeField = "url"
+					m.nameInput.Blur()
+					m.urlInput.Focus()
 				}
 			case "enter":
-				// Add source using shared function
-				url := strings.TrimSpace(m.formFields["url"])
+				// Add source using textinput values
+				url := strings.TrimSpace(m.urlInput.Value())
 				if url == "" {
 					m.errorMsg = "URL is required"
 					return m, nil
 				}
 				
-				name := strings.TrimSpace(m.formFields["name"])
+				name := strings.TrimSpace(m.nameInput.Value())
 				return m, operations.AddSource(url, name)
 			case "esc":
 				m.mode = "list"
-				m.formFields = make(map[string]string)
+				m.urlInput.SetValue("")
+				m.nameInput.SetValue("")
+				m.urlInput.Blur()
+				m.nameInput.Blur()
 				m.errorMsg = ""
-			case "backspace":
-				currentValue := m.formFields[m.activeField]
-				if len(currentValue) > 0 {
-					m.formFields[m.activeField] = currentValue[:len(currentValue)-1]
-				}
 			default:
-				// Add character to active field
-				if len(msg.String()) == 1 {
-					m.formFields[m.activeField] += msg.String()
+				// Let textinput handle all other keys (including paste!)
+				var cmd tea.Cmd
+				if m.activeField == "url" {
+					m.urlInput, cmd = m.urlInput.Update(msg)
+				} else {
+					m.nameInput, cmd = m.nameInput.Update(msg)
 				}
+				return m, cmd
 			}
 
 		case "edit":
@@ -225,8 +249,12 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				// Switch between URL and name fields (consistent with add)
 				if m.activeField == "url" {
 					m.activeField = "name"
+					m.urlInput.Blur()
+					m.nameInput.Focus()
 				} else {
 					m.activeField = "url"
+					m.nameInput.Blur()
+					m.urlInput.Focus()
 				}
 			case "enter":
 				// Prepare to update source
@@ -236,14 +264,17 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				}
 
 				source := m.sources[m.cursor]
-				url := strings.TrimSpace(m.formFields["url"])
-				name := strings.TrimSpace(m.formFields["name"])
+				url := strings.TrimSpace(m.urlInput.Value())
+				name := strings.TrimSpace(m.nameInput.Value())
 
 				// Check if anything actually changed
 				if url == source.URL && name == source.Name {
 					// No changes made, just go back to list
 					m.mode = "list"
-					m.formFields = make(map[string]string)
+					m.urlInput.SetValue("")
+					m.nameInput.SetValue("")
+					m.urlInput.Blur()
+					m.nameInput.Blur()
 					m.errorMsg = ""
 					return m, nil
 				}
@@ -260,7 +291,10 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				// Clear form and go back to list
 				// The actual update will happen via the command
 				m.mode = "list"
-				m.formFields = make(map[string]string)
+				m.urlInput.SetValue("")
+				m.nameInput.SetValue("")
+				m.urlInput.Blur()
+				m.nameInput.Blur()
 				m.errorMsg = ""
 				
 				// Update content before returning
@@ -270,21 +304,20 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				return m, operations.UpdateSource(source.ID, updates)
 			case "esc":
 				m.mode = "list"
-				m.formFields = make(map[string]string)
+				m.urlInput.SetValue("")
+				m.nameInput.SetValue("")
+				m.urlInput.Blur()
+				m.nameInput.Blur()
 				m.errorMsg = ""
-			case "backspace":
-				// Only allow editing name and URL, not type
-				if m.activeField != "type" {
-					currentValue := m.formFields[m.activeField]
-					if len(currentValue) > 0 {
-						m.formFields[m.activeField] = currentValue[:len(currentValue)-1]
-					}
-				}
 			default:
-				// Add character to active field (except type)
-				if len(msg.String()) == 1 && m.activeField != "type" {
-					m.formFields[m.activeField] += msg.String()
+				// Let textinput handle all other keys (including paste!)
+				var cmd tea.Cmd
+				if m.activeField == "url" {
+					m.urlInput, cmd = m.urlInput.Update(msg)
+				} else {
+					m.nameInput, cmd = m.nameInput.Update(msg)
 				}
+				return m, cmd
 			}
 
 		case "confirm_remove":
@@ -312,7 +345,8 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 			// Success: return to list mode with status message
 			m.statusMessage = msg.Message
 			m.mode = "list"
-			m.formFields = make(map[string]string)
+			m.urlInput.SetValue("")
+			m.nameInput.SetValue("")
 			m.sourceToDelete = "" // Clear deletion state
 			m.errorMsg = ""
 			m.UpdateContent()
@@ -461,48 +495,15 @@ func (m SourceModal) renderAddForm() string {
 	lines = append(lines, titleStyle.Render("ADD NEW SOURCE"))
 	lines = append(lines, "")
 
-	// Input field styles
-	activeInputStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(theme.Cyan). // Cyan for active
-		Width(38).
-		Padding(0, 1)
-
-	inactiveInputStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(theme.DarkGray). // Gray for inactive
-		Width(38).
-		Padding(0, 1)
-
 	// URL field
 	labelStyle := theme.TextStyle()
 	lines = append(lines, labelStyle.Render("URL:"))
-
-	urlValue := m.formFields["url"]
-	if m.activeField == "url" {
-		lines = append(lines, activeInputStyle.Render(urlValue+"█"))
-	} else {
-		if urlValue == "" {
-			lines = append(lines, inactiveInputStyle.Render(theme.MutedStyle().Render("https://example.com/feed.xml")))
-		} else {
-			lines = append(lines, inactiveInputStyle.Render(urlValue))
-		}
-	}
+	lines = append(lines, m.urlInput.View())
 	lines = append(lines, "")
 
 	// Name field
 	lines = append(lines, labelStyle.Render("Name (optional):"))
-
-	nameValue := m.formFields["name"]
-	if m.activeField == "name" {
-		lines = append(lines, activeInputStyle.Render(nameValue+"█"))
-	} else {
-		if nameValue == "" {
-			lines = append(lines, inactiveInputStyle.Render(theme.MutedStyle().Render("Will be auto-generated if not provided")))
-		} else {
-			lines = append(lines, inactiveInputStyle.Render(nameValue))
-		}
-	}
+	lines = append(lines, m.nameInput.View())
 	lines = append(lines, "")
 
 	// Help text
@@ -535,39 +536,16 @@ func (m SourceModal) renderEditForm() string {
 	lines = append(lines, titleStyle.Render("EDIT SOURCE"))
 	lines = append(lines, "")
 
-	// Input field styles
-	activeInputStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(theme.Cyan). // Cyan for active
-		Width(38).
-		Padding(0, 1)
-
-	inactiveInputStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(theme.DarkGray). // Gray for inactive
-		Width(38).
-		Padding(0, 1)
-
 	labelStyle := theme.TextStyle()
 
 	// URL field (first - matches add form)
 	lines = append(lines, labelStyle.Render("URL:"))
-	urlValue := m.formFields["url"]
-	if m.activeField == "url" {
-		lines = append(lines, activeInputStyle.Render(urlValue+"█"))
-	} else {
-		lines = append(lines, inactiveInputStyle.Render(urlValue))
-	}
+	lines = append(lines, m.urlInput.View())
 	lines = append(lines, "")
 
 	// Name field (second - matches add form)
 	lines = append(lines, labelStyle.Render("Name:"))
-	nameValue := m.formFields["name"]
-	if m.activeField == "name" {
-		lines = append(lines, activeInputStyle.Render(nameValue+"█"))
-	} else {
-		lines = append(lines, inactiveInputStyle.Render(nameValue))
-	}
+	lines = append(lines, m.nameInput.View())
 	lines = append(lines, "")
 
 	// Commands
@@ -809,48 +787,15 @@ func (m SourceModal) renderAddContentOnly() string {
 	theme := CleanCyberTheme
 	var lines []string
 
-	// Input field styles
-	activeInputStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(theme.Cyan). // Cyan for active
-		Width(38).
-		Padding(0, 1)
-
-	inactiveInputStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(theme.DarkGray). // Gray for inactive
-		Width(38).
-		Padding(0, 1)
-
 	// URL field
 	labelStyle := theme.TextStyle()
 	lines = append(lines, labelStyle.Render("URL:"))
-
-	urlValue := m.formFields["url"]
-	if m.activeField == "url" {
-		lines = append(lines, activeInputStyle.Render(urlValue+"█"))
-	} else {
-		if urlValue == "" {
-			lines = append(lines, inactiveInputStyle.Render(theme.MutedStyle().Render("https://example.com/feed.xml")))
-		} else {
-			lines = append(lines, inactiveInputStyle.Render(urlValue))
-		}
-	}
+	lines = append(lines, m.urlInput.View())
 	lines = append(lines, "")
 
 	// Name field
 	lines = append(lines, labelStyle.Render("Name (optional):"))
-
-	nameValue := m.formFields["name"]
-	if m.activeField == "name" {
-		lines = append(lines, activeInputStyle.Render(nameValue+"█"))
-	} else {
-		if nameValue == "" {
-			lines = append(lines, inactiveInputStyle.Render(theme.MutedStyle().Render("Will be auto-generated if not provided")))
-		} else {
-			lines = append(lines, inactiveInputStyle.Render(nameValue))
-		}
-	}
+	lines = append(lines, m.nameInput.View())
 	lines = append(lines, "")
 
 	// Help text
@@ -874,39 +819,16 @@ func (m SourceModal) renderEditContentOnly() string {
 
 	var lines []string
 
-	// Input field styles
-	activeInputStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(theme.Cyan). // Cyan for active
-		Width(38).
-		Padding(0, 1)
-
-	inactiveInputStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(theme.DarkGray). // Gray for inactive
-		Width(38).
-		Padding(0, 1)
-
 	labelStyle := theme.TextStyle()
 
 	// URL field (first - consistent with add form)
 	lines = append(lines, labelStyle.Render("URL:"))
-	urlValue := m.formFields["url"]
-	if m.activeField == "url" {
-		lines = append(lines, activeInputStyle.Render(urlValue+"█"))
-	} else {
-		lines = append(lines, inactiveInputStyle.Render(urlValue))
-	}
+	lines = append(lines, m.urlInput.View())
 	lines = append(lines, "")
 
 	// Name field (second - consistent with add form)
 	lines = append(lines, labelStyle.Render("Name:"))
-	nameValue := m.formFields["name"]
-	if m.activeField == "name" {
-		lines = append(lines, activeInputStyle.Render(nameValue+"█"))
-	} else {
-		lines = append(lines, inactiveInputStyle.Render(nameValue))
-	}
+	lines = append(lines, m.nameInput.View())
 
 	// Error message if any
 	if m.errorMsg != "" {

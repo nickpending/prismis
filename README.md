@@ -7,6 +7,7 @@
   [GitHub](https://github.com/nickpending/prismis) | [Issues](https://github.com/nickpending/prismis/issues) | [Roadmap](#roadmap)
 
   [![Status](https://img.shields.io/badge/Status-Alpha-orange?style=flat)](#status-alpha)
+  [![Built with](https://img.shields.io/badge/Built%20with-Momentum-blueviolet?style=flat)](https://github.com/nickpending/momentum)
   [![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev)
   [![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat&logo=python)](https://python.org)
   [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

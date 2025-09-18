@@ -4,8 +4,9 @@
   
   **Your AI-powered research department that never sleeps**
   
-  [prismis.io](https://prismis.io) | [Documentation](https://prismis.io/docs) | [Discord](https://discord.gg/prismis)
+  [GitHub](https://github.com/nickpending/prismis) | [Issues](https://github.com/nickpending/prismis/issues) | [Roadmap](#roadmap)
 
+  [![Status](https://img.shields.io/badge/Status-Alpha-orange?style=flat)](#status-alpha)
   [![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev)
   [![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat&logo=python)](https://python.org)
   [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -17,6 +18,10 @@
 **Prismis** transforms information overload into intelligence. It continuously monitors your RSS feeds, Reddit communities, and YouTube channels, uses AI to surface what matters to YOU personally, then delivers it through a blazing-fast terminal interface.
 
 Think of it as having a research assistant who reads everything and only interrupts you for the important stuff.
+
+## Status: Alpha
+
+**This is early software that works but has rough edges.** It's been in daily use for 3 months, handling 500+ items/day across 30+ sources, but expect quirks. Each release gets more polished.
 
 ## ✨ Features
 
@@ -300,23 +305,50 @@ Some areas we'd love help with:
 
 **The Philosophy**: Your attention is precious. Software should protect it, not exploit it.
 
+## Known Issues & Limitations
+
+**Current limitations in v0.1.0-alpha:**
+
+- **Daemon process management** - Manual start/stop (workaround: use tmux or `prismis-daemon &`)
+- **YouTube age-gating** - Some videos fail to extract transcripts (workaround: add RSS feed directly)
+- **Report output path** - Must be explicitly configured in config.toml (no default)
+- **Fabric errors** - May timeout on very long content (workaround: use shorter patterns like `summarize`)
+- **Source error handling** - Failed sources show cryptic errors (manual: check logs in daemon output)
+
+**What works well:**
+- RSS feed ingestion with full content extraction
+- Reddit fetching without API keys
+- LLM prioritization with personal context
+- Instant TUI launch and navigation
+- Fabric integration with 200+ patterns
+- Daily report generation
+
 ## 🎯 Roadmap
 
-- [x] Core daemon with RSS/Reddit/YouTube
-- [x] Instant-launch TUI (<100ms)
-- [x] LLM prioritization pipeline
-- [x] Desktop notifications
-- [x] Neovim-style command mode (`:` commands)
-- [x] Fabric integration for content analysis
-- [x] Daily reports and digest generation
-- [x] Multiple LLM provider support
-- [x] Content cleanup/pruning commands
-- [ ] MCP server for AI agents
-- [ ] Mobile app (iOS/Android)
+**v0.2.0** (Next release):
+- [ ] Fix daemon process management (systemd/launchd support)
+- [ ] Better source error handling and recovery
+- [ ] Improve YouTube transcript extraction reliability
+- [ ] Default report output configuration
+- [ ] Source health monitoring in TUI
+
+**v0.3.0** (Future):
+- [ ] MCP server for AI agent queries
+- [ ] Papers support (arxiv RSS, PDF ingestion)
+- [ ] Manual content ingestion (one-off URLs/PDFs)
+- [ ] Link extraction from content
+- [ ] Better duplicate detection
+- [ ] Source categories and grouping
+
+**v1.0.0** (Stable):
+- [ ] Performance optimizations
+- [ ] Full test coverage
+- [ ] Documentation site
+- [ ] Plugin system for custom sources
 
 ## 📄 License
 
-MIT - Use it, fork it, make it yours.
+[MIT](LICENSE) - Use it, fork it, make it yours.
 
 ## 🙏 Acknowledgments
 

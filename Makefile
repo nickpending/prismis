@@ -49,7 +49,7 @@ build: check-deps build-tui build-daemon build-cli ## Build all components
 build-tui: ## Build Go TUI binary
 	@echo "Building Go TUI..."
 	cd tui && go mod download
-	cd tui && go build -o prismis cmd/demo/main.go
+	cd tui && go build -o prismis cmd/tui/main.go
 	@echo "✓ TUI built: tui/prismis"
 
 .PHONY: build-daemon
@@ -184,7 +184,27 @@ stop: ## Stop any running prismis processes
 	@pkill -f "python.*prismis_daemon" 2>/dev/null || true
 	@echo "✓ All prismis processes stopped"
 
+.PHONY: start
+start: ## Start prismis daemon in background
+	@echo "Starting prismis daemon..."
+	@nohup prismis-daemon > prismis.log 2>&1 & echo "✓ Daemon started (PID: $$!)"
+	@echo "Waiting for API server to be ready..."
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		if lsof -i :8989 >/dev/null 2>&1 && curl -s -f http://localhost:8989/health >/dev/null 2>&1; then \
+			echo "✓ API server listening on port 8989"; \
+			exit 0; \
+		fi; \
+		echo "  Attempt $$i/10: API server not ready, waiting 2 seconds..."; \
+		sleep 2; \
+	done; \
+	echo "❌ API server failed to start after 20 seconds"; \
+	exit 1
 
+.PHONY: restart
+restart: ## Restart prismis daemon (stop + start)
+	@$(MAKE) stop
+	@sleep 2
+	@$(MAKE) start
 
 .PHONY: uninstall
 uninstall: ## Remove all installed components

@@ -49,7 +49,7 @@ build: check-deps build-tui build-daemon build-cli ## Build all components
 build-tui: ## Build Go TUI binary
 	@echo "Building Go TUI..."
 	cd tui && go mod download
-	cd tui && go build -o prismis cmd/prismis/main.go
+	cd tui && go build -o prismis cmd/demo/main.go
 	@echo "✓ TUI built: tui/prismis"
 
 .PHONY: build-daemon
@@ -65,7 +65,7 @@ build-cli: ## Setup Python CLI dependencies
 	@echo "✓ CLI ready"
 
 .PHONY: install
-install: check-deps build stop install-binaries install-config ## Install everything (binaries + config)
+install: check-deps build install-binaries install-config ## Install everything (binaries + config)
 	@echo "========================================="
 	@echo "Installation complete!"
 	@echo "Binaries installed to: $(INSTALL_DIR)"
@@ -205,7 +205,7 @@ dev: ## Run daemon in development mode
 
 .PHONY: dev-tui
 dev-tui: ## Run TUI in development mode
-	cd tui && go run cmd/prismis/main.go
+	cd tui && go run cmd/demo/main.go
 
 .PHONY: dev-cli
 dev-cli: ## Run CLI in development mode

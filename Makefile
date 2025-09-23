@@ -184,6 +184,22 @@ stop: ## Stop any running prismis processes
 	@pkill -f "python.*prismis_daemon" 2>/dev/null || true
 	@echo "✓ All prismis processes stopped"
 
+.PHONY: start
+start: ## Start the prismis daemon
+	@echo "Starting prismis daemon..."
+	@if command -v prismis-daemon >/dev/null 2>&1; then \
+		prismis-daemon & \
+		echo "✓ Daemon started"; \
+		echo "Run 'prismis' to launch the TUI"; \
+	else \
+		echo "❌ prismis-daemon not found. Run 'make install' first"; \
+		exit 1; \
+	fi
+
+.PHONY: restart
+restart: stop start ## Restart the prismis daemon
+	@echo "✓ Daemon restarted"
+
 
 
 .PHONY: uninstall

@@ -49,7 +49,7 @@ build: check-deps build-tui build-daemon build-cli ## Build all components
 build-tui: ## Build Go TUI binary
 	@echo "Building Go TUI..."
 	cd tui && go mod download
-	cd tui && go build -o prismis cmd/prismis/main.go
+	cd tui && go build -o prismis ./cmd/prismis
 	@echo "✓ TUI built: tui/prismis"
 
 .PHONY: build-daemon

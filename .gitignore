@@ -28,11 +28,12 @@ dmypy.json
 *.test
 *.out
 vendor/
-prismis
-prismis-tui
-tui/prismis
-tui/prismis-local
-tui/cmd/prismis/prismis
+# Binary artifacts
+/prismis
+/prismis-tui
+/tui/prismis
+/tui/prismis-local
+/tui/cmd/prismis/prismis
 
 # SQLite
 *.db

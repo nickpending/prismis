@@ -159,7 +159,7 @@ func RenderList(m Model) string {
 
 	// Build status bar (always shows counts and help)
 	// Count priorities for quick reference
-	var highCount, medCount, lowCount int
+	var highCount, medCount, lowCount, favCount int
 	for _, item := range m.items {
 		if !item.Read {
 			switch item.Priority {
@@ -171,11 +171,21 @@ func RenderList(m Model) string {
 				lowCount++
 			}
 		}
+		if item.Favorited {
+			favCount++
+		}
 	}
-	
+
+	// Get favorites count from database for accuracy (includes all favorites, not just loaded items)
+	totalFavCount, err := db.GetFavoritesCount()
+	if err != nil {
+		// Fall back to in-memory count if database query fails
+		totalFavCount = favCount
+	}
+
 	// Status bar always shows counts
-	statusText := fmt.Sprintf("HIGH: %d  MED: %d  LOW: %d  |  Press ? for help", 
-		highCount, medCount, lowCount)
+	statusText := fmt.Sprintf("HIGH: %d  MED: %d  LOW: %d  ★: %d  |  Press ? for help",
+		highCount, medCount, lowCount, totalFavCount)
 	// Always show status bar
 	statusBar := statusStyle.Render(statusText)
 	

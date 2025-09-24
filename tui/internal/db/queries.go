@@ -185,15 +185,15 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 
 	var args []interface{}
 
-	// Add read filter based on showAll flag
-	if !showAll {
-		// Show unread only
+	// Add read filter based on showAll flag (but skip for favorites)
+	if !showAll && priority != "favorites" {
+		// Show unread only (except for favorites which should always show)
 		query += " AND c.read = 0"
 	}
 
 	// Add priority filter if specified and not "all"
 	if priority == "favorites" {
-		// Special case for favorites - show only favorited items
+		// Special case for favorites - show only favorited items (regardless of read status)
 		query += " AND c.favorited = 1"
 	} else if priority == "unprioritized" {
 		// Special case for unprioritized - show only items with NULL or empty priority
@@ -535,4 +535,39 @@ func getUnprioritizedCount() (int, error) {
 	}
 
 	return count, nil
+}
+
+// GetFavoritesCount returns the count of favorited items
+func GetFavoritesCount() (int, error) {
+	db, err := GetDB()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	var count int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM content
+		WHERE favorited = 1
+	`).Scan(&count)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to count favorited items: %w", err)
+	}
+
+	return count, nil
+}
+
+// MarkAsRead marks a content item as read in the database
+func MarkAsRead(contentID string) error {
+	db, err := GetDB()
+	if err != nil {
+		return fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	_, err = db.Exec("UPDATE content SET read = 1 WHERE id = ?", contentID)
+	if err != nil {
+		return fmt.Errorf("failed to mark as read: %w", err)
+	}
+
+	return nil
 }

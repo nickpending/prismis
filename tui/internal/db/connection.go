@@ -78,7 +78,12 @@ func GetDB() (*sql.DB, error) {
 // This should only be called when the application is shutting down.
 func CloseDB() error {
 	if dbPool != nil {
-		return dbPool.Close()
+		err := dbPool.Close()
+		dbPool = nil
+		dbErr = nil
+		// Reset the once so a new pool can be created
+		dbOnce = sync.Once{}
+		return err
 	}
 	return nil
 }

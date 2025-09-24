@@ -146,16 +146,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle command mode updates first (highest priority)
 	if m.commandMode.IsActive() {
 		m.commandMode, cmd = m.commandMode.Update(msg)
-		
+
 		// Handle command messages
 		if !m.commandMode.IsActive() {
 			// Command mode was just closed, check for command execution
 			cmds = append(cmds, cmd)
 		}
-		
+
 		return m, tea.Batch(cmds...)
 	}
-	
+
 	// Handle source modal updates if it's visible
 	if m.sourceModal.IsVisible() {
 		m.sourceModal, cmd = m.sourceModal.Update(msg)
@@ -165,7 +165,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
-
 
 	// Handle help modal updates if it's visible
 	if m.helpModal.IsVisible() {
@@ -217,45 +216,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loading = true
 			return m, fetchItemsWithState(m)
 		}
-		
+
 	case commands.ErrorMsg:
 		// Show error in command line instead of status
 		cmd := m.commandMode.SetError(msg.Message)
 		return m, cmd
-		
+
 	case commands.HelpMsg:
 		// Show the help modal (same as pressing ?)
 		m.helpModal.Show()
 		return m, nil
-		
+
 	case commands.AddSourceMsg:
 		// Add source (refresh happens in response to success message)
 		return m, operations.AddSource(msg.URL, "")
-		
+
 	case commands.RemoveSourceMsg:
 		// Remove source (refresh happens in response to success message)
 		return m, operations.RemoveSource(msg.Identifier)
-		
+
 	case commands.ShowLogsMsg:
 		// Show logs (placeholder for now)
 		return m, operations.ShowLogs()
-		
+
 	case commands.PruneMsg:
 		// Handle prune command with optional confirmation
 		return m, operations.HandlePruneCommand(msg)
-		
+
 	case commands.PauseSourceMsg:
 		// Pause source (refresh happens in response to success message)
 		return m, operations.PauseSource(msg.URL)
-		
+
 	case commands.ResumeSourceMsg:
 		// Resume source (refresh happens in response to success message)
 		return m, operations.ResumeSource(msg.URL)
-		
+
 	case commands.EditSourceMsg:
 		// Edit source name using the identifier lookup
 		return m, operations.EditSourceName(msg.Identifier, msg.NewName)
-		
+
 	case commands.ReportMsg:
 		// Generate report with specified period
 		return m, operations.GenerateReport(msg.Period)
@@ -269,7 +268,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			currentContent = item.Content
 		}
 		return m, operations.ExecuteFabricCommand(msg.Pattern, msg.ListOnly, currentContent)
-		
+
 	// Reader command handlers
 	case commands.MarkMsg:
 		// Toggle read/unread status (works in both list and reader views)
@@ -278,7 +277,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Use the operations package to toggle read status
 			return m, operations.ToggleArticleRead(item)
 		}
-		
+
 	case commands.FavoriteMsg:
 		// Toggle favorite status (works in both list and reader views)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
@@ -286,7 +285,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Use the operations package to toggle favorite status
 			return m, operations.ToggleArticleFavorite(item)
 		}
-		
+
 	case commands.OpenMsg:
 		// Open URL in browser (works in both list and reader views)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
@@ -299,7 +298,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 		}
-		
+
 	case commands.YankMsg:
 		// Copy URL to clipboard (works in both list and reader views)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
@@ -312,13 +311,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 		}
-		
+
 	case commands.CopyMsg:
 		// Copy content to clipboard (works in both list and reader views)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
 			item := m.items[m.cursor]
 			readingSummary := extractReadingSummary(item.Analysis)
-			
+
 			if readingSummary == "" {
 				m.statusMessage = "No content available"
 				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
@@ -332,7 +331,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
 			}
 		}
-		
+
 	case tea.KeyMsg:
 		// Check if waiting for prune confirmation
 		if m.pruneConfirm.active {
@@ -366,7 +365,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Activate command mode
 			m.commandMode.Show()
 			return m, nil
-			
+
 		case "q":
 			if m.view == "reader" {
 				// In reader view, q goes back to list
@@ -375,7 +374,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// In list view, q quits
 			return m, tea.Quit
-			
+
 		case "ctrl+c":
 			return m, tea.Quit
 
@@ -409,7 +408,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// In reader, k scrolls up
 				m.viewport.LineUp(1)
 			}
-		
+
 		// Reader-specific navigation
 		case "h", "left":
 			if m.view == "reader" && m.cursor > 0 {
@@ -710,7 +709,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Also refresh the sources panel to show updated source list
 			cmds = append(cmds, fetchSources())
 		}
-		
+
 	case operations.ReportOperationMsg:
 		// Handle report generation message from operations package
 		m.statusMessage = msg.Message
@@ -735,7 +734,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Clear status message after delay
 		cmds = append(cmds, clearStatusAfterDelay(5*time.Second))
-		
+
 	// Article operation messages from operations package
 	case operations.ArticleMarkedMsg:
 		if msg.Success {
@@ -771,7 +770,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = fmt.Sprintf("Failed to mark: %v", msg.Error)
 		}
 		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
-		
+
 	case operations.ArticleFavoritedMsg:
 		if msg.Success {
 			// Update the item in our local state
@@ -905,7 +904,6 @@ func extractReadingSummary(analysisJSON string) string {
 
 	return ""
 }
-
 
 // openInBrowser opens the given URL in the default browser.
 // It detects the OS and uses the appropriate command.

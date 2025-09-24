@@ -12,16 +12,16 @@ import (
 
 // StyleTheme defines a clean cyberpunk color scheme for the TUI
 type StyleTheme struct {
-	Name         string
-	Cyan         lipgloss.Color // Primary UI accent #00D9FF
-	Purple       lipgloss.Color // Tags and metadata #E6CCFF
+	Name          string
+	Cyan          lipgloss.Color // Primary UI accent #00D9FF
+	Purple        lipgloss.Color // Tags and metadata #E6CCFF
 	VibrantPurple lipgloss.Color // Errors and gradient accent #9F4DFF
-	Green        lipgloss.Color // Success/online indicators #00FF88
-	Red          lipgloss.Color // High priority #FF0066
-	Orange       lipgloss.Color // Medium priority #FF8800
-	Gray         lipgloss.Color // Muted text/low priority #666666
-	DarkGray     lipgloss.Color // Borders and backgrounds #333333
-	White        lipgloss.Color // Main text #EEEEEE
+	Green         lipgloss.Color // Success/online indicators #00FF88
+	Red           lipgloss.Color // High priority #FF0066
+	Orange        lipgloss.Color // Medium priority #FF8800
+	Gray          lipgloss.Color // Muted text/low priority #666666
+	DarkGray      lipgloss.Color // Borders and backgrounds #333333
+	White         lipgloss.Color // Main text #EEEEEE
 }
 
 // CleanCyberTheme provides the exact colors used in clean_cyber.go

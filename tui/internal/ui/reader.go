@@ -20,10 +20,10 @@ func (m *Model) updateReaderContent() {
 		sidebarWidth = 30
 	}
 	contentWidth := m.width - sidebarWidth - 1
-	
+
 	// Viewport dimensions - account for reader header and metadata
 	m.viewport.Width = contentWidth - 4   // Account for padding
-	m.viewport.Height = contentHeight - 9  // Account for position, title+metadata, tags, divider
+	m.viewport.Height = contentHeight - 9 // Account for position, title+metadata, tags, divider
 
 	// Try to extract reading_summary from Analysis JSON (often has richer content)
 	var contentToShow string

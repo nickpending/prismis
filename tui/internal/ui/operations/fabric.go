@@ -13,7 +13,7 @@ type FabricOperationMsg struct {
 	Message  string
 	Success  bool
 	Error    error
-	Result   string // Pattern execution result
+	Result   string   // Pattern execution result
 	Patterns []string // List of available patterns
 }
 
@@ -33,7 +33,7 @@ func ExecuteFabricCommand(pattern string, listOnly bool, content string) tea.Cmd
 		// Validate pattern exists
 		patterns := fabric.NewPatterns()
 		if !patterns.ValidatePattern(pattern) {
-				// Find similar patterns for suggestions
+			// Find similar patterns for suggestions
 			availablePatterns := patterns.FilterPatterns(pattern[:min(3, len(pattern))])
 			suggestion := ""
 			if len(availablePatterns) > 0 {

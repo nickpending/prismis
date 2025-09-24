@@ -2,7 +2,7 @@ package operations
 
 import (
 	"fmt"
-	
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nickpending/prismis/internal/db"
 	"github.com/nickpending/prismis/internal/service"

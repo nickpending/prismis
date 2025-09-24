@@ -27,28 +27,28 @@ func AddSource(url string, name string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Detect source type
 		sourceType := detectSourceType(url)
-		
+
 		// Create request
 		request := api.SourceRequest{
 			URL:  url,
 			Type: sourceType,
 		}
-		
+
 		// Add name if provided
 		if name != "" {
 			request.Name = &name
 		}
-		
+
 		// Call API
 		resp, err := apiClient.AddSource(request)
 		if err != nil {
 			// Parse error for user-friendly message
 			errStr := err.Error()
 			var message string
-			
+
 			if strings.Contains(errStr, "validation error") {
 				// Extract the actual validation error message
 				parts := strings.SplitN(errStr, ": ", 2)
@@ -64,14 +64,14 @@ func AddSource(url string, name string) tea.Cmd {
 			} else {
 				message = fmt.Sprintf("Failed to add source: %v", err)
 			}
-			
+
 			return SourceOperationMsg{
 				Message: message,
 				Success: false,
 				Error:   err,
 			}
 		}
-		
+
 		// Success - return success message with source info
 		sourceName := url
 		if resp.Data != nil {
@@ -79,7 +79,7 @@ func AddSource(url string, name string) tea.Cmd {
 				sourceName = name
 			}
 		}
-		
+
 		return SourceOperationMsg{
 			Message: fmt.Sprintf("✓ Added %s source: %s", sourceType, sourceName),
 			Success: true,
@@ -99,7 +99,7 @@ func RemoveSource(identifier string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Use helper to find source
 		sourceID, sourceName, err := lookupSourceByIdentifier(identifier, apiClient)
 		if err != nil {
@@ -109,7 +109,7 @@ func RemoveSource(identifier string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Delete the source by ID
 		_, err = apiClient.DeleteSource(sourceID)
 		if err != nil {
@@ -119,7 +119,7 @@ func RemoveSource(identifier string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		return SourceOperationMsg{
 			Message: fmt.Sprintf("✓ Removed source: %s", sourceName),
 			Success: true,
@@ -139,7 +139,7 @@ func PauseSource(identifier string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Use helper to find source
 		sourceID, sourceName, err := lookupSourceByIdentifier(identifier, apiClient)
 		if err != nil {
@@ -149,7 +149,7 @@ func PauseSource(identifier string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Pause the source
 		_, err = apiClient.PauseSource(sourceID)
 		if err != nil {
@@ -159,7 +159,7 @@ func PauseSource(identifier string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		return SourceOperationMsg{
 			Message: fmt.Sprintf("⏸ Paused source: %s", sourceName),
 			Success: true,
@@ -179,7 +179,7 @@ func ResumeSource(identifier string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Use helper to find source
 		sourceID, sourceName, err := lookupSourceByIdentifier(identifier, apiClient)
 		if err != nil {
@@ -189,7 +189,7 @@ func ResumeSource(identifier string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Resume the source
 		_, err = apiClient.ResumeSource(sourceID)
 		if err != nil {
@@ -199,7 +199,7 @@ func ResumeSource(identifier string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		return SourceOperationMsg{
 			Message: fmt.Sprintf("▶ Resumed source: %s", sourceName),
 			Success: true,
@@ -219,7 +219,7 @@ func EditSourceName(identifier string, newName string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Use helper to find source
 		sourceID, _, err := lookupSourceByIdentifier(identifier, apiClient)
 		if err != nil {
@@ -229,7 +229,7 @@ func EditSourceName(identifier string, newName string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Get the current source data to preserve URL and Type
 		sourcesResp, err := apiClient.GetSources()
 		if err != nil {
@@ -239,7 +239,7 @@ func EditSourceName(identifier string, newName string) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Find the source to get current URL and Type
 		var currentURL, currentType string
 		for _, source := range sourcesResp.Sources {
@@ -249,7 +249,7 @@ func EditSourceName(identifier string, newName string) tea.Cmd {
 				break
 			}
 		}
-		
+
 		if currentURL == "" || currentType == "" {
 			return SourceOperationMsg{
 				Message: "Could not find source details",
@@ -257,14 +257,14 @@ func EditSourceName(identifier string, newName string) tea.Cmd {
 				Error:   fmt.Errorf("source not found"),
 			}
 		}
-		
+
 		// Update with current URL/Type and new name
 		updates := map[string]interface{}{
 			"url":  currentURL,
 			"type": currentType,
 			"name": newName,
 		}
-		
+
 		// Use UpdateSource
 		return UpdateSource(sourceID, updates)()
 	}
@@ -281,11 +281,11 @@ func UpdateSource(sourceID string, updates map[string]interface{}) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Build the update request
 		// URL and Type are REQUIRED by the API
 		request := api.SourceRequest{}
-		
+
 		// Set URL (required)
 		if url, ok := updates["url"].(string); ok && url != "" {
 			request.URL = url
@@ -296,8 +296,8 @@ func UpdateSource(sourceID string, updates map[string]interface{}) tea.Cmd {
 				Error:   fmt.Errorf("missing URL"),
 			}
 		}
-		
-		// Set type (required) 
+
+		// Set type (required)
 		if sourceType, ok := updates["type"].(string); ok && sourceType != "" {
 			request.Type = sourceType
 		} else {
@@ -307,12 +307,12 @@ func UpdateSource(sourceID string, updates map[string]interface{}) tea.Cmd {
 				Error:   fmt.Errorf("missing type"),
 			}
 		}
-		
+
 		// Set name if provided (optional)
 		if name, ok := updates["name"].(string); ok && name != "" {
 			request.Name = &name
 		}
-		
+
 		// Call the update API
 		resp, err := apiClient.UpdateSource(sourceID, request)
 		if err != nil {
@@ -322,7 +322,7 @@ func UpdateSource(sourceID string, updates map[string]interface{}) tea.Cmd {
 				Error:   err,
 			}
 		}
-		
+
 		// Extract the updated source name for the success message
 		sourceName := "source"
 		if resp.Data != nil {
@@ -330,7 +330,7 @@ func UpdateSource(sourceID string, updates map[string]interface{}) tea.Cmd {
 				sourceName = name
 			}
 		}
-		
+
 		return SourceOperationMsg{
 			Message: fmt.Sprintf("✓ Updated source: %s", sourceName),
 			Success: true,
@@ -384,7 +384,7 @@ func ShowLogs() tea.Cmd {
 // detectSourceType detects the type of source from the URL
 func detectSourceType(url string) string {
 	url = strings.ToLower(url)
-	
+
 	if strings.Contains(url, "reddit.com") || strings.HasPrefix(url, "reddit://") {
 		return "reddit"
 	} else if strings.Contains(url, "youtube.com") || strings.Contains(url, "youtu.be") || strings.HasPrefix(url, "youtube://") {
@@ -433,7 +433,7 @@ func normalizeSourceURL(url string, sourceType string) string {
 			// Convert rss://example.com/feed to https://example.com/feed
 			feedURL := url[6:]
 			feedURL = strings.TrimPrefix(feedURL, "//")
-			
+
 			// Add https:// if not already present
 			if !strings.HasPrefix(feedURL, "http://") && !strings.HasPrefix(feedURL, "https://") {
 				return fmt.Sprintf("https://%s", feedURL)
@@ -441,7 +441,7 @@ func normalizeSourceURL(url string, sourceType string) string {
 			return feedURL
 		}
 	}
-	
+
 	// For already-normalized URLs, return as-is
 	return url
 }
@@ -464,17 +464,17 @@ func lookupSourceByIdentifier(identifier string, apiClient *api.APIClient) (stri
 	if isUUID(identifier) {
 		return identifier, "source", nil
 	}
-	
+
 	// Get all sources for lookup
 	sourcesResp, err := apiClient.GetSources()
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get sources: %v", err)
 	}
-	
+
 	// Normalize the identifier as a URL (in case it's a protocol URL)
 	sourceType := detectSourceType(identifier)
 	normalizedURL := normalizeSourceURL(identifier, sourceType)
-	
+
 	// Try to find source by:
 	// 1. Exact URL match (case insensitive)
 	// 2. Normalized URL match (case insensitive)
@@ -488,12 +488,12 @@ func lookupSourceByIdentifier(identifier string, apiClient *api.APIClient) (stri
 			}
 			return source.ID, name, nil
 		}
-		
+
 		// Check name match (case insensitive)
 		if source.Name != nil && strings.EqualFold(*source.Name, identifier) {
 			return source.ID, *source.Name, nil
 		}
 	}
-	
+
 	return "", "", fmt.Errorf("source not found: %s", identifier)
 }

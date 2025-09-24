@@ -167,9 +167,12 @@ func TestReaderViewRendering(t *testing.T) {
 				cursor:   0,
 				view:     "list",
 				priority: "all",
+				loading:  false,
+				width:    80,
+				height:   20,
 				viewport: viewport.New(80, 20),
 			},
-			wantText: []string{"Prismis TUI", "Commands:", "j/k"},
+			wantText: []string{"PRISMIS", "List Item", "Press ? for help"},
 		},
 		{
 			name: "View renders reader when view='reader'",
@@ -184,9 +187,12 @@ func TestReaderViewRendering(t *testing.T) {
 				},
 				cursor:   0,
 				view:     "reader",
+				loading:  false,
+				width:    80,
+				height:   20,
 				viewport: viewport.New(80, 20),
 			},
-			wantText: []string{"Reader Item", "https://example.com", "Esc Back to list"},
+			wantText: []string{"Reader Item", "ARTICLE 1 of 1", "Press ? for help"},
 		},
 	}
 

@@ -2,7 +2,7 @@ package ui
 
 import (
 	"strings"
-	
+
 	"github.com/charmbracelet/lipgloss"
 )
 

@@ -3,7 +3,7 @@ package commands
 import (
 	"fmt"
 	"strings"
-	
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -20,7 +20,7 @@ func NewRegistry() *Registry {
 	r := &Registry{
 		commands: make(map[string]CommandFunc),
 	}
-	
+
 	// Register built-in commands (vim-style: full names only, completion handles prefixes)
 	r.Register("quit", cmdQuit)
 	r.Register("refresh", cmdRefresh)
@@ -43,7 +43,7 @@ func NewRegistry() *Registry {
 	r.Register("open", cmdOpen)
 	r.Register("yank", cmdYank)
 	r.Register("copy", cmdCopy)
-	
+
 	return r
 }
 
@@ -58,29 +58,29 @@ func (r *Registry) Execute(name string, args []string) tea.Cmd {
 	if fn, ok := r.commands[name]; ok {
 		return fn(args)
 	}
-	
+
 	// Then try prefix matching (vim-style)
 	var matches []string
 	var matchedFn CommandFunc
 	lowerName := strings.ToLower(name)
-	
+
 	for cmdName, fn := range r.commands {
 		if strings.HasPrefix(strings.ToLower(cmdName), lowerName) {
 			matches = append(matches, cmdName)
 			matchedFn = fn
 		}
 	}
-	
+
 	// If exactly one match, execute it
 	if len(matches) == 1 {
 		return matchedFn(args)
 	}
-	
+
 	// If multiple matches, show ambiguous command error
 	if len(matches) > 1 {
 		return showError(fmt.Sprintf("Ambiguous command '%s': %s", name, strings.Join(matches, ", ")))
 	}
-	
+
 	// No matches
 	return showError(name)
 }
@@ -121,7 +121,7 @@ func cmdAdd(args []string) tea.Cmd {
 		if len(args) == 0 {
 			return ErrorMsg{Message: "add: URL required"}
 		}
-		
+
 		url := args[0]
 		// Return a message to trigger source addition
 		return AddSourceMsg{URL: url}
@@ -134,7 +134,7 @@ func cmdRemove(args []string) tea.Cmd {
 		if len(args) == 0 {
 			return ErrorMsg{Message: "remove: URL required"}
 		}
-		
+
 		identifier := args[0]
 		return RemoveSourceMsg{Identifier: identifier}
 	}
@@ -244,7 +244,7 @@ func cmdPause(args []string) tea.Cmd {
 		if len(args) == 0 {
 			return ErrorMsg{Message: "pause: URL required"}
 		}
-		
+
 		url := args[0]
 		return PauseSourceMsg{URL: url}
 	}
@@ -256,7 +256,7 @@ func cmdResume(args []string) tea.Cmd {
 		if len(args) == 0 {
 			return ErrorMsg{Message: "resume: URL required"}
 		}
-		
+
 		url := args[0]
 		return ResumeSourceMsg{URL: url}
 	}
@@ -268,11 +268,11 @@ func cmdEdit(args []string) tea.Cmd {
 		if len(args) < 2 {
 			return ErrorMsg{Message: "edit: requires identifier and new name"}
 		}
-		
+
 		identifier := args[0]
 		// Join remaining args as the new name (handles spaces without quotes for now)
 		newName := strings.Join(args[1:], " ")
-		
+
 		return EditSourceMsg{
 			Identifier: identifier,
 			NewName:    newName,
@@ -341,9 +341,9 @@ func cmdFabric(args []string) tea.Cmd {
 		pattern := args[0]
 
 		return FabricMsg{
-			Pattern:   pattern,
-			ListOnly:  false,
-			Content:   "", // Content will be populated by the handler
+			Pattern:  pattern,
+			ListOnly: false,
+			Content:  "", // Content will be populated by the handler
 		}
 	}
 }
@@ -358,7 +358,7 @@ func showError(msg string) tea.Cmd {
 // Message types for commands
 
 // RefreshMsg signals that content should be refreshed
-type RefreshMsg struct{
+type RefreshMsg struct {
 	PreserveCursor bool // If true, try to maintain cursor position
 }
 

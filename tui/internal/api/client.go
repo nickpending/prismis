@@ -247,7 +247,7 @@ func (c *APIClient) PauseSource(sourceID string) (*APIResponse, error) {
 
 	// Check for API-level errors
 	if !apiResp.Success {
-		return &apiResp, fmt.Errorf(apiResp.Message)
+		return &apiResp, fmt.Errorf("%s", apiResp.Message)
 	}
 
 	return &apiResp, nil
@@ -285,7 +285,7 @@ func (c *APIClient) ResumeSource(sourceID string) (*APIResponse, error) {
 
 	// Check for API-level errors
 	if !apiResp.Success {
-		return &apiResp, fmt.Errorf(apiResp.Message)
+		return &apiResp, fmt.Errorf("%s", apiResp.Message)
 	}
 
 	return &apiResp, nil
@@ -479,7 +479,7 @@ func (c *APIClient) PruneCount(days *int) (int, error) {
 	}
 
 	if !apiResp.Success {
-		return 0, fmt.Errorf(apiResp.Message)
+		return 0, fmt.Errorf("%s", apiResp.Message)
 	}
 
 	return apiResp.Data.Count, nil
@@ -530,7 +530,7 @@ func (c *APIClient) PruneUnprioritized(days *int) (int, error) {
 	}
 
 	if !apiResp.Success {
-		return 0, fmt.Errorf(apiResp.Message)
+		return 0, fmt.Errorf("%s", apiResp.Message)
 	}
 
 	return apiResp.Data.Deleted, nil

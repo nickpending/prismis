@@ -71,11 +71,11 @@ func createTestDB(t *testing.T) string {
 		favorited bool
 	}{
 		{"1", "High Priority Item 1", "high", false, false},
-		{"2", "High Priority Item 2", "high", false, true},  // Favorited unread
+		{"2", "High Priority Item 2", "high", false, true}, // Favorited unread
 		{"3", "Medium Priority Item", "medium", false, false},
-		{"4", "Low Priority Item", "low", false, true},      // Favorited unread
+		{"4", "Low Priority Item", "low", false, true}, // Favorited unread
 		{"5", "No Priority Item", "", false, false},
-		{"6", "Read High Item", "high", true, true},         // Favorited read
+		{"6", "Read High Item", "high", true, true}, // Favorited read
 	}
 
 	for _, item := range testData {

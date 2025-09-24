@@ -407,7 +407,6 @@ func GetSourcesWithCounts() ([]Source, error) {
 	return sources, nil
 }
 
-
 // getDBPath returns the path to the SQLite database
 func getDBPath() (string, error) {
 	return dbPathFunc()
@@ -433,13 +432,13 @@ func GetUnprioritizedContent(showAll bool) ([]ContentItem, int, error) {
 	          FROM content c
 	          JOIN sources s ON c.source_id = s.id
 	          WHERE (c.priority IS NULL OR c.priority = '')`
-	
+
 	// Add read filter based on showAll flag
 	if !showAll {
 		// Show unread only
 		query += " AND c.read = 0"
 	}
-	
+
 	query += " ORDER BY c.published_at DESC"
 
 	rows, err := db.Query(query)

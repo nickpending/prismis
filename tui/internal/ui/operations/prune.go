@@ -18,9 +18,9 @@ type PruneResultMsg struct {
 
 // PruneCountMsg contains the count for confirmation
 type PruneCountMsg struct {
-	Count     int
-	Days      *int
-	ShowOnly  bool // If true, just show count without prompting for confirmation
+	Count    int
+	Days     *int
+	ShowOnly bool // If true, just show count without prompting for confirmation
 }
 
 // GetPruneCount gets the count of items that would be pruned

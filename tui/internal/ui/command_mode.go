@@ -14,17 +14,17 @@ import (
 
 // CommandMode represents the neovim-style command mode
 type CommandMode struct {
-	active           bool
-	input            textinput.Model
-	history          []string
-	historyIdx       int
-	suggestions      []string
-	suggestionIdx    int    // Current index in suggestions for cycling
-	completionBase   string // The base text we're completing from
-	registry         *commands.Registry
-	patterns         *fabric.Patterns
-	width            int
-	error            string // Error message to display
+	active         bool
+	input          textinput.Model
+	history        []string
+	historyIdx     int
+	suggestions    []string
+	suggestionIdx  int    // Current index in suggestions for cycling
+	completionBase string // The base text we're completing from
+	registry       *commands.Registry
+	patterns       *fabric.Patterns
+	width          int
+	error          string // Error message to display
 }
 
 // clearErrorMsg is sent to clear command error after delay
@@ -37,7 +37,7 @@ func NewCommandMode() CommandMode {
 	ti.CharLimit = 256
 	ti.Width = 50
 	ti.Prompt = ":"
-	
+
 	return CommandMode{
 		active:      false,
 		input:       ti,
@@ -93,7 +93,7 @@ func (c *CommandMode) SetError(err string) tea.Cmd {
 	// Keep command mode active to show the error
 	c.active = true
 	c.input.Blur() // But unfocus input
-	
+
 	// Return command to clear error after delay
 	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 		return clearErrorMsg{}
@@ -105,14 +105,14 @@ func (c *CommandMode) Update(msg tea.Msg) (CommandMode, tea.Cmd) {
 	if !c.active {
 		return *c, nil
 	}
-	
+
 	switch msg := msg.(type) {
 	case clearErrorMsg:
 		// Clear the error and hide command mode
 		c.error = ""
 		c.Hide()
 		return *c, nil
-		
+
 	case tea.KeyMsg:
 		// If showing error, any key clears it
 		if c.error != "" {
@@ -120,14 +120,14 @@ func (c *CommandMode) Update(msg tea.Msg) (CommandMode, tea.Cmd) {
 			c.Hide()
 			return *c, nil
 		}
-		
+
 		// Normal key handling
 		switch msg.Type {
 		case tea.KeyEscape, tea.KeyCtrlC:
 			// Cancel command mode
 			c.Hide()
 			return *c, nil
-			
+
 		case tea.KeyEnter:
 			// Execute command
 			cmd := strings.TrimSpace(c.input.Value())
@@ -135,26 +135,26 @@ func (c *CommandMode) Update(msg tea.Msg) (CommandMode, tea.Cmd) {
 				c.Hide()
 				return *c, nil
 			}
-			
+
 			// Add to history
 			c.addToHistory(cmd)
-			
+
 			// Parse command and arguments with quote support
 			parts := parseCommandWithQuotes(cmd)
 			if len(parts) == 0 {
 				c.Hide()
 				return *c, nil
 			}
-			
+
 			cmdName := parts[0]
 			args := parts[1:]
-			
+
 			// Hide command mode before executing
 			c.Hide()
-			
+
 			// Execute via registry
 			return *c, c.registry.Execute(cmdName, args)
-			
+
 		case tea.KeyUp:
 			// Navigate history backwards
 			if c.historyIdx > 0 {
@@ -163,7 +163,7 @@ func (c *CommandMode) Update(msg tea.Msg) (CommandMode, tea.Cmd) {
 				c.input.CursorEnd()
 			}
 			return *c, nil
-			
+
 		case tea.KeyDown:
 			// Navigate history forwards
 			if c.historyIdx < len(c.history)-1 {
@@ -175,7 +175,7 @@ func (c *CommandMode) Update(msg tea.Msg) (CommandMode, tea.Cmd) {
 				c.input.SetValue("")
 			}
 			return *c, nil
-			
+
 		case tea.KeyTab:
 			// Tab completion with cycling
 			current := c.input.Value()
@@ -218,7 +218,7 @@ func (c *CommandMode) Update(msg tea.Msg) (CommandMode, tea.Cmd) {
 			c.suggestionIdx = (c.suggestionIdx + 1) % len(c.suggestions)
 
 			return *c, nil
-			
+
 		case tea.KeyBackspace:
 			// Cancel if empty
 			if c.input.Value() == "" {
@@ -227,7 +227,7 @@ func (c *CommandMode) Update(msg tea.Msg) (CommandMode, tea.Cmd) {
 			}
 		}
 	}
-	
+
 	// Let textinput handle other input
 	var cmd tea.Cmd
 	oldValue := c.input.Value()
@@ -328,12 +328,12 @@ func (c *CommandMode) addToHistory(cmd string) {
 	if len(c.history) > 0 && c.history[len(c.history)-1] == cmd {
 		return
 	}
-	
+
 	// Limit history size
 	if len(c.history) >= 100 {
 		c.history = c.history[1:]
 	}
-	
+
 	c.history = append(c.history, cmd)
 }
 
@@ -343,26 +343,26 @@ func parseCommandWithQuotes(cmd string) []string {
 	var current strings.Builder
 	var inQuotes bool
 	var escaped bool
-	
+
 	runes := []rune(cmd)
-	
+
 	for i := 0; i < len(runes); i++ {
 		r := runes[i]
-		
+
 		switch {
 		case escaped:
 			// Previous character was backslash, add this literally
 			current.WriteRune(r)
 			escaped = false
-			
+
 		case r == '\\':
 			// Escape next character
 			escaped = true
-			
+
 		case r == '"' && !escaped:
 			// Toggle quote mode
 			inQuotes = !inQuotes
-			
+
 		case r == ' ' && !inQuotes:
 			// Space outside quotes - end current arg
 			if current.Len() > 0 {
@@ -373,17 +373,17 @@ func parseCommandWithQuotes(cmd string) []string {
 			for i+1 < len(runes) && runes[i+1] == ' ' {
 				i++
 			}
-			
+
 		default:
 			// Regular character
 			current.WriteRune(r)
 		}
 	}
-	
+
 	// Add final argument if any
 	if current.Len() > 0 {
 		args = append(args, current.String())
 	}
-	
+
 	return args
 }

@@ -34,7 +34,7 @@ func (m *HelpModal) SetSize(width, height int) {
 	if modalHeight < 20 {
 		modalHeight = 20
 	}
-	
+
 	// But don't exceed terminal size
 	if modalWidth > width-4 {
 		modalWidth = width - 4
@@ -80,7 +80,7 @@ func (m HelpModal) View() string {
 	titleStyle := lipgloss.NewStyle().
 		Foreground(theme.Cyan).
 		Bold(true)
-	
+
 	title := "KEYBOARD SHORTCUTS"
 	// Center the title
 	titleWidth := lipgloss.Width(title)

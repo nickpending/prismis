@@ -72,11 +72,11 @@ func (c *Config) ValidateReports() error {
 	if c.Reports == nil {
 		return fmt.Errorf("reports configuration missing. Add [reports] section to config.toml with output_path")
 	}
-	
+
 	if c.Reports.OutputPath == "" {
 		return fmt.Errorf("reports.output_path not configured. Add output_path to [reports] section in config.toml")
 	}
-	
+
 	return nil
 }
 
@@ -85,9 +85,9 @@ func (c *Config) GetReportsOutputPath() (string, error) {
 	if err := c.ValidateReports(); err != nil {
 		return "", err
 	}
-	
+
 	outputPath := c.Reports.OutputPath
-	
+
 	// Expand ~ to home directory
 	if strings.HasPrefix(outputPath, "~/") {
 		home, err := os.UserHomeDir()
@@ -96,6 +96,6 @@ func (c *Config) GetReportsOutputPath() (string, error) {
 		}
 		outputPath = filepath.Join(home, outputPath[2:])
 	}
-	
+
 	return outputPath, nil
 }

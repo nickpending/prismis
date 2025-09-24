@@ -46,13 +46,13 @@ type SourceModal struct {
 
 	// Form fields for add/edit modes - now using textinput.Model
 	urlInput       textinput.Model // URL input field
-	nameInput      textinput.Model // Name input field  
+	nameInput      textinput.Model // Name input field
 	activeField    string          // Which field is currently being edited
-	sourceToDelete string            // ID of source being deleted
-	
+	sourceToDelete string          // ID of source being deleted
+
 	// Status message for temporary feedback (like main/reader modal)
 	statusMessage string // Temporary status message to display
-	
+
 	// Viewport for scrolling content
 	viewport viewport.Model
 	ready    bool // Whether viewport is ready
@@ -68,7 +68,7 @@ func NewSourceModal() SourceModal {
 	urlInput.Width = 36
 	urlInput.CharLimit = 512
 
-	// Create name input  
+	// Create name input
 	nameInput := textinput.New()
 	nameInput.Placeholder = "Optional display name"
 	nameInput.Width = 36
@@ -103,7 +103,7 @@ func (m *SourceModal) SetSize(width, height int) {
 	m.height = modalHeight
 	m.Modal.width = modalWidth
 	m.Modal.height = modalHeight
-	
+
 	// Update viewport size to fill the modal
 	// Account for: border (2) + padding (2) + header (2) + status bar (1) = 7
 	vpHeight := modalHeight - 7
@@ -222,7 +222,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 					m.errorMsg = "URL is required"
 					return m, nil
 				}
-				
+
 				name := strings.TrimSpace(m.nameInput.Value())
 				return m, operations.AddSource(url, name)
 			case "esc":
@@ -296,10 +296,10 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				m.urlInput.Blur()
 				m.nameInput.Blur()
 				m.errorMsg = ""
-				
+
 				// Update content before returning
 				m.UpdateContent()
-				
+
 				// Return the update command directly (like add/remove/pause/resume)
 				return m, operations.UpdateSource(source.ID, updates)
 			case "esc":
@@ -339,7 +339,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				m.errorMsg = ""
 			}
 		}
-	
+
 	case operations.SourceOperationMsg:
 		if msg.Success {
 			// Success: return to list mode with status message
@@ -364,7 +364,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 			m.UpdateContent()
 			return m, nil
 		}
-		
+
 	case clearStatusMsg:
 		m.statusMessage = ""
 		// Update content to refresh status bar
@@ -374,14 +374,14 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 
 	// Update the modal content based on current mode
 	m.UpdateContent()
-	
+
 	// Also update viewport if in list mode
 	if m.mode == "list" {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
 	}
-	
+
 	return m, nil
 }
 
@@ -611,7 +611,7 @@ func (m SourceModal) View() string {
 
 	// Get content based on mode
 	var mainContentStr string
-	
+
 	if m.mode == "list" {
 		// For list mode, use viewport
 		content.WriteString(m.viewport.View())
@@ -731,23 +731,23 @@ func (m SourceModal) renderListContentOnly() string {
 				countStr = theme.MutedStyle().Render("0")
 			}
 
-			// Create columnar layout: Title (25 chars) | Type (8 chars) | Count  
+			// Create columnar layout: Title (25 chars) | Type (8 chars) | Count
 			titleWidth := 25
 			typeWidth := 8
-			
+
 			// Truncate title if needed and apply styling after truncation
 			displayName := source.Name
 			if len(displayName) > titleWidth {
 				displayName = displayName[:titleWidth-3] + "..."
 			}
-			
+
 			// Apply styling to the truncated name
 			if i == m.cursor {
 				nameStr = lipgloss.NewStyle().Foreground(theme.White).Bold(true).Render(displayName)
 			} else {
 				nameStr = theme.TextStyle().Render(displayName)
 			}
-			
+
 			// Calculate padding based on actual string length (not styled width)
 			titlePadding := titleWidth - len(displayName)
 			if titlePadding < 0 {
@@ -757,7 +757,7 @@ func (m SourceModal) renderListContentOnly() string {
 			if typePadding < 0 {
 				typePadding = 0
 			}
-			
+
 			// Build columnar line
 			line := fmt.Sprintf("%s%s %s%s %s%s %s",
 				selector,

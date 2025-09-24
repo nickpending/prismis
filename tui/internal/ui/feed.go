@@ -188,7 +188,7 @@ func RenderList(m Model) string {
 		highCount, medCount, lowCount, totalFavCount)
 	// Always show status bar
 	statusBar := statusStyle.Render(statusText)
-	
+
 	// Bottom line: command/message area (like vim)
 	var bottomLine string
 	if m.commandMode.IsActive() {
@@ -198,8 +198,8 @@ func RenderList(m Model) string {
 		// Show status message (errors, success messages)
 		// Use different colors for errors vs success
 		messageColor := theme.Cyan // Default for success messages
-		if strings.Contains(strings.ToLower(m.statusMessage), "failed") || 
-		   strings.Contains(strings.ToLower(m.statusMessage), "error") {
+		if strings.Contains(strings.ToLower(m.statusMessage), "failed") ||
+			strings.Contains(strings.ToLower(m.statusMessage), "error") {
 			messageColor = theme.VibrantPurple // Vibrant purple for errors - noticeable but not harsh
 		}
 		messageStyle := lipgloss.NewStyle().
@@ -440,14 +440,14 @@ func renderContentList(m Model, width, height int, theme StyleTheme) string {
 			selector = lipgloss.NewStyle().Foreground(theme.Cyan).Bold(true).Render("▸ ")
 			titleColor = theme.Cyan
 		}
-		
+
 		// Dim read items
 		if item.Read {
 			titleColor = theme.Gray // Dim the title for read items
 		}
 
 		// No separate star indicator needed - stars are now part of priority indicator
-		
+
 		// Format line 1: number, title
 		titleText := truncate(item.Title, width-20) // Standard width since no separate star
 		line1 := fmt.Sprintf("%s%s %2d. %s",
@@ -776,7 +776,7 @@ func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
 	// Priority dot and title
 	var priorityDot string
 	var dotColor lipgloss.Color
-	
+
 	if item.Favorited {
 		priorityDot = "♥"
 		dotColor = lipgloss.Color("#9F4DFF")
@@ -800,7 +800,7 @@ func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
 	priorityDotRendered := lipgloss.NewStyle().Foreground(dotColor).Render(priorityDot)
 	titleStyle := lipgloss.NewStyle().Foreground(theme.White).Bold(true)
 	titleText := titleStyle.Render(item.Title)
-	
+
 	// Build metadata to go on same line as title
 	timeAgo := formatTime(time.Since(item.Published))
 	metaStyle := lipgloss.NewStyle().Foreground(theme.Gray)
@@ -828,21 +828,21 @@ func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
 			metaParts = append(metaParts, metaStyle.Render(fmt.Sprintf("%dc", redditMetrics.numComments)))
 		}
 	}
-	
+
 	// Title and metadata on same line with bold grey brackets
 	bulletSeparator := lipgloss.NewStyle().Foreground(theme.Gray).Render(" • ")
 	metadataStr := strings.Join(metaParts, bulletSeparator) // Grey bullet separators
 	leftBracket := lipgloss.NewStyle().Foreground(theme.Gray).Bold(true).Render(" [ ")
 	rightBracket := lipgloss.NewStyle().Foreground(theme.Gray).Bold(true).Render(" ]")
 	content.WriteString(priorityDotRendered + " " + titleText + leftBracket + metadataStr + rightBracket)
-	
+
 	// Tags on their own line, indented to align with title
 	tags := extractAllTags(item.Analysis)
 	if tags != "" {
 		content.WriteString("\n")
 		content.WriteString("  " + tags) // Two spaces to align with title after "● "
 	}
-	
+
 	content.WriteString("\n\n")
 
 	// Divider

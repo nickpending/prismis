@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nickpending/prismis/internal/db"
 	"github.com/charmbracelet/bubbles/viewport"
+	"github.com/nickpending/prismis/internal/db"
 )
 
 // TestFeedNavigation tests that cursor movement and item selection work correctly

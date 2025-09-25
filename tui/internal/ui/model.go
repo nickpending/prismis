@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/nickpending/prismis/internal/commands"
 	"github.com/nickpending/prismis/internal/config"
 	"github.com/nickpending/prismis/internal/db"
@@ -46,6 +48,10 @@ type Model struct {
 	refreshInterval time.Duration // Interval for auto-refresh (0 = disabled)
 	// Prune confirmation state
 	pruneConfirm pruneConfirmState
+	// Sources viewport for scrollable source list
+	sourcesViewport viewport.Model // Viewport for source list scrolling
+	// Pane focus system (vim-style)
+	focusedPane string // "sources", "content" (content is either list or reader based on view)
 }
 
 // itemsLoadedMsg represents content items loaded from database
@@ -100,11 +106,17 @@ func NewModel() Model {
 		sourceModal:   NewSourceModal(), // Initialize source modal
 		helpModal:     NewHelpModal(),   // Initialize help modal
 		commandMode:   NewCommandMode(), // Initialize command mode
+		// Initialize sources viewport
+		sourcesViewport: viewport.New(20, 10), // Will be resized properly in View()
+		focusedPane:     "content",            // Start with content focused (list or reader)
 	}
 }
 
 // Init initializes the model and returns a command to fetch initial content
 func (m Model) Init() tea.Cmd {
+	// Initialize the sources viewport with empty content first
+	m.updateSourcesViewport()
+
 	cmds := []tea.Cmd{
 		fetchItemsWithState(m),
 		fetchSources(),
@@ -137,6 +149,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Width = msg.Width - 4
 		m.viewport.Height = msg.Height - 8
 		m.ready = true
+		// Set sources viewport size (sidebar is 1/4 width)
+		sidebarWidth := msg.Width / 4
+		if sidebarWidth < 30 {
+			sidebarWidth = 30
+		}
+		m.sourcesViewport.Width = sidebarWidth - 2 // Padding for borders
+		// Sources take ~65% of sidebar height (after stats section)
+		sidebarHeight := msg.Height - 6 // Account for header/footer
+		m.sourcesViewport.Height = (sidebarHeight * 65) / 100
 		// Update modal sizes
 		m.sourceModal.SetSize(msg.Width, msg.Height)
 		m.helpModal.SetSize(msg.Width, msg.Height)
@@ -172,9 +193,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Handle view-specific updates
-	if m.view == "reader" {
-		// Update viewport in reader view
+	// Handle view-specific updates - only update reader viewport when content pane is focused
+	if m.view == "reader" && m.focusedPane == "content" {
+		// Update viewport in reader view only when it has focus
 		m.viewport, cmd = m.viewport.Update(msg)
 		cmds = append(cmds, cmd)
 	}
@@ -390,48 +411,97 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.view = "list"
 			}
 
+		// Vim-style pane navigation
+		case "ctrl+w":
+			// Start vim window command mode - wait for next key
+			m.statusMessage = "-- WINDOW --"
+			// This would need a small state machine, for now use direct shortcuts
+
+		case "ctrl+h", "ctrl+w h":
+			// Move to left pane (sources)
+			m.focusedPane = "sources"
+			m.statusMessage = ""
+
+		case "ctrl+l", "ctrl+w l":
+			// Move to right pane (content)
+			m.focusedPane = "content"
+			m.statusMessage = ""
+
+		case "ctrl+w w", "tab":
+			// Cycle through panes
+			if m.focusedPane == "sources" {
+				m.focusedPane = "content"
+			} else {
+				m.focusedPane = "sources"
+			}
+			m.statusMessage = ""
+
 		// NOTE: Actions like mark, favorite, copy, yank, open are now :commands
 		// They can be executed with :m, :f, :c, :y, :o (or full names)
 
-		// Navigation - different behavior based on view
+		// Navigation - different behavior based on focused pane
 		case "j", "down":
-			if m.view == "list" && m.cursor < len(m.items)-1 {
-				m.cursor++
-			} else if m.view == "reader" {
-				// In reader, j scrolls down
-				m.viewport.LineDown(1)
+			if m.focusedPane == "sources" {
+				// When sources pane is focused, j/k scroll the sources
+				m.sourcesViewport.LineDown(1)
+			} else if m.focusedPane == "content" {
+				// Content pane focused - depends on view
+				if m.view == "list" && m.cursor < len(m.items)-1 {
+					m.cursor++
+				} else if m.view == "reader" {
+					m.viewport.LineDown(1)
+				}
 			}
 		case "k", "up":
-			if m.view == "list" && m.cursor > 0 {
-				m.cursor--
-			} else if m.view == "reader" {
-				// In reader, k scrolls up
-				m.viewport.LineUp(1)
+			if m.focusedPane == "sources" {
+				// When sources pane is focused, j/k scroll the sources
+				m.sourcesViewport.LineUp(1)
+			} else if m.focusedPane == "content" {
+				// Content pane focused - depends on view
+				if m.view == "list" && m.cursor > 0 {
+					m.cursor--
+				} else if m.view == "reader" {
+					m.viewport.LineUp(1)
+				}
 			}
 
-		// Reader-specific navigation
+		// Reader-specific navigation (only when content pane is focused)
 		case "h", "left":
-			if m.view == "reader" && m.cursor > 0 {
+			if m.focusedPane == "content" && m.view == "reader" && m.cursor > 0 {
 				// Previous article
 				m.cursor--
 				m.updateReaderContent()
 			}
 		case "l", "right":
-			if m.view == "reader" && m.cursor < len(m.items)-1 {
+			if m.focusedPane == "content" && m.view == "reader" && m.cursor < len(m.items)-1 {
 				// Next article
 				m.cursor++
 				m.updateReaderContent()
 			}
 		case "g":
-			if m.view == "list" {
-				// Go to top (vim-style gg but simplified to single g)
-				m.cursor = 0
+			if m.focusedPane == "sources" {
+				// Go to top of sources
+				m.sourcesViewport.GotoTop()
+			} else if m.focusedPane == "content" {
+				if m.view == "list" {
+					// Go to top of list
+					m.cursor = 0
+				} else if m.view == "reader" {
+					// Go to top of reader content
+					m.viewport.GotoTop()
+				}
 			}
 		case "G":
-			if m.view == "list" {
-				// Go to bottom
-				if len(m.items) > 0 {
+			if m.focusedPane == "sources" {
+				// Go to bottom of sources
+				m.sourcesViewport.GotoBottom()
+			} else if m.focusedPane == "content" {
+				if m.view == "list" && len(m.items) > 0 {
+					// Go to bottom of list
 					m.cursor = len(m.items) - 1
+				} else if m.view == "reader" {
+					// Go to bottom of reader content
+					m.viewport.GotoBottom()
 				}
 			}
 		case "0":
@@ -540,6 +610,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle source updates regardless of modal visibility
 		if msg.err == nil {
 			m.sources = msg.sources
+			// Update the sources viewport with new data
+			m.updateSourcesViewport()
 			// Update modal if it's visible
 			if m.sourceModal.IsVisible() {
 				m.sourceModal.LoadSources(msg.sources)
@@ -885,6 +957,85 @@ func flashItemCmd() tea.Cmd {
 	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
 		return clearFlashMsg{}
 	})
+}
+
+// updateSourcesViewport updates the sources viewport with formatted source list
+func (m *Model) updateSourcesViewport() {
+	content := m.buildSourcesContent(CleanCyberTheme)
+	m.sourcesViewport.SetContent(content)
+}
+
+// buildSourcesContent builds the formatted source list with proper theming
+func (m *Model) buildSourcesContent(theme StyleTheme) string {
+	ls := lipgloss.NewStyle()
+
+	// Group sources by type for display
+	sourcesByType := make(map[string][]db.Source)
+	for _, source := range m.sources {
+		sourcesByType[source.Type] = append(sourcesByType[source.Type], source)
+	}
+
+	var lines []string
+
+	// RSS Sources
+	if rssources, ok := sourcesByType["rss"]; ok && len(rssources) > 0 {
+		header := ls.Foreground(theme.Cyan).Bold(true).Render(fmt.Sprintf("RSS [%d]", len(rssources)))
+		lines = append(lines, header)
+		for _, source := range rssources {
+			lines = append(lines, m.formatSourceLine(source, theme))
+		}
+		lines = append(lines, "")
+	}
+
+	// Reddit Sources
+	if redditsources, ok := sourcesByType["reddit"]; ok && len(redditsources) > 0 {
+		header := ls.Foreground(theme.Cyan).Bold(true).Render(fmt.Sprintf("REDDIT [%d]", len(redditsources)))
+		lines = append(lines, header)
+		for _, source := range redditsources {
+			lines = append(lines, m.formatSourceLine(source, theme))
+		}
+		lines = append(lines, "")
+	}
+
+	// YouTube Sources
+	if ytsources, ok := sourcesByType["youtube"]; ok && len(ytsources) > 0 {
+		header := ls.Foreground(theme.Cyan).Bold(true).Render(fmt.Sprintf("YOUTUBE [%d]", len(ytsources)))
+		lines = append(lines, header)
+		for _, source := range ytsources {
+			lines = append(lines, m.formatSourceLine(source, theme))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// formatSourceLine formats a single source line with status indicator and count
+func (m *Model) formatSourceLine(source db.Source, theme StyleTheme) string {
+	ls := lipgloss.NewStyle()
+
+	// Determine status icon and color
+	var statusIcon string
+	var statusColor lipgloss.Color
+
+	if !source.Active {
+		statusIcon = "○" // Paused/inactive
+		statusColor = theme.Red
+	} else if source.ErrorCount > 3 {
+		statusIcon = "●" // Has errors
+		statusColor = theme.Red
+	} else if source.LastFetched == nil || time.Since(*source.LastFetched) > 24*time.Hour {
+		statusIcon = "●" // Stale
+		statusColor = theme.Orange
+	} else {
+		statusIcon = "●" // Healthy
+		statusColor = theme.Green
+	}
+
+	status := ls.Foreground(statusColor).Render(statusIcon)
+	name := truncate(source.Name, 20)
+	count := ls.Foreground(theme.White).Render(fmt.Sprintf("[%d]", source.UnreadCount))
+
+	return fmt.Sprintf("%s %s %s", status, name, count)
 }
 
 // extractReadingSummary extracts the reading_summary field from the Analysis JSON

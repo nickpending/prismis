@@ -287,92 +287,27 @@ func renderSidebar(m Model, width, height int, theme StyleTheme) string {
 
 	// Divider removed - SOURCES header provides enough separation
 
-	// Group sources by type for display
-	sourcesByType := make(map[string][]db.Source)
-	for _, source := range m.sources {
-		sourcesByType[source.Type] = append(sourcesByType[source.Type], source)
-	}
-
 	// Sources Section
 	sourceHeader := lipgloss.NewStyle().
 		Foreground(theme.Gray). // Subtle gray to match SYSTEM header
 		Render("── SOURCES " + strings.Repeat("─", width-13))
 
-	sources := []string{}
-
-	// RSS Sources
-	if rssources, ok := sourcesByType["rss"]; ok && len(rssources) > 0 {
-		header := fmt.Sprintf("RSS [%d]", len(rssources))
-		sources = append(sources, lipgloss.NewStyle().Foreground(theme.Cyan).Bold(true).Render(header))
-		for _, source := range rssources {
-			// Status based on active, errors, and last fetch
-			var status string
-			if !source.Active {
-				status = lipgloss.NewStyle().Foreground(theme.Red).Render("○") // Paused/inactive
-			} else if source.ErrorCount > 3 {
-				status = lipgloss.NewStyle().Foreground(theme.Red).Render("●") // Has errors
-			} else if source.LastFetched == nil || time.Since(*source.LastFetched) > 24*time.Hour {
-				status = lipgloss.NewStyle().Foreground(theme.Orange).Render("●") // Stale
-			} else {
-				status = lipgloss.NewStyle().Foreground(theme.Green).Render("●") // Healthy
-			}
-			// Color the item count number
-			countStr := lipgloss.NewStyle().Foreground(theme.White).Render(fmt.Sprintf("[%d]", source.UnreadCount))
-			sources = append(sources, fmt.Sprintf("%s %s %s", status, truncate(source.Name, width-12), countStr))
-		}
-		sources = append(sources, "")
-	}
-
-	// Reddit Sources
-	if redditsources, ok := sourcesByType["reddit"]; ok && len(redditsources) > 0 {
-		header := fmt.Sprintf("REDDIT [%d]", len(redditsources))
-		sources = append(sources, lipgloss.NewStyle().Foreground(theme.Cyan).Bold(true).Render(header))
-		for _, source := range redditsources {
-			// Status based on active, errors, and last fetch
-			var status string
-			if !source.Active {
-				status = lipgloss.NewStyle().Foreground(theme.Red).Render("○") // Paused/inactive
-			} else if source.ErrorCount > 3 {
-				status = lipgloss.NewStyle().Foreground(theme.Red).Render("●") // Has errors
-			} else if source.LastFetched == nil || time.Since(*source.LastFetched) > 24*time.Hour {
-				status = lipgloss.NewStyle().Foreground(theme.Orange).Render("●") // Stale
-			} else {
-				status = lipgloss.NewStyle().Foreground(theme.Green).Render("●") // Healthy
-			}
-			// Color the item count number
-			countStr := lipgloss.NewStyle().Foreground(theme.White).Render(fmt.Sprintf("[%d]", source.UnreadCount))
-			sources = append(sources, fmt.Sprintf("%s %s %s", status, source.Name, countStr))
-		}
-		sources = append(sources, "")
-	}
-
-	// YouTube Sources
-	if ytsources, ok := sourcesByType["youtube"]; ok && len(ytsources) > 0 {
-		header := fmt.Sprintf("YOUTUBE [%d]", len(ytsources))
-		sources = append(sources, lipgloss.NewStyle().Foreground(theme.Cyan).Bold(true).Render(header))
-		for _, source := range ytsources {
-			// Status based on active, errors, and last fetch
-			var status string
-			if !source.Active {
-				status = lipgloss.NewStyle().Foreground(theme.Red).Render("○") // Paused/inactive
-			} else if source.ErrorCount > 3 {
-				status = lipgloss.NewStyle().Foreground(theme.Red).Render("●") // Has errors
-			} else if source.LastFetched == nil || time.Since(*source.LastFetched) > 24*time.Hour {
-				status = lipgloss.NewStyle().Foreground(theme.Orange).Render("●") // Stale
-			} else {
-				status = lipgloss.NewStyle().Foreground(theme.Green).Render("●") // Healthy
-			}
-			// Color the item count number
-			countStr := lipgloss.NewStyle().Foreground(theme.White).Render(fmt.Sprintf("[%d]", source.UnreadCount))
-			sources = append(sources, fmt.Sprintf("%s %s %s", status, source.Name, countStr))
-		}
+	// Get the rendered viewport with focus indication
+	var actualHeader string
+	if m.focusedPane == "sources" {
+		// Highlight the header when sources pane is focused
+		actualHeader = lipgloss.NewStyle().
+			Foreground(theme.Cyan).Bold(true).
+			Render("── SOURCES " + strings.Repeat("─", width-13))
+	} else {
+		actualHeader = sourceHeader
 	}
 
 	sourcesSection := lipgloss.JoinVertical(
 		lipgloss.Left,
-		sourceHeader,
+		actualHeader,
 		"", // Add blank line after header
-		strings.Join(sources, "\n"),
+		m.sourcesViewport.View(),
 	)
 
 	return lipgloss.JoinVertical(

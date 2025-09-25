@@ -127,7 +127,6 @@ func renderMetadata(metadata ContentMetadata, width int) string {
 	return strings.Join(sections, "\n")
 }
 
-
 // updateReaderContent updates the viewport with article content (called from model.go)
 func (m *Model) updateReaderContent() {
 	if m.cursor >= len(m.items) || len(m.items) == 0 {

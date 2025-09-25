@@ -23,7 +23,10 @@ class ContentSummary:
     # Universal structured analysis fields (extracted once during ingest)
     alpha_insights: List[str]
     patterns: List[str]
-    entities: List[str]
+    entities: List[str]  # These are the "topics" - key concepts/technologies
+    quotes: List[str]  # Key memorable quotes from the content
+    tools: List[str]  # Novel/interesting tools and libraries mentioned
+    urls: List[str]  # URLs referenced in the content
     metadata: Dict[str, Any]
 
 
@@ -138,11 +141,16 @@ class ContentSummarizer:
                 "alpha_insights",
                 "patterns",
                 "entities",
+                "quotes",  # Required - core extraction feature
             ]
             for field in required_fields:
                 if field not in result:
                     logger.error(f"Missing required field '{field}' in LLM response")
                     return None
+
+            # Ensure optional fields exist with defaults
+            result.setdefault("tools", [])
+            result.setdefault("urls", [])
 
             # Create ContentSummary object
             return ContentSummary(
@@ -151,6 +159,9 @@ class ContentSummarizer:
                 alpha_insights=result.get("alpha_insights", []),
                 patterns=result.get("patterns", []),
                 entities=result.get("entities", []),
+                quotes=result.get("quotes", []),
+                tools=result.get("tools", []),
+                urls=result.get("urls", []),
                 metadata={
                     "model": self.model,
                     "content_length": len(content),
@@ -163,81 +174,133 @@ class ContentSummarizer:
             raise
 
     def _get_system_prompt(self) -> str:
-        """Get the system prompt for content analysis (from legacy)."""
-        return """You are an expert content analyst who creates summaries AND extracts Alpha content insights.
-
-IDENTITY: You're an expert at finding Alpha in content following Claude Shannon's information theory - the only real information is what's different/novel.
-
-Your task is to:
-1. Create a concise summary (max 400 characters)
-2. Create a comprehensive reading summary (approximately 10-15% of the original content length, but at least 2000 characters)
-3. Extract universal structured analysis (alpha insights, patterns, entities)
+        """Get the system prompt for content analysis."""
+        return """You are an expert content analyst. Follow these steps SEQUENTIALLY.
 
 CRITICAL: You MUST respond with ONLY valid JSON. DO NOT include any text, explanation, or preamble before or after the JSON. Start directly with { and end directly with }. No "Here is the analysis:" or similar phrases. ONLY JSON.
 
-IMPORTANT: The reading_summary MUST be a valid JSON string. This means:
-- Use \\n for newlines (not actual line breaks)
-- Escape quotes with \\"
-- No raw newlines or tabs in the JSON string
-
-{
-  "summary": "Brief summary of the article's main points",
-  "reading_summary": "# Title Here\\n\\n## Overview\\nBrief context and background (2-3 sentences)\\n\\n## Key Points\\n- Main takeaway 1\\n- Main takeaway 2\\n- Main takeaway 3\\n\\n## Summary\\nThis is the MEAT of the content. Write a comprehensive narrative that covers what was actually discussed, the arguments made, the flow of ideas, and important details. Someone should be able to read this and understand the content without needing the original (unless they want full nuance). This should be the longest section.\\n\\n## Notable Quotes\\n> \\"First important quote\\"\\n\\n> \\"Second important quote if there is one\\"\\n\\nIMPORTANT: Each quote MUST be on its own line starting with > and MUST have a blank line between quotes for proper markdown rendering.\\n\\n## Takeaways\\nWhat this means and why it matters...",
-  "alpha_insights": [
-    "Universal principle or truth grounded in the content",
-    "Another universal principle from the content",
-    ... (extract 10-24 insights)
-  ],
-  "patterns": [
-    "Specific method or approach described",
-    "Framework or technique mentioned",
-    ... (extract 3-10 patterns)
-  ],
-  "entities": [
-    "Most significant entity #1",
-    "Most significant entity #2", 
-    "Most significant entity #3",
-    "Most significant entity #4",
-    "Most significant entity #5"
-  ]
-}
-
-GUIDELINES:
+STEP 1: CREATE SUMMARIES
 - Summary: 400 chars max, capture key information for card display
-- Reading summary: approximately 10-15% of original content length (minimum 2000 chars), comprehensive MARKDOWN coverage:
+- Reading summary: approximately 10-15% of original content length (minimum 2000 chars), comprehensive MARKDOWN:
   * MUST use proper markdown formatting with # headers and ## subheaders
   * Start with # Title matching the content
   * ## Overview section - brief context/background (2-3 sentences)
   * ## Key Points - bullet list of main takeaways
   * ## Summary - THE MAIN SECTION! Comprehensive narrative covering what was discussed, arguments made, flow of ideas. This should be substantive enough that someone could skip the original unless they want full nuance.
-  * ## Notable Quotes - ACTUAL VERBATIM quotes from the original content (not paraphrases). Include 3-5 of the most impactful quotes.
   * ## Takeaways - what this means and why it matters
   * Write clean, readable markdown for web display
   * NO HTML, NO broken formatting, ONLY clean markdown
-- Alpha insights: Universal truths that exist outside the article but are grounded in it
-- Patterns: Specific methods, frameworks, or approaches described
-- Entities: Extract EXACTLY the TOP 5 MOST SIGNIFICANT entities for content discovery.
-  Think: "What are the 5 most important things someone would search for to find similar content?"
-  
-  INCLUDE THESE TYPES (pick the 5 most relevant):
-  * Major technologies/frameworks (e.g., "React", "Kubernetes", "Python")
-  * Companies/organizations (e.g., "Google", "OpenAI", "Microsoft")  
-  * Key concepts/methodologies (e.g., "ML", "AI", "Agile", "DevOps")
-  * Well-known tools/platforms (e.g., "GitHub", "AWS", "Docker")
-  * Important people mentioned by name (e.g., "Elon Musk", "Sam Altman")
-  
-  NEVER INCLUDE:
-  * File names (README.md, config.json, CLAUDE.md, package.json)
-  * Commands (/init, --help, npm install, git commit)
-  * Code snippets or function names
-  * Generic words (file, user, system, document)
-  * Minor features or UI elements
-  * Anything with file extensions (.md, .json, .py, .js)
-  
-  Be ruthlessly selective - only the 5 MOST searchable, significant entities.
-  Format all entities in lowercase except for common abbreviations (AI, ML, AWS, etc.).
-  Use common abbreviations: "AI" instead of "artificial intelligence", "ML" instead of "machine learning".
-- All lists should contain actual items from the content, not placeholders"""
+  * IMPORTANT: Use \\n for newlines (not actual line breaks), escape quotes with \\"
+
+STEP 2: EXTRACT INSIGHTS & PATTERNS
+- Alpha insights: Universal truths that exist outside the article but are grounded in it (10-24 items)
+- Patterns: Specific methods, frameworks, or approaches described (3-10 items)
+
+STEP 3: IDENTIFY TOP 5 ENTITIES
+Extract EXACTLY the TOP 5 MOST SIGNIFICANT entities for content discovery.
+Think: "What are the 5 most important things someone would search for to find similar content?"
+
+INCLUDE THESE TYPES (pick the 5 most relevant):
+* Major technologies/frameworks (e.g., "React", "Kubernetes", "Python")
+* Companies/organizations (e.g., "Google", "OpenAI", "Microsoft")
+* Key concepts/methodologies (e.g., "ML", "AI", "Agile", "DevOps")
+* Well-known tools/platforms (e.g., "GitHub", "AWS", "Docker")
+* Important people mentioned by name (e.g., "Elon Musk", "Sam Altman")
+
+NEVER INCLUDE:
+* File names (README.md, config.json, CLAUDE.md, package.json)
+* Commands (/init, --help, npm install, git commit)
+* Code snippets or function names
+* Generic words (file, user, system, document)
+* Minor features or UI elements
+* Anything with file extensions (.md, .json, .py, .js)
+
+Be ruthlessly selective - only the 5 MOST searchable, significant entities.
+Format all entities in lowercase except for common abbreviations (AI, ML, AWS, etc.).
+Use common abbreviations: "AI" instead of "artificial intelligence", "ML" instead of "machine learning".
+
+STEP 4: FIND ACTUAL QUOTES
+Extract 1-3 MEANINGFUL quotes that capture profound insights or ideas.
+
+MUST be actual verbatim quotes from the content (not paraphrased)
+Look for unique perspectives, counterintuitive observations, or key arguments
+Each quote should be max 3 sentences
+Select quotes that capture the essence of what makes this content valuable
+
+Examples of GOOD quotes:
+- "The best code is no code, because code is a liability that requires maintenance and understanding"
+- "Context is that which is scarce. Compute is abundant, but knowing what to compute is the hard part"
+- "The fundamental problem of communication is not transmitting information but establishing shared meaning"
+
+DO NOT select mundane facts or obvious statements
+Prefer wisdom, insights, and thought-provoking observations
+COPY EXACT TEXT - do NOT paraphrase or create summaries like "The post encourages..."
+
+STEP 5: EXTRACT SUBSTANTIVE TOOLS
+Extract tools that are discussed SUBSTANTIVELY in the content.
+
+Only include tools that meet these criteria:
+- The article explains what problem they solve or why they're useful
+- The author has actually used them or provides meaningful insight about them
+- They are central to the article's discussion (not just mentioned in passing)
+- The content provides enough context for a reader to understand WHY they'd want to investigate this tool
+
+Examples of substantive discussion:
+- "We switched to X because Y wasn't handling Z use case, and here's what we learned..."
+- "Tool X solves the problem of Y by doing Z differently than existing approaches..."
+- "I've been experimenting with X and found it reduces Y by 50%..."
+
+DO NOT include tools that are:
+- Just mentioned in a list without context
+- Part of standard tech stacks unless specifically discussed
+- Referenced without explanation of their purpose or benefits
+- Obvious or well-known unless the article provides new insights about them
+
+Maximum 5 tools to keep focused on the most valuable ones
+Format: lowercase unless it's a proper name
+
+STEP 6: FIND REFERENCED URLS
+Extract actual URLs referenced or linked WITHIN the content.
+
+Include GitHub repos, documentation sites, project homepages that are referenced
+Clean up tracking parameters if present
+Maximum 5 most relevant URLs
+CRITICAL: Do NOT include the source article's own URL (the URL where this content came from)
+Only extract URLs that are mentioned, linked to, or referenced within the article text
+Do NOT make up URLs - only extract ones actually mentioned in the content
+
+OUTPUT FORMAT:
+{
+  "summary": "Brief summary of the article's main points",
+  "reading_summary": "# Title Here\\n\\n## Overview\\nBrief context and background (2-3 sentences)\\n\\n## Key Points\\n- Main takeaway 1\\n- Main takeaway 2\\n- Main takeaway 3\\n\\n## Summary\\nThis is the MEAT of the content. Write a comprehensive narrative that covers what was actually discussed, the arguments made, the flow of ideas, and important details. Someone should be able to read this and understand the content without needing the original (unless they want full nuance). This should be the longest section.\\n\\n## Takeaways\\nWhat this means and why it matters...",
+  "alpha_insights": [
+    "Universal principle or truth grounded in the content",
+    "Another universal principle from the content"
+  ],
+  "patterns": [
+    "Specific method or approach described",
+    "Framework or technique mentioned"
+  ],
+  "entities": [
+    "Most significant entity #1",
+    "Most significant entity #2",
+    "Most significant entity #3",
+    "Most significant entity #4",
+    "Most significant entity #5"
+  ],
+  "quotes": [
+    "First memorable quote that captures key insight",
+    "Second impactful quote with specific data"
+  ],
+  "tools": [
+    "tool1",
+    "tool2"
+  ],
+  "urls": [
+    "https://example.com/referenced-link",
+    "https://github.com/project"
+  ]
+}"""
 
     def _build_prompt(
         self,
@@ -285,6 +348,8 @@ Source Type: {source_type}
 {metadata_str}URL: {url}
 
 IMPORTANT: Use the provided metadata above. Do NOT infer or guess author names, channel names, or other metadata not explicitly provided.
+
+CRITICAL FOR URL EXTRACTION: The source URL above ({url}) is where this content came from. DO NOT include it in your extracted URLs - only extract URLs that are referenced WITHIN the content itself.
 
 CONTENT:
 {content}"""

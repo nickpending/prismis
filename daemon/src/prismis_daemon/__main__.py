@@ -187,8 +187,7 @@ def validate_llm_config(config: Config) -> None:
         SystemExit: If LLM configuration is invalid
     """
     console.print("🔌 Validating LLM configuration...")
-    from .analyzer import Analyzer
-    import litellm
+    from .llm_validator import validate_llm_config
 
     test_config = {
         "provider": config.llm_provider,
@@ -199,23 +198,9 @@ def validate_llm_config(config: Config) -> None:
         test_config["api_base"] = config.llm_api_base
 
     try:
-        # This will raise ValueError if Ollama missing api_base
-        test_analyzer = Analyzer(test_config)
-
-        # Test actual LLM connection using LiteLLM's built-in health check
+        # Validate config and test connection
         console.print("🧪 Testing LLM connection...")
-
-        # Build model params for health check
-        model_params = {"model": config.llm_model}
-        if test_analyzer.api_key:
-            model_params["api_key"] = test_analyzer.api_key
-        if test_analyzer.api_base:
-            model_params["api_base"] = test_analyzer.api_base
-
-        # Use LiteLLM's health check
-        import asyncio
-
-        asyncio.run(litellm.ahealth_check(model_params))
+        validate_llm_config(test_config)
 
         console.print(
             f"[green]✅ LLM connection successful: {config.llm_provider} / {config.llm_model}[/green]"

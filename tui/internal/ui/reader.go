@@ -1,8 +1,132 @@
 package ui
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 )
+
+// ContentMetadata represents the metadata extracted from analysis JSON
+type ContentMetadata struct {
+	Entities []string `json:"entities"`
+	Quotes   []string `json:"quotes"`
+	Tools    []string `json:"tools"`
+	URLs     []string `json:"urls"`
+}
+
+// parseMetadata extracts metadata from the Analysis JSON field
+func parseMetadata(analysisJSON string) ContentMetadata {
+	if analysisJSON == "" {
+		return ContentMetadata{}
+	}
+
+	var analysis map[string]interface{}
+	if err := json.Unmarshal([]byte(analysisJSON), &analysis); err != nil {
+		return ContentMetadata{}
+	}
+
+	metadata := ContentMetadata{}
+
+	// Extract entities (these are the "topics")
+	if entities, ok := analysis["entities"].([]interface{}); ok {
+		for _, entity := range entities {
+			if str, ok := entity.(string); ok {
+				metadata.Entities = append(metadata.Entities, str)
+			}
+		}
+	}
+
+	// Extract quotes
+	if quotes, ok := analysis["quotes"].([]interface{}); ok {
+		for _, quote := range quotes {
+			if str, ok := quote.(string); ok {
+				metadata.Quotes = append(metadata.Quotes, str)
+			}
+		}
+	}
+
+	// Extract tools
+	if tools, ok := analysis["tools"].([]interface{}); ok {
+		for _, tool := range tools {
+			if str, ok := tool.(string); ok {
+				metadata.Tools = append(metadata.Tools, str)
+			}
+		}
+	}
+
+	// Extract URLs
+	if urls, ok := analysis["urls"].([]interface{}); ok {
+		for _, url := range urls {
+			if str, ok := url.(string); ok {
+				metadata.URLs = append(metadata.URLs, str)
+			}
+		}
+	}
+
+	return metadata
+}
+
+// injectQuotesIntoSummary inserts quotes section right before "## Takeaways"
+func injectQuotesIntoSummary(readingSummary string, quotes []string) string {
+	if len(quotes) == 0 {
+		return readingSummary
+	}
+
+	// Replace "## Takeaways" with quotes section + "## Takeaways"
+	quotesSection := "\n## Key Quotes\n\n"
+	for i, quote := range quotes {
+		quotesSection += fmt.Sprintf("> %s", quote)
+		// Add blank line between quotes (but not after the last one)
+		if i < len(quotes)-1 {
+			quotesSection += "\n\n"
+		} else {
+			quotesSection += "\n"
+		}
+	}
+	quotesSection += "\n## Takeaways"
+
+	return strings.Replace(readingSummary, "## Takeaways", quotesSection, 1)
+}
+
+// renderMetadata formats metadata as markdown for proper styling (quotes now injected into reading summary)
+func renderMetadata(metadata ContentMetadata, width int) string {
+	// Only show tools and URLs - quotes are now injected into the reading summary
+	if len(metadata.Tools) == 0 && len(metadata.URLs) == 0 {
+		return ""
+	}
+
+	var sections []string
+
+	// Add spacing before metadata starts
+	sections = append(sections, "")
+	sections = append(sections, "")
+
+	// Tools as section
+	if len(metadata.Tools) > 0 {
+		sections = append(sections, "## Tools")
+		for _, tool := range metadata.Tools {
+			sections = append(sections, fmt.Sprintf("- %s", tool))
+		}
+		sections = append(sections, "")
+	}
+
+	// URLs as section
+	if len(metadata.URLs) > 0 {
+		sections = append(sections, "## Links")
+		for i, url := range metadata.URLs {
+			if i < 3 { // Show first 3
+				sections = append(sections, fmt.Sprintf("- %s", url))
+			} else if i == 3 && len(metadata.URLs) > 3 {
+				sections = append(sections, fmt.Sprintf("- ... and %d more links", len(metadata.URLs)-3))
+				break
+			}
+		}
+		sections = append(sections, "")
+	}
+
+	return strings.Join(sections, "\n")
+}
+
 
 // updateReaderContent updates the viewport with article content (called from model.go)
 func (m *Model) updateReaderContent() {
@@ -25,13 +149,16 @@ func (m *Model) updateReaderContent() {
 	m.viewport.Width = contentWidth - 4   // Account for padding
 	m.viewport.Height = contentHeight - 9 // Account for position, title+metadata, tags, divider
 
+	// Parse metadata once for use throughout
+	metadata := parseMetadata(item.Analysis)
+
 	// Try to extract reading_summary from Analysis JSON (often has richer content)
 	var contentToShow string
 	readingSummary := extractReadingSummary(item.Analysis)
 
 	if readingSummary != "" {
-		// Use the rich reading summary (may have markdown formatting)
-		contentToShow = readingSummary
+		// Inject quotes into reading summary after Key Points section
+		contentToShow = injectQuotesIntoSummary(readingSummary, metadata.Quotes)
 	} else if item.Content != "" {
 		// Use the full article content
 		contentToShow = item.Content
@@ -60,6 +187,12 @@ func (m *Model) updateReaderContent() {
 				}
 			}
 		}
+	}
+
+	// Append remaining metadata (tools/links) BEFORE markdown rendering
+	metadataSection := renderMetadata(metadata, m.viewport.Width)
+	if metadataSection != "" {
+		contentToShow += metadataSection
 	}
 
 	// Render our simple markdown format ourselves for proper wrapping

@@ -196,42 +196,38 @@ STEP 2: EXTRACT INSIGHTS & PATTERNS
 - Alpha insights: Universal truths that exist outside the article but are grounded in it (10-24 items)
 - Patterns: Specific methods, frameworks, or approaches described (3-10 items)
 
-STEP 3: EXTRACT SEARCHABLE TAGS (entities)
-Extract EXACTLY the TOP 5 MOST SIGNIFICANT tags for content discovery.
-Think: "What 5 lowercase tags would someone search for to find similar content?"
+STEP 3: EXTRACT HASHTAG-STYLE TAGS (entities)
+Think Twitter hashtags or Instagram tags - simple, searchable, one concept each.
+Extract 3-5 essential tags (not everything, just the core topics).
 
-ENTITY FORMATTING RULES:
-- ALL LOWERCASE - no exceptions (e.g., "netflix" not "Netflix")
-- USE BASE TERMS ONLY - no versions, variants, or specifics
-  - "chatgpt" not "chatgpt-4o", "chatgpt plus", "gpt-5"
-  - "tesla" not "tesla model 3 performance", "model-y"
-  - "cooking" not "italian cooking techniques", "beginner cooking"
-- ONE TAG PER CONCEPT - never use multiple variants of the same thing
-  - Choose "investing" OR "finance" (not both)
-  - Choose "fitness" OR "health" (not both unless truly different topics)
-- THINK SEARCHABLE TAGS - how would someone filter content?
-  - "productivity" not "productivity tips for remote workers"
-  - "travel" not "budget travel in southeast asia"
+HASHTAG MINDSET:
+- Think breadth, not depth - what's this REALLY about?
+- Single words preferred, hyphens OK for compound concepts
+- Choose the essence, not the full description
+- Less is more - 3 great tags better than 5 mediocre ones
 
-GOOD examples across domains:
-- Tech: ["python", "web-development", "security", "github", "tutorials"]
-- Finance: ["investing", "crypto", "real-estate", "budgeting", "taxes"]
-- Health: ["nutrition", "fitness", "mental-health", "sleep", "meditation"]
-- Cooking: ["recipes", "italian", "baking", "vegetarian", "meal-prep"]
+SIMPLIFICATION RULES:
+- "ai language models" → "ai" (not ai-language-models)
+- "supply chain attack" → "security" or "supply-chain"
+- "national institutes of health" → "health" or "nih"
+- "16-digit numerical password" → "security"
+- "adaptive security appliance" → "security"
+- "biomedical research funding" → "research" or "biomedical"
+- "artificial intelligence ethics" → "ai" and "ethics" (separate tags)
 
-BAD examples (too specific/inconsistent):
-- ["Python 3.11", "r/webdev", "cybersecurity training", "GitHub Actions"]
-- ["S&P 500 ETFs", "Bitcoin price analysis", "NYC real estate market"]
-- ["Mediterranean diet recipes", "HIIT workout routines", "anxiety management"]
+GOOD hashtag examples:
+- AI article: ["ai", "chatgpt", "ethics"]
+- Security breach: ["security", "ransomware", "cisco"]
+- Health research: ["health", "research", "nih"]
+- Dev tutorial: ["python", "tutorial", "web"]
 
-NEVER INCLUDE:
-* File names (README.md, config.json, package.json)
-* Commands (/init, --help, npm install, git commit)
-* Code snippets or function names
-* Generic words (file, user, system, document)
-* Anything with file extensions (.md, .json, .py, .js)
+BAD examples (too complex):
+- ["ai language models", "ethical considerations", "societal impact"]
+- ["supply chain attack", "open source security", "npm ecosystem"]
+- ["national institutes of health", "biomedical research", "federal funding"]
 
-Be ruthlessly selective - only the 5 most searchable, significant tags.
+CRITICAL: Pick the ESSENCE, not the description.
+If unsure, go broader and simpler. All lowercase, no spaces.
 
 STEP 4: FIND ACTUAL QUOTES
 Extract 1-3 MEANINGFUL quotes that capture profound insights or ideas.

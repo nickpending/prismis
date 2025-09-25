@@ -1032,8 +1032,11 @@ func (m *Model) formatSourceLine(source db.Source, theme StyleTheme) string {
 	}
 
 	status := ls.Foreground(statusColor).Render(statusIcon)
-	name := truncate(source.Name, 20)
 	count := ls.Foreground(theme.White).Render(fmt.Sprintf("[%d]", source.UnreadCount))
+
+	// Truncate name to fit viewport (like original code did with width-12)
+	// The -12 accounts for status icon, spaces, and count display
+	name := truncate(source.Name, m.sourcesViewport.Width-12)
 
 	return fmt.Sprintf("%s %s %s", status, name, count)
 }

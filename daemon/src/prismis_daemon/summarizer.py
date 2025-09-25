@@ -196,28 +196,42 @@ STEP 2: EXTRACT INSIGHTS & PATTERNS
 - Alpha insights: Universal truths that exist outside the article but are grounded in it (10-24 items)
 - Patterns: Specific methods, frameworks, or approaches described (3-10 items)
 
-STEP 3: IDENTIFY TOP 5 ENTITIES
-Extract EXACTLY the TOP 5 MOST SIGNIFICANT entities for content discovery.
-Think: "What are the 5 most important things someone would search for to find similar content?"
+STEP 3: EXTRACT SEARCHABLE TAGS (entities)
+Extract EXACTLY the TOP 5 MOST SIGNIFICANT tags for content discovery.
+Think: "What 5 lowercase tags would someone search for to find similar content?"
 
-INCLUDE THESE TYPES (pick the 5 most relevant):
-* Major technologies/frameworks (e.g., "React", "Kubernetes", "Python")
-* Companies/organizations (e.g., "Google", "OpenAI", "Microsoft")
-* Key concepts/methodologies (e.g., "ML", "AI", "Agile", "DevOps")
-* Well-known tools/platforms (e.g., "GitHub", "AWS", "Docker")
-* Important people mentioned by name (e.g., "Elon Musk", "Sam Altman")
+ENTITY FORMATTING RULES:
+- ALL LOWERCASE - no exceptions (e.g., "netflix" not "Netflix")
+- USE BASE TERMS ONLY - no versions, variants, or specifics
+  - "chatgpt" not "chatgpt-4o", "chatgpt plus", "gpt-5"
+  - "tesla" not "tesla model 3 performance", "model-y"
+  - "cooking" not "italian cooking techniques", "beginner cooking"
+- ONE TAG PER CONCEPT - never use multiple variants of the same thing
+  - Choose "investing" OR "finance" (not both)
+  - Choose "fitness" OR "health" (not both unless truly different topics)
+- THINK SEARCHABLE TAGS - how would someone filter content?
+  - "productivity" not "productivity tips for remote workers"
+  - "travel" not "budget travel in southeast asia"
+
+GOOD examples across domains:
+- Tech: ["python", "web-development", "security", "github", "tutorials"]
+- Finance: ["investing", "crypto", "real-estate", "budgeting", "taxes"]
+- Health: ["nutrition", "fitness", "mental-health", "sleep", "meditation"]
+- Cooking: ["recipes", "italian", "baking", "vegetarian", "meal-prep"]
+
+BAD examples (too specific/inconsistent):
+- ["Python 3.11", "r/webdev", "cybersecurity training", "GitHub Actions"]
+- ["S&P 500 ETFs", "Bitcoin price analysis", "NYC real estate market"]
+- ["Mediterranean diet recipes", "HIIT workout routines", "anxiety management"]
 
 NEVER INCLUDE:
-* File names (README.md, config.json, CLAUDE.md, package.json)
+* File names (README.md, config.json, package.json)
 * Commands (/init, --help, npm install, git commit)
 * Code snippets or function names
 * Generic words (file, user, system, document)
-* Minor features or UI elements
 * Anything with file extensions (.md, .json, .py, .js)
 
-Be ruthlessly selective - only the 5 MOST searchable, significant entities.
-Format all entities in lowercase except for common abbreviations (AI, ML, AWS, etc.).
-Use common abbreviations: "AI" instead of "artificial intelligence", "ML" instead of "machine learning".
+Be ruthlessly selective - only the 5 most searchable, significant tags.
 
 STEP 4: FIND ACTUAL QUOTES
 Extract 1-3 MEANINGFUL quotes that capture profound insights or ideas.

@@ -198,7 +198,8 @@ STEP 2: EXTRACT INSIGHTS & PATTERNS
 
 STEP 3: EXTRACT HASHTAG-STYLE TAGS (entities)
 Think Twitter hashtags or Instagram tags - simple, searchable, one concept each.
-Extract 3-5 essential tags (not everything, just the core topics).
+Extract 3-5 essential tags. IMPORTANT: 3 great tags is BETTER than 5 mediocre ones.
+Do NOT force 5 tags - only include tags that truly matter.
 
 HASHTAG MINDSET:
 - Think breadth, not depth - what's this REALLY about?
@@ -226,25 +227,44 @@ BAD examples (too complex):
 - ["supply chain attack", "open source security", "npm ecosystem"]
 - ["national institutes of health", "biomedical research", "federal funding"]
 
+VALIDATION RULES (MUST FOLLOW):
+- NO SPACES EVER. If multi-word: either hyphenate OR simplify to one word
+  • "cloud code" → "claude-code" OR just "claude"
+  • "software development" → "software-development" OR just "software"
+  • "agentic tool use" → "agentic-tools" OR just "agentic"
+- NO DUPLICATES. If you include "gemini", don't add "llm-gemini"
+- Every tag: lowercase letters and hyphens only
+- If ANY tag contains spaces, the extraction has FAILED
+
 CRITICAL: Pick the ESSENCE, not the description.
 If unsure, go broader and simpler. All lowercase, no spaces.
 
-STEP 4: FIND ACTUAL QUOTES
-Extract 1-3 MEANINGFUL quotes that capture profound insights or ideas.
+STEP 4: EXTRACT MEMORABLE QUOTES (quotes)
+Find 0-3 quotes that are GENUINELY INSIGHTFUL. Many articles have NO quotable insights - that's OK.
 
-MUST be actual verbatim quotes from the content (not paraphrased)
-Look for unique perspectives, counterintuitive observations, or key arguments
-Each quote should be max 3 sentences
-Select quotes that capture the essence of what makes this content valuable
+QUALITY CRITERIA:
+- ONLY extract quotes that would be worth sharing or remembering
+- Look for: counterintuitive insights, profound observations, surprising facts, expert wisdom
+- SKIP: basic questions, obvious statements, routine facts, setup sentences
+- If there's nothing profound or memorable, return empty array []
 
-Examples of GOOD quotes:
-- "The best code is no code, because code is a liability that requires maintenance and understanding"
-- "Context is that which is scarce. Compute is abundant, but knowing what to compute is the hard part"
-- "The fundamental problem of communication is not transmitting information but establishing shared meaning"
+VERBATIM REQUIREMENT:
+- MUST be exact text from the content (copy-paste, not paraphrased)
+- Include enough context to make sense standalone (1-3 sentences max)
+- Never write "The author states..." or summarize - use their exact words
 
-DO NOT select mundane facts or obvious statements
-Prefer wisdom, insights, and thought-provoking observations
-COPY EXACT TEXT - do NOT paraphrase or create summaries like "The post encourages..."
+EXAMPLES of QUOTE-WORTHY insights:
+✅ "The best code is no code, because code is a liability that requires maintenance"
+✅ "Context is that which is scarce. Compute is abundant, but knowing what to compute is hard"
+✅ "Performance improvements of 10x happen at the architecture level, not the code level"
+
+EXAMPLES of NON-QUOTES (never extract these):
+❌ "I want to use Claude in Cursor" (basic question)
+❌ "Has anyone found a way to turn it off?" (mundane question)
+❌ "This process takes about 5 minutes" (routine fact)
+❌ "Let me explain how this works" (setup sentence)
+
+REMEMBER: Better to have zero quotes than to extract mundane sentences. Only the gems.
 
 STEP 5: EXTRACT SUBSTANTIVE TOOLS
 Extract tools that are discussed SUBSTANTIVELY in the content.

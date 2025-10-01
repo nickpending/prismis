@@ -78,7 +78,7 @@ func RenderList(m Model) string {
 		return renderError(m.err)
 	}
 
-	theme := CleanCyberTheme
+	theme := m.theme
 
 	// Build the header content with padding built-in
 	title := " PRISMIS" // Add space for left padding
@@ -104,7 +104,7 @@ func RenderList(m Model) string {
 	headerContent := fmt.Sprintf("%s%s%s", title, spacing, stateTimeString)
 
 	// Create gradient background for the full width header (no additional styling)
-	header := RenderWithGradientBackground(headerContent, m.width, "#00D9FF", "#9F4DFF")
+	header := RenderWithGradientBackground(headerContent, m.width, string(theme.Cyan), string(theme.VibrantPurple))
 
 	// Main content area
 	// Reserve space: header(1) + empty(1) + status(1) + command(1) + borders(1) = 5
@@ -193,7 +193,7 @@ func RenderList(m Model) string {
 	var bottomLine string
 	if m.commandMode.IsActive() {
 		// Show command input
-		bottomLine = m.commandMode.View()
+		bottomLine = m.commandMode.View(theme)
 	} else if m.statusMessage != "" {
 		// Show status message (errors, success messages)
 		// Use different colors for errors vs success
@@ -346,8 +346,8 @@ func renderContentList(m Model, width, height int, theme StyleTheme) string {
 		// Priority indicator - star for favorited, checkmark for read items, dot for unread
 		var priorityIndicator string
 		if item.Favorited {
-			// Heart for favorited items (overrides all other indicators) - gradient purple
-			priorityIndicator = lipgloss.NewStyle().Foreground(lipgloss.Color("#9F4DFF")).Render("♥")
+			// Heart for favorited items (overrides all other indicators) - vibrant purple
+			priorityIndicator = lipgloss.NewStyle().Foreground(theme.VibrantPurple).Render("♥")
 		} else if item.Read {
 			// Use checkmark for read items in gray
 			priorityIndicator = lipgloss.NewStyle().Foreground(theme.Gray).Render("✓")
@@ -714,7 +714,7 @@ func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
 
 	if item.Favorited {
 		priorityDot = "♥"
-		dotColor = lipgloss.Color("#9F4DFF")
+		dotColor = theme.VibrantPurple
 	} else {
 		switch item.Priority {
 		case "high":

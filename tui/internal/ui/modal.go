@@ -46,7 +46,7 @@ func (m *Modal) SetContent(content string) {
 }
 
 // View renders the modal if visible
-func (m Modal) View() string {
+func (m Modal) View(theme StyleTheme) string {
 	if !m.visible {
 		return ""
 	}
@@ -54,7 +54,7 @@ func (m Modal) View() string {
 	// Create modal style with border and colors
 	modalStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#00D9FF")). // Cyan border
+		BorderForeground(theme.Cyan).
 		Width(m.width).
 		Height(m.height).
 		Padding(1, 2).
@@ -63,7 +63,7 @@ func (m Modal) View() string {
 	// Title style
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#00D9FF")).
+		Foreground(theme.Cyan).
 		MarginBottom(1)
 
 	// Combine title and content
@@ -78,7 +78,7 @@ func (m Modal) View() string {
 }
 
 // ViewWithOverlay renders the modal with a dimmed background overlay
-func (m Modal) ViewWithOverlay(backgroundView string, termWidth, termHeight int) string {
+func (m Modal) ViewWithOverlay(backgroundView string, termWidth, termHeight int, theme StyleTheme) string {
 	if !m.visible {
 		return backgroundView
 	}
@@ -101,7 +101,7 @@ func (m Modal) ViewWithOverlay(backgroundView string, termWidth, termHeight int)
 	dimmedBg := strings.Join(bgLines, "\n")
 
 	// Get modal view
-	modalView := m.View()
+	modalView := m.View(theme)
 	if modalView == "" {
 		return dimmedBg
 	}

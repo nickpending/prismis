@@ -52,6 +52,8 @@ type Model struct {
 	sourcesViewport viewport.Model // Viewport for source list scrolling
 	// Pane focus system (vim-style)
 	focusedPane string // "sources", "content" (content is either list or reader based on view)
+	// Theme system
+	theme StyleTheme // Current color theme
 }
 
 // itemsLoadedMsg represents content items loaded from database
@@ -109,6 +111,8 @@ func NewModel() Model {
 		// Initialize sources viewport
 		sourcesViewport: viewport.New(20, 10), // Will be resized properly in View()
 		focusedPane:     "content",            // Start with content focused (list or reader)
+		// Initialize theme
+		theme: CleanCyberTheme, // Default theme
 	}
 }
 
@@ -289,6 +293,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			currentContent = item.Content
 		}
 		return m, operations.ExecuteFabricCommand(msg.Pattern, msg.ListOnly, currentContent)
+
+	case commands.ThemeMsg:
+		// Cycle to next theme
+		currentIdx := -1
+		for i, theme := range AvailableThemes {
+			if theme.Name == m.theme.Name {
+				currentIdx = i
+				break
+			}
+		}
+		// Move to next theme (wrap around)
+		nextIdx := (currentIdx + 1) % len(AvailableThemes)
+		m.theme = AvailableThemes[nextIdx]
+		m.statusMessage = fmt.Sprintf("Theme: %s", m.theme.Name)
+		// Update sources viewport with new theme
+		m.updateSourcesViewport()
+		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 
 	// Reader command handlers
 	case commands.MarkMsg:
@@ -876,12 +897,12 @@ func (m Model) View() string {
 
 	// Overlay source modal if visible (with dimming)
 	if m.sourceModal.IsVisible() {
-		return m.sourceModal.ViewWithOverlay(baseView, m.width, m.height)
+		return m.sourceModal.ViewWithOverlay(baseView, m.width, m.height, m.theme)
 	}
 
 	// Overlay help modal if visible (with dimming)
 	if m.helpModal.IsVisible() {
-		return m.helpModal.ViewWithOverlay(baseView, m.width, m.height)
+		return m.helpModal.ViewWithOverlay(baseView, m.width, m.height, m.theme)
 	}
 
 	return baseView
@@ -961,7 +982,7 @@ func flashItemCmd() tea.Cmd {
 
 // updateSourcesViewport updates the sources viewport with formatted source list
 func (m *Model) updateSourcesViewport() {
-	content := m.buildSourcesContent(CleanCyberTheme)
+	content := m.buildSourcesContent(m.theme)
 	m.sourcesViewport.SetContent(content)
 }
 

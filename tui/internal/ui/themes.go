@@ -38,6 +38,42 @@ var CleanCyberTheme = StyleTheme{
 	White:         lipgloss.Color("#EEEEEE"),
 }
 
+// MonokaiProTheme provides warm dark colors inspired by Monokai Pro
+var MonokaiProTheme = StyleTheme{
+	Name:          "monokai_pro",
+	Cyan:          lipgloss.Color("#78DCE8"),
+	Purple:        lipgloss.Color("#AB9DF2"),
+	VibrantPurple: lipgloss.Color("#FF6188"),
+	Green:         lipgloss.Color("#A9DC76"),
+	Red:           lipgloss.Color("#FF6188"),
+	Orange:        lipgloss.Color("#FC9867"),
+	Gray:          lipgloss.Color("#727072"),
+	DarkGray:      lipgloss.Color("#403E41"),
+	White:         lipgloss.Color("#FCFCFA"),
+}
+
+// LightTheme provides a warm, natural color scheme distinct from cyber aesthetic
+// Softer tones that still maintain readability on dark terminal backgrounds
+var LightTheme = StyleTheme{
+	Name:          "light",
+	Cyan:          lipgloss.Color("#06B6D4"), // Soft cyan/turquoise (vs neon cyan)
+	Purple:        lipgloss.Color("#8B5CF6"), // Deep violet (vs light lavender)
+	VibrantPurple: lipgloss.Color("#EC4899"), // Rose pink accent (vs neon purple)
+	Green:         lipgloss.Color("#22C55E"), // Grass green (vs electric green)
+	Red:           lipgloss.Color("#F43F5E"), // Rose red (vs hot pink)
+	Orange:        lipgloss.Color("#FB923C"), // Warm peach (vs bright orange)
+	Gray:          lipgloss.Color("#64748B"), // Slate gray (vs neutral gray)
+	DarkGray:      lipgloss.Color("#475569"), // Dark slate (vs charcoal)
+	White:         lipgloss.Color("#F1F5F9"), // Slate white (vs stark white)
+}
+
+// AvailableThemes is a list of all available themes for cycling
+var AvailableThemes = []StyleTheme{
+	CleanCyberTheme,
+	MonokaiProTheme,
+	LightTheme,
+}
+
 // Package-level variables for backward compatibility
 var (
 	ErrorStyle    = CleanCyberTheme.ErrorStyle()

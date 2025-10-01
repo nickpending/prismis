@@ -562,12 +562,10 @@ func (m SourceModal) renderEditForm() string {
 }
 
 // View renders the source modal
-func (m SourceModal) View() string {
+func (m SourceModal) View(theme StyleTheme) string {
 	if !m.visible {
 		return ""
 	}
-
-	theme := CleanCyberTheme
 
 	var content strings.Builder
 
@@ -667,7 +665,7 @@ func (m SourceModal) View() string {
 	// Build the modal frame (like reader modal)
 	modalStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#00D9FF")). // Cyan border like reader
+		BorderForeground(theme.Cyan).
 		Width(m.width).
 		Height(m.height).
 		Padding(1, 2).
@@ -859,13 +857,13 @@ func (m SourceModal) renderConfirmContentOnly() string {
 }
 
 // ViewWithOverlay renders the modal with a dimmed background overlay
-func (m SourceModal) ViewWithOverlay(backgroundView string, termWidth, termHeight int) string {
+func (m SourceModal) ViewWithOverlay(backgroundView string, termWidth, termHeight int, theme StyleTheme) string {
 	if !m.visible {
 		return backgroundView
 	}
 
 	// Get the custom modal view
-	modalView := m.View()
+	modalView := m.View(theme)
 	if modalView == "" {
 		return backgroundView
 	}

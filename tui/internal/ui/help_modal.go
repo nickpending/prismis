@@ -68,12 +68,11 @@ func (m HelpModal) Update(msg tea.Msg) (HelpModal, tea.Cmd) {
 }
 
 // View renders the help modal
-func (m HelpModal) View() string {
+func (m HelpModal) View(theme StyleTheme) string {
 	if !m.visible {
 		return ""
 	}
 
-	theme := CleanCyberTheme
 	var content strings.Builder
 
 	// Title with diamond bullet like in feed
@@ -238,13 +237,13 @@ func (m HelpModal) View() string {
 }
 
 // ViewWithOverlay renders the modal over a dimmed background
-func (m HelpModal) ViewWithOverlay(backgroundView string, width, height int) string {
+func (m HelpModal) ViewWithOverlay(backgroundView string, width, height int, theme StyleTheme) string {
 	if !m.visible {
 		return backgroundView
 	}
 
 	// Get modal view
-	modalView := m.View()
+	modalView := m.View(theme)
 
 	// Split background into lines
 	bgLines := strings.Split(backgroundView, "\n")

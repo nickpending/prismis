@@ -244,14 +244,13 @@ func (c *CommandMode) Update(msg tea.Msg) (CommandMode, tea.Cmd) {
 }
 
 // View renders the command mode interface
-func (c CommandMode) View() string {
+func (c CommandMode) View(theme StyleTheme) string {
 	if !c.active {
 		return ""
 	}
 
 	// If there's an error, show it with vibrant purple
 	if c.error != "" {
-		theme := CleanCyberTheme
 		errorStyle := lipgloss.NewStyle().
 			Foreground(theme.VibrantPurple). // Vibrant purple for errors
 			Width(c.width).
@@ -261,7 +260,7 @@ func (c CommandMode) View() string {
 
 	// Normal command line style - clean, no background
 	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#00D9FF")).
+		Foreground(theme.Cyan).
 		Width(c.width).
 		Padding(0, 1)
 

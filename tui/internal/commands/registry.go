@@ -44,6 +44,9 @@ func NewRegistry() *Registry {
 	r.Register("yank", cmdYank)
 	r.Register("copy", cmdCopy)
 
+	// Theme switching
+	r.Register("theme", cmdTheme)
+
 	return r
 }
 
@@ -348,6 +351,13 @@ func cmdFabric(args []string) tea.Cmd {
 	}
 }
 
+// cmdTheme cycles through available themes
+func cmdTheme(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return ThemeMsg{}
+	}
+}
+
 // showError returns a command that shows an error message
 func showError(msg string) tea.Cmd {
 	return func() tea.Msg {
@@ -435,3 +445,6 @@ type FabricMsg struct {
 	ListOnly bool   // If true, just show available patterns
 	Content  string // Content to process (populated by handler)
 }
+
+// ThemeMsg signals to cycle to the next theme
+type ThemeMsg struct{}

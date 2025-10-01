@@ -12,6 +12,8 @@
   [![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat&logo=python)](https://python.org)
   [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+  [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/nickpending)
+
 </div>
 
 ---

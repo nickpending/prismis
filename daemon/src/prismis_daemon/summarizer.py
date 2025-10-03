@@ -98,6 +98,16 @@ class ContentSummarizer:
                 content, title, url, source_type, source_name, metadata or {}
             )
 
+            # Determine summarization mode based on content characteristics
+            word_count = self._calculate_word_count(content)
+            mode = self._get_mode_name(word_count, source_type)
+            system_prompt = self._select_system_prompt(word_count, source_type)
+
+            logger.debug(
+                f"Content-aware summarization: {word_count} words, "
+                f"source_type={source_type}, mode={mode}"
+            )
+
             # Call LLM
             logger.debug(f"Calling {self.model} for content analysis")
 
@@ -107,7 +117,7 @@ class ContentSummarizer:
                 "messages": [
                     {
                         "role": "system",
-                        "content": self._get_system_prompt(),
+                        "content": system_prompt,
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -165,6 +175,8 @@ class ContentSummarizer:
                 metadata={
                     "model": self.model,
                     "content_length": len(content),
+                    "word_count": word_count,
+                    "summarization_mode": mode,
                 },
             )
 
@@ -173,8 +185,60 @@ class ContentSummarizer:
             # Re-raise to stop processing completely per requirements
             raise
 
+    def _calculate_word_count(self, content: str) -> int:
+        """Calculate word count from content.
+
+        Args:
+            content: Text content to count words in
+
+        Returns:
+            Number of words in content
+        """
+        if not content or not content.strip():
+            return 0
+        return len(content.split())
+
+    def _get_mode_name(self, word_count: int, source_type: str) -> str:
+        """Get the summarization mode name for logging.
+
+        Args:
+            word_count: Number of words in content
+            source_type: Source type (reddit, youtube, rss, etc.)
+
+        Returns:
+            Mode name: 'brief', 'detailed', or 'standard'
+        """
+        if source_type == "reddit" and word_count < 300:
+            return "brief"
+        elif source_type == "youtube" and word_count > 5000:
+            return "detailed"
+        else:
+            return "standard"
+
+    def _select_system_prompt(self, word_count: int, source_type: str) -> str:
+        """Select appropriate system prompt based on content characteristics.
+
+        Args:
+            word_count: Number of words in content
+            source_type: Source type (reddit, youtube, rss, etc.)
+
+        Returns:
+            System prompt string for the selected mode
+        """
+        # Brief mode: Short Reddit posts (< 300 words)
+        if source_type == "reddit" and word_count < 300:
+            return self._get_brief_system_prompt()
+
+        # Detailed mode: Long YouTube videos (> 5000 words)
+        elif source_type == "youtube" and word_count > 5000:
+            return self._get_detailed_system_prompt()
+
+        # Standard mode: Everything else (default)
+        else:
+            return self._get_system_prompt()
+
     def _get_system_prompt(self) -> str:
-        """Get the system prompt for content analysis."""
+        """Get the standard system prompt for content analysis (current behavior)."""
         return """You are an expert content analyst. Follow these steps SEQUENTIALLY.
 
 CRITICAL: You MUST respond with ONLY valid JSON. DO NOT include any text, explanation, or preamble before or after the JSON. Start directly with { and end directly with }. No "Here is the analysis:" or similar phrases. ONLY JSON.
@@ -331,6 +395,30 @@ OUTPUT FORMAT:
     "https://github.com/project"
   ]
 }"""
+
+    def _get_brief_system_prompt(self) -> str:
+        """Get brief system prompt for short content (Reddit <300 words).
+
+        Returns standard prompt with modified reading_summary instruction.
+        """
+        standard = self._get_system_prompt()
+        # Replace reading_summary instruction for brief mode
+        return standard.replace(
+            "- Reading summary: approximately 10-15% of original content length (minimum 2000 chars), comprehensive MARKDOWN:",
+            "- Reading summary: Minimal - approximately 500-800 chars. Focus on core points only since original is already short:",
+        )
+
+    def _get_detailed_system_prompt(self) -> str:
+        """Get detailed system prompt for long content (YouTube >5000 words).
+
+        Returns standard prompt with modified reading_summary instruction.
+        """
+        standard = self._get_system_prompt()
+        # Replace reading_summary instruction for detailed mode
+        return standard.replace(
+            "- Reading summary: approximately 10-15% of original content length (minimum 2000 chars), comprehensive MARKDOWN:",
+            "- Reading summary: Comprehensive - approximately 20-25% of original content length. Provide richer detail with deeper analysis since source is extensive:",
+        )
 
     def _build_prompt(
         self,

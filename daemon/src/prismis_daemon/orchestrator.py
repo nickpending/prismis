@@ -161,6 +161,13 @@ class DaemonOrchestrator:
                         # Skip if summarization failed
                         continue
 
+                    # Show summarization mode
+                    mode = summary_result.metadata.get("summarization_mode", "standard")
+                    word_count = summary_result.metadata.get("word_count", 0)
+                    self.console.print(
+                        f"       📝 Summarized with [cyan]{mode}[/cyan] mode ({word_count:,} words)"
+                    )
+
                     # Step 3b: Evaluate priority against user context
                     evaluation = self.evaluator.evaluate_content(
                         content=item.content,

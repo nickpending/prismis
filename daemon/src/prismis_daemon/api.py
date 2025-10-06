@@ -2,9 +2,10 @@
 
 import re
 from typing import Optional
-from fastapi import FastAPI, Depends, Request
+from fastapi import FastAPI, Depends, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 from .api_models import (
     SourceRequest,
@@ -40,6 +41,29 @@ async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"success": False, "message": exc.message, "data": None},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Handle FastAPI validation errors with consistent format.
+
+    Converts FastAPI's default {"detail": [...]} format to our standard
+    {"success": false, "message": "...", "data": null} format.
+    """
+    # Extract first error for simple message
+    first_error = exc.errors()[0]
+    field = " -> ".join(str(loc) for loc in first_error["loc"])
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "message": f"Validation error in {field}: {first_error['msg']}",
+            "data": None,
+        },
     )
 
 
@@ -436,6 +460,81 @@ async def resume_source(
         raise  # Re-raise our custom errors
     except Exception as e:
         raise ServerError(f"Failed to resume source: {str(e)}")
+
+
+@app.get("/api/content", dependencies=[Depends(verify_api_key)])
+async def get_content(
+    priority: Optional[str] = Query(None, regex="^(high|medium|low)$"),
+    unread_only: bool = Query(False),
+    limit: int = Query(50, le=100, ge=1),
+    storage: Storage = Depends(get_storage),
+) -> dict:
+    """Get content items with optional filtering.
+
+    Args:
+        priority: Filter by priority level ('high', 'medium', 'low')
+        unread_only: Only return unread items (default: False)
+        limit: Maximum number of items to return (1-100, default: 50)
+        storage: Storage instance injected by FastAPI
+
+    Returns:
+        JSON response with filtered content items
+    """
+    try:
+        content_items = []
+
+        if priority:
+            # Get content by specific priority
+            if unread_only:
+                # Use existing method that only returns unread items
+                content_items = storage.get_content_by_priority(priority, limit)
+            else:
+                # Need to modify query to include read items - use get_content_since with filter
+                all_recent = storage.get_content_since(hours=24 * 30)  # Last 30 days
+                content_items = [
+                    item for item in all_recent if item.get("priority") == priority
+                ][:limit]
+        else:
+            # Get content from all priorities
+            if unread_only:
+                # Get unread from all priorities, respecting limit
+                high_items = storage.get_content_by_priority("high", limit)
+                remaining_limit = limit - len(high_items)
+
+                medium_items = []
+                low_items = []
+                if remaining_limit > 0:
+                    medium_items = storage.get_content_by_priority(
+                        "medium", remaining_limit
+                    )
+                    remaining_limit = remaining_limit - len(medium_items)
+
+                if remaining_limit > 0:
+                    low_items = storage.get_content_by_priority("low", remaining_limit)
+
+                content_items = high_items + medium_items + low_items
+            else:
+                # Get all content from recent period
+                all_recent = storage.get_content_since(hours=24 * 30)  # Last 30 days
+                content_items = all_recent[:limit]
+
+        # Format response consistently with other endpoints
+        return {
+            "success": True,
+            "message": f"Retrieved {len(content_items)} content items",
+            "data": {
+                "items": content_items,
+                "total": len(content_items),
+                "filters_applied": {
+                    "priority": priority,
+                    "unread_only": unread_only,
+                    "limit": limit,
+                },
+            },
+        }
+
+    except Exception as e:
+        raise ServerError(f"Failed to get content: {str(e)}")
 
 
 @app.get("/health")

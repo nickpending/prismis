@@ -65,7 +65,7 @@ build-cli: ## Setup Python CLI dependencies
 	@echo "✓ CLI ready"
 
 .PHONY: install
-install: check-deps build stop install-binaries install-config ## Install everything (binaries + config)
+install: check-deps build install-binaries install-config ## Install everything (binaries + config)
 	@echo "========================================="
 	@echo "Installation complete!"
 	@echo "Binaries installed to: $(INSTALL_DIR)"
@@ -178,7 +178,11 @@ install-config: ## Create default config files (never overwrites existing)
 stop: ## Stop any running prismis processes
 	@echo "Stopping prismis processes..."
 	@# Kill any processes using port 8989
-	@lsof -ti:8989 | xargs kill -9 2>/dev/null || true
+	@# Use variable capture instead of pipe to avoid xargs running kill with no args
+	@pids=$$(lsof -ti:8989 2>/dev/null || true); \
+	if [ -n "$$pids" ]; then \
+        	kill -9 $$pids 2>/dev/null || true; \
+	fi
 	@# Kill any prismis-daemon processes
 	@pkill -f prismis-daemon 2>/dev/null || true
 	@pkill -f "python.*prismis_daemon" 2>/dev/null || true

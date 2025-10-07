@@ -1,5 +1,6 @@
 """Source management commands for Prismis CLI."""
 
+import os
 import re
 from typing import Optional
 from pathlib import Path
@@ -17,6 +18,12 @@ from prismis_daemon.database import init_db
 
 app = typer.Typer(help="Manage content sources")
 console = Console()
+
+
+def get_db_path() -> Path:
+    """Get the correct XDG-compliant database path."""
+    data_home = os.getenv("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
+    return Path(data_home) / "prismis" / "prismis.db"
 
 
 def extract_name_from_url(url: str) -> str:
@@ -78,7 +85,7 @@ def add(
     """Add a new content source to Prismis."""
     try:
         # Ensure database exists
-        db_path = Path.home() / ".config" / "prismis" / "prismis.db"
+        db_path = get_db_path()
         if not db_path.exists():
             console.print("[yellow]Database not found, initializing...[/yellow]")
             init_db()
@@ -147,7 +154,7 @@ def list_sources() -> None:
     """List all configured content sources."""
     try:
         # Ensure database exists
-        db_path = Path.home() / ".config" / "prismis" / "prismis.db"
+        db_path = get_db_path()
         if not db_path.exists():
             console.print(
                 "[yellow]No database found. Run 'source add' to create one.[/yellow]"
@@ -206,7 +213,7 @@ def remove(
     """Remove a content source from Prismis."""
     try:
         # Ensure database exists
-        db_path = Path.home() / ".config" / "prismis" / "prismis.db"
+        db_path = get_db_path()
         if not db_path.exists():
             console.print("[red]No database found.[/red]")
             raise typer.Exit(1)

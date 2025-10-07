@@ -65,18 +65,18 @@ build-cli: ## Setup Python CLI dependencies
 	@echo "✓ CLI ready"
 
 .PHONY: install
-install: check-deps build stop install-binaries install-config ## Install everything (binaries + config)
+install: check-deps build install-binaries install-config ## Install everything (binaries + config)
 	@echo "========================================="
 	@echo "Installation complete!"
 	@echo "Binaries installed to: $(INSTALL_DIR)"
 	@echo "Config files in: $(CONFIG_DIR)"
 	@echo ""
 	@echo "Next steps:"
-	@echo "1. Edit ~/.config/prismis/config.toml and set your LLM API key"
-	@echo "2. Start daemon: prismis-daemon &"
-	@echo "3. Launch TUI: prismis"
-	@echo "4. Add sources with: :add https://example.com/feed"
-	@echo "5. Press ':refresh' or wait for automatic fetch"
+	@echo "1. Edit ~/.config/prismis/.env and add your API keys"
+	@echo "2. Customize ~/.config/prismis/context.md with your interests"
+	@echo "3. Start daemon: prismis-daemon &"
+	@echo "4. Add sources: prismis-cli source add https://example.com/feed"
+	@echo "5. Launch TUI: prismis"
 	@echo "========================================="
 
 .PHONY: install-binaries
@@ -123,17 +123,31 @@ install-config: ## Create default config files (never overwrites existing)
 		echo 'fetch_interval = 30  # minutes' >> $(CONFIG_DIR)/config.toml; \
 		echo 'batch_size = 10' >> $(CONFIG_DIR)/config.toml; \
 		echo 'retry_attempts = 3' >> $(CONFIG_DIR)/config.toml; \
+		echo 'max_items_rss = 100' >> $(CONFIG_DIR)/config.toml; \
+		echo 'max_items_reddit = 100' >> $(CONFIG_DIR)/config.toml; \
+		echo 'max_items_youtube = 50' >> $(CONFIG_DIR)/config.toml; \
+		echo 'max_days_lookback = 7' >> $(CONFIG_DIR)/config.toml; \
 		echo '' >> $(CONFIG_DIR)/config.toml; \
 		echo '[llm]' >> $(CONFIG_DIR)/config.toml; \
 		echo 'provider = "openai"' >> $(CONFIG_DIR)/config.toml; \
 		echo 'model = "gpt-4o-mini"' >> $(CONFIG_DIR)/config.toml; \
-		echo '# api_key = "your-api-key-here"  # Or use OPENAI_API_KEY env var' >> $(CONFIG_DIR)/config.toml; \
+		echo 'api_key = "env:OPENAI_API_KEY"  # Or set directly: "sk-..."' >> $(CONFIG_DIR)/config.toml; \
 		echo '' >> $(CONFIG_DIR)/config.toml; \
 		echo '[notifications]' >> $(CONFIG_DIR)/config.toml; \
 		echo 'enabled = true' >> $(CONFIG_DIR)/config.toml; \
 		echo 'priority_threshold = "high"' >> $(CONFIG_DIR)/config.toml; \
 		echo 'quiet_hours_start = "22:00"' >> $(CONFIG_DIR)/config.toml; \
 		echo 'quiet_hours_end = "08:00"' >> $(CONFIG_DIR)/config.toml; \
+		echo 'high_priority_only = true' >> $(CONFIG_DIR)/config.toml; \
+		echo 'command = "notify-send"' >> $(CONFIG_DIR)/config.toml; \
+		echo '' >> $(CONFIG_DIR)/config.toml; \
+		echo '[reddit]' >> $(CONFIG_DIR)/config.toml; \
+		echo 'client_id = "env:REDDIT_CLIENT_ID"' >> $(CONFIG_DIR)/config.toml; \
+		echo 'client_secret = "env:REDDIT_CLIENT_SECRET"' >> $(CONFIG_DIR)/config.toml; \
+		echo 'user_agent = "Prismis/0.1.0"' >> $(CONFIG_DIR)/config.toml; \
+		echo '' >> $(CONFIG_DIR)/config.toml; \
+		echo '[api]' >> $(CONFIG_DIR)/config.toml; \
+		echo 'key = "prismis-local-dev-key"' >> $(CONFIG_DIR)/config.toml; \
 		echo '' >> $(CONFIG_DIR)/config.toml; \
 		echo '# Database location is handled automatically using XDG standards' >> $(CONFIG_DIR)/config.toml; \
 		echo '# Database will be in $$XDG_DATA_HOME/prismis/prismis.db' >> $(CONFIG_DIR)/config.toml; \
@@ -169,6 +183,23 @@ install-config: ## Create default config files (never overwrites existing)
 	else \
 		echo "✓ context.md already exists (preserved)"; \
 	fi
+	# Create .env template if not exists
+	@if [ ! -f $(CONFIG_DIR)/.env ]; then \
+		echo "Creating .env template..."; \
+		echo '# Prismis Environment Variables' > $(CONFIG_DIR)/.env; \
+		echo '# Edit this file and fill in your actual API keys' >> $(CONFIG_DIR)/.env; \
+		echo '' >> $(CONFIG_DIR)/.env; \
+		echo '# Required: OpenAI API key (or your chosen LLM provider)' >> $(CONFIG_DIR)/.env; \
+		echo 'OPENAI_API_KEY=sk-your-key-here' >> $(CONFIG_DIR)/.env; \
+		echo '' >> $(CONFIG_DIR)/.env; \
+		echo '# Optional: Reddit API credentials (only needed for reddit:// sources)' >> $(CONFIG_DIR)/.env; \
+		echo 'REDDIT_CLIENT_ID=your-reddit-client-id' >> $(CONFIG_DIR)/.env; \
+		echo 'REDDIT_CLIENT_SECRET=your-reddit-client-secret' >> $(CONFIG_DIR)/.env; \
+		chmod 600 $(CONFIG_DIR)/.env; \
+		echo "✓ Created .env template (edit and add your API keys)"; \
+	else \
+		echo "✓ .env already exists (preserved)"; \
+	fi
 	# Initialize database
 	@echo "Initializing database..."
 	@cd daemon && uv run python -c "from prismis_daemon.database import init_db; init_db()" 2>/dev/null || echo "✓ Database ready"
@@ -178,7 +209,11 @@ install-config: ## Create default config files (never overwrites existing)
 stop: ## Stop any running prismis processes
 	@echo "Stopping prismis processes..."
 	@# Kill any processes using port 8989
-	@lsof -ti:8989 | xargs kill -9 2>/dev/null || true
+	@# Use variable capture instead of pipe to avoid xargs running kill with no args
+	@pids=$$(lsof -ti:8989 2>/dev/null || true); \
+	if [ -n "$$pids" ]; then \
+        	kill -9 $$pids 2>/dev/null || true; \
+	fi
 	@# Kill any prismis-daemon processes
 	@pkill -f prismis-daemon 2>/dev/null || true
 	@pkill -f "python.*prismis_daemon" 2>/dev/null || true

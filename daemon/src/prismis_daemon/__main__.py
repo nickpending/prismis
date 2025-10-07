@@ -1,13 +1,16 @@
 """Main entry point for Prismis daemon - just wiring, no logic."""
 
 import asyncio
+import os
 import signal
 import sys
+from pathlib import Path
 
 import typer
 import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from dotenv import load_dotenv
 from rich.console import Console
 
 from .config import Config
@@ -20,6 +23,12 @@ from .evaluator import ContentEvaluator
 from .notifier import Notifier
 from .defaults import ensure_config
 from .orchestrator import DaemonOrchestrator
+
+# Load environment variables from ~/.config/prismis/.env
+config_home = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+dotenv_path = Path(config_home) / "prismis" / ".env"
+if dotenv_path.exists():
+    load_dotenv(dotenv_path)
 
 console = Console()
 scheduler = None  # Global for signal handler

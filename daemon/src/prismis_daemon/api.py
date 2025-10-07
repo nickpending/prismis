@@ -1,11 +1,13 @@
 """REST API server for Prismis daemon."""
 
 import re
+from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, Depends, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.staticfiles import StaticFiles
 
 from .api_models import (
     SourceRequest,
@@ -89,6 +91,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files for webapp - MUST be last to avoid intercepting API routes
+static_dir = Path(__file__).parent / "static"
 
 
 def normalize_source_url(url: str, source_type: str) -> str:
@@ -717,3 +722,8 @@ async def count_unprioritized(
 
     except Exception as e:
         raise ServerError(f"Failed to count unprioritized items: {str(e)}")
+
+
+# Mount static files LAST to avoid intercepting API routes
+if static_dir.exists():
+    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")

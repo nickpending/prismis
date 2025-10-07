@@ -132,7 +132,7 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
         # Create API server config
         api_config = uvicorn.Config(
             app,
-            host="127.0.0.1",
+            host=config.api_host,
             port=8989,
             log_level="warning",  # Reduce noise
             access_log=False,  # Disable access logs for cleaner output
@@ -141,7 +141,9 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
 
         # Run API server in background
         asyncio.create_task(api_server.serve())
-        console.print("[green]✅ API server running on http://127.0.0.1:8989[/green]")
+        console.print(
+            f"[green]✅ API server running on http://{config.api_host}:8989[/green]"
+        )
         console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
         # Keep the event loop running

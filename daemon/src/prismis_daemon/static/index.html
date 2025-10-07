@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prismis - Local Intelligence</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #1a1a1a;
+            color: #EEEEEE;
+            line-height: 1.5;
+            padding: 15px;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #00D9FF 0%, #9F4DFF 100%);
+            color: white;
+            padding: 16px 24px;
+            border-radius: 6px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 28px;
+            height: 28px;
+            color: rgba(255, 255, 255, 0.9);
+            flex-shrink: 0;
+        }
+
+        .header-content h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: white;
+            margin: 0;
+            letter-spacing: 0.05em;
+        }
+
+        .header-content .subtitle {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .status-bar {
+            background: #222222;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #333333;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .status-info {
+            font-size: 14px;
+            color: #CCCCCC;
+        }
+
+        .refresh-info {
+            font-size: 13px;
+            color: #888888;
+        }
+
+        .filter-tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 20px;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #333333;
+        }
+
+        .filter-tab {
+            background: #2a2a2a;
+            border: none;
+            padding: 15px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex: 1;
+            border-right: 1px solid #333333;
+            min-height: 48px;
+        }
+
+        .filter-tab:last-child {
+            border-right: none;
+        }
+
+        .filter-tab.all {
+            color: #CCCCCC;
+        }
+
+        .filter-tab.high {
+            color: #FF0066;
+        }
+
+        .filter-tab.medium {
+            color: #FF8800;
+        }
+
+        .filter-tab.low {
+            color: #666666;
+        }
+
+        .filter-tab.active {
+            background: linear-gradient(135deg, #333333 0%, #444444 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 217, 255, 0.2);
+        }
+
+        .filter-tab:hover {
+            background: #333333;
+        }
+
+        .content-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .content-item {
+            background: #222222;
+            padding: 25px;
+            border-radius: 8px;
+            border: 1px solid #333333;
+            transition: all 0.2s ease;
+        }
+
+        .content-item:hover {
+            transform: translateY(-2px);
+            border-color: #00D9FF;
+            box-shadow: 0 4px 16px rgba(0, 217, 255, 0.1);
+        }
+
+        .item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+            gap: 15px;
+        }
+
+        .item-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #EEEEEE;
+            flex: 1;
+            line-height: 1.3;
+        }
+
+        .item-title a {
+            color: #EEEEEE;
+            text-decoration: none;
+        }
+
+        .item-title a:hover {
+            color: #00D9FF;
+        }
+
+        .item-actions {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .mark-read-btn {
+            background: rgba(0, 217, 255, 0.1);
+            border: 1px solid #00D9FF;
+            color: #00D9FF;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-height: 44px;
+            min-width: 44px;
+        }
+
+        .mark-read-btn:hover {
+            background: rgba(0, 217, 255, 0.2);
+        }
+
+        .mark-read-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .item-meta {
+            font-size: 13px;
+            color: #888888;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .priority-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-high {
+            background-color: rgba(255, 0, 102, 0.2);
+            color: #FF0066;
+            border: 1px solid #FF0066;
+        }
+
+        .badge-medium {
+            background-color: rgba(255, 136, 0, 0.2);
+            color: #FF8800;
+            border: 1px solid #FF8800;
+        }
+
+        .badge-low {
+            background-color: rgba(102, 102, 102, 0.2);
+            color: #666666;
+            border: 1px solid #666666;
+        }
+
+        .item-summary {
+            font-size: 15px;
+            color: #CCCCCC;
+            line-height: 1.6;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888888;
+            font-size: 16px;
+        }
+
+        .error {
+            background: rgba(255, 0, 102, 0.1);
+            border: 1px solid #FF0066;
+            color: #FF0066;
+            padding: 15px 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888888;
+        }
+
+        .empty-state h3 {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: #CCCCCC;
+        }
+
+        .api-key-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+
+        .api-key-modal.hidden {
+            display: none;
+        }
+
+        .modal-content {
+            background: linear-gradient(135deg, #222222 0%, #2a2a2a 100%);
+            padding: 30px;
+            border-radius: 12px;
+            border: 1px solid #333333;
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content h2 {
+            margin-bottom: 15px;
+            color: #EEEEEE;
+        }
+
+        .modal-content p {
+            margin-bottom: 20px;
+            color: #CCCCCC;
+            font-size: 14px;
+        }
+
+        .api-key-input {
+            width: 100%;
+            padding: 15px;
+            background: #1a1a1a;
+            border: 1px solid #333333;
+            border-radius: 6px;
+            color: #EEEEEE;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .api-key-input:focus {
+            outline: none;
+            border-color: #00D9FF;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex: 1;
+        }
+
+        .btn-primary {
+            background: #00D9FF;
+            color: #1a1a1a;
+        }
+
+        .btn-primary:hover {
+            background: #00B8E6;
+        }
+
+        .btn-secondary {
+            background: #333333;
+            color: #EEEEEE;
+        }
+
+        .btn-secondary:hover {
+            background: #444444;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 5px;
+            }
+
+            .header {
+                padding: 15px;
+            }
+
+            .status-bar {
+                padding: 12px 15px;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+
+            .filter-tabs {
+                flex-direction: column;
+            }
+
+            .filter-tab {
+                border-right: none;
+                border-bottom: 1px solid #333333;
+            }
+
+            .filter-tab:last-child {
+                border-bottom: none;
+            }
+
+            .content-item {
+                padding: 15px;
+            }
+
+            .item-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .item-actions {
+                align-self: flex-end;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- API Key Modal -->
+    <div id="apiKeyModal" class="api-key-modal">
+        <div class="modal-content">
+            <h2>API Key Required</h2>
+            <p>Enter your Prismis API key to access content. You can find this in your ~/.config/prismis/config.toml file.</p>
+            <input type="password" id="apiKeyInput" class="api-key-input" placeholder="Enter API key...">
+            <div class="modal-actions">
+                <button id="saveApiKey" class="btn btn-primary">Save & Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="header">
+        <svg class="logo-icon" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L4 7v10l8 5 8-5V7l-8-5z" stroke="currentColor" stroke-width="2" fill="none"/>
+            <path d="M12 2L8 12l4 10 4-10L12 2z" fill="currentColor" opacity="0.3"/>
+            <path d="M12 2v20M4 7l8 5 8-5M4 17l8-5 8 5" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+        </svg>
+        <div class="header-content">
+            <h1>PRISMIS</h1>
+            <div class="subtitle">Daily Intelligence</div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-info" id="statusInfo">Loading...</div>
+        <div class="refresh-info" id="refreshInfo">Refreshes every 30s</div>
+    </div>
+
+    <div id="errorContainer"></div>
+
+    <div class="filter-tabs">
+        <button class="filter-tab all active" data-filter="all">ALL</button>
+        <button class="filter-tab high" data-filter="high">HIGH</button>
+        <button class="filter-tab medium" data-filter="medium">MEDIUM</button>
+        <button class="filter-tab low" data-filter="low">LOW</button>
+    </div>
+
+    <div id="contentContainer">
+        <div class="loading">Loading content...</div>
+    </div>
+
+    <script>
+        class PrismisWebapp {
+            constructor() {
+                this.apiKey = localStorage.getItem('prismis_api_key');
+                this.currentFilter = 'all';
+                this.content = [];
+                this.refreshInterval = null;
+                this.isLoading = false;
+
+                this.init();
+            }
+
+            init() {
+                this.setupEventListeners();
+
+                if (!this.apiKey) {
+                    this.showApiKeyModal();
+                } else {
+                    this.hideApiKeyModal();
+                    this.loadContent();
+                    this.startAutoRefresh();
+                }
+            }
+
+            setupEventListeners() {
+                // API Key modal
+                document.getElementById('saveApiKey').addEventListener('click', () => {
+                    this.saveApiKey();
+                });
+
+                document.getElementById('apiKeyInput').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this.saveApiKey();
+                    }
+                });
+
+                // Filter tabs
+                document.querySelectorAll('.filter-tab').forEach(tab => {
+                    tab.addEventListener('click', (e) => {
+                        this.setFilter(e.target.dataset.filter);
+                    });
+                });
+            }
+
+            showApiKeyModal() {
+                document.getElementById('apiKeyModal').classList.remove('hidden');
+                document.getElementById('apiKeyInput').focus();
+            }
+
+            hideApiKeyModal() {
+                document.getElementById('apiKeyModal').classList.add('hidden');
+            }
+
+            saveApiKey() {
+                const input = document.getElementById('apiKeyInput');
+                const key = input.value.trim();
+
+                if (!key) {
+                    this.showError('Please enter an API key');
+                    return;
+                }
+
+                this.apiKey = key;
+                localStorage.setItem('prismis_api_key', key);
+                this.hideApiKeyModal();
+                this.loadContent();
+                this.startAutoRefresh();
+            }
+
+            async loadContent() {
+                if (this.isLoading) return;
+
+                this.isLoading = true;
+                this.clearError();
+
+                try {
+                    const params = new URLSearchParams({
+                        limit: '100',
+                        unread_only: 'false'
+                    });
+
+                    if (this.currentFilter !== 'all') {
+                        params.set('priority', this.currentFilter);
+                    }
+
+                    const response = await fetch(`/api/content?${params}`, {
+                        headers: {
+                            'X-API-Key': this.apiKey
+                        }
+                    });
+
+                    if (!response.ok) {
+                        if (response.status === 401 || response.status === 403) {
+                            this.showError('Invalid API key. Please check your configuration.');
+                            this.showApiKeyModal();
+                            return;
+                        }
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    const data = await response.json();
+
+                    if (!data.success) {
+                        throw new Error(data.message || 'Failed to load content');
+                    }
+
+                    this.content = data.data.items || [];
+                    this.renderContent();
+                    this.updateStatus();
+
+                } catch (error) {
+                    console.error('Failed to load content:', error);
+                    this.showError(`Failed to load content: ${error.message}`);
+                    this.renderEmptyState('Unable to connect to Prismis daemon');
+                } finally {
+                    this.isLoading = false;
+                }
+            }
+
+            renderContent() {
+                const container = document.getElementById('contentContainer');
+
+                if (this.content.length === 0) {
+                    this.renderEmptyState();
+                    return;
+                }
+
+                const html = this.content.map(item => this.renderContentItem(item)).join('');
+                container.innerHTML = `<div class="content-list">${html}</div>`;
+
+                // Add event listeners for mark-as-read buttons
+                container.querySelectorAll('.mark-read-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const itemId = e.target.dataset.itemId;
+                        this.markAsRead(itemId, e.target);
+                    });
+                });
+            }
+
+            renderContentItem(item) {
+                const publishedDate = new Date(item.published_at).toLocaleDateString();
+                const timeAgo = this.timeAgo(new Date(item.published_at));
+
+                return `
+                    <div class="content-item" data-priority="${item.priority}">
+                        <div class="item-header">
+                            <div class="item-title">
+                                <a href="${this.escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">
+                                    ${this.escapeHtml(item.title)}
+                                </a>
+                            </div>
+                            <div class="item-actions">
+                                ${!item.read ? `<button class="mark-read-btn" data-item-id="${item.id}">Mark Read</button>` : ''}
+                            </div>
+                        </div>
+                        <div class="item-meta">
+                            <span class="priority-badge badge-${item.priority}">${item.priority.toUpperCase()}</span>
+                            <span>${this.escapeHtml(item.source_name || 'Unknown Source')}</span>
+                            <span>${timeAgo}</span>
+                        </div>
+                        <div class="item-summary">
+                            ${this.escapeHtml(item.summary || 'No summary available')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            renderEmptyState(customMessage = null) {
+                const container = document.getElementById('contentContainer');
+                const message = customMessage || `No ${this.currentFilter === 'all' ? '' : this.currentFilter + ' priority '}content available`;
+
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No Content</h3>
+                        <p>${message}</p>
+                    </div>
+                `;
+            }
+
+            async markAsRead(itemId, button) {
+                button.disabled = true;
+                button.textContent = 'Marking...';
+
+                try {
+                    const response = await fetch(`/api/content/${itemId}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-API-Key': this.apiKey
+                        },
+                        body: JSON.stringify({ read: true })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    // Remove the button and update local state
+                    button.remove();
+                    const item = this.content.find(c => c.id === itemId);
+                    if (item) {
+                        item.read = true;
+                    }
+
+                    this.updateStatus();
+
+                } catch (error) {
+                    console.error('Failed to mark as read:', error);
+                    button.disabled = false;
+                    button.textContent = 'Mark Read';
+                    this.showError(`Failed to mark as read: ${error.message}`);
+                }
+            }
+
+            setFilter(filter) {
+                this.currentFilter = filter;
+
+                // Update active tab
+                document.querySelectorAll('.filter-tab').forEach(tab => {
+                    tab.classList.toggle('active', tab.dataset.filter === filter);
+                });
+
+                this.loadContent();
+            }
+
+            updateStatus() {
+                const statusInfo = document.getElementById('statusInfo');
+                const total = this.content.length;
+                const unread = this.content.filter(item => !item.read).length;
+
+                if (this.currentFilter === 'all') {
+                    statusInfo.textContent = `${total} items total • ${unread} unread`;
+                } else {
+                    statusInfo.textContent = `${total} ${this.currentFilter.toUpperCase()} priority items • ${unread} unread`;
+                }
+            }
+
+            startAutoRefresh() {
+                // Clear existing interval
+                if (this.refreshInterval) {
+                    clearInterval(this.refreshInterval);
+                }
+
+                // Set up 30-second refresh
+                this.refreshInterval = setInterval(() => {
+                    this.loadContent();
+                }, 30000);
+
+                // Update refresh indicator
+                let seconds = 30;
+                const refreshInfo = document.getElementById('refreshInfo');
+                const countdownInterval = setInterval(() => {
+                    seconds--;
+                    if (seconds <= 0) {
+                        refreshInfo.textContent = 'Refreshing...';
+                        clearInterval(countdownInterval);
+                        setTimeout(() => {
+                            seconds = 30;
+                            refreshInfo.textContent = 'Refreshes every 30s';
+                        }, 1000);
+                    } else {
+                        refreshInfo.textContent = `Next refresh in ${seconds}s`;
+                    }
+                }, 1000);
+            }
+
+            showError(message) {
+                const container = document.getElementById('errorContainer');
+                container.innerHTML = `<div class="error">${this.escapeHtml(message)}</div>`;
+            }
+
+            clearError() {
+                document.getElementById('errorContainer').innerHTML = '';
+            }
+
+            escapeHtml(text) {
+                if (!text) return '';
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            timeAgo(date) {
+                const now = new Date();
+                const diffInMinutes = Math.floor((now - date) / (1000 * 60));
+
+                if (diffInMinutes < 1) return 'Just now';
+                if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+
+                const diffInHours = Math.floor(diffInMinutes / 60);
+                if (diffInHours < 24) return `${diffInHours}h ago`;
+
+                const diffInDays = Math.floor(diffInHours / 24);
+                if (diffInDays < 7) return `${diffInDays}d ago`;
+
+                return date.toLocaleDateString();
+            }
+        }
+
+        // Initialize the webapp when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new PrismisWebapp();
+        });
+    </script>
+</body>
+</html>

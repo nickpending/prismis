@@ -40,6 +40,7 @@ class Config:
 
     # API settings
     api_key: str
+    api_host: str
 
     # Context content
     context: str
@@ -189,6 +190,9 @@ class Config:
                 high_priority_only=notifications["high_priority_only"],
                 notification_command=notifications["command"],
                 api_key=api.get("key"),  # No default - must be explicitly set
+                api_host=api.get(
+                    "host", "127.0.0.1"
+                ),  # Default to localhost for security
                 context=context_content,
             )
         except KeyError as e:

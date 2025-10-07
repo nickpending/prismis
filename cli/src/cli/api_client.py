@@ -35,7 +35,7 @@ class APIClient:
         if not config_path.exists():
             raise RuntimeError(
                 f"Config file not found at {config_path}\n"
-                "Run 'prismis-daemon init' to create configuration."
+                "Run 'make install-config' to create default configuration, or create config.toml manually."
             )
 
         try:

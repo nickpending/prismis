@@ -32,7 +32,7 @@ Think of it as having a research assistant who reads everything and only interru
 - 🧠 **AI-Powered Priority** - LLM analyzes content against YOUR interests (HIGH/MEDIUM/LOW)
 - 🎨 **Fabric Integration** - 200+ AI analysis patterns with tab completion (`:fabric <TAB>` to browse)
 - 🔒 **Local-First** - Your data never leaves your machine. SQLite + Go binary
-- 📡 **Multi-Source** - RSS/Atom feeds, Reddit (no API key needed), YouTube transcripts
+- 📡 **Multi-Source** - RSS/Atom feeds, Reddit (API optional), YouTube transcripts
 - 🎯 **Personal Context** - Define what matters in simple markdown
 - 🔔 **Smart Notifications** - Desktop alerts only for HIGH priority content
 - ⚡ **Zero-Ops** - No Docker, no PostgreSQL, no cloud services needed
@@ -42,6 +42,9 @@ Think of it as having a research assistant who reads everything and only interru
 ```bash
 # Install everything (macOS/Linux)
 make install
+
+# Set your API keys
+edit ~/.config/prismis/.env  # Add your OPENAI_API_KEY
 
 # Tell Prismis what you care about
 cat > ~/.config/prismis/context.md << 'EOF'
@@ -112,7 +115,7 @@ prismis  # Launch instantly
 # RSS/Atom feeds
 prismis-cli source add https://news.ycombinator.com/rss
 
-# Reddit (works without API keys!)
+# Reddit (optional API keys for better reliability)
 prismis-cli source add reddit://programming
 
 # YouTube channels (extracts transcripts)
@@ -189,8 +192,9 @@ git clone https://github.com/nickpending/prismis.git
 cd prismis
 make install
 
-# Set your API key
-export OPENAI_API_KEY="sk-..."  # Add to your shell profile
+# Edit the .env file with your API keys
+edit ~/.config/prismis/.env
+# Change: OPENAI_API_KEY=sk-your-key-here
 ```
 
 ### Configuration
@@ -199,6 +203,8 @@ Prismis follows XDG standards:
 - Config: `~/.config/prismis/`
 - Data: `~/.local/share/prismis/`
 - Logs: Wherever you redirect them (stdout/stderr by default)
+
+**Security**: API keys are stored in `~/.config/prismis/.env` with 600 permissions (only you can read). Config references them with `api_key = "env:VARIABLE_NAME"` pattern for security.
 
 ## 🚀 Advanced Features
 
@@ -213,22 +219,33 @@ Prismis supports OpenAI, Anthropic, Groq, and Ollama:
 [llm]
 provider = "openai"
 model = "gpt-4o-mini"
+api_key = "env:OPENAI_API_KEY"  # References ~/.config/prismis/.env
 
 # Anthropic Claude
 [llm]
 provider = "anthropic"
 model = "claude-3-haiku-20240307"
+api_key = "env:ANTHROPIC_API_KEY"
 
 # Groq (fast inference)
 [llm]
 provider = "groq"
 model = "mixtral-8x7b-32768"
+api_key = "env:GROQ_API_KEY"
 
 # Ollama (local models)
 [llm]
 provider = "ollama"
 model = "llama2"
 api_base = "http://localhost:11434"
+# No API key needed for local Ollama
+```
+
+**Reddit API** (optional - improves reliability):
+```bash
+# Add to ~/.config/prismis/.env for better Reddit access
+REDDIT_CLIENT_ID=your-reddit-client-id
+REDDIT_CLIENT_SECRET=your-reddit-client-secret
 ```
 
 ### Fabric Integration
@@ -320,7 +337,7 @@ Some areas we'd love help with:
 
 **What works well:**
 - RSS feed ingestion with full content extraction
-- Reddit fetching without API keys
+- Reddit fetching (works with or without API keys)
 - LLM prioritization with personal context
 - Instant TUI launch and navigation
 - Fabric integration with 200+ patterns

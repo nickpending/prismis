@@ -130,7 +130,7 @@ class Config:
         if not config_path.exists():
             raise FileNotFoundError(
                 f"Config file not found: {config_path}\n"
-                f"Run 'prismis-daemon init' to create default configuration."
+                f"Run 'make install-config' to create default configuration, or create config.toml manually."
             )
 
         try:

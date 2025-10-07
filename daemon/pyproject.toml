@@ -17,6 +17,7 @@ dependencies = [
     "litellm",
     "praw>=7.8.1",
     "pydantic",
+    "python-dotenv",
     "rich",
     "trafilatura",
     "typer",

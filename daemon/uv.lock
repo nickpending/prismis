@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13"
 
 [[package]]
@@ -836,6 +836,7 @@ dependencies = [
     { name = "litellm" },
     { name = "praw" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "rich" },
     { name = "trafilatura" },
     { name = "typer" },
@@ -859,6 +860,7 @@ requires-dist = [
     { name = "litellm" },
     { name = "praw", specifier = ">=7.8.1" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "rich" },
     { name = "trafilatura" },
     { name = "typer" },

@@ -50,6 +50,11 @@ command = "terminal-notifier"  # notification command (Mac)
 [api]
 key = "{api_key}"  # API key for REST endpoints (auto-generated)
 host = "127.0.0.1"  # API server host binding (127.0.0.1=localhost only, 0.0.0.0=all interfaces/LAN)
+
+[audio]
+# Audio briefing configuration (optional - only used for :audio command)
+provider = "system"  # system (free, uses macOS/Linux native TTS) | elevenlabs (requires ELEVENLABS_API_KEY)
+# voice = "Rachel"  # Voice name/ID (provider-specific, optional - uncomment to set)
 """
 
 DEFAULT_CONTEXT_MD = """# Personal Context for Prismis

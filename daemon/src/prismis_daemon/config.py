@@ -48,6 +48,10 @@ class Config:
     # Optional fields with defaults must come last
     llm_api_base: Optional[str] = None  # For Ollama and custom endpoints
 
+    # Audio settings (uses lspeak for all TTS)
+    audio_provider: str = "system"  # system (free, native TTS) or elevenlabs
+    audio_voice: Optional[str] = None  # Voice ID/name (provider-specific)
+
     def get_max_items(self, source_type: str) -> int:
         """Get max items limit for a specific source type.
 
@@ -145,6 +149,7 @@ class Config:
         reddit = config_dict.get("reddit", {})
         notifications = config_dict.get("notifications", {})
         api = config_dict.get("api", {})
+        audio = config_dict.get("audio", {})
 
         # Load context markdown
         context_file = config_path.parent / "context.md"
@@ -194,6 +199,8 @@ class Config:
                     "host", "127.0.0.1"
                 ),  # Default to localhost for security
                 context=context_content,
+                audio_provider=audio.get("provider", "macos"),
+                audio_voice=audio.get("voice"),
             )
         except KeyError as e:
             raise ValueError(f"Missing required config field: {e}")

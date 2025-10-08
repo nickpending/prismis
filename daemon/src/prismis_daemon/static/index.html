@@ -259,6 +259,63 @@
             text-align: center;
         }
 
+        .offline-banner {
+            background: rgba(255, 136, 0, 0.1);
+            border: 1px solid #FF8800;
+            color: #FF8800;
+            padding: 15px 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .offline-message {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .offline-actions {
+            display: flex;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .retry-btn {
+            background: #FF8800;
+            border: none;
+            color: #1a1a1a;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-height: 36px;
+        }
+
+        .retry-btn:hover {
+            background: #E07700;
+        }
+
+        .retry-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .cached-indicator {
+            background: rgba(255, 136, 0, 0.1);
+            border-left: 3px solid #FF8800;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            border-radius: 0 4px 4px 0;
+            font-size: 13px;
+            color: #CCCCCC;
+        }
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -401,6 +458,21 @@
             .item-actions {
                 align-self: flex-end;
             }
+
+            .offline-banner {
+                flex-direction: column;
+                gap: 12px;
+                text-align: center;
+            }
+
+            .offline-actions {
+                align-self: center;
+            }
+
+            .cached-indicator {
+                padding: 8px 12px;
+                font-size: 12px;
+            }
         }
     </style>
 </head>
@@ -436,6 +508,8 @@
     </div>
 
     <div id="errorContainer"></div>
+    <div id="offlineContainer"></div>
+    <div id="cachedIndicatorContainer"></div>
 
     <div class="filter-tabs">
         <button class="filter-tab all active" data-filter="all">ALL</button>
@@ -454,8 +528,13 @@
                 this.apiKey = localStorage.getItem('prismis_api_key');
                 this.currentFilter = 'all';
                 this.content = [];
+                this.cachedContent = [];
                 this.refreshInterval = null;
+                this.countdownInterval = null;
                 this.isLoading = false;
+                this.isOffline = false;
+                this.retryAttempts = 0;
+                this.maxRetryAttempts = 3;
 
                 this.init();
             }
@@ -489,6 +568,13 @@
                     tab.addEventListener('click', (e) => {
                         this.setFilter(e.target.dataset.filter);
                     });
+                });
+
+                // Retry button (delegated event listener for dynamically created button)
+                document.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('retry-btn')) {
+                        this.retryConnection();
+                    }
                 });
             }
 
@@ -533,17 +619,27 @@
                         params.set('priority', this.currentFilter);
                     }
 
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
                     const response = await fetch(`/api/content?${params}`, {
                         headers: {
                             'X-API-Key': this.apiKey
-                        }
+                        },
+                        signal: controller.signal
                     });
+
+                    clearTimeout(timeoutId);
 
                     if (!response.ok) {
                         if (response.status === 401 || response.status === 403) {
                             this.showError('Invalid API key. Please check your configuration.');
                             this.showApiKeyModal();
                             return;
+                        }
+                        // Check if this looks like a daemon down scenario
+                        if (response.status >= 500 || response.status === 502 || response.status === 503 || response.status === 504) {
+                            throw new Error('DAEMON_DOWN');
                         }
                         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                     }
@@ -554,16 +650,138 @@
                         throw new Error(data.message || 'Failed to load content');
                     }
 
+                    // Success - clear offline state
+                    this.handleOnlineState();
                     this.content = data.data.items || [];
+                    this.cachedContent = [...this.content]; // Cache successful response
                     this.renderContent();
                     this.updateStatus();
 
                 } catch (error) {
                     console.error('Failed to load content:', error);
-                    this.showError(`Failed to load content: ${error.message}`);
-                    this.renderEmptyState('Unable to connect to Prismis daemon');
+
+                    // Check if this is a connection/daemon offline error
+                    if (error.name === 'AbortError' ||
+                        error.message === 'DAEMON_DOWN' ||
+                        error.message.includes('fetch') ||
+                        error.message.includes('NetworkError') ||
+                        error.message.includes('Failed to fetch')) {
+
+                        this.handleOfflineState(error);
+                    } else {
+                        // Other errors (API key, validation, etc.)
+                        this.showError(`Failed to load content: ${error.message}`);
+                        if (this.cachedContent.length === 0) {
+                            this.renderEmptyState('Unable to load content');
+                        }
+                    }
                 } finally {
                     this.isLoading = false;
+                }
+            }
+
+            handleOfflineState(error) {
+                this.isOffline = true;
+                this.retryAttempts++;
+
+                // Stop auto-refresh when offline
+                this.stopAutoRefresh();
+
+                // Show offline banner
+                this.showOfflineBanner();
+
+                // Show cached content if available
+                if (this.cachedContent.length > 0) {
+                    this.content = [...this.cachedContent];
+                    this.renderContent();
+                    this.showCachedIndicator();
+                } else {
+                    this.renderEmptyState('Daemon offline - no cached content available');
+                }
+
+                // Update status to show offline state
+                this.updateOfflineStatus();
+            }
+
+            handleOnlineState() {
+                if (this.isOffline) {
+                    this.isOffline = false;
+                    this.retryAttempts = 0;
+
+                    // Clear offline UI
+                    this.hideOfflineBanner();
+                    this.hideCachedIndicator();
+
+                    // Restart auto-refresh
+                    this.startAutoRefresh();
+                }
+            }
+
+            showOfflineBanner() {
+                const container = document.getElementById('offlineContainer');
+                const attemptsText = this.retryAttempts > 1 ? ` (attempt ${this.retryAttempts}/${this.maxRetryAttempts})` : '';
+
+                container.innerHTML = `
+                    <div class="offline-banner">
+                        <div class="offline-message">
+                            <strong>Daemon Offline</strong><br>
+                            Unable to connect to Prismis daemon${attemptsText}
+                        </div>
+                        <div class="offline-actions">
+                            <button class="retry-btn" ${this.isLoading ? 'disabled' : ''}>
+                                ${this.isLoading ? 'Retrying...' : 'Retry'}
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            hideOfflineBanner() {
+                document.getElementById('offlineContainer').innerHTML = '';
+            }
+
+            showCachedIndicator() {
+                const container = document.getElementById('cachedIndicatorContainer');
+                container.innerHTML = `
+                    <div class="cached-indicator">
+                        📋 Showing cached content - data may be outdated
+                    </div>
+                `;
+            }
+
+            hideCachedIndicator() {
+                document.getElementById('cachedIndicatorContainer').innerHTML = '';
+            }
+
+            updateOfflineStatus() {
+                const statusInfo = document.getElementById('statusInfo');
+                const refreshInfo = document.getElementById('refreshInfo');
+
+                statusInfo.textContent = 'Offline - daemon unreachable';
+                refreshInfo.textContent = 'Auto-refresh paused';
+            }
+
+            async retryConnection() {
+                if (this.retryAttempts >= this.maxRetryAttempts) {
+                    this.showError(`Max retry attempts (${this.maxRetryAttempts}) exceeded. Please check if daemon is running.`);
+                    return;
+                }
+
+                // Update button state
+                this.showOfflineBanner(); // Refresh the banner with loading state
+
+                // Attempt to reconnect
+                await this.loadContent();
+            }
+
+            stopAutoRefresh() {
+                if (this.refreshInterval) {
+                    clearInterval(this.refreshInterval);
+                    this.refreshInterval = null;
+                }
+                if (this.countdownInterval) {
+                    clearInterval(this.countdownInterval);
+                    this.countdownInterval = null;
                 }
             }
 
@@ -628,20 +846,37 @@
             }
 
             async markAsRead(itemId, button) {
+                // If offline, don't allow marking as read
+                if (this.isOffline) {
+                    this.showError('Cannot mark as read while offline');
+                    return;
+                }
+
                 button.disabled = true;
                 button.textContent = 'Marking...';
 
                 try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
                     const response = await fetch(`/api/content/${itemId}`, {
                         method: 'PATCH',
                         headers: {
                             'Content-Type': 'application/json',
                             'X-API-Key': this.apiKey
                         },
-                        body: JSON.stringify({ read: true })
+                        body: JSON.stringify({ read: true }),
+                        signal: controller.signal
                     });
 
+                    clearTimeout(timeoutId);
+
                     if (!response.ok) {
+                        // Check for daemon offline scenarios
+                        if (response.status >= 500 || response.status === 502 || response.status === 503 || response.status === 504) {
+                            this.handleOfflineState(new Error('DAEMON_DOWN'));
+                            return;
+                        }
                         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                     }
 
@@ -652,13 +887,27 @@
                         item.read = true;
                     }
 
+                    // Also update cached content
+                    const cachedItem = this.cachedContent.find(c => c.id === itemId);
+                    if (cachedItem) {
+                        cachedItem.read = true;
+                    }
+
                     this.updateStatus();
 
                 } catch (error) {
                     console.error('Failed to mark as read:', error);
-                    button.disabled = false;
-                    button.textContent = 'Mark Read';
-                    this.showError(`Failed to mark as read: ${error.message}`);
+
+                    // Check for connection errors
+                    if (error.name === 'AbortError' ||
+                        error.message.includes('fetch') ||
+                        error.message.includes('NetworkError')) {
+                        this.handleOfflineState(error);
+                    } else {
+                        button.disabled = false;
+                        button.textContent = 'Mark Read';
+                        this.showError(`Failed to mark as read: ${error.message}`);
+                    }
                 }
             }
 
@@ -686,27 +935,44 @@
             }
 
             startAutoRefresh() {
-                // Clear existing interval
-                if (this.refreshInterval) {
-                    clearInterval(this.refreshInterval);
+                // Clear existing intervals
+                this.stopAutoRefresh();
+
+                // Don't start auto-refresh if offline
+                if (this.isOffline) {
+                    return;
                 }
 
                 // Set up 30-second refresh
                 this.refreshInterval = setInterval(() => {
-                    this.loadContent();
+                    if (!this.isOffline) {
+                        this.loadContent();
+                    }
                 }, 30000);
 
-                // Update refresh indicator
+                // Update refresh indicator with countdown
+                this.startRefreshCountdown();
+            }
+
+            startRefreshCountdown() {
                 let seconds = 30;
                 const refreshInfo = document.getElementById('refreshInfo');
-                const countdownInterval = setInterval(() => {
+
+                this.countdownInterval = setInterval(() => {
+                    // Stop countdown if offline
+                    if (this.isOffline) {
+                        clearInterval(this.countdownInterval);
+                        return;
+                    }
+
                     seconds--;
                     if (seconds <= 0) {
                         refreshInfo.textContent = 'Refreshing...';
-                        clearInterval(countdownInterval);
                         setTimeout(() => {
-                            seconds = 30;
-                            refreshInfo.textContent = 'Refreshes every 30s';
+                            if (!this.isOffline) {
+                                seconds = 30;
+                                refreshInfo.textContent = 'Refreshes every 30s';
+                            }
                         }, 1000);
                     } else {
                         refreshInfo.textContent = `Next refresh in ${seconds}s`;

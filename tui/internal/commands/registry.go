@@ -47,6 +47,12 @@ func NewRegistry() *Registry {
 	// Theme switching
 	r.Register("theme", cmdTheme)
 
+	// Audio briefing generation
+	r.Register("audio", cmdAudio)
+
+	// Export commands
+	r.Register("export", cmdExport)
+
 	return r
 }
 
@@ -333,6 +339,31 @@ func cmdReport(args []string) tea.Cmd {
 	}
 }
 
+// cmdAudio generates audio briefing from HIGH priority content
+func cmdAudio(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return AudioMsg{}
+	}
+}
+
+// cmdExport handles export commands (currently only sources)
+func cmdExport(args []string) tea.Cmd {
+	return func() tea.Msg {
+		// Parse subcommand
+		if len(args) == 0 {
+			return ErrorMsg{Message: "export: subcommand required (sources)"}
+		}
+
+		subcommand := args[0]
+		switch subcommand {
+		case "sources":
+			return ExportSourcesMsg{}
+		default:
+			return ErrorMsg{Message: fmt.Sprintf("export: unknown subcommand '%s' (available: sources)", subcommand)}
+		}
+	}
+}
+
 // cmdFabric executes Fabric patterns on current content
 func cmdFabric(args []string) tea.Cmd {
 	return func() tea.Msg {
@@ -439,6 +470,9 @@ type ReportMsg struct {
 	Period string // Time period like "24h", "7d"
 }
 
+// AudioMsg signals to generate an audio briefing
+type AudioMsg struct{}
+
 // FabricMsg signals to execute a Fabric pattern
 type FabricMsg struct {
 	Pattern  string // Pattern name to execute, or "--list" for pattern list
@@ -448,3 +482,6 @@ type FabricMsg struct {
 
 // ThemeMsg signals to cycle to the next theme
 type ThemeMsg struct{}
+
+// ExportSourcesMsg signals to export sources to clipboard
+type ExportSourcesMsg struct{}

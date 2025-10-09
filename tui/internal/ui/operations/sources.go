@@ -2,10 +2,13 @@ package operations
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nickpending/prismis/internal/api"
+	"github.com/nickpending/prismis/internal/clipboard"
 )
 
 // Source operation result messages
@@ -375,6 +378,148 @@ func ShowLogs() tea.Cmd {
 			Message: "Use 'prismis-cli logs' to view daemon logs",
 			Success: false,
 			Error:   fmt.Errorf("not implemented"),
+		}
+	}
+}
+
+// ExportSources exports all sources to clipboard in markdown format
+func ExportSources() tea.Cmd {
+	return func() tea.Msg {
+		apiClient, err := api.NewClient()
+		if err != nil {
+			return SourceOperationMsg{
+				Message: fmt.Sprintf("Failed to create API client: %v", err),
+				Success: false,
+				Error:   err,
+			}
+		}
+
+		// Get all sources from API
+		sourcesResp, err := apiClient.GetSources()
+		if err != nil {
+			// Check for specific error types
+			errStr := err.Error()
+			if strings.Contains(errStr, "network error") {
+				return SourceOperationMsg{
+					Message: "Cannot connect to daemon - is it running?",
+					Success: false,
+					Error:   err,
+				}
+			} else if strings.Contains(errStr, "authentication failed") {
+				return SourceOperationMsg{
+					Message: "Authentication failed - check API key",
+					Success: false,
+					Error:   err,
+				}
+			}
+
+			return SourceOperationMsg{
+				Message: fmt.Sprintf("Failed to get sources: %v", err),
+				Success: false,
+				Error:   err,
+			}
+		}
+
+		// Check if there are any sources
+		if len(sourcesResp.Sources) == 0 {
+			return SourceOperationMsg{
+				Message: "No sources configured to export",
+				Success: false,
+				Error:   fmt.Errorf("no sources"),
+			}
+		}
+
+		// Group sources by type
+		rssFeeds := []api.Source{}
+		redditSubs := []api.Source{}
+		youtubeChannels := []api.Source{}
+
+		for _, source := range sourcesResp.Sources {
+			switch source.Type {
+			case "rss":
+				rssFeeds = append(rssFeeds, source)
+			case "reddit":
+				redditSubs = append(redditSubs, source)
+			case "youtube":
+				youtubeChannels = append(youtubeChannels, source)
+			}
+		}
+
+		// Sort each group alphabetically by name/URL
+		sortSources := func(sources []api.Source) {
+			sort.Slice(sources, func(i, j int) bool {
+				nameI := sources[i].URL
+				if sources[i].Name != nil {
+					nameI = *sources[i].Name
+				}
+				nameJ := sources[j].URL
+				if sources[j].Name != nil {
+					nameJ = *sources[j].Name
+				}
+				return strings.ToLower(nameI) < strings.ToLower(nameJ)
+			})
+		}
+
+		sortSources(rssFeeds)
+		sortSources(redditSubs)
+		sortSources(youtubeChannels)
+
+		// Build markdown format
+		var markdown strings.Builder
+		markdown.WriteString(fmt.Sprintf("# Prismis Sources (exported %s)\n\n", time.Now().Format("2006-01-02")))
+
+		// Helper to format source list
+		formatSourceList := func(sources []api.Source) {
+			for _, source := range sources {
+				name := source.URL
+				if source.Name != nil && *source.Name != "" {
+					name = *source.Name
+				}
+
+				// Add paused indicator
+				status := ""
+				if !source.Active {
+					status = " (paused)"
+				}
+
+				markdown.WriteString(fmt.Sprintf("- %s - %s%s\n", name, source.URL, status))
+			}
+		}
+
+		// RSS Feeds section
+		if len(rssFeeds) > 0 {
+			markdown.WriteString("## RSS Feeds\n")
+			formatSourceList(rssFeeds)
+			markdown.WriteString("\n")
+		}
+
+		// YouTube Channels section
+		if len(youtubeChannels) > 0 {
+			markdown.WriteString("## YouTube Channels\n")
+			formatSourceList(youtubeChannels)
+			markdown.WriteString("\n")
+		}
+
+		// Reddit Subreddits section
+		if len(redditSubs) > 0 {
+			markdown.WriteString("## Reddit Subreddits\n")
+			formatSourceList(redditSubs)
+			markdown.WriteString("\n")
+		}
+
+		// Copy to clipboard
+		if err := clipboard.CopyToClipboard(markdown.String()); err != nil {
+			return SourceOperationMsg{
+				Message: fmt.Sprintf("Failed to copy to clipboard: %v", err),
+				Success: false,
+				Error:   err,
+			}
+		}
+
+		return SourceOperationMsg{
+			Message: fmt.Sprintf("Exported %d sources to clipboard", len(sourcesResp.Sources)),
+			Success: true,
+			Error:   nil,
 		}
 	}
 }

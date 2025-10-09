@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/nickpending/prismis/internal/clipboard"
 	"github.com/nickpending/prismis/internal/commands"
 	"github.com/nickpending/prismis/internal/config"
 	"github.com/nickpending/prismis/internal/db"
@@ -284,6 +285,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Generate report with specified period
 		return m, operations.GenerateReport(msg.Period)
 
+	case commands.AudioMsg:
+		// Generate audio briefing from HIGH priority content
+		m.statusMessage = "Generating audio briefing..."
+		return m, operations.GenerateAudioBriefing()
+
+	case commands.ExportSourcesMsg:
+		// Export sources to clipboard
+		return m, operations.ExportSources()
+
 	case commands.FabricMsg:
 		// Execute Fabric pattern on current item's full content
 		currentContent := ""
@@ -345,7 +355,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Copy URL to clipboard (works in both list and reader views)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
 			item := m.items[m.cursor]
-			err := CopyToClipboard(item.URL)
+			err := clipboard.CopyToClipboard(item.URL)
 			if err != nil {
 				m.statusMessage = "Failed to copy URL"
 			} else {
@@ -364,7 +374,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusMessage = "No content available"
 				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
 			} else {
-				err := CopyToClipboard(readingSummary)
+				err := clipboard.CopyToClipboard(readingSummary)
 				if err != nil {
 					m.statusMessage = "Failed to copy content"
 				} else {
@@ -809,6 +819,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Clear status message after delay (success or error)
 		cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
+
+	case operations.AudioOperationMsg:
+		// Handle audio briefing generation message from operations package
+		m.statusMessage = msg.Message
+
+		// Clear status message after delay (success or error)
+		cmds = append(cmds, clearStatusAfterDelay(5*time.Second))
 
 	case operations.FabricOperationMsg:
 		// Handle Fabric operation results

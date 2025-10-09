@@ -102,6 +102,8 @@ prismis  # Launch instantly
   - `:fabric analyze_claims` - Fact-check claims
   - `:fabric explain_terms` - Explain technical terms
 - `:report` - Generate and save daily content report
+- `:audio` - Generate audio briefing from HIGH priority items (requires lspeak)
+- `:export sources` - Copy all configured sources to clipboard for backup
 - `:mark` - Mark article as read/unread
 - `:copy` - Copy article content
 - `:prune` - Remove unprioritized items (with y/n confirmation)
@@ -184,6 +186,7 @@ Internet Sources          Python Daemon           Go TUI
 - **Python 3.13+** for the daemon
 - **LLM API key** - OpenAI, Anthropic, Groq, or local Ollama
 - **Fabric** (optional) - AI content analysis patterns with tab completion
+- **lspeak** (optional) - Text-to-speech for audio briefings (`uv tool install git+https://github.com/nickpending/lspeak.git`)
 
 ### Install from Source
 
@@ -262,6 +265,30 @@ Built-in AI analysis using 200+ Fabric patterns. Tab completion helps you discov
 **Note**: Fabric analyzes the original/raw article content, not the AI-generated summary. This gives you deeper, unfiltered insights directly from the source material.
 
 Results are automatically copied to your clipboard. Requires [Fabric](https://github.com/danielmiessler/fabric) to be installed.
+
+### Audio Briefings
+
+Generate Jarvis-style audio briefings from your HIGH priority content:
+
+```bash
+# In TUI
+:audio                     # Generates MP3 briefing, saved to ~/.local/share/prismis/audio/
+
+# Configure TTS provider (optional)
+# ~/.config/prismis/config.toml
+[audio]
+provider = "system"        # Free macOS/Linux TTS (default)
+# provider = "elevenlabs"  # Premium quality ($0.30/1K chars)
+# voice = "your-voice-id"  # ElevenLabs voice ID (optional)
+```
+
+Requires [lspeak](https://github.com/nickpending/lspeak) for TTS generation:
+```bash
+uv tool install git+https://github.com/nickpending/lspeak.git
+
+# For ElevenLabs (optional premium quality)
+export ELEVENLABS_API_KEY=your-api-key
+```
 
 ### API Access
 

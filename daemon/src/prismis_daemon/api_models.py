@@ -54,3 +54,16 @@ class ContentUpdateRequest(BaseModel):
 
     read: Optional[bool] = Field(None, description="Mark as read/unread")
     favorited: Optional[bool] = Field(None, description="Mark as favorite/unfavorite")
+
+
+class AudioBriefingResponse(BaseModel):
+    """Response model for audio briefing generation."""
+
+    file_path: str = Field(..., description="Path to generated audio file")
+    filename: str = Field(..., description="Filename of generated audio")
+    duration_estimate: Optional[str] = Field(
+        None, description="Estimated duration (e.g., '2-5 minutes')"
+    )
+    generated_at: datetime = Field(..., description="Generation timestamp")
+    provider: str = Field(..., description="TTS provider used")
+    high_priority_count: int = Field(..., description="Number of HIGH priority items")

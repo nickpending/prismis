@@ -610,3 +610,101 @@ func (c *APIClient) GetReport(period string) (*ReportResponse, error) {
 
 	return &reportResp, nil
 }
+
+// AudioBriefingResponse represents the response from POST /api/audio/briefings
+type AudioBriefingResponse struct {
+	FilePath          string `json:"file_path"`
+	Filename          string `json:"filename"`
+	DurationEstimate  string `json:"duration_estimate"`
+	GeneratedAt       string `json:"generated_at"`
+	Provider          string `json:"provider"`
+	HighPriorityCount int    `json:"high_priority_count"`
+}
+
+// GenerateAudioBriefing generates an audio briefing from HIGH priority content
+func (c *APIClient) GenerateAudioBriefing() (*AudioBriefingResponse, error) {
+	// Create HTTP request - no body needed for POST
+	req, err := http.NewRequest("POST", c.baseURL+"/api/audio/briefings", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("X-API-Key", c.apiKey)
+
+	// Use longer timeout for audio generation (60 seconds)
+	client := &http.Client{Timeout: 60 * time.Second}
+
+	// Send request
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Check for specific HTTP status codes
+	if resp.StatusCode == 403 {
+		return nil, fmt.Errorf("authentication failed: invalid API key")
+	}
+	if resp.StatusCode == 422 {
+		var apiResp APIResponse
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			return nil, fmt.Errorf("validation error: %s", apiResp.Message)
+		}
+		return nil, fmt.Errorf("validation error: check if HIGH priority content exists")
+	}
+	if resp.StatusCode == 500 {
+		var apiResp APIResponse
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			return nil, fmt.Errorf("server error: %s", apiResp.Message)
+		}
+		return nil, fmt.Errorf("server error: audio generation failed")
+	}
+	if resp.StatusCode >= 400 {
+		var apiResp APIResponse
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			return nil, fmt.Errorf("API error: %s", apiResp.Message)
+		}
+		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
+	}
+
+	// Parse the wrapped response
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Check if operation was successful
+	if !apiResp.Success {
+		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+	}
+
+	// Extract the audio briefing data from the data field
+	var audioResp AudioBriefingResponse
+	if data, ok := apiResp.Data["file_path"].(string); ok {
+		audioResp.FilePath = data
+	}
+	if data, ok := apiResp.Data["filename"].(string); ok {
+		audioResp.Filename = data
+	}
+	if data, ok := apiResp.Data["duration_estimate"].(string); ok {
+		audioResp.DurationEstimate = data
+	}
+	if data, ok := apiResp.Data["generated_at"].(string); ok {
+		audioResp.GeneratedAt = data
+	}
+	if data, ok := apiResp.Data["provider"].(string); ok {
+		audioResp.Provider = data
+	}
+	if data, ok := apiResp.Data["high_priority_count"].(float64); ok {
+		audioResp.HighPriorityCount = int(data)
+	}
+
+	return &audioResp, nil
+}

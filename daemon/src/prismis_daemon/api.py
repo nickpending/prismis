@@ -25,6 +25,8 @@ from .auth import verify_api_key
 from .storage import Storage
 from .validator import SourceValidator
 from .reports import ReportGenerator
+from .audio import AudioScriptGenerator, LspeakTTSEngine
+from .config import Config
 
 
 app = FastAPI(
@@ -81,6 +83,16 @@ async def get_storage() -> Storage:
         yield storage
     finally:
         storage.close()
+
+
+# Dependency injection for Config
+async def get_config() -> Config:
+    """Dependency injection for Config instances.
+
+    Loads configuration from standard location.
+    Config is stateless so no cleanup needed.
+    """
+    return Config.from_file()
 
 
 # Configure CORS for local access only
@@ -722,6 +734,95 @@ async def count_unprioritized(
 
     except Exception as e:
         raise ServerError(f"Failed to count unprioritized items: {str(e)}")
+
+
+@app.post("/api/audio/briefings", dependencies=[Depends(verify_api_key)])
+async def generate_audio_briefing(
+    storage: Storage = Depends(get_storage),
+    config: Config = Depends(get_config),
+) -> dict:
+    """Generate audio briefing from HIGH priority content.
+
+    Creates a Jarvis-style audio briefing using lspeak TTS engine.
+    Generation is blocking and takes 10-30 seconds depending on content.
+
+    Args:
+        storage: Storage instance injected by FastAPI
+        config: Config instance injected by FastAPI
+
+    Returns:
+        JSON response with file path and metadata
+
+    Raises:
+        ValidationError: If no HIGH priority content available
+        ServerError: If lspeak not installed or generation fails
+    """
+    try:
+        # Generate daily report (this gets HIGH priority items)
+        generator = ReportGenerator(storage)
+        report = generator.generate_daily_report(hours=24)
+
+        # Check if we have HIGH priority content
+        if not report.high_priority:
+            raise ValidationError(
+                "No high priority content available for briefing. "
+                "Add content sources or adjust prioritization context."
+            )
+
+        # Generate conversational script using LLM
+        script_gen = AudioScriptGenerator(config)
+        script = script_gen.generate_script(report)
+
+        # Set up output path
+        import os
+        from datetime import datetime
+
+        # Use ~/.local/share/prismis/audio for output
+        audio_dir = (
+            Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+            / "prismis"
+            / "audio"
+        )
+        audio_dir.mkdir(parents=True, exist_ok=True)
+
+        # Date-based filename
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        filename = f"briefing-{date_str}.mp3"
+        output_path = audio_dir / filename
+
+        # Generate audio using lspeak
+        tts_engine = LspeakTTSEngine(
+            provider=config.audio_provider, voice=config.audio_voice
+        )
+        tts_engine.generate(script, output_path)
+
+        return {
+            "success": True,
+            "message": f"Audio briefing generated: {filename}",
+            "data": {
+                "file_path": str(output_path),
+                "filename": filename,
+                "duration_estimate": "2-5 minutes",
+                "generated_at": datetime.now().isoformat(),
+                "provider": config.audio_provider,
+                "high_priority_count": len(report.high_priority),
+            },
+        }
+
+    except ValidationError:
+        raise  # Re-raise validation errors
+    except RuntimeError as e:
+        # Handle lspeak not found or generation failures
+        error_msg = str(e)
+        if "lspeak not found" in error_msg:
+            raise ServerError(
+                "lspeak is not installed. Install with: "
+                "uv tool install git+https://github.com/nickpending/lspeak.git"
+            )
+        else:
+            raise ServerError(f"Audio generation failed: {error_msg}")
+    except Exception as e:
+        raise ServerError(f"Failed to generate audio briefing: {str(e)}")
 
 
 # Mount static files LAST to avoid intercepting API routes

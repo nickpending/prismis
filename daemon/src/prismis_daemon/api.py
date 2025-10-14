@@ -484,6 +484,7 @@ async def get_content(
     priority: Optional[str] = Query(None, regex="^(high|medium|low)$"),
     unread_only: bool = Query(False),
     limit: int = Query(50, le=100, ge=1),
+    since_hours: int = Query(24, ge=1, le=720),
     storage: Storage = Depends(get_storage),
 ) -> dict:
     """Get content items with optional filtering.
@@ -492,6 +493,7 @@ async def get_content(
         priority: Filter by priority level ('high', 'medium', 'low')
         unread_only: Only return unread items (default: False)
         limit: Maximum number of items to return (1-100, default: 50)
+        since_hours: Hours of content to fetch (1-720, default: 24)
         storage: Storage instance injected by FastAPI
 
     Returns:
@@ -507,7 +509,7 @@ async def get_content(
                 content_items = storage.get_content_by_priority(priority, limit)
             else:
                 # Need to modify query to include read items - use get_content_since with filter
-                all_recent = storage.get_content_since(hours=24 * 30)  # Last 30 days
+                all_recent = storage.get_content_since(hours=since_hours)
                 content_items = [
                     item for item in all_recent if item.get("priority") == priority
                 ][:limit]
@@ -532,7 +534,7 @@ async def get_content(
                 content_items = high_items + medium_items + low_items
             else:
                 # Get all content from recent period
-                all_recent = storage.get_content_since(hours=24 * 30)  # Last 30 days
+                all_recent = storage.get_content_since(hours=since_hours)
                 content_items = all_recent[:limit]
 
         # Format response consistently with other endpoints
@@ -546,6 +548,7 @@ async def get_content(
                     "priority": priority,
                     "unread_only": unread_only,
                     "limit": limit,
+                    "since_hours": since_hours,
                 },
             },
         }
@@ -572,82 +575,6 @@ async def health_check(storage: Storage = Depends(get_storage)) -> dict:
     except Exception as e:
         # Let the exception handler format it consistently
         raise ServerError(f"Health check failed: {str(e)}")
-
-
-@app.get("/api/reports", dependencies=[Depends(verify_api_key)])
-async def get_reports(
-    period: str = "24h",
-    storage: Storage = Depends(get_storage),
-) -> dict:
-    """Generate a content report for the specified period.
-
-    Args:
-        period: Time period to report on. Formats:
-                - "24h" (default) - Last 24 hours
-                - "7d" - Last 7 days
-                - "30d" - Last 30 days
-                - Or any number followed by 'h' (hours) or 'd' (days)
-        storage: Storage instance injected by FastAPI
-
-    Returns:
-        JSON response with markdown report and metadata
-    """
-    try:
-        # Parse the period parameter
-        import re
-
-        match = re.match(r"(\d+)([hd])", period.lower())
-        if not match:
-            raise ValidationError(
-                f"Invalid period format: {period}. Use format like '24h' or '7d'"
-            )
-
-        amount = int(match.group(1))
-        unit = match.group(2)
-
-        # Convert to hours
-        if unit == "d":
-            hours = amount * 24
-        else:
-            hours = amount
-
-        # Reasonable limits
-        if hours > 720:  # 30 days max
-            raise ValidationError("Period cannot exceed 30 days (720 hours)")
-        if hours < 1:
-            raise ValidationError("Period must be at least 1 hour")
-
-        # Generate the report
-        generator = ReportGenerator(storage)
-        report = generator.generate_daily_report(hours=hours)
-        markdown = generator.format_as_markdown(report)
-
-        return {
-            "success": True,
-            "message": f"Report generated for last {period}",
-            "data": {
-                "markdown": markdown,
-                "period": period,
-                "period_hours": hours,
-                "generated_at": report.generated_at.isoformat(),
-                "statistics": {
-                    "total_items": report.total_items,
-                    "high_priority": len(report.high_priority),
-                    "medium_priority": len(report.medium_priority),
-                    "low_priority": len(report.low_priority),
-                    "top_sources": [
-                        {"name": name, "count": count}
-                        for name, count in report.top_sources
-                    ],
-                    "key_themes": report.key_themes,
-                },
-            },
-        }
-
-    except ValidationError:
-        raise  # Re-raise validation errors
-    except Exception as e:
-        raise ServerError(f"Failed to generate report: {str(e)}")
 
 
 @app.post("/api/prune", dependencies=[Depends(verify_api_key)])
@@ -824,6 +751,17 @@ async def generate_audio_briefing(
     except Exception as e:
         raise ServerError(f"Failed to generate audio briefing: {str(e)}")
 
+
+# Mount audio files directory
+import os
+
+audio_dir = (
+    Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+    / "prismis"
+    / "audio"
+)
+if audio_dir.exists():
+    app.mount("/audio", StaticFiles(directory=str(audio_dir)), name="audio")
 
 # Mount static files LAST to avoid intercepting API routes
 if static_dir.exists():

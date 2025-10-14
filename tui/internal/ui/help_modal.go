@@ -183,7 +183,7 @@ func (m HelpModal) View(theme StyleTheme) string {
 	content.WriteString("\n")
 	content.WriteString(format2Col(":copy", "Copy content", ":fabric <pattern>", "AI analysis"))
 	content.WriteString("\n")
-	content.WriteString(format2Col(":report", "Daily report", "", ""))
+	content.WriteString(format2Col(":audio", "Audio briefing", ":export sources", "Export sources"))
 	content.WriteString("\n\n")
 
 	// SOURCE COMMANDS section

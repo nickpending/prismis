@@ -372,14 +372,6 @@ type ContentUpdateRequest struct {
 	Favorited *bool `json:"favorited,omitempty"`
 }
 
-// ReportResponse represents the response from GET /api/reports
-type ReportResponse struct {
-	Markdown    string    `json:"markdown"`
-	Period      string    `json:"period"`
-	PeriodHours int       `json:"period_hours"`
-	GeneratedAt time.Time `json:"generated_at"`
-}
-
 // UpdateContent updates content properties (read/favorited status)
 func (c *APIClient) UpdateContent(contentID string, request ContentUpdateRequest) (*APIResponse, error) {
 	// Marshal request to JSON
@@ -534,81 +526,6 @@ func (c *APIClient) PruneUnprioritized(days *int) (int, error) {
 	}
 
 	return apiResp.Data.Deleted, nil
-}
-
-// GetReport retrieves a daily report from the API
-func (c *APIClient) GetReport(period string) (*ReportResponse, error) {
-	// Create HTTP request with period parameter
-	req, err := http.NewRequest("GET", c.baseURL+"/api/reports?period="+period, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("X-API-Key", c.apiKey)
-
-	// Send request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Check for specific HTTP status codes
-	if resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed: invalid API key")
-	}
-	if resp.StatusCode == 422 {
-		var apiResp APIResponse
-		if err := json.Unmarshal(body, &apiResp); err == nil {
-			return nil, fmt.Errorf("validation error: %s", apiResp.Message)
-		}
-		return nil, fmt.Errorf("validation error: invalid period format")
-	}
-	if resp.StatusCode >= 400 {
-		var apiResp APIResponse
-		if err := json.Unmarshal(body, &apiResp); err == nil {
-			return nil, fmt.Errorf("API error: %s", apiResp.Message)
-		}
-		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
-	}
-
-	// Parse the wrapped response
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Check if operation was successful
-	if !apiResp.Success {
-		return nil, fmt.Errorf("API error: %s", apiResp.Message)
-	}
-
-	// Extract the report data from the data field
-	var reportResp ReportResponse
-	if data, ok := apiResp.Data["markdown"].(string); ok {
-		reportResp.Markdown = data
-	}
-	if data, ok := apiResp.Data["period"].(string); ok {
-		reportResp.Period = data
-	}
-	if data, ok := apiResp.Data["period_hours"].(float64); ok {
-		reportResp.PeriodHours = int(data)
-	}
-	if data, ok := apiResp.Data["generated_at"].(string); ok {
-		// Parse the timestamp
-		if parsedTime, err := time.Parse(time.RFC3339, data); err == nil {
-			reportResp.GeneratedAt = parsedTime
-		}
-	}
-
-	return &reportResp, nil
 }
 
 // AudioBriefingResponse represents the response from POST /api/audio/briefings

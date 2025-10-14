@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Prismis - Local Intelligence</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -12,10 +15,10 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: 'JetBrains Mono', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, monospace;
             background-color: #1a1a1a;
             color: #EEEEEE;
-            line-height: 1.5;
+            line-height: 1.6;
             padding: 15px;
             min-height: 100vh;
         }
@@ -74,56 +77,64 @@
             color: #888888;
         }
 
-        .filter-tabs {
-            display: flex;
-            gap: 0;
+        .audio-controls {
+            background: #222222;
+            padding: 20px;
+            border-radius: 8px;
             margin-bottom: 20px;
-            border-radius: 6px;
-            overflow: hidden;
             border: 1px solid #333333;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
+            flex-wrap: wrap;
         }
 
-        .filter-tab {
-            background: #2a2a2a;
+        .audio-info {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .audio-info h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #00D9FF;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .audio-info p {
+            font-size: 13px;
+            color: #888888;
+        }
+
+        .audio-button {
+            background: linear-gradient(135deg, #00D9FF 0%, #9F4DFF 100%);
+            color: white;
             border: none;
-            padding: 15px 20px;
+            padding: 12px 24px;
+            border-radius: 6px;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s ease;
-            flex: 1;
-            border-right: 1px solid #333333;
-            min-height: 48px;
+            min-height: 44px;
         }
 
-        .filter-tab:last-child {
-            border-right: none;
-        }
-
-        .filter-tab.all {
-            color: #CCCCCC;
-        }
-
-        .filter-tab.high {
-            color: #FF0066;
-        }
-
-        .filter-tab.medium {
-            color: #FF8800;
-        }
-
-        .filter-tab.low {
-            color: #666666;
-        }
-
-        .filter-tab.active {
-            background: linear-gradient(135deg, #333333 0%, #444444 100%);
+        .audio-button:hover:not(:disabled) {
             transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(0, 217, 255, 0.2);
+            box-shadow: 0 4px 12px rgba(0, 217, 255, 0.3);
         }
 
-        .filter-tab:hover {
-            background: #333333;
+        .audio-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .audio-player {
+            width: 100%;
+            margin-top: 15px;
         }
 
         .content-list {
@@ -134,32 +145,32 @@
 
         .content-item {
             background: #222222;
-            padding: 25px;
+            padding: 30px;
             border-radius: 8px;
             border: 1px solid #333333;
             transition: all 0.2s ease;
+            margin-bottom: 18px;
         }
 
         .content-item:hover {
-            transform: translateY(-2px);
             border-color: #00D9FF;
-            box-shadow: 0 4px 16px rgba(0, 217, 255, 0.1);
+            box-shadow: 0 2px 8px rgba(0, 217, 255, 0.08);
         }
 
         .item-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 12px;
-            gap: 15px;
+            margin-bottom: 16px;
+            gap: 20px;
         }
 
         .item-title {
-            font-size: 18px;
+            font-size: 19px;
             font-weight: 600;
             color: #EEEEEE;
             flex: 1;
-            line-height: 1.3;
+            line-height: 1.4;
         }
 
         .item-title a {
@@ -178,34 +189,36 @@
         }
 
         .mark-read-btn {
-            background: rgba(0, 217, 255, 0.1);
-            border: 1px solid #00D9FF;
-            color: #00D9FF;
-            padding: 8px 12px;
+            background: transparent;
+            border: 1px solid #444444;
+            color: #888888;
+            padding: 6px 10px;
             border-radius: 4px;
-            font-size: 12px;
+            font-size: 11px;
             cursor: pointer;
             transition: all 0.2s ease;
-            min-height: 44px;
-            min-width: 44px;
+            min-height: 32px;
+            font-weight: 500;
         }
 
         .mark-read-btn:hover {
-            background: rgba(0, 217, 255, 0.2);
+            background: rgba(0, 217, 255, 0.1);
+            border-color: #00D9FF;
+            color: #00D9FF;
         }
 
         .mark-read-btn:disabled {
-            opacity: 0.5;
+            opacity: 0.4;
             cursor: not-allowed;
         }
 
         .item-meta {
             font-size: 13px;
             color: #888888;
-            margin-bottom: 12px;
+            margin-bottom: 16px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
             flex-wrap: wrap;
         }
 
@@ -234,6 +247,40 @@
             background-color: rgba(102, 102, 102, 0.2);
             color: #666666;
             border: 1px solid #666666;
+        }
+
+        .match-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            background-color: rgba(230, 204, 255, 0.1);
+            color: #E6CCFF;
+            border: 1px solid #E6CCFF;
+            margin-left: 8px;
+            font-weight: 600;
+        }
+
+        .must-reads-section {
+            background: #222222;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #00D9FF;
+            border-top: 1px solid #333333;
+            border-right: 1px solid #333333;
+            border-bottom: 1px solid #333333;
+        }
+
+        .must-reads-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #00D9FF;
+            color: #00D9FF;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
         }
 
         .item-summary {
@@ -498,25 +545,29 @@
         </svg>
         <div class="header-content">
             <h1>PRISMIS</h1>
-            <div class="subtitle">Daily Intelligence</div>
+            <div class="subtitle">Daily Intelligence Briefing</div>
         </div>
     </div>
 
     <div class="status-bar">
         <div class="status-info" id="statusInfo">Loading...</div>
-        <div class="refresh-info" id="refreshInfo">Refreshes every 30s</div>
+        <div class="refresh-info" id="refreshInfo">Last 24 hours • Refreshes every 30s</div>
     </div>
 
     <div id="errorContainer"></div>
     <div id="offlineContainer"></div>
     <div id="cachedIndicatorContainer"></div>
 
-    <div class="filter-tabs">
-        <button class="filter-tab all active" data-filter="all">ALL</button>
-        <button class="filter-tab high" data-filter="high">HIGH</button>
-        <button class="filter-tab medium" data-filter="medium">MEDIUM</button>
-        <button class="filter-tab low" data-filter="low">LOW</button>
+    <div class="audio-controls">
+        <div class="audio-info">
+            <h3>Audio Briefing</h3>
+            <p>Listen to your daily intelligence briefing</p>
+        </div>
+        <button id="generateAudioBtn" class="audio-button">Generate Audio Briefing</button>
+        <div id="audioPlayerContainer"></div>
     </div>
+
+    <div id="mustReadsContainer"></div>
 
     <div id="contentContainer">
         <div class="loading">Loading content...</div>
@@ -526,7 +577,6 @@
         class PrismisWebapp {
             constructor() {
                 this.apiKey = localStorage.getItem('prismis_api_key');
-                this.currentFilter = 'all';
                 this.content = [];
                 this.cachedContent = [];
                 this.refreshInterval = null;
@@ -535,6 +585,8 @@
                 this.isOffline = false;
                 this.retryAttempts = 0;
                 this.maxRetryAttempts = 3;
+                this.isGeneratingAudio = false;
+                this.currentAudioFile = null;
 
                 this.init();
             }
@@ -563,11 +615,9 @@
                     }
                 });
 
-                // Filter tabs
-                document.querySelectorAll('.filter-tab').forEach(tab => {
-                    tab.addEventListener('click', (e) => {
-                        this.setFilter(e.target.dataset.filter);
-                    });
+                // Audio generation button
+                document.getElementById('generateAudioBtn').addEventListener('click', () => {
+                    this.generateAudioBriefing();
                 });
 
                 // Retry button (delegated event listener for dynamically created button)
@@ -610,14 +660,12 @@
                 this.clearError();
 
                 try {
+                    // Fetch recent content for daily briefing (server-side 24h filtering)
                     const params = new URLSearchParams({
+                        since_hours: '24',
                         limit: '100',
                         unread_only: 'false'
                     });
-
-                    if (this.currentFilter !== 'all') {
-                        params.set('priority', this.currentFilter);
-                    }
 
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
@@ -652,6 +700,8 @@
 
                     // Success - clear offline state
                     this.handleOnlineState();
+
+                    // Server already filtered to 24h via since_hours parameter
                     this.content = data.data.items || [];
                     this.cachedContent = [...this.content]; // Cache successful response
                     this.renderContent();
@@ -758,7 +808,7 @@
                 const refreshInfo = document.getElementById('refreshInfo');
 
                 statusInfo.textContent = 'Offline - daemon unreachable';
-                refreshInfo.textContent = 'Auto-refresh paused';
+                refreshInfo.textContent = 'Last 24 hours • Auto-refresh paused';
             }
 
             async retryConnection() {
@@ -785,13 +835,90 @@
                 }
             }
 
+            computeTop3MustReads() {
+                // Filter to only high priority items
+                const highPriorityItems = this.content.filter(item => item.priority === 'high');
+
+                if (highPriorityItems.length === 0) {
+                    return [];
+                }
+
+                // Enrich items with ranking metadata
+                const rankedItems = highPriorityItems.map(item => {
+                    // Extract matched_interests from analysis
+                    let matchedInterests = [];
+                    if (item.analysis && typeof item.analysis === 'object') {
+                        matchedInterests = item.analysis.matched_interests || [];
+                        if (!Array.isArray(matchedInterests)) {
+                            matchedInterests = [];
+                        }
+                    }
+
+                    const interestCount = matchedInterests.length;
+
+                    // Handle null published_at (treat as epoch - oldest possible)
+                    const publishedAt = item.published_at ? new Date(item.published_at) : new Date(0);
+
+                    return {
+                        item: item,
+                        interestCount: interestCount,
+                        publishedAt: publishedAt
+                    };
+                });
+
+                // Sort by interestCount DESC, then publishedAt DESC
+                rankedItems.sort((a, b) => {
+                    if (b.interestCount !== a.interestCount) {
+                        return b.interestCount - a.interestCount;
+                    }
+                    return b.publishedAt - a.publishedAt;
+                });
+
+                // Take top 3 (or fewer if <3 available)
+                return rankedItems.slice(0, 3).map(ranked => ranked.item);
+            }
+
+            renderTop3MustReads() {
+                const container = document.getElementById('mustReadsContainer');
+                const top3 = this.computeTop3MustReads();
+
+                if (top3.length === 0) {
+                    container.innerHTML = '';
+                    return;
+                }
+
+                const countText = top3.length === 3 ? 'Top 3 Must-Reads' :
+                                 `Top ${top3.length} Must-Read${top3.length > 1 ? 's' : ''}`;
+
+                const itemsHtml = top3.map(item => this.renderContentItem(item, true)).join('');
+
+                container.innerHTML = `
+                    <div class="must-reads-section">
+                        <div class="must-reads-title">${countText}</div>
+                        <div class="content-list">${itemsHtml}</div>
+                    </div>
+                `;
+
+                // Add event listeners for mark-as-read buttons in Top 3
+                container.querySelectorAll('.mark-read-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const itemId = e.target.dataset.itemId;
+                        this.markAsRead(itemId, e.target);
+                    });
+                });
+            }
+
             renderContent() {
                 const container = document.getElementById('contentContainer');
 
                 if (this.content.length === 0) {
                     this.renderEmptyState();
+                    document.getElementById('mustReadsContainer').innerHTML = '';
                     return;
                 }
+
+                // Render Top 3 Must-Reads
+                this.renderTop3MustReads();
 
                 const html = this.content.map(item => this.renderContentItem(item)).join('');
                 container.innerHTML = `<div class="content-list">${html}</div>`;
@@ -805,9 +932,20 @@
                 });
             }
 
-            renderContentItem(item) {
+            renderContentItem(item, isTop3 = false) {
                 const publishedDate = new Date(item.published_at).toLocaleDateString();
                 const timeAgo = this.timeAgo(new Date(item.published_at));
+
+                // Calculate interest matching badge
+                let interestBadge = '';
+                if (item.analysis && typeof item.analysis === 'object') {
+                    const matchedInterests = item.analysis.matched_interests || [];
+                    if (Array.isArray(matchedInterests) && matchedInterests.length > 0) {
+                        const matchCount = matchedInterests.length;
+                        const matchText = `${matchCount} interest${matchCount > 1 ? 's' : ''} matched`;
+                        interestBadge = `<span class="match-badge">✨ ${this.escapeHtml(matchText)}</span>`;
+                    }
+                }
 
                 return `
                     <div class="content-item" data-priority="${item.priority}">
@@ -825,6 +963,7 @@
                             <span class="priority-badge badge-${item.priority}">${item.priority.toUpperCase()}</span>
                             <span>${this.escapeHtml(item.source_name || 'Unknown Source')}</span>
                             <span>${timeAgo}</span>
+                            ${interestBadge}
                         </div>
                         <div class="item-summary">
                             ${this.escapeHtml(item.summary || 'No summary available')}
@@ -835,7 +974,7 @@
 
             renderEmptyState(customMessage = null) {
                 const container = document.getElementById('contentContainer');
-                const message = customMessage || `No ${this.currentFilter === 'all' ? '' : this.currentFilter + ' priority '}content available`;
+                const message = customMessage || 'No content available for today\'s briefing';
 
                 container.innerHTML = `
                     <div class="empty-state">
@@ -911,27 +1050,78 @@
                 }
             }
 
-            setFilter(filter) {
-                this.currentFilter = filter;
+            async generateAudioBriefing() {
+                if (this.isGeneratingAudio || this.isOffline) {
+                    return;
+                }
 
-                // Update active tab
-                document.querySelectorAll('.filter-tab').forEach(tab => {
-                    tab.classList.toggle('active', tab.dataset.filter === filter);
-                });
+                const button = document.getElementById('generateAudioBtn');
+                this.isGeneratingAudio = true;
+                button.disabled = true;
+                button.textContent = 'Generating Audio...';
 
-                this.loadContent();
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
+                    const response = await fetch('/api/audio/briefings', {
+                        method: 'POST',
+                        headers: {
+                            'X-API-Key': this.apiKey
+                        },
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    if (!response.ok) {
+                        if (response.status === 401 || response.status === 403) {
+                            throw new Error('Invalid API key');
+                        }
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Failed to generate audio');
+                    }
+
+                    const data = await response.json();
+                    this.currentAudioFile = data.data.file_path;
+
+                    // Extract just the filename from the full path
+                    const fileName = this.currentAudioFile.split('/').pop();
+
+                    // Show audio player
+                    this.showAudioPlayer(fileName);
+
+                    button.textContent = 'Regenerate Audio';
+
+                } catch (error) {
+                    console.error('Failed to generate audio:', error);
+                    button.textContent = 'Generate Audio Briefing';
+                    this.showError(`Failed to generate audio: ${error.message}`);
+                } finally {
+                    this.isGeneratingAudio = false;
+                    button.disabled = false;
+                }
+            }
+
+            showAudioPlayer(fileName) {
+                const container = document.getElementById('audioPlayerContainer');
+                container.innerHTML = `
+                    <audio controls class="audio-player">
+                        <source src="/audio/${this.escapeHtml(fileName)}" type="audio/mpeg">
+                        Your browser does not support the audio element.
+                    </audio>
+                `;
             }
 
             updateStatus() {
                 const statusInfo = document.getElementById('statusInfo');
                 const total = this.content.length;
                 const unread = this.content.filter(item => !item.read).length;
+                const high = this.content.filter(item => item.priority === 'high').length;
+                const medium = this.content.filter(item => item.priority === 'medium').length;
+                const low = this.content.filter(item => item.priority === 'low').length;
 
-                if (this.currentFilter === 'all') {
-                    statusInfo.textContent = `${total} items total • ${unread} unread`;
-                } else {
-                    statusInfo.textContent = `${total} ${this.currentFilter.toUpperCase()} priority items • ${unread} unread`;
-                }
+                statusInfo.textContent = `${total} items • ${high} high, ${medium} medium, ${low} low • ${unread} unread`;
             }
 
             startAutoRefresh() {
@@ -967,15 +1157,15 @@
 
                     seconds--;
                     if (seconds <= 0) {
-                        refreshInfo.textContent = 'Refreshing...';
+                        refreshInfo.textContent = 'Last 24 hours • Refreshing...';
                         setTimeout(() => {
                             if (!this.isOffline) {
                                 seconds = 30;
-                                refreshInfo.textContent = 'Refreshes every 30s';
+                                refreshInfo.textContent = 'Last 24 hours • Refreshes every 30s';
                             }
                         }, 1000);
                     } else {
-                        refreshInfo.textContent = `Next refresh in ${seconds}s`;
+                        refreshInfo.textContent = `Last 24 hours • Next refresh in ${seconds}s`;
                     }
                 }, 1000);
             }

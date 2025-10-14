@@ -281,10 +281,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Edit source name using the identifier lookup
 		return m, operations.EditSourceName(msg.Identifier, msg.NewName)
 
-	case commands.ReportMsg:
-		// Generate report with specified period
-		return m, operations.GenerateReport(msg.Period)
-
 	case commands.AudioMsg:
 		// Generate audio briefing from HIGH priority content
 		m.statusMessage = "Generating audio briefing..."
@@ -812,13 +808,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Also refresh the sources panel to show updated source list
 			cmds = append(cmds, fetchSources())
 		}
-
-	case operations.ReportOperationMsg:
-		// Handle report generation message from operations package
-		m.statusMessage = msg.Message
-
-		// Clear status message after delay (success or error)
-		cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
 
 	case operations.AudioOperationMsg:
 		// Handle audio briefing generation message from operations package

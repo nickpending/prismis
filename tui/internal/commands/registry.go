@@ -34,7 +34,6 @@ func NewRegistry() *Registry {
 	r.Register("pause", cmdPause)
 	r.Register("resume", cmdResume)
 	r.Register("edit", cmdEdit)
-	r.Register("report", cmdReport)
 	r.Register("fabric", cmdFabric)
 
 	// Reader-specific commands (actions only, not navigation)
@@ -326,19 +325,6 @@ func cmdCopy(args []string) tea.Cmd {
 	}
 }
 
-// cmdReport generates a daily report and saves to configured location
-func cmdReport(args []string) tea.Cmd {
-	return func() tea.Msg {
-		// Parse optional period argument (default to 24h)
-		period := "24h"
-		if len(args) > 0 {
-			period = args[0]
-		}
-
-		return ReportMsg{Period: period}
-	}
-}
-
 // cmdAudio generates audio briefing from HIGH priority content
 func cmdAudio(args []string) tea.Cmd {
 	return func() tea.Msg {
@@ -464,11 +450,6 @@ type YankMsg struct{}
 
 // CopyMsg signals to copy content to clipboard
 type CopyMsg struct{}
-
-// ReportMsg signals to generate a daily report
-type ReportMsg struct {
-	Period string // Time period like "24h", "7d"
-}
 
 // AudioMsg signals to generate an audio briefing
 type AudioMsg struct{}

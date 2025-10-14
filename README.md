@@ -35,6 +35,7 @@ Think of it as having a research assistant who reads everything and only interru
 - 📡 **Multi-Source** - RSS/Atom feeds, Reddit (API optional), YouTube transcripts
 - 🎯 **Personal Context** - Define what matters in simple markdown
 - 🔔 **Smart Notifications** - Desktop alerts only for HIGH priority content
+- 🌐 **Web Interface** - Beautiful daily briefing accessible from any device on your network
 - ⚡ **Zero-Ops** - No Docker, no PostgreSQL, no cloud services needed
 
 ## 🎬 Quick Start
@@ -76,9 +77,36 @@ prismis-cli source add youtube://UCsBjURrPoezykLs9EqgamOA
 prismis
 ```
 
-Press `1` for HIGH priority. Press `Enter` to read. Press `:report` for daily summary. Press `:fabric <TAB>` to explore 200+ AI patterns. That's it.
+Press `1` for HIGH priority. Press `Enter` to read. Press `:audio` for audio briefing. Press `:fabric <TAB>` to explore 200+ AI patterns. Or visit `http://localhost:8989` in any browser for the web interface.
 
 ## 🎮 Usage
+
+### Web Interface
+
+The daemon serves a beautiful web interface on your local network:
+
+```bash
+# Start the daemon
+prismis-daemon &
+
+# Access from any device on your network
+# On Mac: http://localhost:8989
+# On iPad/phone: http://YOUR_MAC_IP:8989
+```
+
+**Features:**
+- 📱 Mobile-responsive daily briefing view (last 24 hours)
+- ⭐ Top 3 Must-Reads with interest matching badges
+- 🎧 Generate audio briefings directly from the UI
+- 🔄 Auto-refreshes every 30 seconds
+- 🎯 Priority filtering and mark-as-read
+
+**Configuration for LAN access:**
+```toml
+# ~/.config/prismis/config.toml
+[api]
+host = "0.0.0.0"  # Allow access from other devices (default: 127.0.0.1)
+```
 
 ### Terminal Interface
 
@@ -101,7 +129,6 @@ prismis  # Launch instantly
   - `:fabric summarize` - Create concise summary
   - `:fabric analyze_claims` - Fact-check claims
   - `:fabric explain_terms` - Explain technical terms
-- `:report` - Generate and save daily content report
 - `:audio` - Generate audio briefing from HIGH priority items (requires lspeak)
 - `:export sources` - Copy all configured sources to clipboard for backup
 - `:mark` - Mark article as read/unread
@@ -132,11 +159,6 @@ prismis-cli source remove 3
 # Clean up unprioritized content
 prismis-cli prune               # Remove all unprioritized items
 prismis-cli prune --days 7      # Remove unprioritized items older than 7 days
-
-# Generate reports
-prismis-cli report daily        # Daily report (last 24h)
-prismis-cli report weekly       # Weekly report (last 7d)
-prismis-cli report generate 30d # Custom period
 ```
 
 ### Running the Daemon
@@ -292,15 +314,30 @@ export ELEVENLABS_API_KEY=your-api-key
 
 ### API Access
 
-The daemon exposes a REST API for custom integrations:
+The daemon exposes a REST API for custom integrations and the web interface:
 
 ```bash
-# Get high priority items
-curl localhost:8989/api/content?priority=high
+# Get last 24 hours of content (daily briefing)
+curl -H "X-API-Key: your-api-key" "http://localhost:8989/api/content?since_hours=24"
+
+# Get high priority items only
+curl -H "X-API-Key: your-api-key" "http://localhost:8989/api/content?priority=high&since_hours=24"
 
 # Mark item as read
-curl -X PUT localhost:8989/api/content/123/read
+curl -X PATCH -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"read": true}' \
+  "http://localhost:8989/api/content/CONTENT_ID"
+
+# Generate audio briefing
+curl -X POST -H "X-API-Key: your-api-key" \
+  "http://localhost:8989/api/audio/briefings"
+
+# List all sources
+curl -H "X-API-Key: your-api-key" "http://localhost:8989/api/sources"
 ```
+
+**API Key:** Found in `~/.config/prismis/config.toml` under `[api] -> api_key`
 
 ## 🧪 Development
 

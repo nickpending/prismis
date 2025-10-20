@@ -18,6 +18,11 @@ dmypy.json
 # uv creates .venv in project root
 .venv/
 .uv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
 # Go
 *.exe
@@ -28,6 +33,8 @@ dmypy.json
 *.test
 *.out
 vendor/
+go.work
+go.work.sum
 # Binary artifacts
 /prismis
 /prismis-tui
@@ -76,5 +83,23 @@ Thumbs.db
 # uv manages dependencies per project
 .workflow/
 .claude/
+.claudex/
 .claudex-guard/
 .claudex-guard.yaml
+
+# Security - Momentum enhanced (NEVER COMMIT)
+*.key
+*.pem
+*.p12
+*.pfx
+*_api_key*
+*_secret*
+credentials.json
+secrets/
+private/
+config/secrets.*
+.env.*
+*.crt
+*.csr
+auth.json
+service-account*.json

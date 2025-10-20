@@ -321,7 +321,12 @@ func cmdYank(args []string) tea.Cmd {
 // cmdCopy copies current article content to clipboard
 func cmdCopy(args []string) tea.Cmd {
 	return func() tea.Msg {
-		return CopyMsg{}
+		// Determine what to copy: "summary" (default), "content"
+		target := "summary" // default
+		if len(args) > 0 {
+			target = args[0]
+		}
+		return CopyMsg{Target: target}
 	}
 }
 
@@ -449,7 +454,9 @@ type OpenMsg struct{}
 type YankMsg struct{}
 
 // CopyMsg signals to copy content to clipboard
-type CopyMsg struct{}
+type CopyMsg struct {
+	Target string // "summary" (default) or "content"
+}
 
 // AudioMsg signals to generate an audio briefing
 type AudioMsg struct{}

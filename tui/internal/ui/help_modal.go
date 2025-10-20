@@ -181,7 +181,7 @@ func (m HelpModal) View(theme StyleTheme) string {
 	content.WriteString("\n")
 	content.WriteString(format2Col(":open", "Open in browser", ":yank", "Copy URL"))
 	content.WriteString("\n")
-	content.WriteString(format2Col(":copy", "Copy content", ":fabric <pattern>", "AI analysis"))
+	content.WriteString(format2Col(":copy [summary|content]", "Copy to clipboard", ":fabric <pattern>", "AI analysis"))
 	content.WriteString("\n")
 	content.WriteString(format2Col(":audio", "Audio briefing", ":export sources", "Export sources"))
 	content.WriteString("\n\n")

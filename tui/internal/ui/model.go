@@ -364,17 +364,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Copy content to clipboard (works in both list and reader views)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
 			item := m.items[m.cursor]
-			readingSummary := extractReadingSummary(item.Analysis)
+			var contentToCopy string
+			var description string
 
-			if readingSummary == "" {
-				m.statusMessage = "No content available"
+			// Determine what to copy based on target
+			switch msg.Target {
+			case "content":
+				// Copy raw content field
+				contentToCopy = item.Content
+				description = "Content"
+			case "summary":
+				fallthrough
+			default:
+				// Copy AI reading summary (default)
+				contentToCopy = extractReadingSummary(item.Analysis)
+				description = "Summary"
+			}
+
+			if contentToCopy == "" {
+				m.statusMessage = fmt.Sprintf("No %s available", strings.ToLower(description))
 				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
 			} else {
-				err := clipboard.CopyToClipboard(readingSummary)
+				err := clipboard.CopyToClipboard(contentToCopy)
 				if err != nil {
-					m.statusMessage = "Failed to copy content"
+					m.statusMessage = fmt.Sprintf("Failed to copy %s", strings.ToLower(description))
 				} else {
-					m.statusMessage = "Content copied to clipboard"
+					m.statusMessage = fmt.Sprintf("%s copied to clipboard", description)
 				}
 				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
 			}

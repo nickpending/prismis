@@ -24,7 +24,7 @@ Think of it as having a research assistant who reads everything and only interru
 
 ## Status: Alpha
 
-**This is early software that works but has rough edges.** It's been in daily use for 3 months, handling 500+ items/day across 30+ sources, but expect quirks. Each release gets more polished.
+**This is early software that works but has rough edges.** It's been in daily use for 3 months, handling 500+ items/day across 30+ sources, but expect quirks. Version 0.2.0 adds API clarity, CLI automation, and richer Reddit analysis. Each release gets more polished.
 
 ## ✨ Features
 
@@ -161,6 +161,28 @@ prismis-cli source remove 3
 prismis-cli prune               # Remove all unprioritized items
 prismis-cli prune --days 7      # Remove unprioritized items older than 7 days
 ```
+
+### CLI Automation (v0.2.0+)
+
+Query and export content for automation workflows:
+
+```bash
+# Get a single entry (formatted display)
+prismis-cli get get <entry-id>
+
+# Get raw content for piping to external tools
+prismis-cli get get <entry-id> --raw | fabric --pattern extract_wisdom
+
+# List recent entries
+prismis-cli list list --limit 10
+prismis-cli list list --priority high --unread
+
+# Export in JSON or CSV format
+prismis-cli export export --format json > backup.json
+prismis-cli export export --format csv --priority high > high-priority.csv
+```
+
+**Note**: CLI commands currently require double invocation (e.g., `get get` instead of just `get`). This will be fixed in v0.3.0.
 
 ### Running the Daemon
 
@@ -392,44 +414,46 @@ Some areas we'd love help with:
 
 ## Known Issues & Limitations
 
-**Current limitations in v0.1.0-alpha:**
+**Current limitations in v0.2.0-alpha:**
 
+- **CLI double-command UX** - Commands require double invocation like `prismis-cli get get <id>` instead of `prismis-cli get <id>` (workaround: just use the double syntax)
+- **API error codes** - Inconsistent error codes for missing routes (GET returns 404, PATCH returns 405)
 - **Daemon process management** - Manual start/stop (workaround: use tmux or `prismis-daemon &`)
 - **YouTube age-gating** - Some videos fail to extract transcripts (workaround: add RSS feed directly)
-- **Report output path** - Must be explicitly configured in config.toml (no default)
 - **Fabric errors** - May timeout on very long content (workaround: use shorter patterns like `summarize`)
-- **Source error handling** - Failed sources show cryptic errors (manual: check logs in daemon output)
 
 **What works well:**
-- RSS feed ingestion with full content extraction
-- Reddit fetching (works with or without API keys)
-- LLM prioritization with personal context
-- Instant TUI launch and navigation
-- Fabric integration with 200+ patterns
-- Daily report generation
+- ✅ RSS/Reddit/YouTube ingestion with full content extraction
+- ✅ Reddit comment enrichment for richer LLM analysis
+- ✅ Clear API naming (`/api/entries` with summary/raw/full modes)
+- ✅ CLI automation (get/list/export commands with piping support)
+- ✅ Fabric integration with 200+ patterns and tab completion
+- ✅ Web interface with mobile-responsive daily briefing
+- ✅ Audio briefing generation with Jarvis personality
+- ✅ Instant TUI launch (<100ms) and navigation
 
 ## 🎯 Roadmap
 
-**v0.2.0** (Next release):
+**v0.3.0** (Next release):
+- [ ] Fix CLI double-command UX (streamline to single command)
+- [ ] Fix API error code consistency
+- [ ] Add CLI search command for full-text queries
+- [ ] Enhance TUI filtering (date range, source, topics)
+- [ ] Fabric pattern showcase with documented workflows
+
+**v0.4.0** (Future):
 - [ ] Fix daemon process management (systemd/launchd support)
 - [ ] Better source error handling and recovery
-- [ ] Improve YouTube transcript extraction reliability
-- [ ] Default report output configuration
+- [ ] Export markdown format for Obsidian integration
 - [ ] Source health monitoring in TUI
+- [ ] Enhanced YouTube transcript extraction
 
-**v0.3.0** (Future):
+**v1.0.0** (Stable):
 - [ ] MCP server for AI agent queries
 - [ ] Papers support (arxiv RSS, PDF ingestion)
 - [ ] Manual content ingestion (one-off URLs/PDFs)
-- [ ] Link extraction from content
-- [ ] Better duplicate detection
-- [ ] Source categories and grouping
-
-**v1.0.0** (Stable):
-- [ ] Performance optimizations
-- [ ] Full test coverage
-- [ ] Documentation site
-- [ ] Plugin system for custom sources
+- [ ] Performance optimizations and full test coverage
+- [ ] Documentation site and plugin system
 
 ## 📄 License
 

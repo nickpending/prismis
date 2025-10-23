@@ -42,6 +42,7 @@ api_key = "env:OPENAI_API_KEY"
 client_id = "env:REDDIT_CLIENT_ID"  # Reddit API client ID
 client_secret = "env:REDDIT_CLIENT_SECRET"  # Reddit API client secret
 user_agent = "prismis:local:v1.0 (by /u/prismis)"  # User agent for API requests
+max_comments = 5  # Number of top comments to include in LLM analysis (0 = unlimited)
 
 [notifications]
 high_priority_only = true  # only notify for HIGH priority items

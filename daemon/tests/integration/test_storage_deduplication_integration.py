@@ -4,8 +4,8 @@ from pathlib import Path
 from datetime import datetime
 import pytest
 
-from storage import Storage
-from models import ContentItem
+from prismis_daemon.storage import Storage
+from prismis_daemon.models import ContentItem
 
 
 def test_deduplication_workflow_end_to_end(test_db: Path) -> None:

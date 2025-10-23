@@ -1,8 +1,8 @@
 """Integration tests for RSSFetcher with real RSS feeds."""
 
 import pytest
-from fetchers.rss import RSSFetcher
-from models import ContentItem
+from prismis_daemon.fetchers.rss import RSSFetcher
+from prismis_daemon.models import ContentItem
 
 
 def test_fetch_rss_with_real_feed() -> None:

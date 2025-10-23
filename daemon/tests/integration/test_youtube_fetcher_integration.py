@@ -1,9 +1,9 @@
 """Integration tests for YouTubeFetcher with real YouTube API and yt-dlp."""
 
 import pytest
-from fetchers.youtube import YouTubeFetcher
-from models import ContentItem
-from config import Config
+from prismis_daemon.fetchers.youtube import YouTubeFetcher
+from prismis_daemon.models import ContentItem
+from prismis_daemon.config import Config
 
 
 def test_fetch_youtube_with_real_api() -> None:

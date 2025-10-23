@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, Depends, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 
@@ -374,7 +374,7 @@ async def delete_source(
 
 
 @app.patch(
-    "/api/content/{content_id}",
+    "/api/entries/{content_id}",
     response_model=APIResponse,
     dependencies=[Depends(verify_api_key)],
 )
@@ -479,7 +479,7 @@ async def resume_source(
         raise ServerError(f"Failed to resume source: {str(e)}")
 
 
-@app.get("/api/content", dependencies=[Depends(verify_api_key)])
+@app.get("/api/entries", dependencies=[Depends(verify_api_key)])
 async def get_content(
     priority: Optional[str] = Query(None, regex="^(high|medium|low)$"),
     unread_only: bool = Query(False),
@@ -499,6 +499,12 @@ async def get_content(
     Returns:
         JSON response with filtered content items
     """
+    # Explicit validation with user-friendly error messages
+    if priority and priority not in ["high", "medium", "low"]:
+        raise ValidationError(
+            f"Invalid priority '{priority}'. Must be one of: high, medium, low"
+        )
+
     try:
         content_items = []
 
@@ -555,6 +561,90 @@ async def get_content(
 
     except Exception as e:
         raise ServerError(f"Failed to get content: {str(e)}")
+
+
+@app.get("/api/entries/{content_id}", dependencies=[Depends(verify_api_key)])
+async def get_entry_summary(
+    content_id: str,
+    include: Optional[str] = Query(None),
+    storage: Storage = Depends(get_storage),
+) -> dict:
+    """Get a single content entry by ID.
+
+    By default returns summary without content field for performance.
+    Use ?include=content to get full entry data.
+
+    Args:
+        content_id: UUID of the content entry
+        include: Optional fields to include ('content' for full entry)
+        storage: Storage instance injected by FastAPI
+
+    Returns:
+        JSON response with entry metadata (excludes content field by default)
+        or full entry when include=content
+
+    Raises:
+        NotFoundError: If entry with given ID doesn't exist
+    """
+    try:
+        entry = storage.get_content_by_id(content_id)
+
+        if not entry:
+            raise NotFoundError("Entry", content_id)
+
+        # Include content field if requested, otherwise filter it out
+        if include == "content":
+            # Return full entry
+            entry_data = entry
+        else:
+            # Remove content field for lightweight response
+            entry_data = {k: v for k, v in entry.items() if k != "content"}
+
+        return {
+            "success": True,
+            "message": "Entry retrieved successfully",
+            "data": entry_data,
+        }
+
+    except APIError:
+        raise  # Re-raise our custom errors
+    except Exception as e:
+        raise ServerError(f"Failed to get entry: {str(e)}")
+
+
+@app.get("/api/entries/{content_id}/raw", dependencies=[Depends(verify_api_key)])
+async def get_entry_raw(
+    content_id: str, storage: Storage = Depends(get_storage)
+) -> PlainTextResponse:
+    """Get raw content of a single entry as plain text.
+
+    This endpoint returns only the content field as plain text,
+    suitable for piping to external tools like fabric.
+
+    Args:
+        content_id: UUID of the content entry
+        storage: Storage instance injected by FastAPI
+
+    Returns:
+        Plain text response with content field only
+
+    Raises:
+        NotFoundError: If entry with given ID doesn't exist (404 plain text)
+    """
+    try:
+        entry = storage.get_content_by_id(content_id)
+
+        if not entry:
+            return PlainTextResponse("Not found", status_code=404)
+
+        # Extract content field, handle missing gracefully
+        content = entry.get("content", "")
+
+        return PlainTextResponse(content or "")
+
+    except Exception as e:
+        # For plain text endpoint, return simple error messages
+        return PlainTextResponse(f"Error: {str(e)}", status_code=500)
 
 
 @app.get("/health")

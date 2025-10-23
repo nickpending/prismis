@@ -670,7 +670,7 @@
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-                    const response = await fetch(`/api/content?${params}`, {
+                    const response = await fetch(`/api/entries?${params}`, {
                         headers: {
                             'X-API-Key': this.apiKey
                         },
@@ -998,7 +998,7 @@
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
-                    const response = await fetch(`/api/content/${itemId}`, {
+                    const response = await fetch(`/api/entries/${itemId}`, {
                         method: 'PATCH',
                         headers: {
                             'Content-Type': 'application/json',

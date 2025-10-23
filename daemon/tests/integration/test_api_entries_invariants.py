@@ -1,4 +1,4 @@
-"""Integration tests for GET /api/content endpoint - protecting invariants and handling failures."""
+"""Integration tests for GET /api/entries endpoint - protecting invariants and handling failures."""
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -108,20 +108,20 @@ def test_api_content_auth_required(api_client: TestClient) -> None:
     BREAKS: Unauthorized content access on LAN exposes private data
     """
     # Test without API key
-    response = api_client.get("/api/content")
+    response = api_client.get("/api/entries")
     assert response.status_code == 403, "Content endpoint must require auth"
     data = response.json()
     assert data["success"] is False
     assert "API key" in data["message"]
 
     # Test with invalid API key
-    response = api_client.get("/api/content", headers={"X-API-Key": "invalid-key"})
+    response = api_client.get("/api/entries", headers={"X-API-Key": "invalid-key"})
     assert response.status_code == 403, "Invalid API key must be rejected"
     data = response.json()
     assert data["success"] is False
 
     # Test with valid API key
-    response = api_client.get("/api/content", headers={"X-API-Key": "prismis-api-4d5e"})
+    response = api_client.get("/api/entries", headers={"X-API-Key": "prismis-api-4d5e"})
     assert response.status_code == 200, "Valid API key must be accepted"
     data = response.json()
     assert data["success"] is True
@@ -134,7 +134,7 @@ def test_api_content_error_format_consistency(api_client: TestClient) -> None:
     """
     # Test invalid priority parameter (should trigger FastAPI validation)
     response = api_client.get(
-        "/api/content?priority=invalid", headers={"X-API-Key": "prismis-api-4d5e"}
+        "/api/entries?priority=invalid", headers={"X-API-Key": "prismis-api-4d5e"}
     )
     assert response.status_code == 422, "Invalid priority should return 422"
     data = response.json()
@@ -151,7 +151,7 @@ def test_api_content_error_format_consistency(api_client: TestClient) -> None:
 
     # Test invalid limit parameter
     response = api_client.get(
-        "/api/content?limit=999",  # Over max limit of 100
+        "/api/entries?limit=999",  # Over max limit of 100
         headers={"X-API-Key": "prismis-api-4d5e"},
     )
     assert response.status_code == 422
@@ -172,7 +172,7 @@ def test_api_content_data_consistency(
     for priority in ["high", "medium", "low"]:
         # Get from API (includes both read and unread by default)
         response = api_client.get(
-            f"/api/content?priority={priority}",
+            f"/api/entries?priority={priority}",
             headers={"X-API-Key": "prismis-api-4d5e"},
         )
         assert response.status_code == 200
@@ -195,7 +195,7 @@ def test_api_content_data_consistency(
 
     # Test unread_only filtering matches database state
     response = api_client.get(
-        "/api/content?unread_only=true", headers={"X-API-Key": "prismis-api-4d5e"}
+        "/api/entries?unread_only=true", headers={"X-API-Key": "prismis-api-4d5e"}
     )
     assert response.status_code == 200
     api_unread = response.json()["data"]["items"]
@@ -235,7 +235,7 @@ def test_api_content_database_disconnect(test_db: Path) -> None:
     client = TestClient(app)
 
     try:
-        response = client.get("/api/content", headers={"X-API-Key": "prismis-api-4d5e"})
+        response = client.get("/api/entries", headers={"X-API-Key": "prismis-api-4d5e"})
 
         # Should return server error, not crash
         assert response.status_code == 500, (
@@ -264,13 +264,13 @@ def test_api_content_invalid_parameters(
     """
     invalid_requests = [
         # Invalid priority value
-        ("/api/content?priority=critical", "priority"),
+        ("/api/entries?priority=critical", "priority"),
         # Limit too low
-        ("/api/content?limit=0", "limit"),
+        ("/api/entries?limit=0", "limit"),
         # Limit too high
-        ("/api/content?limit=1000", "limit"),
+        ("/api/entries?limit=1000", "limit"),
         # Invalid boolean for unread_only
-        ("/api/content?unread_only=maybe", "unread_only"),
+        ("/api/entries?unread_only=maybe", "unread_only"),
     ]
 
     for url, param_name in invalid_requests:
@@ -285,10 +285,10 @@ def test_api_content_invalid_parameters(
 
     # Valid edge cases should work
     valid_requests = [
-        "/api/content?limit=1",  # Minimum limit
-        "/api/content?limit=100",  # Maximum limit
-        "/api/content?unread_only=false",  # Explicit false
-        "/api/content?unread_only=true",  # Explicit true
+        "/api/entries?limit=1",  # Minimum limit
+        "/api/entries?limit=100",  # Maximum limit
+        "/api/entries?unread_only=false",  # Explicit false
+        "/api/entries?unread_only=true",  # Explicit true
     ]
 
     for url in valid_requests:

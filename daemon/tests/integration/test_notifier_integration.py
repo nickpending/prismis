@@ -1,7 +1,7 @@
 """Integration tests for Notifier with real terminal-notifier subprocess calls."""
 
 import subprocess
-from notifier import Notifier
+from prismis_daemon.notifier import Notifier
 
 
 def test_notifier_calls_terminal_notifier_subprocess() -> None:

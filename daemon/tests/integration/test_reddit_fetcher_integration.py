@@ -1,9 +1,9 @@
 """Integration tests for RedditFetcher with real Reddit API."""
 
 import pytest
-from fetchers.reddit import RedditFetcher
-from models import ContentItem
-from config import Config
+from prismis_daemon.fetchers.reddit import RedditFetcher
+from prismis_daemon.models import ContentItem
+from prismis_daemon.config import Config
 
 
 def test_fetch_reddit_with_real_api() -> None:

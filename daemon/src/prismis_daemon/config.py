@@ -33,6 +33,7 @@ class Config:
     reddit_client_id: str
     reddit_client_secret: str
     reddit_user_agent: str
+    reddit_max_comments: int  # Max comments to fetch per post (0 = unlimited)
 
     # Notification settings
     high_priority_only: bool
@@ -101,6 +102,12 @@ class Config:
         if not 1 <= self.max_days_lookback <= 365:
             raise ValueError(
                 f"max_days_lookback must be between 1 and 365 days, got {self.max_days_lookback}"
+            )
+
+        # Validate reddit_max_comments (0 = unlimited is valid)
+        if self.reddit_max_comments < 0:
+            raise ValueError(
+                f"reddit_max_comments must be >= 0 (0 means unlimited), got {self.reddit_max_comments}"
             )
 
         # Warn if Reddit credentials are not set (don't fail validation)
@@ -192,6 +199,7 @@ class Config:
                 reddit_client_id=reddit_client_id,
                 reddit_client_secret=reddit_client_secret,
                 reddit_user_agent=reddit["user_agent"],
+                reddit_max_comments=reddit["max_comments"],
                 high_priority_only=notifications["high_priority_only"],
                 notification_command=notifications["command"],
                 api_key=api.get("key"),  # No default - must be explicitly set

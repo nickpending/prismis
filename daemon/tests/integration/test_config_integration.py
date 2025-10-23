@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 import shutil
 
-from config import Config
+from prismis_daemon.config import Config
 from defaults import ensure_config, DEFAULT_CONTEXT_MD
 
 

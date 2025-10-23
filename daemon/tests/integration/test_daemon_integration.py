@@ -5,8 +5,8 @@ import os
 import sys
 
 
-from storage import Storage
-from defaults import ensure_config
+from prismis_daemon.storage import Storage
+from prismis_daemon.defaults import ensure_config
 
 
 def test_daemon_orchestration_with_test_database(test_db) -> None:

@@ -30,19 +30,19 @@ def test_api_auth_with_lan_binding(api_client: TestClient) -> None:
     assert response.status_code == 200
 
     # Test protected endpoint without API key (should fail regardless of host binding)
-    response = api_client.get("/api/content")
+    response = api_client.get("/api/entries")
     assert response.status_code == 403, "Must require API key even with LAN binding"
     data = response.json()
     assert data["success"] is False
     assert "API key" in data["message"] or "Forbidden" in data["message"]
 
     # Test with invalid API key (should fail)
-    response = api_client.get("/api/content", headers={"X-API-Key": "wrong-key"})
+    response = api_client.get("/api/entries", headers={"X-API-Key": "wrong-key"})
     assert response.status_code == 403, "Must reject invalid API key"
 
     # Test multiple protected endpoints - all must require auth
     protected_endpoints = [
-        "/api/content",
+        "/api/entries",
         "/api/sources",
         "/api/reports",
         "/api/prune/count",

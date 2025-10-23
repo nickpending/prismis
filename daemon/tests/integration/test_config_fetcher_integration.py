@@ -4,8 +4,8 @@ import tempfile
 from pathlib import Path
 import shutil
 
-from config import Config
-from fetchers.rss import RSSFetcher
+from prismis_daemon.config import Config
+from prismis_daemon.fetchers.rss import RSSFetcher
 
 
 def test_config_max_items_flows_to_fetcher() -> None:

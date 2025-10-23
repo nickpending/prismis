@@ -144,7 +144,8 @@ prismis  # Launch instantly
 # RSS/Atom feeds
 prismis-cli source add https://news.ycombinator.com/rss
 
-# Reddit (optional API keys for better reliability)
+# Reddit (fetches top comments for richer analysis)
+# Note: Comment fetching increases LLM analysis costs. Configure max_comments in config.toml
 prismis-cli source add reddit://programming
 
 # YouTube channels (extracts transcripts)
@@ -318,16 +319,16 @@ The daemon exposes a REST API for custom integrations and the web interface:
 
 ```bash
 # Get last 24 hours of content (daily briefing)
-curl -H "X-API-Key: your-api-key" "http://localhost:8989/api/content?since_hours=24"
+curl -H "X-API-Key: your-api-key" "http://localhost:8989/api/entries?since_hours=24"
 
 # Get high priority items only
-curl -H "X-API-Key: your-api-key" "http://localhost:8989/api/content?priority=high&since_hours=24"
+curl -H "X-API-Key: your-api-key" "http://localhost:8989/api/entries?priority=high&since_hours=24"
 
 # Mark item as read
 curl -X PATCH -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"read": true}' \
-  "http://localhost:8989/api/content/CONTENT_ID"
+  "http://localhost:8989/api/entries/CONTENT_ID"
 
 # Generate audio briefing
 curl -X POST -H "X-API-Key: your-api-key" \

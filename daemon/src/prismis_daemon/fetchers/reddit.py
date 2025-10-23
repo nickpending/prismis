@@ -208,6 +208,59 @@ class RedditFetcher:
 
         return False
 
+    def _fetch_comments(self, submission) -> List[Dict[str, str]]:
+        """Fetch top comments from a Reddit submission.
+
+        Args:
+            submission: PRAW submission object
+
+        Returns:
+            List of dicts with 'author' and 'body' (top-level only, filtered for deleted)
+        """
+        comments = []
+
+        try:
+            # Get max comments limit from config (0 = unlimited)
+            max_comments = self.config.reddit_max_comments
+            limit = None if max_comments == 0 else max_comments
+
+            # Get flattened comment list (replace_more=0 to avoid fetching "load more" comments)
+            submission.comments.replace_more(limit=0)
+            comment_list = submission.comments.list()
+
+            # Filter top-level comments only and skip deleted/removed
+            for comment in comment_list:
+                # Skip if not top-level (has parent that's not the submission)
+                if not hasattr(
+                    comment, "parent_id"
+                ) or not comment.parent_id.startswith("t3_"):
+                    continue
+
+                # Skip deleted/removed comments
+                if not hasattr(comment, "body") or comment.body in [
+                    "[deleted]",
+                    "[removed]",
+                ]:
+                    continue
+
+                # Get author name (handle deleted authors)
+                author = str(comment.author) if comment.author else "[deleted]"
+
+                comments.append({"author": author, "body": comment.body})
+
+                # Check limit
+                if limit and len(comments) >= limit:
+                    break
+
+            logger.debug(f"Fetched {len(comments)} comments from {submission.id}")
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch comments for {submission.id}: {e}")
+            # Return empty list on error - don't fail the whole fetch
+            return []
+
+        return comments
+
     def _extract_metrics(self, submission) -> Dict[str, Any]:
         """Extract Reddit-specific metrics from a post.
 
@@ -263,6 +316,20 @@ class RedditFetcher:
             or content.strip() == "[removed]"
         ):
             content = f"Link post to: {submission.url}"
+
+        # Fetch and append comments to content for LLM enrichment
+        comments = self._fetch_comments(submission)
+        if comments:
+            # Format comments as markdown discussion section with author attribution
+            discussion = "\n\n## Discussion\n\n"
+            formatted_comments = []
+            for comment in comments:
+                # Format as: **u/author:**\n> comment body (blockquote for clarity)
+                formatted = f"**u/{comment['author']}:**\n> {comment['body']}"
+                formatted_comments.append(formatted)
+            discussion += "\n\n".join(formatted_comments)
+            content += discussion
+            logger.debug(f"Enriched content with {len(comments)} comments")
 
         # Parse published date (Reddit uses Unix timestamp) - make timezone-aware
         published_at = None

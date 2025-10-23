@@ -381,7 +381,7 @@ func (c *APIClient) UpdateContent(contentID string, request ContentUpdateRequest
 	}
 
 	// Create HTTP request
-	req, err := http.NewRequest("PATCH", c.baseURL+"/api/content/"+contentID, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("PATCH", c.baseURL+"/api/entries/"+contentID, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

@@ -229,7 +229,7 @@ def test_concurrent_api_updates(api_client: TestClient, test_db: Path) -> None:
     def api_update(should_favorite: bool) -> int:
         """Make API call to update content."""
         response = api_client.patch(
-            f"/api/content/{content_id}",
+            f"/api/entries/{content_id}",
             json={"favorited": should_favorite},
             headers={"X-API-Key": "prismis-api-4d5e"},
         )

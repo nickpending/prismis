@@ -9,11 +9,9 @@ from rich.panel import Panel
 
 from .api_client import APIClient
 
-app = typer.Typer()
 console = Console()
 
 
-@app.command()
 def get(
     entry_id: str = typer.Argument(..., help="UUID of the content entry to retrieve"),
     raw: bool = typer.Option(False, "--raw", help="Output raw content for piping"),

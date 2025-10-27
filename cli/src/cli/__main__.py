@@ -25,13 +25,15 @@ app = typer.Typer(
     add_completion=False,
 )
 
-# Add command modules
+# Add multi-command modules as sub-typers
 app.add_typer(source.app, name="source", help="Manage content sources")
 app.add_typer(prune.app, name="prune", help="Clean up unprioritized content")
 app.add_typer(report.app, name="report", help="Generate content reports")
-app.add_typer(get.app, name="get", help="Retrieve content entries")
-app.add_typer(list.app, name="list", help="List content entries")
-app.add_typer(export.app, name="export", help="Export content to JSON/CSV")
+
+# Add single-command modules as direct commands
+app.command(name="get", help="Retrieve content entries")(get.get)
+app.command(name="list", help="List content entries")(list.list)
+app.command(name="export", help="Export content to JSON/CSV")(export.export)
 
 
 def main() -> None:

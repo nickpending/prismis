@@ -8,11 +8,9 @@ from rich.table import Table
 
 from .api_client import APIClient
 
-app = typer.Typer()
 console = Console()
 
 
-@app.command()
 def list(
     priority: Optional[str] = typer.Option(
         None, "--priority", "-p", help="Filter by priority (high, medium, low)"

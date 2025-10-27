@@ -10,11 +10,9 @@ from rich.console import Console
 
 from .api_client import APIClient
 
-app = typer.Typer()
 console = Console(stderr=True)  # Console to stderr to keep stdout clean
 
 
-@app.command()
 def export(
     format: str = typer.Option(
         "json", "--format", "-f", help="Export format (json or csv)"

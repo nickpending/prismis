@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, Depends, Request, Query
+from fastapi import FastAPI, Depends, Request, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.exceptions import RequestValidationError
@@ -844,6 +844,7 @@ async def generate_audio_briefing(
 
 # Mount audio files directory
 import os
+from fastapi.responses import FileResponse
 
 audio_dir = (
     Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
@@ -853,6 +854,28 @@ audio_dir = (
 if audio_dir.exists():
     app.mount("/audio", StaticFiles(directory=str(audio_dir)), name="audio")
 
-# Mount static files LAST to avoid intercepting API routes
+# SPA catch-all routes (defined after all API routes)
 if static_dir.exists():
-    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+    index_path = static_dir / "index.html"
+
+    # Serve index.html for all GET requests to non-API, non-audio paths
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str) -> FileResponse:
+        """Serve index.html for SPA client-side routing."""
+        # Return 404 for API routes (check with and without leading slash)
+        normalized_path = full_path.lstrip("/")
+        if normalized_path.startswith("api/") or normalized_path.startswith("audio/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        # Serve index.html for SPA routes
+        if index_path.exists():
+            return FileResponse(index_path)
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    # Return 404 for non-GET methods to non-API paths (instead of 405)
+    @app.api_route(
+        "/{full_path:path}",
+        methods=["POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+    )
+    async def catch_all_404(full_path: str) -> None:
+        """Return 404 for non-GET requests to non-existent routes."""
+        raise HTTPException(status_code=404, detail="Not Found")

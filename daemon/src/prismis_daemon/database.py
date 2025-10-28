@@ -42,6 +42,24 @@ def init_db(db_path: Optional[Path] = None) -> Path:
     # Connect and apply schema
     conn = sqlite3.connect(db_path)
     try:
+        # Load sqlite-vec extension before running schema
+        conn.enable_load_extension(True)
+        try:
+            conn.load_extension("vec0")
+        except sqlite3.OperationalError:
+            # Fallback: try loading from common paths
+            try:
+                import sqlite_vec
+
+                conn.load_extension(sqlite_vec.loadable_path())
+            except (ImportError, sqlite3.OperationalError) as e:
+                raise sqlite3.Error(
+                    f"Failed to load sqlite-vec extension: {e}. "
+                    "Ensure sqlite-vec is installed: uv add sqlite-vec"
+                )
+        finally:
+            conn.enable_load_extension(False)
+
         # Execute the entire schema as a script
         conn.executescript(schema_sql)
         conn.commit()
@@ -97,6 +115,24 @@ def get_db_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
 
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row  # Enable column access by name
+
+    # Load sqlite-vec extension for vector search
+    conn.enable_load_extension(True)
+    try:
+        conn.load_extension("vec0")
+    except sqlite3.OperationalError as e:
+        # Fallback: try loading from common paths
+        try:
+            import sqlite_vec
+
+            conn.load_extension(sqlite_vec.loadable_path())
+        except (ImportError, sqlite3.OperationalError):
+            raise sqlite3.Error(
+                f"Failed to load sqlite-vec extension: {e}. "
+                "Ensure sqlite-vec is installed: uv add sqlite-vec"
+            )
+    finally:
+        conn.enable_load_extension(False)
 
     # Ensure WAL mode and pragmas
     conn.execute("PRAGMA journal_mode=WAL")

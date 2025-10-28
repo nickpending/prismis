@@ -11,12 +11,14 @@ try:
     from .summarizer import ContentSummarizer
     from .evaluator import ContentEvaluator
     from .notifier import Notifier
+    from .embeddings import Embedder
 except ImportError:
     # When imported directly in tests
     from storage import Storage
     from summarizer import ContentSummarizer
     from evaluator import ContentEvaluator
     from notifier import Notifier
+    from embeddings import Embedder
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -36,6 +38,7 @@ class DaemonOrchestrator:
         notifier: Notifier,
         config: dict,
         console: Optional[Console] = None,
+        embedder: Optional[Embedder] = None,
     ):
         """Initialize orchestrator with dependencies.
 
@@ -49,6 +52,7 @@ class DaemonOrchestrator:
             notifier: Notifier instance for desktop notifications
             config: Configuration dictionary with context
             console: Optional Rich console for output
+            embedder: Optional Embedder instance for semantic search (created if not provided)
         """
         self.storage = storage
         self.rss_fetcher = rss_fetcher
@@ -59,6 +63,7 @@ class DaemonOrchestrator:
         self.notifier = notifier
         self.config = config
         self.console = console or Console()
+        self.embedder = embedder or Embedder()
 
     def fetch_source_content(
         self, source: Dict[str, Any], force_refetch: bool = False
@@ -212,6 +217,27 @@ class DaemonOrchestrator:
                     content_id, is_new = self.storage.create_or_update_content(
                         item_dict
                     )
+
+                    # Step 3f: Generate and store embedding for semantic search
+                    try:
+                        # Use summary for embedding (more concise than full content)
+                        text_for_embedding = summary_result.summary or item.content
+                        embedding = self.embedder.generate_embedding(
+                            text=text_for_embedding,
+                            title=item.title,
+                        )
+                        self.storage.add_embedding(content_id, embedding)
+                        self.console.print(
+                            f"       🔗 Indexed for semantic search ({len(embedding)} dims)"
+                        )
+                    except Exception as embed_error:
+                        # Log embedding failure but don't block content storage
+                        logger.warning(
+                            f"Failed to generate embedding for {content_id}: {embed_error}"
+                        )
+                        self.console.print(
+                            "       ⚠️  Embedding generation failed", style="yellow"
+                        )
 
                     if is_new:
                         stats["items_new"] += 1

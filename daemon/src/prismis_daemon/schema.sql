@@ -71,20 +71,37 @@ CREATE INDEX IF NOT EXISTS idx_sources_active ON sources(active);
 CREATE INDEX IF NOT EXISTS idx_source_categories_source ON source_categories(source_id);
 CREATE INDEX IF NOT EXISTS idx_source_categories_category ON source_categories(category_id);
 
+-- Embeddings for semantic search
+CREATE TABLE IF NOT EXISTS embeddings (
+    content_id TEXT PRIMARY KEY,
+    embedding BLOB NOT NULL,
+    model TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (content_id) REFERENCES content(id) ON DELETE CASCADE
+);
+
+-- Virtual table for vector similarity search
+CREATE VIRTUAL TABLE IF NOT EXISTS vec_content USING vec0(
+    content_id TEXT PRIMARY KEY,
+    embedding FLOAT[384]
+);
+
+CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
+
 -- Triggers to update updated_at timestamps
-CREATE TRIGGER IF NOT EXISTS update_sources_timestamp 
+CREATE TRIGGER IF NOT EXISTS update_sources_timestamp
 AFTER UPDATE ON sources
 BEGIN
     UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS update_categories_timestamp 
+CREATE TRIGGER IF NOT EXISTS update_categories_timestamp
 AFTER UPDATE ON categories
 BEGIN
     UPDATE categories SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS update_content_timestamp 
+CREATE TRIGGER IF NOT EXISTS update_content_timestamp
 AFTER UPDATE ON content
 BEGIN
     UPDATE content SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;

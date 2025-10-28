@@ -19,6 +19,8 @@ dependencies = [
     "pydantic",
     "python-dotenv",
     "rich",
+    "sentence-transformers>=2.0.0",
+    "sqlite-vec>=0.1.0",
     "trafilatura",
     "typer",
     "uvicorn>=0.35.0",

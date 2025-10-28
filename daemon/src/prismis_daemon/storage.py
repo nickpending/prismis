@@ -4,6 +4,7 @@ import json
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
+from operator import itemgetter
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union, Tuple, Set
 
@@ -1029,3 +1030,239 @@ class Storage:
             # Rollback on error
             self.conn.rollback()
             raise sqlite3.Error(f"Failed to delete unprioritized items: {e}")
+
+    def add_embedding(
+        self, content_id: str, embedding: List[float], model: str = "all-MiniLM-L6-v2"
+    ) -> None:
+        """Store embedding vector for content item.
+
+        Args:
+            content_id: UUID of the content
+            embedding: List of floats (384 dimensions for all-MiniLM-L6-v2)
+            model: Model name used to generate embedding
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            import struct
+
+            # Convert list of floats to blob for storage
+            embedding_blob = struct.pack(f"{len(embedding)}f", *embedding)
+
+            # Insert or replace embedding
+            self.conn.execute(
+                """
+                INSERT OR REPLACE INTO embeddings (content_id, embedding, model, created_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (content_id, embedding_blob, model),
+            )
+
+            # Also update vec_content virtual table for search
+            # Convert to format sqlite-vec expects
+            embedding_json = json.dumps(embedding)
+            self.conn.execute(
+                """
+                INSERT OR REPLACE INTO vec_content (content_id, embedding)
+                VALUES (?, ?)
+                """,
+                (content_id, embedding_json),
+            )
+
+            self.conn.commit()
+
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            raise sqlite3.Error(f"Failed to add embedding: {e}")
+
+    def search_content(
+        self,
+        query_embedding: List[float],
+        limit: int = 20,
+        min_score: float = 0.0,
+    ) -> List[Dict[str, Any]]:
+        """Semantic search using similarity-first ranking.
+
+        Ranking formula: score = (similarity * 0.90) + (priority_weight * 0.10)
+
+        Search prioritizes semantic match - you want what you searched for, not just
+        high-priority content. Priority provides minor boost to break ties.
+
+        Args:
+            query_embedding: Query vector (384 dimensions)
+            limit: Maximum number of results to return
+            min_score: Minimum relevance score (0.0-1.0)
+
+        Returns:
+            List of content dicts with relevance_score field
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            # First get top candidates by similarity from vec_content
+            embedding_json = json.dumps(query_embedding)
+
+            # Get top 100 candidates by similarity (we'll re-rank)
+            cursor = self.conn.execute(
+                """
+                SELECT
+                    content_id,
+                    distance
+                FROM vec_content
+                WHERE embedding MATCH ?
+                ORDER BY distance
+                LIMIT 100
+                """,
+                (embedding_json,),
+            )
+
+            candidates = cursor.fetchall()
+            if not candidates:
+                return []
+
+            # Get content details for candidates
+            content_ids = [row["content_id"] for row in candidates]
+
+            # Build safe IN clause with parameterized placeholders
+            # Note: placeholders is just "?,?,?" string, not user input
+            placeholders = ",".join(["?"] * len(content_ids))
+            query = (
+                "SELECT c.*, s.name as source_name, s.type as source_type "
+                "FROM content c "
+                "LEFT JOIN sources s ON c.source_id = s.id "
+                "WHERE c.id IN (" + placeholders + ")"
+            )
+
+            cursor = self.conn.execute(query, content_ids)
+
+            # Build dict of content by id
+            content_by_id = {}
+            for row in cursor.fetchall():
+                # Parse JSON analysis if present
+                analysis = None
+                if row["analysis"]:
+                    try:
+                        analysis = json.loads(row["analysis"])
+                    except json.JSONDecodeError:
+                        analysis = None
+
+                content_by_id[row["id"]] = {
+                    "id": row["id"],
+                    "source_id": row["source_id"],
+                    "external_id": row["external_id"],
+                    "title": row["title"],
+                    "url": row["url"],
+                    "content": row["content"],
+                    "summary": row["summary"],
+                    "analysis": analysis,
+                    "priority": row["priority"],
+                    "published_at": row["published_at"],
+                    "fetched_at": row["fetched_at"],
+                    "read": bool(row["read"]),
+                    "favorited": bool(row["favorited"]),
+                    "notes": row["notes"],
+                    "source_name": row["source_name"],
+                    "source_type": row["source_type"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+
+            # Calculate weighted scores and re-rank
+            results = []
+            for candidate in candidates:
+                content_id = candidate["content_id"]
+                if content_id not in content_by_id:
+                    continue
+
+                # Make a copy to avoid modifying original dict
+                content = content_by_id[content_id].copy()
+
+                # Similarity score (cosine distance from vec_content, invert to similarity)
+                similarity = 1.0 - float(candidate["distance"])
+
+                # Priority weight (minor boost for high-priority content)
+                priority_weights = {"high": 1.0, "medium": 0.5, "low": 0.0}
+                priority_weight = priority_weights.get(content["priority"], 0.0)
+
+                # Similarity-first ranking: 90% semantic match, 10% priority boost
+                # Search is about finding what you're looking for, not surfacing important content
+                relevance_score = similarity * 0.90 + priority_weight * 0.10
+
+                # Apply minimum score filter
+                if relevance_score >= min_score:
+                    content["relevance_score"] = round(relevance_score, 3)
+                    results.append(content)
+
+            # Sort by final relevance score and limit
+            results.sort(key=itemgetter("relevance_score"), reverse=True)
+            return results[:limit]
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to search content: {e}")
+
+    def get_content_without_embeddings(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get content items that don't have embeddings yet.
+
+        Used for batch embedding generation.
+
+        Args:
+            limit: Maximum number of items to return
+
+        Returns:
+            List of content dicts without embeddings
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            cursor = self.conn.execute(
+                """
+                SELECT c.*, s.name as source_name, s.type as source_type
+                FROM content c
+                LEFT JOIN sources s ON c.source_id = s.id
+                WHERE c.id NOT IN (SELECT content_id FROM embeddings)
+                ORDER BY c.fetched_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+
+            results = []
+            for row in cursor.fetchall():
+                # Parse JSON analysis if present
+                analysis = None
+                if row["analysis"]:
+                    try:
+                        analysis = json.loads(row["analysis"])
+                    except json.JSONDecodeError:
+                        analysis = None
+
+                results.append(
+                    {
+                        "id": row["id"],
+                        "source_id": row["source_id"],
+                        "external_id": row["external_id"],
+                        "title": row["title"],
+                        "url": row["url"],
+                        "content": row["content"],
+                        "summary": row["summary"],
+                        "analysis": analysis,
+                        "priority": row["priority"],
+                        "published_at": row["published_at"],
+                        "fetched_at": row["fetched_at"],
+                        "read": bool(row["read"]),
+                        "favorited": bool(row["favorited"]),
+                        "notes": row["notes"],
+                        "source_name": row["source_name"],
+                        "source_type": row["source_type"],
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                    }
+                )
+
+            return results
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get content without embeddings: {e}")

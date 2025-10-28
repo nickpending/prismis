@@ -27,6 +27,7 @@ from .validator import SourceValidator
 from .reports import ReportGenerator
 from .audio import AudioScriptGenerator, LspeakTTSEngine
 from .config import Config
+from .embeddings import Embedder
 
 
 app = FastAPI(
@@ -561,6 +562,59 @@ async def get_content(
 
     except Exception as e:
         raise ServerError(f"Failed to get content: {str(e)}")
+
+
+@app.get("/api/search", dependencies=[Depends(verify_api_key)])
+async def semantic_search(
+    q: str = Query(..., min_length=1, description="Search query"),
+    limit: int = Query(20, le=50, ge=1, description="Maximum results to return"),
+    min_score: float = Query(
+        0.0, ge=0.0, le=1.0, description="Minimum relevance score"
+    ),
+    storage: Storage = Depends(get_storage),
+) -> dict:
+    """Semantic search across all content using embeddings.
+
+    Uses similarity-first ranking: 90% semantic match + 10% priority boost
+    (Search finds what you're looking for, not just important content)
+
+    Args:
+        q: Search query text
+        limit: Maximum number of results (1-50, default: 20)
+        min_score: Minimum relevance score filter (0.0-1.0, default: 0.0)
+        storage: Storage instance injected by FastAPI
+
+    Returns:
+        JSON response with ranked search results including relevance_score
+    """
+    try:
+        # Initialize embedder and generate query embedding
+        embedder = Embedder()
+        query_embedding = embedder.generate_embedding(q)
+
+        # Search content with weighted ranking
+        results = storage.search_content(
+            query_embedding=query_embedding,
+            limit=limit,
+            min_score=min_score,
+        )
+
+        return {
+            "success": True,
+            "message": f"Found {len(results)} results for '{q}'",
+            "data": {
+                "items": results,
+                "total": len(results),
+                "query": q,
+                "filters_applied": {
+                    "limit": limit,
+                    "min_score": min_score,
+                },
+            },
+        }
+
+    except Exception as e:
+        raise ServerError(f"Failed to search content: {str(e)}")
 
 
 @app.get("/api/entries/{content_id}", dependencies=[Depends(verify_api_key)])

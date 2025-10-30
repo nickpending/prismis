@@ -81,7 +81,7 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             summarizer=summarizer,
             evaluator=evaluator,
             notifier=notifier,
-            config={"context": config.context},  # Only pass context for now
+            config=config,
             console=console,
         )
 
@@ -114,6 +114,17 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             trigger="date",  # Run once immediately
             id="initial_run",
             name="Initial fetch on startup",
+        )
+
+        # Add archival policy job (runs every 6 hours)
+        scheduler.add_job(
+            func=run_archival_job_sync,
+            args=(orchestrator,),
+            trigger=IntervalTrigger(hours=6),
+            id="archival_policy",
+            name="Archive old content",
+            replace_existing=True,
+            max_instances=1,
         )
 
         # Setup signal handlers for graceful shutdown
@@ -183,6 +194,18 @@ def run_orchestrator_sync(orchestrator: DaemonOrchestrator) -> None:
         )
     else:
         console.print("[dim]No new items found[/dim]\n")
+
+
+def run_archival_job_sync(orchestrator: DaemonOrchestrator) -> None:
+    """Synchronous wrapper for archival job."""
+    from datetime import datetime
+
+    console.print(
+        f"\n[blue]📦 Running archival policy at {datetime.now().strftime('%H:%M:%S')}[/blue]"
+    )
+    stats = orchestrator.run_archival_policy()
+    if stats["archived_count"] > 0:
+        console.print(f"[green]Archived {stats['archived_count']} items[/green]\n")
 
 
 app = typer.Typer()
@@ -290,7 +313,7 @@ def main(
                 summarizer=summarizer,
                 evaluator=evaluator,
                 notifier=notifier,
-                config={"context": config.context},  # Only pass context for now
+                config=config,
                 console=console,
             )
 

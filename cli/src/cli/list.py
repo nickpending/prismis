@@ -16,6 +16,10 @@ def list(
         None, "--priority", "-p", help="Filter by priority (high, medium, low)"
     ),
     unread: bool = typer.Option(False, "--unread", "-u", help="Show only unread items"),
+    archived: bool = typer.Option(False, "--archived", help="Show only archived items"),
+    include_archived: bool = typer.Option(
+        False, "--include-archived", help="Include archived items in results"
+    ),
     limit: int = typer.Option(
         50, "--limit", "-l", help="Maximum number of items (1-100)"
     ),
@@ -25,13 +29,35 @@ def list(
     Args:
         priority: Filter by priority level (high, medium, low)
         unread: If True, show only unread items
+        archived: If True, show only archived items
+        include_archived: If True, include archived items with non-archived
         limit: Maximum number of items to display (1-100)
     """
     try:
         client = APIClient()
 
+        # Determine archive filter mode
+        if archived and include_archived:
+            console.print(
+                "[red]✗ Error: Cannot use --archived and --include-archived together[/red]"
+            )
+            raise typer.Exit(1)
+
+        # Map flags to API parameter
+        if archived:
+            archive_filter = "only"
+        elif include_archived:
+            archive_filter = "include"
+        else:
+            archive_filter = "exclude"
+
         # Get content from API
-        entries = client.get_content(priority=priority, unread_only=unread, limit=limit)
+        entries = client.get_content(
+            priority=priority,
+            unread_only=unread,
+            archive_filter=archive_filter,
+            limit=limit,
+        )
 
         if not entries:
             console.print("[yellow]No entries found[/yellow]")

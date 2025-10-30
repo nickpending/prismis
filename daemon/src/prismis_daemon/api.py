@@ -484,6 +484,7 @@ async def resume_source(
 async def get_content(
     priority: Optional[str] = Query(None, regex="^(high|medium|low)$"),
     unread_only: bool = Query(False),
+    include_archived: bool = Query(False),
     limit: int = Query(50, le=100, ge=1),
     since_hours: int = Query(24, ge=1, le=720),
     storage: Storage = Depends(get_storage),
@@ -493,6 +494,7 @@ async def get_content(
     Args:
         priority: Filter by priority level ('high', 'medium', 'low')
         unread_only: Only return unread items (default: False)
+        include_archived: Include archived content (default: False)
         limit: Maximum number of items to return (1-100, default: 50)
         since_hours: Hours of content to fetch (1-720, default: 24)
         storage: Storage instance injected by FastAPI
@@ -513,10 +515,14 @@ async def get_content(
             # Get content by specific priority
             if unread_only:
                 # Use existing method that only returns unread items
-                content_items = storage.get_content_by_priority(priority, limit)
+                content_items = storage.get_content_by_priority(
+                    priority, limit, include_archived
+                )
             else:
                 # Need to modify query to include read items - use get_content_since with filter
-                all_recent = storage.get_content_since(hours=since_hours)
+                all_recent = storage.get_content_since(
+                    hours=since_hours, include_archived=include_archived
+                )
                 content_items = [
                     item for item in all_recent if item.get("priority") == priority
                 ][:limit]
@@ -524,24 +530,30 @@ async def get_content(
             # Get content from all priorities
             if unread_only:
                 # Get unread from all priorities, respecting limit
-                high_items = storage.get_content_by_priority("high", limit)
+                high_items = storage.get_content_by_priority(
+                    "high", limit, include_archived
+                )
                 remaining_limit = limit - len(high_items)
 
                 medium_items = []
                 low_items = []
                 if remaining_limit > 0:
                     medium_items = storage.get_content_by_priority(
-                        "medium", remaining_limit
+                        "medium", remaining_limit, include_archived
                     )
                     remaining_limit = remaining_limit - len(medium_items)
 
                 if remaining_limit > 0:
-                    low_items = storage.get_content_by_priority("low", remaining_limit)
+                    low_items = storage.get_content_by_priority(
+                        "low", remaining_limit, include_archived
+                    )
 
                 content_items = high_items + medium_items + low_items
             else:
                 # Get all content from recent period
-                all_recent = storage.get_content_since(hours=since_hours)
+                all_recent = storage.get_content_since(
+                    hours=since_hours, include_archived=include_archived
+                )
                 content_items = all_recent[:limit]
 
         # Format response consistently with other endpoints
@@ -554,6 +566,7 @@ async def get_content(
                 "filters_applied": {
                     "priority": priority,
                     "unread_only": unread_only,
+                    "include_archived": include_archived,
                     "limit": limit,
                     "since_hours": since_hours,
                 },
@@ -894,6 +907,47 @@ async def generate_audio_briefing(
             raise ServerError(f"Audio generation failed: {error_msg}")
     except Exception as e:
         raise ServerError(f"Failed to generate audio briefing: {str(e)}")
+
+
+@app.get("/api/archive/status", dependencies=[Depends(verify_api_key)])
+async def archive_status(
+    storage: Storage = Depends(get_storage),
+    config: Config = Depends(get_config),
+) -> dict:
+    """Get archival status and statistics.
+
+    Args:
+        storage: Storage instance injected by FastAPI
+        config: Config instance injected by FastAPI
+
+    Returns:
+        JSON response with archival configuration and item counts
+    """
+    try:
+        total = storage.count_active() + storage.count_archived()
+        archived = storage.count_archived()
+        active = storage.count_active()
+
+        return {
+            "success": True,
+            "message": "Archival status retrieved",
+            "data": {
+                "enabled": config.archival_enabled,
+                "total_items": total,
+                "archived_items": archived,
+                "active_items": active,
+                "windows": {
+                    "high_read": config.archival_high_read,
+                    "medium_unread": config.archival_medium_unread,
+                    "medium_read": config.archival_medium_read,
+                    "low_unread": config.archival_low_unread,
+                    "low_read": config.archival_low_read,
+                },
+            },
+        }
+
+    except Exception as e:
+        raise ServerError(f"Failed to get archival status: {str(e)}")
 
 
 # Mount audio files directory

@@ -37,6 +37,11 @@ func buildViewStateString(m Model) string {
 		states = append(states, "View: UNREAD")
 	}
 
+	// Archived state
+	if m.showArchived {
+		states = append(states, "ARCHIVED")
+	}
+
 	// Sort state (newest vs oldest)
 	if m.sortNewest {
 		states = append(states, "Sort: NEWEST")
@@ -59,6 +64,14 @@ func buildViewStateString(m Model) string {
 	// Add hidden count if applicable
 	if m.hiddenCount > 0 && !m.showUnprioritized {
 		states = append(states, fmt.Sprintf("Hidden: %d", m.hiddenCount))
+	}
+
+	// Add archived count when not showing archived items
+	if !m.showArchived {
+		archivedCount, err := db.GetArchivedCount()
+		if err == nil && archivedCount > 0 {
+			states = append(states, fmt.Sprintf("Archived: %d", archivedCount))
+		}
 	}
 
 	return strings.Join(states, " | ")

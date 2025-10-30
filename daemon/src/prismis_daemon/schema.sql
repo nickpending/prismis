@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS content (
     read BOOLEAN DEFAULT 0,
     favorited BOOLEAN DEFAULT 0,
     notes TEXT,
+    archived_at TIMESTAMP DEFAULT NULL,  -- Soft archival (NULL = active)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
@@ -67,6 +68,7 @@ CREATE INDEX IF NOT EXISTS idx_content_read ON content(read);
 CREATE INDEX IF NOT EXISTS idx_content_published ON content(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_content_source ON content(source_id);
 CREATE INDEX IF NOT EXISTS idx_content_fetched ON content(fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_content_archived ON content(archived_at);
 CREATE INDEX IF NOT EXISTS idx_sources_active ON sources(active);
 CREATE INDEX IF NOT EXISTS idx_source_categories_source ON source_categories(source_id);
 CREATE INDEX IF NOT EXISTS idx_source_categories_category ON source_categories(category_id);

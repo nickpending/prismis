@@ -35,9 +35,10 @@ type Model struct {
 	showUnprioritized bool           // Show items with null/empty priority (default false)
 	hiddenCount       int            // Count of hidden unprioritized items
 	// View state fields for header display
-	showAll    bool   // Show all items vs unread only (default false - unread only)
-	sortNewest bool   // Sort by newest first vs oldest first (default true - newest)
-	filterType string // Source type filter: "all", "rss", "reddit", "youtube" (default "all")
+	showAll      bool   // Show all items vs unread only (default false - unread only)
+	showArchived bool   // Show archived items only (default false - exclude archived)
+	sortNewest   bool   // Sort by newest first vs oldest first (default true - newest)
+	filterType   string // Source type filter: "all", "rss", "reddit", "youtube" (default "all")
 	// Status message for user feedback
 	statusMessage string // Temporary status message to display
 	flashItem     int    // Index of item to flash (-1 for none)
@@ -223,6 +224,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.priority,
 					m.showUnprioritized,
 					m.showAll,
+					m.showArchived,
 					m.filterType,
 					m.sortNewest,
 				)
@@ -299,6 +301,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			currentContent = item.Content
 		}
 		return m, operations.ExecuteFabricCommand(msg.Pattern, msg.ListOnly, currentContent)
+
+	case commands.ArchivedMsg:
+		// Toggle archived view (same as hotkey 5)
+		if m.view == "list" {
+			m.showArchived = !m.showArchived
+			m.cursor = 0
+			m.loading = true
+			return m, fetchItemsWithState(m)
+		}
 
 	case commands.ThemeMsg:
 		// Cycle to next theme
@@ -584,6 +595,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				return m, fetchItemsWithState(m)
 			}
+		case "v":
+			// Toggle archived view
+			if m.view == "list" {
+				m.showArchived = !m.showArchived
+				m.cursor = 0
+				m.loading = true
+				return m, fetchItemsWithState(m)
+			}
+		case "R":
+			// Reset all filters to defaults
+			if m.view == "list" {
+				m.priority = "all"
+				m.showAll = false
+				m.showArchived = false
+				m.showUnprioritized = false
+				m.filterType = "all"
+				m.sortNewest = true
+				m.cursor = 0
+				m.loading = true
+				return m, fetchItemsWithState(m)
+			}
 		case "a":
 			if m.view == "list" {
 				m.priority = "all"
@@ -744,6 +776,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.priority,
 					m.showUnprioritized,
 					m.showAll,
+					m.showArchived,
 					m.filterType,
 					m.sortNewest,
 				)
@@ -938,6 +971,7 @@ func fetchItemsWithState(m Model) tea.Cmd {
 			m.priority,
 			m.showUnprioritized,
 			m.showAll,
+			m.showArchived,
 			m.filterType,
 			m.sortNewest,
 		)

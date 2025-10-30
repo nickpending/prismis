@@ -149,6 +149,16 @@ install-config: ## Create default config files (never overwrites existing)
 		echo '[api]' >> $(CONFIG_DIR)/config.toml; \
 		echo 'key = "prismis-local-dev-key"' >> $(CONFIG_DIR)/config.toml; \
 		echo '' >> $(CONFIG_DIR)/config.toml; \
+		echo '[archival]' >> $(CONFIG_DIR)/config.toml; \
+		echo 'enabled = true' >> $(CONFIG_DIR)/config.toml; \
+		echo '' >> $(CONFIG_DIR)/config.toml; \
+		echo '[archival.windows]' >> $(CONFIG_DIR)/config.toml; \
+		echo 'high_read = 30        # HIGH: archive read after 30 days' >> $(CONFIG_DIR)/config.toml; \
+		echo 'medium_unread = 14    # MEDIUM: archive unread after 14 days' >> $(CONFIG_DIR)/config.toml; \
+		echo 'medium_read = 30      # MEDIUM: archive read after 30 days' >> $(CONFIG_DIR)/config.toml; \
+		echo 'low_unread = 7        # LOW: archive unread after 7 days' >> $(CONFIG_DIR)/config.toml; \
+		echo 'low_read = 30         # LOW: archive read after 30 days' >> $(CONFIG_DIR)/config.toml; \
+		echo '' >> $(CONFIG_DIR)/config.toml; \
 		echo '# Database location is handled automatically using XDG standards' >> $(CONFIG_DIR)/config.toml; \
 		echo '# Database will be in $$XDG_DATA_HOME/prismis/prismis.db' >> $(CONFIG_DIR)/config.toml; \
 		echo "✓ Created config.toml"; \
@@ -204,6 +214,12 @@ install-config: ## Create default config files (never overwrites existing)
 	@echo "Initializing database..."
 	@cd daemon && uv run python -c "from prismis_daemon.database import init_db; init_db()" 2>/dev/null || echo "✓ Database ready"
 
+.PHONY: migrate
+migrate: ## Apply database migrations (safe to run multiple times)
+	@echo "Applying database migrations..."
+	@sqlite3 $(DATA_DIR)/prismis.db "ALTER TABLE content ADD COLUMN archived_at TIMESTAMP;" 2>/dev/null || echo "  ✓ archived_at column exists"
+	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_content_archived ON content(archived_at);"
+	@echo "✓ Migration complete"
 
 .PHONY: stop
 stop: ## Stop any running prismis processes

@@ -169,7 +169,7 @@ func GetContentByPriority(priority string, showUnprioritized bool) ([]ContentIte
 }
 
 // GetContentWithFilters fetches content with all filter options applied
-func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool, filterType string, sortNewest bool) ([]ContentItem, int, error) {
+func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool, showArchived bool, filterType string, sortNewest bool) ([]ContentItem, int, error) {
 	// Use singleton connection pool for efficiency
 	db, err := GetDB()
 	if err != nil {
@@ -177,13 +177,22 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 	}
 
 	// Build query with proper JOIN to get source info
-	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis, 
+	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
 	                 c.published_at, c.read, c.favorited, s.type, s.name, c.source_id
 	          FROM content c
 	          JOIN sources s ON c.source_id = s.id
 	          WHERE 1=1`
 
 	var args []interface{}
+
+	// Add archived filter (default excludes archived)
+	if showArchived {
+		// Show only archived items
+		query += " AND c.archived_at IS NOT NULL"
+	} else {
+		// Default: exclude archived items
+		query += " AND c.archived_at IS NULL"
+	}
 
 	// Add read filter based on showAll flag (but skip for favorites)
 	if !showAll && priority != "favorites" {
@@ -524,13 +533,33 @@ func getUnprioritizedCount() (int, error) {
 
 	var count int
 	err = db.QueryRow(`
-		SELECT COUNT(*) FROM content 
-		WHERE read = 0 
+		SELECT COUNT(*) FROM content
+		WHERE read = 0
 		AND (priority IS NULL OR priority = '')
 	`).Scan(&count)
 
 	if err != nil {
 		return 0, fmt.Errorf("failed to count unprioritized items: %w", err)
+	}
+
+	return count, nil
+}
+
+// GetArchivedCount returns the count of archived items
+func GetArchivedCount() (int, error) {
+	db, err := GetDB()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	var count int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM content
+		WHERE archived_at IS NOT NULL
+	`).Scan(&count)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to count archived items: %w", err)
 	}
 
 	return count, nil

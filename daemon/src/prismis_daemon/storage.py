@@ -469,29 +469,34 @@ class Storage:
             raise sqlite3.Error(f"Failed to get content by external_id: {e}")
 
     def get_content_by_priority(
-        self, priority: str, limit: int = 50
+        self, priority: str, limit: int = 50, include_archived: bool = False
     ) -> List[Dict[str, Any]]:
         """Get unread content by priority level.
 
         Args:
             priority: Priority level ('high', 'medium', 'low')
             limit: Maximum number of items to return
+            include_archived: Include archived content if True
 
         Returns:
             List of content dictionaries
         """
         try:
-            cursor = self.conn.execute(
-                """
+            # Build query with optional archived filter
+            query = """
                 SELECT c.*, s.name as source_name, s.type as source_type
                 FROM content c
                 JOIN sources s ON c.source_id = s.id
                 WHERE c.priority = ? AND c.read = 0
-                ORDER BY c.published_at DESC
-                LIMIT ?
-                """,
-                (priority, limit),
-            )
+            """
+
+            # Add archived filter unless explicitly including archived
+            if not include_archived:
+                query += " AND c.archived_at IS NULL"
+
+            query += " ORDER BY c.published_at DESC LIMIT ?"
+
+            cursor = self.conn.execute(query, (priority, limit))
 
             content = []
             for row in cursor.fetchall():
@@ -526,11 +531,14 @@ class Storage:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content by priority: {e}")
 
-    def get_content_since(self, hours: int = 24) -> List[Dict[str, Any]]:
+    def get_content_since(
+        self, hours: int = 24, include_archived: bool = False
+    ) -> List[Dict[str, Any]]:
         """Get all content from the last N hours.
 
         Args:
             hours: Number of hours to look back (default 24)
+            include_archived: Include archived content if True
 
         Returns:
             List of content dictionaries with source information
@@ -539,15 +547,22 @@ class Storage:
             # Calculate the cutoff time (use UTC for consistency)
             cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-            cursor = self.conn.execute(
-                """
+            # Build query with optional archived filter
+            query = """
                 SELECT c.*, s.name as source_name, s.type as source_type
                 FROM content c
                 JOIN sources s ON c.source_id = s.id
                 WHERE c.published_at > ? AND c.priority IS NOT NULL
-                ORDER BY c.priority ASC, c.published_at DESC
-                """,
-                (cutoff_time.strftime("%Y-%m-%d %H:%M:%S+00:00"),),
+            """
+
+            # Add archived filter unless explicitly including archived
+            if not include_archived:
+                query += " AND c.archived_at IS NULL"
+
+            query += " ORDER BY c.priority ASC, c.published_at DESC"
+
+            cursor = self.conn.execute(
+                query, (cutoff_time.strftime("%Y-%m-%d %H:%M:%S+00:00"),)
             )
 
             content = []
@@ -868,22 +883,23 @@ class Storage:
 
         try:
             # Use separate queries for each case to avoid dynamic SQL
+            # Auto-unarchive when favoriting (archived_at = NULL)
             if read is not None and favorited is not None:
                 # Update both fields
                 cursor = self.conn.execute(
-                    "UPDATE content SET read = ?, favorited = ? WHERE id = ?",
+                    "UPDATE content SET read = ?, favorited = ?, archived_at = NULL WHERE id = ?",
                     (1 if read else 0, 1 if favorited else 0, content_id),
                 )
             elif read is not None:
-                # Update only read status
+                # Update only read status (no unarchiving)
                 cursor = self.conn.execute(
                     "UPDATE content SET read = ? WHERE id = ?",
                     (1 if read else 0, content_id),
                 )
             else:  # favorited is not None
-                # Update only favorited status
+                # Update only favorited status (auto-unarchive if favoriting)
                 cursor = self.conn.execute(
-                    "UPDATE content SET favorited = ? WHERE id = ?",
+                    "UPDATE content SET favorited = ?, archived_at = NULL WHERE id = ?",
                     (1 if favorited else 0, content_id),
                 )
 
@@ -1266,3 +1282,116 @@ class Storage:
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content without embeddings: {e}")
+
+    def archive_old_content(self, config: Dict[str, Any]) -> int:
+        """Archive content based on priority-aware aging windows.
+
+        Args:
+            config: Dict with archival window configuration:
+                - high_read: Days for read HIGH items (None = never)
+                - medium_unread: Days for unread MEDIUM items
+                - medium_read: Days for read MEDIUM items
+                - low_unread: Days for unread LOW items
+                - low_read: Days for read LOW items
+
+        Returns:
+            Count of items archived
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            # Build parameters for datetime modifiers
+            params = []
+
+            # HIGH: Only read + N days (or skip if None)
+            if config.get("high_read") is not None:
+                params.append(f"-{config['high_read']} days")
+            else:
+                # Never archive HIGH - use impossibly old date
+                params.append("-10000 days")
+
+            # MEDIUM: Unread N days OR read N days
+            params.extend(
+                [
+                    f"-{config['medium_unread']} days",
+                    f"-{config['medium_read']} days",
+                ]
+            )
+
+            # LOW: Unread N days OR read N days
+            params.extend(
+                [
+                    f"-{config['low_unread']} days",
+                    f"-{config['low_read']} days",
+                ]
+            )
+
+            # Single complex UPDATE with priority-aware windows
+            query = """
+                UPDATE content
+                SET archived_at = CURRENT_TIMESTAMP
+                WHERE archived_at IS NULL
+                  AND favorited = 0
+                  AND notes IS NULL
+                  AND (
+                    -- HIGH: Only read + N days (or never if high_read is None)
+                    (priority = 'high' AND read = 1 AND fetched_at < datetime('now', ?))
+                    OR
+                    -- MEDIUM: Unread N days OR read N days
+                    (priority = 'medium' AND (
+                      (read = 0 AND fetched_at < datetime('now', ?))
+                      OR (read = 1 AND fetched_at < datetime('now', ?))
+                    ))
+                    OR
+                    -- LOW: Unread N days OR read N days
+                    (priority = 'low' AND (
+                      (read = 0 AND fetched_at < datetime('now', ?))
+                      OR (read = 1 AND fetched_at < datetime('now', ?))
+                    ))
+                  )
+            """
+
+            cursor = self.conn.execute(query, params)
+            self.conn.commit()
+            return cursor.rowcount
+
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            raise sqlite3.Error(f"Failed to archive content: {e}")
+
+    def count_archived(self) -> int:
+        """Count archived content items.
+
+        Returns:
+            Number of archived items
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            cursor = self.conn.execute(
+                "SELECT COUNT(*) FROM content WHERE archived_at IS NOT NULL"
+            )
+            return cursor.fetchone()[0]
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to count archived items: {e}")
+
+    def count_active(self) -> int:
+        """Count active (non-archived) content items.
+
+        Returns:
+            Number of active items
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            cursor = self.conn.execute(
+                "SELECT COUNT(*) FROM content WHERE archived_at IS NULL"
+            )
+            return cursor.fetchone()[0]
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to count active items: {e}")

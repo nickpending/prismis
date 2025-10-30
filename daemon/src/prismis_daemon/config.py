@@ -46,6 +46,14 @@ class Config:
     # Context content
     context: str
 
+    # Archival settings (required fields, no defaults)
+    archival_enabled: bool
+    archival_high_read: Optional[int]  # None = never archive HIGH
+    archival_medium_unread: int
+    archival_medium_read: int
+    archival_low_unread: int
+    archival_low_read: int
+
     # Optional fields with defaults must come last
     llm_api_base: Optional[str] = None  # For Ollama and custom endpoints
 
@@ -118,6 +126,19 @@ class Config:
                 "Warning: Reddit credentials not configured. Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET environment variables to use Reddit sources."
             )
 
+        # Validate archival windows (must be positive or None)
+        for field_name, value in [
+            ("archival_high_read", self.archival_high_read),
+            ("archival_medium_unread", self.archival_medium_unread),
+            ("archival_medium_read", self.archival_medium_read),
+            ("archival_low_unread", self.archival_low_unread),
+            ("archival_low_read", self.archival_low_read),
+        ]:
+            if value is not None and value < 1:
+                raise ValueError(
+                    f"{field_name} must be positive (or None to disable), got {value}"
+                )
+
     @classmethod
     def from_file(cls, config_path: Optional[Path] = None) -> "Config":
         """Load configuration from TOML file.
@@ -157,6 +178,7 @@ class Config:
         notifications = config_dict.get("notifications", {})
         api = config_dict.get("api", {})
         audio = config_dict.get("audio", {})
+        archival = config_dict.get("archival", {})
 
         # Load context markdown
         context_file = config_path.parent / "context.md"
@@ -209,6 +231,12 @@ class Config:
                 context=context_content,
                 audio_provider=audio.get("provider", "macos"),
                 audio_voice=audio.get("voice"),
+                archival_enabled=archival["enabled"],
+                archival_high_read=archival["windows"]["high_read"],
+                archival_medium_unread=archival["windows"]["medium_unread"],
+                archival_medium_read=archival["windows"]["medium_read"],
+                archival_low_unread=archival["windows"]["low_unread"],
+                archival_low_read=archival["windows"]["low_read"],
             )
         except KeyError as e:
             raise ValueError(f"Missing required config field: {e}")

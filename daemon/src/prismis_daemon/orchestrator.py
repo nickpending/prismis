@@ -12,12 +12,14 @@ try:
     from .evaluator import ContentEvaluator
     from .notifier import Notifier
     from .embeddings import Embedder
+    from .config import Config
 except ImportError:
     # When imported directly in tests
     from storage import Storage
     from summarizer import ContentSummarizer
     from evaluator import ContentEvaluator
     from notifier import Notifier
+    from config import Config
     from embeddings import Embedder
 
 console = Console()
@@ -36,7 +38,7 @@ class DaemonOrchestrator:
         summarizer: ContentSummarizer,
         evaluator: ContentEvaluator,
         notifier: Notifier,
-        config: dict,
+        config: Config,
         console: Optional[Console] = None,
         embedder: Optional[Embedder] = None,
     ):
@@ -50,7 +52,7 @@ class DaemonOrchestrator:
             summarizer: Summarizer instance for content analysis
             evaluator: Evaluator instance for priority evaluation
             notifier: Notifier instance for desktop notifications
-            config: Configuration dictionary with context
+            config: Configuration object with all daemon settings
             console: Optional Rich console for output
             embedder: Optional Embedder instance for semantic search (created if not provided)
         """
@@ -178,7 +180,7 @@ class DaemonOrchestrator:
                         content=item.content,
                         title=item.title,
                         url=item.url,
-                        context=self.config["context"],
+                        context=self.config.context,
                     )
 
                     # Step 3c: Build LLM analysis data
@@ -397,3 +399,35 @@ class DaemonOrchestrator:
             else:
                 # No metrics to preserve, just return LLM analysis
                 return llm_analysis
+
+    def run_archival_policy(self) -> dict:
+        """Run archival policy based on config.
+
+        Returns:
+            Dict with stats: archived_count
+        """
+        if not self.config.archival_enabled:
+            return {"archived_count": 0}
+
+        # Build archival config from settings
+        archival_config = {
+            "high_read": self.config.archival_high_read,
+            "medium_unread": self.config.archival_medium_unread,
+            "medium_read": self.config.archival_medium_read,
+            "low_unread": self.config.archival_low_unread,
+            "low_read": self.config.archival_low_read,
+        }
+
+        try:
+            count = self.storage.archive_old_content(archival_config)
+
+            if count > 0:
+                self.console.print(
+                    f"[cyan]📦 Auto-archival: {count} items archived[/cyan]"
+                )
+
+            return {"archived_count": count}
+
+        except Exception as e:
+            self.console.print(f"[red]❌ Archival failed: {e}[/red]")
+            return {"archived_count": 0}

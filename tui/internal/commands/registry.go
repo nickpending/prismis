@@ -52,6 +52,9 @@ func NewRegistry() *Registry {
 	// Export commands
 	r.Register("export", cmdExport)
 
+	// Archive toggle
+	r.Register("archived", cmdArchived)
+
 	return r
 }
 
@@ -380,6 +383,13 @@ func cmdTheme(args []string) tea.Cmd {
 	}
 }
 
+// cmdArchived toggles archived view
+func cmdArchived(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return ArchivedMsg{}
+	}
+}
+
 // showError returns a command that shows an error message
 func showError(msg string) tea.Cmd {
 	return func() tea.Msg {
@@ -473,3 +483,6 @@ type ThemeMsg struct{}
 
 // ExportSourcesMsg signals to export sources to clipboard
 type ExportSourcesMsg struct{}
+
+// ArchivedMsg signals to toggle archived view
+type ArchivedMsg struct{}

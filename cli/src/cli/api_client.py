@@ -451,6 +451,7 @@ class APIClient:
         self,
         priority: Optional[str] = None,
         unread_only: bool = False,
+        archive_filter: str = "exclude",
         limit: int = 50,
     ) -> list[Dict[str, Any]]:
         """Get content items with optional filtering.
@@ -458,6 +459,7 @@ class APIClient:
         Args:
             priority: Filter by priority level ('high', 'medium', 'low')
             unread_only: Only return unread items
+            archive_filter: Archive filtering ('exclude', 'only', 'include')
             limit: Maximum number of items to return (1-100)
 
         Returns:
@@ -474,6 +476,13 @@ class APIClient:
                     params["priority"] = priority
                 if unread_only:
                     params["unread_only"] = True
+
+                # Map archive_filter to API parameters
+                if archive_filter == "only":
+                    params["archived_only"] = True
+                elif archive_filter == "include":
+                    params["include_archived"] = True
+                # 'exclude' is the default (no parameter needed)
 
                 response = client.get(
                     f"{self.base_url}/api/entries",
@@ -501,3 +510,40 @@ class APIClient:
                 if isinstance(e, RuntimeError):
                     raise
                 raise RuntimeError(f"Unexpected error: {e}")
+
+    def get_archive_status(self) -> dict:
+        """Get archival status from API.
+
+        Returns:
+            Dict with archival configuration and stats
+
+        Raises:
+            RuntimeError: If API request fails
+        """
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.get(
+                    f"{self.base_url}/api/archive/status",
+                    headers={"X-API-Key": self.api_key},
+                )
+
+                data = response.json()
+
+                # Check for API errors
+                if response.status_code >= 400:
+                    error_msg = data.get(
+                        "message", f"API error: {response.status_code}"
+                    )
+                    raise RuntimeError(error_msg)
+
+                if not data.get("success"):
+                    raise RuntimeError(data.get("message", "Unknown error"))
+
+                return data.get("data", {})
+
+        except httpx.RequestError as e:
+            raise RuntimeError(f"Network error: {e}")
+        except Exception as e:
+            if isinstance(e, RuntimeError):
+                raise
+            raise RuntimeError(f"Unexpected error: {e}")

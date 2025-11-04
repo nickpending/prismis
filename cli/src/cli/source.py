@@ -93,7 +93,10 @@ def add(
         # Detect source type from URL
         source_type = "rss"  # Default
 
-        if url.startswith("reddit://"):
+        # Check for file extensions (.md, .txt)
+        if url.endswith((".md", ".txt")):
+            source_type = "file"
+        elif url.startswith("reddit://"):
             source_type = "reddit"
             # Convert reddit:// to actual Reddit URL
             subreddit = url.replace("reddit://", "")

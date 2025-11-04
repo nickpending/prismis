@@ -35,6 +35,7 @@ class DaemonOrchestrator:
         rss_fetcher,
         reddit_fetcher,
         youtube_fetcher,
+        file_fetcher,
         summarizer: ContentSummarizer,
         evaluator: ContentEvaluator,
         notifier: Notifier,
@@ -48,6 +49,7 @@ class DaemonOrchestrator:
             storage: Storage instance for database operations
             rss_fetcher: RSS fetcher instance
             reddit_fetcher: Reddit fetcher instance
+            file_fetcher: File fetcher instance
             youtube_fetcher: YouTube fetcher instance
             summarizer: Summarizer instance for content analysis
             evaluator: Evaluator instance for priority evaluation
@@ -60,6 +62,7 @@ class DaemonOrchestrator:
         self.rss_fetcher = rss_fetcher
         self.reddit_fetcher = reddit_fetcher
         self.youtube_fetcher = youtube_fetcher
+        self.file_fetcher = file_fetcher
         self.summarizer = summarizer
         self.evaluator = evaluator
         self.notifier = notifier
@@ -99,6 +102,8 @@ class DaemonOrchestrator:
                 fetcher = self.reddit_fetcher
             elif source_type == "youtube":
                 fetcher = self.youtube_fetcher
+            elif source_type == "file":
+                fetcher = self.file_fetcher
             else:
                 fetcher = self.rss_fetcher
 
@@ -149,7 +154,58 @@ class DaemonOrchestrator:
                     f"    🔍 [{i}/{len(items_to_process)}] Analyzing: {item.title[:60]}..."
                 )
                 try:
-                    # Step 3a: Summarize and extract insights
+                    # Step 3a: Check if we should skip LLM analysis for file sources
+                    skip_llm_analysis = False
+                    if source.get("type") == "file":
+                        # For file sources, skip analysis if content is too large (baseline fetch)
+                        # Analyze diffs (which start with "---" or are smaller)
+                        content_size = len(item.content) if item.content else 0
+                        is_diff = item.content and item.content.startswith("---")
+
+                        if content_size > 50000 and not is_diff:
+                            skip_llm_analysis = True
+                            self.console.print(
+                                f"       ⏭️  Skipping LLM analysis (baseline file: {content_size:,} bytes)"
+                            )
+
+                    # Step 3b: Summarize and extract insights (unless skipped)
+                    if skip_llm_analysis:
+                        # Store without LLM analysis - just baseline content
+                        # Default file sources to HIGH priority (user explicitly added, wants updates)
+                        existing_analysis = item.analysis or {}
+                        item_dict = item.to_dict()
+                        item_dict.update(
+                            {
+                                "summary": None,
+                                "analysis": existing_analysis,
+                                "priority": "high",
+                            }
+                        )
+
+                        # Store baseline and skip to next item
+                        content_id, is_new = self.storage.create_or_update_content(
+                            item_dict
+                        )
+
+                        # Generate embedding even for baseline (for future search)
+                        try:
+                            if self.embedder and item.content:
+                                embedding = self.embedder.generate_embedding(
+                                    item.content
+                                )
+                                self.storage.store_embedding(content_id, embedding)
+                                self.console.print(
+                                    f"       🔗 Indexed for semantic search ({self.embedder.dimensions} dims)"
+                                )
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to generate embedding for {item.title}: {e}"
+                            )
+
+                        if is_new:
+                            stats["new_items"] += 1
+                        continue
+
                     # Pass source name and metadata for context
                     metadata = {}
                     if hasattr(item, "analysis") and item.analysis:

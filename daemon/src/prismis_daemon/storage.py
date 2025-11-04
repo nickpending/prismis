@@ -70,8 +70,8 @@ class Storage:
         """Add a new content source to the database.
 
         Args:
-            url: The source URL (RSS feed, Reddit sub, YouTube channel)
-            source_type: Type of source ('rss', 'reddit', 'youtube')
+            url: The source URL (RSS feed, Reddit sub, YouTube channel, file URL)
+            source_type: Type of source ('rss', 'reddit', 'youtube', 'file')
             name: Optional human-readable name for the source
 
         Returns:
@@ -81,7 +81,7 @@ class Storage:
             ValueError: If source_type is invalid
             sqlite3.Error: If database operation fails
         """
-        if source_type not in ("rss", "reddit", "youtube"):
+        if source_type not in ("rss", "reddit", "youtube", "file"):
             raise ValueError(f"Invalid source type: {source_type}")
 
         # Use reusable connection for better performance
@@ -967,6 +967,66 @@ class Storage:
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content by ID: {e}")
+
+    def get_latest_content_for_source(self, source_id: str) -> Optional[Dict[str, Any]]:
+        """Get the most recent content item for a given source.
+
+        Args:
+            source_id: UUID of the source
+
+        Returns:
+            Most recent content dictionary if found, None otherwise
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            cursor = self.conn.execute(
+                """
+                SELECT c.*, s.name as source_name, s.type as source_type
+                FROM content c
+                LEFT JOIN sources s ON c.source_id = s.id
+                WHERE c.source_id = ?
+                ORDER BY c.fetched_at DESC
+                LIMIT 1
+                """,
+                (source_id,),
+            )
+            row = cursor.fetchone()
+
+            if row:
+                # Parse JSON analysis if present
+                analysis = None
+                if row["analysis"]:
+                    try:
+                        analysis = json.loads(row["analysis"])
+                    except json.JSONDecodeError:
+                        analysis = None
+
+                return {
+                    "id": row["id"],
+                    "source_id": row["source_id"],
+                    "external_id": row["external_id"],
+                    "title": row["title"],
+                    "url": row["url"],
+                    "content": row["content"],
+                    "summary": row["summary"],
+                    "analysis": analysis,
+                    "priority": row["priority"],
+                    "published_at": row["published_at"],
+                    "fetched_at": row["fetched_at"],
+                    "read": bool(row["read"]),
+                    "favorited": bool(row["favorited"]),
+                    "notes": row["notes"],
+                    "source_name": row["source_name"],
+                    "source_type": row["source_type"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+            return None
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get latest content for source: {e}")
 
     def count_unprioritized(self, days: Optional[int] = None) -> int:
         """Count unprioritized content items, optionally filtered by age.

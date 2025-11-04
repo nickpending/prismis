@@ -9,9 +9,10 @@ DEFAULT_CONFIG_TOML = """# Prismis Configuration
 
 [daemon]
 fetch_interval = 30  # minutes between fetches
-max_items_rss = 25  # maximum items to fetch from RSS feeds  
+max_items_rss = 25  # maximum items to fetch from RSS feeds
 max_items_reddit = 50  # maximum items to fetch from Reddit sources
 max_items_youtube = 10  # maximum items to fetch from YouTube (transcripts are expensive)
+max_items_file = 1  # maximum items to fetch from file sources (1 = one entry per change)
 max_days_lookback = 30  # ignore content older than this
 
 [llm]

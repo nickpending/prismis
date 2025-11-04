@@ -57,6 +57,8 @@ func buildViewStateString(m Model) string {
 		states = append(states, "Filter: REDDIT")
 	case "youtube":
 		states = append(states, "Filter: YOUTUBE")
+	case "file":
+		states = append(states, "Filter: FILE")
 	default:
 		states = append(states, "Filter: ALL")
 	}

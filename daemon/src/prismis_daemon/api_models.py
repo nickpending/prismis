@@ -9,7 +9,9 @@ class SourceRequest(BaseModel):
     """Request model for adding a content source."""
 
     url: str = Field(..., description="URL of the content source")
-    type: Literal["rss", "reddit", "youtube"] = Field(..., description="Type of source")
+    type: Literal["rss", "reddit", "youtube", "file"] = Field(
+        ..., description="Type of source"
+    )
     name: Optional[str] = Field(None, description="Optional custom name for the source")
 
     @validator("url")

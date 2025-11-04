@@ -22,6 +22,7 @@ class Config:
     max_items_rss: int
     max_items_reddit: int
     max_items_youtube: int
+    max_items_file: int
     max_days_lookback: int
 
     # LLM settings
@@ -65,7 +66,7 @@ class Config:
         """Get max items limit for a specific source type.
 
         Args:
-            source_type: Type of source (rss, reddit, youtube)
+            source_type: Type of source (rss, reddit, youtube, file)
 
         Returns:
             Max items limit for that source type
@@ -76,6 +77,8 @@ class Config:
             return self.max_items_reddit
         elif source_type == "youtube":
             return self.max_items_youtube
+        elif source_type == "file":
+            return self.max_items_file
         else:
             return 25  # Fallback default for unknown types
 
@@ -96,6 +99,7 @@ class Config:
             ("max_items_rss", self.max_items_rss),
             ("max_items_reddit", self.max_items_reddit),
             ("max_items_youtube", self.max_items_youtube),
+            ("max_items_file", self.max_items_file),
         ]:
             if not 1 <= value <= 100:
                 raise ValueError(f"{field_name} must be between 1 and 100, got {value}")
@@ -213,6 +217,7 @@ class Config:
                 max_items_rss=daemon["max_items_rss"],
                 max_items_reddit=daemon["max_items_reddit"],
                 max_items_youtube=daemon["max_items_youtube"],
+                max_items_file=daemon["max_items_file"],
                 max_days_lookback=daemon["max_days_lookback"],
                 llm_provider=llm["provider"],
                 llm_model=llm["model"],

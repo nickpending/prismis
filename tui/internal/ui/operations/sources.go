@@ -534,6 +534,8 @@ func detectSourceType(url string) string {
 		return "reddit"
 	} else if strings.Contains(url, "youtube.com") || strings.Contains(url, "youtu.be") || strings.HasPrefix(url, "youtube://") {
 		return "youtube"
+	} else if strings.HasSuffix(url, ".md") || strings.HasSuffix(url, ".txt") {
+		return "file"
 	} else {
 		// Default to RSS for everything else
 		return "rss"

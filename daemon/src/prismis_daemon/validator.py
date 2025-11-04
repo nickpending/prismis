@@ -42,6 +42,8 @@ class SourceValidator:
                 return self._validate_reddit(url)
             elif source_type == "youtube":
                 return self._validate_youtube(url)
+            elif source_type == "file":
+                return self._validate_file(url)
             else:
                 return False, f"Unknown source type: {source_type}", None
         except Exception as e:
@@ -250,3 +252,34 @@ class SourceValidator:
 
         except Exception as e:
             return False, f"YouTube validation error: {str(e)}", None
+
+    def _validate_file(self, url: str) -> Tuple[bool, Optional[str], Optional[dict]]:
+        """Validate a file URL for text/markdown content.
+
+        Checks if URL ends with supported file extensions (.md, .txt).
+        Does not fetch the file, only validates the URL format.
+
+        Args:
+            url: The file URL
+
+        Returns:
+            Tuple of (is_valid, error_message, metadata)
+        """
+        try:
+            # Check for supported file extensions
+            supported_extensions = (".md", ".txt")
+            if not url.endswith(supported_extensions):
+                return (
+                    False,
+                    f"File URL must end with {' or '.join(supported_extensions)}",
+                    None,
+                )
+
+            # Basic URL validation
+            if not url.startswith(("http://", "https://")):
+                return False, "File URL must start with http:// or https://", None
+
+            return True, None, None
+
+        except Exception as e:
+            return False, f"File validation error: {str(e)}", None

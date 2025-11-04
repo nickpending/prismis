@@ -18,6 +18,7 @@ from .storage import Storage
 from .fetchers.rss import RSSFetcher
 from .fetchers.reddit import RedditFetcher
 from .fetchers.youtube import YouTubeFetcher
+from .fetchers.file import FileFetcher
 from .summarizer import ContentSummarizer
 from .evaluator import ContentEvaluator
 from .notifier import Notifier
@@ -53,6 +54,7 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
         rss_fetcher = RSSFetcher(config=config)
         reddit_fetcher = RedditFetcher(config=config)
         youtube_fetcher = YouTubeFetcher(config=config)
+        file_fetcher = FileFetcher(config=config, storage=storage)
 
         # Create LLM config dict for summarizer and evaluator
         llm_config = {
@@ -78,6 +80,7 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             rss_fetcher=rss_fetcher,
             reddit_fetcher=reddit_fetcher,
             youtube_fetcher=youtube_fetcher,
+            file_fetcher=file_fetcher,
             summarizer=summarizer,
             evaluator=evaluator,
             notifier=notifier,
@@ -285,6 +288,7 @@ def main(
             rss_fetcher = RSSFetcher(config=config)
             reddit_fetcher = RedditFetcher(config=config)
             youtube_fetcher = YouTubeFetcher(config=config)
+            file_fetcher = FileFetcher(config=config, storage=storage)
 
             # Create LLM config dict for summarizer and evaluator
             llm_config = {
@@ -310,6 +314,7 @@ def main(
                 rss_fetcher=rss_fetcher,
                 reddit_fetcher=reddit_fetcher,
                 youtube_fetcher=youtube_fetcher,
+                file_fetcher=file_fetcher,
                 summarizer=summarizer,
                 evaluator=evaluator,
                 notifier=notifier,

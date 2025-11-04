@@ -31,6 +31,12 @@ func detectSourceType(url string) string {
 		return "youtube"
 	}
 
+	// Check for file extensions
+	lowerURL := strings.ToLower(url)
+	if strings.HasSuffix(lowerURL, ".md") || strings.HasSuffix(lowerURL, ".txt") {
+		return "file"
+	}
+
 	// Default to RSS
 	return "rss"
 }
@@ -507,7 +513,7 @@ func (m SourceModal) renderAddForm() string {
 	lines = append(lines, "")
 
 	// Help text
-	lines = append(lines, theme.MutedStyle().Render("Supported: RSS/Atom feeds, Reddit URLs, YouTube channels"))
+	lines = append(lines, theme.MutedStyle().Render("Supported: RSS/Atom feeds, Reddit URLs, YouTube channels, .md/.txt files"))
 	lines = append(lines, "")
 
 	// Commands

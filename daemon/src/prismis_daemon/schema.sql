@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE TABLE IF NOT EXISTS sources (
     id TEXT PRIMARY KEY,  -- UUID
     url TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('rss', 'reddit', 'youtube')),
+    type TEXT NOT NULL CHECK(type IN ('rss', 'reddit', 'youtube', 'file')),
     name TEXT,
     active BOOLEAN DEFAULT 1,
     error_count INTEGER DEFAULT 0,

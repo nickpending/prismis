@@ -3,5 +3,6 @@
 from .rss import RSSFetcher
 from .reddit import RedditFetcher
 from .youtube import YouTubeFetcher
+from .file import FileFetcher
 
-__all__ = ["RSSFetcher", "RedditFetcher", "YouTubeFetcher"]
+__all__ = ["RSSFetcher", "RedditFetcher", "YouTubeFetcher", "FileFetcher"]

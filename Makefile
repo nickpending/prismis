@@ -219,6 +219,14 @@ migrate: ## Apply database migrations (safe to run multiple times)
 	@echo "Applying database migrations..."
 	@sqlite3 $(DATA_DIR)/prismis.db "ALTER TABLE content ADD COLUMN archived_at TIMESTAMP;" 2>/dev/null || echo "  ✓ archived_at column exists"
 	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_content_archived ON content(archived_at);"
+	@echo "Migrating sources table to support file type..."
+	@sqlite3 $(DATA_DIR)/prismis.db "DROP TABLE IF EXISTS sources_backup;"
+	@sqlite3 $(DATA_DIR)/prismis.db "CREATE TABLE sources_backup AS SELECT * FROM sources;"
+	@sqlite3 $(DATA_DIR)/prismis.db "DROP TABLE sources;"
+	@sqlite3 $(DATA_DIR)/prismis.db "CREATE TABLE sources (id TEXT PRIMARY KEY, url TEXT UNIQUE NOT NULL, type TEXT NOT NULL CHECK(type IN ('rss', 'reddit', 'youtube', 'file')), name TEXT, active BOOLEAN DEFAULT 1, error_count INTEGER DEFAULT 0, last_error TEXT, last_fetched_at TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+	@sqlite3 $(DATA_DIR)/prismis.db "INSERT INTO sources SELECT * FROM sources_backup;"
+	@sqlite3 $(DATA_DIR)/prismis.db "DROP TABLE sources_backup;"
+	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_sources_active ON sources(active);"
 	@echo "✓ Migration complete"
 
 .PHONY: stop

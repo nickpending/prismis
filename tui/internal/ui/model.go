@@ -38,7 +38,7 @@ type Model struct {
 	showAll      bool   // Show all items vs unread only (default false - unread only)
 	showArchived bool   // Show archived items only (default false - exclude archived)
 	sortNewest   bool   // Sort by newest first vs oldest first (default true - newest)
-	filterType   string // Source type filter: "all", "rss", "reddit", "youtube" (default "all")
+	filterType   string // Source type filter: "all", "rss", "reddit", "youtube", "file" (default "all")
 	// Status message for user feedback
 	statusMessage string // Temporary status message to display
 	flashItem     int    // Index of item to flash (-1 for none)
@@ -648,7 +648,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			if m.view == "list" {
 				// Cycle through: all -> rss -> reddit -> youtube -> all
-				filterTypes := []string{"all", "rss", "reddit", "youtube"}
+				filterTypes := []string{"all", "rss", "reddit", "youtube", "file"}
 				currentIdx := 0
 				for i, ft := range filterTypes {
 					if ft == m.filterType {
@@ -1078,6 +1078,16 @@ func (m *Model) buildSourcesContent(theme StyleTheme) string {
 		header := ls.Foreground(theme.Cyan).Bold(true).Render(fmt.Sprintf("YOUTUBE [%d]", len(ytsources)))
 		lines = append(lines, header)
 		for _, source := range ytsources {
+			lines = append(lines, m.formatSourceLine(source, theme))
+		}
+		lines = append(lines, "")
+	}
+
+	// File Sources
+	if filesources, ok := sourcesByType["file"]; ok && len(filesources) > 0 {
+		header := ls.Foreground(theme.Cyan).Bold(true).Render(fmt.Sprintf("FILES [%d]", len(filesources)))
+		lines = append(lines, header)
+		for _, source := range filesources {
 			lines = append(lines, m.formatSourceLine(source, theme))
 		}
 	}

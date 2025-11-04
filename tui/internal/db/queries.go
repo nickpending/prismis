@@ -22,7 +22,7 @@ type ContentItem struct {
 	Published  time.Time
 	Read       bool
 	Favorited  bool   // Whether item is favorited
-	SourceType string // "rss", "reddit", "youtube"
+	SourceType string // "rss", "reddit", "youtube", "file"
 	SourceName string // Source name (e.g., "SimonW Blog", "r/rust", "3Blue1Brown")
 	SourceID   string // Source UUID for updates
 }
@@ -337,7 +337,7 @@ type Source struct {
 	ID          string
 	URL         string
 	Name        string
-	Type        string // "rss", "reddit", "youtube"
+	Type        string // "rss", "reddit", "youtube", "file"
 	Active      bool
 	UnreadCount int
 	LastFetched *time.Time // When this source was last fetched

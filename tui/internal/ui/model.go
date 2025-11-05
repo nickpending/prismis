@@ -74,6 +74,7 @@ type itemsLoadedMsg struct {
 	// Remote mode fields
 	allItems    []db.ContentItem // Unfiltered items for caching (remote mode only)
 	updateCache bool             // If true, update cache and lastSync
+	newLastSync time.Time        // Newest fetched_at timestamp from API (remote mode only)
 }
 
 // sourcesLoadedMsg represents sources loaded from database
@@ -143,7 +144,7 @@ func (m Model) Init() tea.Cmd {
 	m.updateSourcesViewport()
 
 	cmds := []tea.Cmd{
-		fetchItemsWithState(m),
+		fetchItemsWithState(m, true),
 		fetchSources(),
 	}
 
@@ -239,29 +240,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Create refresh command that preserves position (same as old 'r' key)
 			refreshCmd := func() tea.Msg {
-				items, hiddenCount, err := db.GetContentWithFilters(
-					m.priority,
-					m.showUnprioritized,
-					m.showAll,
-					m.showArchived,
-					m.filterType,
-					m.sortNewest,
-				)
+				var result itemsLoadedMsg
 
-				return itemsLoadedMsg{
-					items:          items,
-					hiddenCount:    hiddenCount,
-					err:            err,
-					preserveCursor: true,
-					targetItemID:   currentItemID,
+				// Check if remote mode
+				if m.remoteURL != "" {
+					result = fetchItemsRemote(m)
+				} else {
+					items, hiddenCount, err := db.GetContentWithFilters(
+						m.priority,
+						m.showUnprioritized,
+						m.showAll,
+						m.showArchived,
+						m.filterType,
+						m.sortNewest,
+					)
+					result = itemsLoadedMsg{
+						items:       items,
+						hiddenCount: hiddenCount,
+						err:         err,
+					}
 				}
+
+				// Add cursor preservation fields
+				result.preserveCursor = true
+				result.targetItemID = currentItemID
+				return result
 			}
 
 			return m, refreshCmd
 		} else {
 			// Simple refresh without cursor preservation
 			m.loading = true
-			return m, fetchItemsWithState(m)
+			return m, fetchItemsWithState(m, true)
 		}
 
 	case commands.ErrorMsg:
@@ -327,7 +337,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showArchived = !m.showArchived
 			m.cursor = 0
 			m.loading = true
-			return m, fetchItemsWithState(m)
+			return m, fetchItemsWithState(m, false)
 		}
 
 	case commands.ThemeMsg:
@@ -581,38 +591,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.view == "list" {
 				m.priority = "unprioritized"
 				m.cursor = 0
-				m.loading = true
 				// Note: showUnprioritized is always true for this view
 				m.showUnprioritized = true
-				return m, fetchItemsWithState(m)
+				m.loading = true
+				return m, fetchItemsWithState(m, false)
 			}
 		case "1":
 			if m.view == "list" {
 				m.priority = "high"
 				m.cursor = 0
 				m.loading = true
-				return m, fetchItemsWithState(m)
+				return m, fetchItemsWithState(m, false)
 			}
 		case "2":
 			if m.view == "list" {
 				m.priority = "medium"
 				m.cursor = 0
 				m.loading = true
-				return m, fetchItemsWithState(m)
+				return m, fetchItemsWithState(m, false)
 			}
 		case "3":
 			if m.view == "list" {
 				m.priority = "low"
 				m.cursor = 0
 				m.loading = true
-				return m, fetchItemsWithState(m)
+				return m, fetchItemsWithState(m, false)
 			}
 		case "4", "*":
 			if m.view == "list" {
 				m.priority = "favorites"
 				m.cursor = 0
 				m.loading = true
-				return m, fetchItemsWithState(m)
+				return m, fetchItemsWithState(m, false)
 			}
 		case "v":
 			// Toggle archived view
@@ -620,7 +630,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showArchived = !m.showArchived
 				m.cursor = 0
 				m.loading = true
-				return m, fetchItemsWithState(m)
+				return m, fetchItemsWithState(m, false)
 			}
 		case "R":
 			// Reset all filters to defaults
@@ -633,16 +643,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sortNewest = true
 				m.cursor = 0
 				m.loading = true
-				return m, fetchItemsWithState(m)
+				return m, fetchItemsWithState(m, false)
 			}
 		case "a":
 			if m.view == "list" {
 				m.priority = "all"
 				m.cursor = 0
-				m.loading = true
 				// Note: showUnprioritized is false for 'all' to show only prioritized items
 				m.showUnprioritized = false
-				return m, fetchItemsWithState(m)
+				m.loading = true
+				return m, fetchItemsWithState(m, false)
 			}
 		// Toggle unread/all view
 		case "u":
@@ -650,7 +660,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showAll = !m.showAll
 				m.cursor = 0
 				m.loading = true
-				return m, fetchItemsWithState(m)
+				return m, fetchItemsWithState(m, false)
 			}
 		// Toggle date sort (newest/oldest)
 		case "d":
@@ -679,7 +689,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filterType = filterTypes[(currentIdx+1)%len(filterTypes)]
 				m.cursor = 0
 				m.loading = true
-				return m, fetchItemsWithState(m)
+				return m, fetchItemsWithState(m, false)
 			}
 		// Open source management modal (capital S)
 		case "S":
@@ -722,7 +732,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Update cache and lastSync for remote mode
 			if msg.updateCache && m.remoteURL != "" {
 				m.itemsCache = msg.allItems
-				m.lastSync = time.Now()
+				// Only update lastSync if we got new items with timestamps
+				if !msg.newLastSync.IsZero() {
+					m.lastSync = msg.newLastSync
+				}
+				// If no new items, keep existing lastSync unchanged
 			}
 
 			// Handle cursor position
@@ -797,23 +811,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Create refresh command that preserves position
 			refreshCmd := func() tea.Msg {
-				items, hiddenCount, err := db.GetContentWithFilters(
-					m.priority,
-					m.showUnprioritized,
-					m.showAll,
-					m.showArchived,
-					m.filterType,
-					m.sortNewest,
-				)
+				var result itemsLoadedMsg
 
-				return itemsLoadedMsg{
-					items:          items,
-					hiddenCount:    hiddenCount,
-					err:            err,
-					preserveCursor: true,
-					targetItemID:   currentItemID,
-					isAutoRefresh:  true,
+				// Check if remote mode
+				if m.remoteURL != "" {
+					result = fetchItemsRemote(m)
+				} else {
+					items, hiddenCount, err := db.GetContentWithFilters(
+						m.priority,
+						m.showUnprioritized,
+						m.showAll,
+						m.showArchived,
+						m.filterType,
+						m.sortNewest,
+					)
+					result = itemsLoadedMsg{
+						items:       items,
+						hiddenCount: hiddenCount,
+						err:         err,
+					}
 				}
+
+				// Add cursor preservation and auto-refresh marker
+				result.preserveCursor = true
+				result.targetItemID = currentItemID
+				result.isAutoRefresh = true
+				return result
 			}
 
 			// Schedule next auto-refresh
@@ -987,17 +1010,27 @@ func (m Model) View() string {
 	return baseView
 }
 
-// fetchItems removed - consolidated to fetchItemsWithState for single code path
-
 // fetchItemsWithState returns a command that fetches content with all current state applied
-func fetchItemsWithState(m Model) tea.Cmd {
+// If refreshData is false and in remote mode, just re-filters cached data without making API calls
+func fetchItemsWithState(m Model, refreshData bool) tea.Cmd {
 	return func() tea.Msg {
-		// Remote mode: fetch via API and apply filters client-side
+		// Remote mode: check if we need to refresh or just re-filter
 		if m.remoteURL != "" {
-			return fetchItemsRemote(m)
+			if refreshData {
+				// Actually fetch new data from API
+				return fetchItemsRemote(m)
+			} else {
+				// Just re-filter cached data (instant)
+				filtered := applyFiltersClientSide(m.itemsCache, m)
+				return itemsLoadedMsg{
+					items:       filtered,
+					hiddenCount: countHiddenUnprioritized(m.itemsCache, m),
+					err:         nil,
+				}
+			}
 		}
 
-		// Local mode: use database with server-side filtering
+		// Local mode: always fetch from database (filtering happens there)
 		items, hiddenCount, err := db.GetContentWithFilters(
 			m.priority,
 			m.showUnprioritized,
@@ -1050,6 +1083,14 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 		copy(allItems, m.itemsCache)
 	}
 
+	// Track the newest fetched_at timestamp for incremental sync
+	var newestFetchedAt time.Time
+	for _, apiItem := range apiItems {
+		if apiItem.FetchedAt.Time.After(newestFetchedAt) {
+			newestFetchedAt = apiItem.FetchedAt.Time
+		}
+	}
+
 	// Convert API items to DB format
 	for _, apiItem := range apiItems {
 		priority := ""
@@ -1100,6 +1141,7 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 		hiddenCount: countHiddenUnprioritized(allItems, m),
 		allItems:    allItems,
 		updateCache: true,
+		newLastSync: newestFetchedAt,
 		err:         nil,
 	}
 }

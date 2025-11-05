@@ -55,8 +55,43 @@ async def log_requests(request: Request, call_next) -> Response:
         duration = (time.time() - start_time) * 1000
 
         client_ip = request.client.host if request.client else "unknown"
+
+        # For list endpoints, try to extract item count from response
+        count_info = ""
+        if (
+            request.url.path in ["/api/entries", "/api/search"]
+            and response.status_code == 200
+        ):
+            try:
+                import json
+
+                body = b""
+                async for chunk in response.body_iterator:
+                    body += chunk
+
+                # Parse response to get count
+                data = json.loads(body)
+                if data.get("success") and "data" in data:
+                    if "items" in data["data"]:
+                        count = len(data["data"]["items"])
+                        count_info = f" [{count} items]"
+
+                # Rebuild response with same body
+                from fastapi.responses import Response as FastAPIResponse
+
+                response = FastAPIResponse(
+                    content=body,
+                    status_code=response.status_code,
+                    headers=dict(response.headers),
+                    media_type=response.media_type,
+                )
+            except Exception:
+                pass  # If parsing fails, just skip count
+
+        # Include query parameters for debugging
+        query_str = f"?{request.url.query}" if request.url.query else ""
         console.print(
-            f"[dim]   📡 API: {request.method} {request.url.path} from {client_ip} → {response.status_code} ({duration:.0f}ms)[/dim]"
+            f"[dim]   📡 API: {request.method} {request.url.path}{query_str} from {client_ip} → {response.status_code}{count_info} ({duration:.0f}ms)[/dim]"
         )
         return response
 
@@ -511,7 +546,7 @@ async def get_content(
     priority: Optional[str] = Query(None, regex="^(high|medium|low)$"),
     unread_only: bool = Query(False),
     include_archived: bool = Query(False),
-    limit: int = Query(50, le=100, ge=1),
+    limit: int = Query(50, le=10000, ge=1),
     since: Optional[str] = Query(
         None, description="ISO8601 timestamp to filter content"
     ),
@@ -526,7 +561,7 @@ async def get_content(
         priority: Filter by priority level ('high', 'medium', 'low')
         unread_only: Only return unread items (default: False)
         include_archived: Include archived content (default: False)
-        limit: Maximum number of items to return (1-100, default: 50)
+        limit: Maximum number of items to return (1-10000, default: 50)
         since: ISO8601 timestamp to filter content (e.g., '2025-11-05T12:00:00Z')
         since_hours: Hours to look back (1-720). Convenience parameter - converted to timestamp.
                      If neither since nor since_hours provided, returns all content.

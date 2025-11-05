@@ -555,8 +555,8 @@ class Storage:
 
             params = []
             if since is not None:
-                query += " AND c.published_at > ?"
-                params.append(since.strftime("%Y-%m-%d %H:%M:%S+00:00"))
+                query += " AND c.fetched_at > ?"
+                params.append(since.strftime("%Y-%m-%d %H:%M:%S.%f+00:00"))
 
             # Add archived filter unless explicitly including archived
             if not include_archived:

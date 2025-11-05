@@ -507,14 +507,15 @@ func (c *APIClient) UpdateContent(contentID string, request ContentUpdateRequest
 
 // FetchEntries retrieves all content items from the API
 func (c *APIClient) FetchEntries() ([]ContentItem, error) {
-	return c.fetchEntriesWithParams("")
+	return c.fetchEntriesWithParams("limit=10000")
 }
 
 // FetchEntriesSince retrieves content items created/modified after the given timestamp
 func (c *APIClient) FetchEntriesSince(since time.Time) ([]ContentItem, error) {
-	// Format timestamp as ISO8601
-	sinceParam := since.Format(time.RFC3339)
-	return c.fetchEntriesWithParams("since=" + sinceParam)
+	// Format timestamp as ISO8601 with nanosecond precision
+	// RFC3339Nano preserves microseconds to prevent re-fetching same items
+	sinceParam := since.Format(time.RFC3339Nano)
+	return c.fetchEntriesWithParams("limit=10000&since=" + sinceParam)
 }
 
 // fetchEntriesWithParams is the common implementation for fetching entries

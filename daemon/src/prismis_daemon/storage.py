@@ -851,6 +851,11 @@ class Storage:
                 (source_id,),
             )
 
+            # Clean up orphaned vectors (virtual tables don't support CASCADE)
+            self.conn.execute(
+                "DELETE FROM vec_content WHERE content_id NOT IN (SELECT id FROM content)"
+            )
+
             # Finally, delete the source itself
             cursor = self.conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
             self.conn.commit()
@@ -1099,6 +1104,12 @@ class Storage:
 
             # Execute deletion in a transaction
             cursor = self.conn.execute(query, params)
+
+            # Clean up orphaned vectors (virtual tables don't support CASCADE)
+            self.conn.execute(
+                "DELETE FROM vec_content WHERE content_id NOT IN (SELECT id FROM content)"
+            )
+
             self.conn.commit()
 
             # Return the actual number of rows deleted
@@ -1108,6 +1119,44 @@ class Storage:
             # Rollback on error
             self.conn.rollback()
             raise sqlite3.Error(f"Failed to delete unprioritized items: {e}")
+
+    def cleanup_orphaned_vectors(self) -> int:
+        """Clean up orphaned vectors from vec_content table.
+
+        Virtual tables don't support CASCADE, so vectors can remain after
+        content deletion. This method removes vectors whose content_id
+        no longer exists in the content table.
+
+        Returns:
+            Number of orphaned vectors deleted
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            # Count orphans first
+            cursor = self.conn.execute(
+                """
+                SELECT COUNT(*) FROM vec_content
+                WHERE content_id NOT IN (SELECT id FROM content)
+                """
+            )
+            count = cursor.fetchone()[0]
+
+            if count == 0:
+                return 0
+
+            # Delete orphaned vectors
+            cursor = self.conn.execute(
+                "DELETE FROM vec_content WHERE content_id NOT IN (SELECT id FROM content)"
+            )
+            self.conn.commit()
+
+            return cursor.rowcount
+
+        except Exception as e:
+            self.conn.rollback()
+            raise sqlite3.Error(f"Failed to cleanup orphaned vectors: {e}")
 
     def add_embedding(
         self, content_id: str, embedding: List[float], model: str = "all-MiniLM-L6-v2"

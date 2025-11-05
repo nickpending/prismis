@@ -1,6 +1,7 @@
 """REST API server for Prismis daemon."""
 
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, Depends, Request, Query, HTTPException
@@ -486,7 +487,12 @@ async def get_content(
     unread_only: bool = Query(False),
     include_archived: bool = Query(False),
     limit: int = Query(50, le=100, ge=1),
-    since_hours: int = Query(24, ge=1, le=720),
+    since: Optional[str] = Query(
+        None, description="ISO8601 timestamp to filter content"
+    ),
+    since_hours: Optional[int] = Query(
+        None, ge=1, le=720, description="Hours to look back (convenience parameter)"
+    ),
     storage: Storage = Depends(get_storage),
 ) -> dict:
     """Get content items with optional filtering.
@@ -496,7 +502,9 @@ async def get_content(
         unread_only: Only return unread items (default: False)
         include_archived: Include archived content (default: False)
         limit: Maximum number of items to return (1-100, default: 50)
-        since_hours: Hours of content to fetch (1-720, default: 24)
+        since: ISO8601 timestamp to filter content (e.g., '2025-11-05T12:00:00Z')
+        since_hours: Hours to look back (1-720). Convenience parameter - converted to timestamp.
+                     If neither since nor since_hours provided, returns all content.
         storage: Storage instance injected by FastAPI
 
     Returns:
@@ -509,6 +517,18 @@ async def get_content(
         )
 
     try:
+        # Convert time parameters to datetime for storage layer
+        since_dt: Optional[datetime] = None
+        if since_hours:
+            since_dt = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+        elif since:
+            try:
+                since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            except ValueError:
+                raise ValidationError(
+                    f"Invalid ISO8601 timestamp: {since}. Expected format: 2025-11-05T12:00:00Z"
+                )
+
         content_items = []
 
         if priority:
@@ -519,12 +539,12 @@ async def get_content(
                     priority, limit, include_archived
                 )
             else:
-                # Need to modify query to include read items - use get_content_since with filter
-                all_recent = storage.get_content_since(
-                    hours=since_hours, include_archived=include_archived
+                # Get content with time filter, then filter by priority
+                all_content = storage.get_content_since(
+                    since=since_dt, include_archived=include_archived
                 )
                 content_items = [
-                    item for item in all_recent if item.get("priority") == priority
+                    item for item in all_content if item.get("priority") == priority
                 ][:limit]
         else:
             # Get content from all priorities
@@ -550,11 +570,11 @@ async def get_content(
 
                 content_items = high_items + medium_items + low_items
             else:
-                # Get all content from recent period
-                all_recent = storage.get_content_since(
-                    hours=since_hours, include_archived=include_archived
+                # Get all content (or filtered by time if since/since_hours provided)
+                all_content = storage.get_content_since(
+                    since=since_dt, include_archived=include_archived
                 )
-                content_items = all_recent[:limit]
+                content_items = all_content[:limit]
 
         # Format response consistently with other endpoints
         return {
@@ -568,6 +588,7 @@ async def get_content(
                     "unread_only": unread_only,
                     "include_archived": include_archived,
                     "limit": limit,
+                    "since": since,
                     "since_hours": since_hours,
                 },
             },

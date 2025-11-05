@@ -180,7 +180,10 @@ def test_api_content_data_consistency(
 
         # Get from database using the same logic the API uses
         # API uses get_content_since() then filters by priority when unread_only=False
-        all_recent = populated_storage.get_content_since(hours=24 * 30)
+        from datetime import datetime, timedelta, timezone
+
+        since_dt = datetime.now(timezone.utc) - timedelta(hours=24 * 30)
+        all_recent = populated_storage.get_content_since(since=since_dt)
         db_items = [item for item in all_recent if item.get("priority") == priority]
 
         # Must have same count

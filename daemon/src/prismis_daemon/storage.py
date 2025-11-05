@@ -532,28 +532,31 @@ class Storage:
             raise sqlite3.Error(f"Failed to get content by priority: {e}")
 
     def get_content_since(
-        self, hours: int = 24, include_archived: bool = False
+        self, since: Optional[datetime] = None, include_archived: bool = False
     ) -> List[Dict[str, Any]]:
-        """Get all content from the last N hours.
+        """Get content since a specific timestamp, or all content if since is None.
 
         Args:
-            hours: Number of hours to look back (default 24)
+            since: Timestamp to filter content (returns content published after this time).
+                   If None, returns all content regardless of time.
             include_archived: Include archived content if True
 
         Returns:
             List of content dictionaries with source information
         """
         try:
-            # Calculate the cutoff time (use UTC for consistency)
-            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
-
-            # Build query with optional archived filter
+            # Build query with optional time filter
             query = """
                 SELECT c.*, s.name as source_name, s.type as source_type
                 FROM content c
                 JOIN sources s ON c.source_id = s.id
-                WHERE c.published_at > ? AND c.priority IS NOT NULL
+                WHERE c.priority IS NOT NULL
             """
+
+            params = []
+            if since is not None:
+                query += " AND c.published_at > ?"
+                params.append(since.strftime("%Y-%m-%d %H:%M:%S+00:00"))
 
             # Add archived filter unless explicitly including archived
             if not include_archived:
@@ -561,9 +564,7 @@ class Storage:
 
             query += " ORDER BY c.priority ASC, c.published_at DESC"
 
-            cursor = self.conn.execute(
-                query, (cutoff_time.strftime("%Y-%m-%d %H:%M:%S+00:00"),)
-            )
+            cursor = self.conn.execute(query, tuple(params))
 
             content = []
             for row in cursor.fetchall():
@@ -596,7 +597,8 @@ class Storage:
             return content
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to get content since {hours} hours ago: {e}")
+            since_str = since.isoformat() if since else "beginning"
+            raise sqlite3.Error(f"Failed to get content since {since_str}: {e}")
 
     def mark_content_read(self, content_id: str) -> bool:
         """Mark a content item as read.

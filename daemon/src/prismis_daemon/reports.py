@@ -1,6 +1,6 @@
 """Report generation for Prismis content."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
 import html
@@ -170,7 +170,8 @@ class ReportGenerator:
             DailyReport with prioritized content
         """
         # Get content from last N hours
-        items = self.storage.get_content_since(hours=hours)
+        since_dt = datetime.now(timezone.utc) - timedelta(hours=hours)
+        items = self.storage.get_content_since(since=since_dt)
 
         # Group by priority
         high = []

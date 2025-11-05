@@ -1,14 +1,16 @@
 """REST API server for Prismis daemon."""
 
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, Depends, Request, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
+from rich.console import Console
 
 from .api_models import (
     SourceRequest,
@@ -30,12 +32,35 @@ from .audio import AudioScriptGenerator, LspeakTTSEngine
 from .config import Config
 from .embeddings import Embedder
 
+console = Console()
 
 app = FastAPI(
     title="Prismis API",
     description="REST API for managing content sources",
     version="1.0.0",
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next) -> Response:
+    """Log API requests in same style as daemon output."""
+    # Skip static files and health checks
+    if request.url.path.startswith("/assets/") or request.url.path == "/health":
+        return await call_next(request)
+
+    # Log API requests
+    if request.url.path.startswith("/api/"):
+        start_time = time.time()
+        response = await call_next(request)
+        duration = (time.time() - start_time) * 1000
+
+        client_ip = request.client.host if request.client else "unknown"
+        console.print(
+            f"[dim]   📡 API: {request.method} {request.url.path} from {client_ip} → {response.status_code} ({duration:.0f}ms)[/dim]"
+        )
+        return response
+
+    return await call_next(request)
 
 
 @app.exception_handler(APIError)

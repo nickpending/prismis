@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/nickpending/prismis/internal/api"
 	"github.com/nickpending/prismis/internal/clipboard"
 	"github.com/nickpending/prismis/internal/commands"
 	"github.com/nickpending/prismis/internal/config"
@@ -56,6 +57,10 @@ type Model struct {
 	focusedPane string // "sources", "content" (content is either list or reader based on view)
 	// Theme system
 	theme StyleTheme // Current color theme
+	// Remote mode
+	remoteURL  string    // If non-empty, use API instead of local DB
+	lastSync   time.Time // Last successful API fetch timestamp
+	itemsCache []db.ContentItem // Cached items for remote mode
 }
 
 // itemsLoadedMsg represents content items loaded from database
@@ -66,6 +71,9 @@ type itemsLoadedMsg struct {
 	preserveCursor bool   // If true, try to preserve cursor position
 	targetItemID   string // Item ID to position cursor on (if preserveCursor is true)
 	isAutoRefresh  bool   // If true, this was triggered by auto-refresh timer
+	// Remote mode fields
+	allItems    []db.ContentItem // Unfiltered items for caching (remote mode only)
+	updateCache bool             // If true, update cache and lastSync
 }
 
 // sourcesLoadedMsg represents sources loaded from database
@@ -90,8 +98,18 @@ type pruneConfirmState struct {
 	days   *int
 }
 
-// NewModel creates a new Model instance
+// NewModel creates a new Model instance (local mode)
 func NewModel() Model {
+	return newModel("")
+}
+
+// NewModelRemote creates a new Model instance for remote mode
+func NewModelRemote(remoteURL string) Model {
+	return newModel(remoteURL)
+}
+
+// newModel creates a new Model instance with optional remote URL
+func newModel(remoteURL string) Model {
 	return Model{
 		items:             []db.ContentItem{},
 		cursor:            0,
@@ -114,7 +132,8 @@ func NewModel() Model {
 		sourcesViewport: viewport.New(20, 10), // Will be resized properly in View()
 		focusedPane:     "content",            // Start with content focused (list or reader)
 		// Initialize theme
-		theme: CleanCyberTheme, // Default theme
+		theme:     CleanCyberTheme, // Default theme
+		remoteURL: remoteURL,       // Remote mode if non-empty
 	}
 }
 
@@ -700,6 +719,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.items = msg.items
 			m.hiddenCount = msg.hiddenCount
 
+			// Update cache and lastSync for remote mode
+			if msg.updateCache && m.remoteURL != "" {
+				m.itemsCache = msg.allItems
+				m.lastSync = time.Now()
+			}
+
 			// Handle cursor position
 			if msg.preserveCursor && msg.targetItemID != "" {
 				// This was a manual refresh
@@ -967,6 +992,12 @@ func (m Model) View() string {
 // fetchItemsWithState returns a command that fetches content with all current state applied
 func fetchItemsWithState(m Model) tea.Cmd {
 	return func() tea.Msg {
+		// Remote mode: fetch via API and apply filters client-side
+		if m.remoteURL != "" {
+			return fetchItemsRemote(m)
+		}
+
+		// Local mode: use database with server-side filtering
 		items, hiddenCount, err := db.GetContentWithFilters(
 			m.priority,
 			m.showUnprioritized,
@@ -981,6 +1012,159 @@ func fetchItemsWithState(m Model) tea.Cmd {
 			err:         err,
 		}
 	}
+}
+
+// fetchItemsRemote fetches items via API and applies filters client-side
+func fetchItemsRemote(m Model) itemsLoadedMsg {
+	// Create API client with remote URL
+	client, err := api.NewClientWithURL(m.remoteURL)
+	if err != nil {
+		return itemsLoadedMsg{err: err}
+	}
+
+	var apiItems []api.ContentItem
+	var allItems []db.ContentItem
+
+	// Initial load vs incremental sync
+	if m.lastSync.IsZero() {
+		// Initial load: fetch everything
+		apiItems, err = client.FetchEntries()
+		if err != nil {
+			return itemsLoadedMsg{err: err}
+		}
+		allItems = make([]db.ContentItem, 0, len(apiItems))
+	} else {
+		// Incremental sync: fetch only new/changed items
+		apiItems, err = client.FetchEntriesSince(m.lastSync)
+		if err != nil {
+			// On error, show cached data
+			return itemsLoadedMsg{
+				items:       applyFiltersClientSide(m.itemsCache, m),
+				hiddenCount: countHiddenUnprioritized(m.itemsCache, m),
+				err:         err,
+			}
+		}
+
+		// Start with existing cache
+		allItems = make([]db.ContentItem, len(m.itemsCache))
+		copy(allItems, m.itemsCache)
+	}
+
+	// Convert API items to DB format
+	for _, apiItem := range apiItems {
+		priority := ""
+		if apiItem.Priority != nil {
+			priority = *apiItem.Priority
+		}
+		analysis := ""
+		if len(apiItem.Analysis) > 0 && string(apiItem.Analysis) != "null" {
+			analysis = string(apiItem.Analysis)
+		}
+
+		newItem := db.ContentItem{
+			ID:         apiItem.ID,
+			Title:      apiItem.Title,
+			URL:        apiItem.URL,
+			Summary:    apiItem.Summary,
+			Priority:   priority,
+			Content:    apiItem.Content,
+			Analysis:   analysis,
+			Published:  apiItem.PublishedAt.Time,
+			Read:       apiItem.Read,
+			Favorited:  apiItem.Favorited,
+			SourceType: apiItem.SourceType,
+			SourceName: apiItem.SourceName,
+			SourceID:   apiItem.SourceID,
+		}
+
+		// Merge: replace existing item or append new
+		merged := false
+		for i, existingItem := range allItems {
+			if existingItem.ID == newItem.ID {
+				allItems[i] = newItem
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			allItems = append(allItems, newItem)
+		}
+	}
+
+	// Apply filters client-side
+	filtered := applyFiltersClientSide(allItems, m)
+
+	// Return both filtered items (for display) and all items (for caching)
+	return itemsLoadedMsg{
+		items:       filtered,
+		hiddenCount: countHiddenUnprioritized(allItems, m),
+		allItems:    allItems,
+		updateCache: true,
+		err:         nil,
+	}
+}
+
+// countHiddenUnprioritized counts items filtered out due to empty priority
+func countHiddenUnprioritized(items []db.ContentItem, m Model) int {
+	if m.showUnprioritized {
+		return 0
+	}
+	count := 0
+	for _, item := range items {
+		if item.Priority == "" {
+			count++
+		}
+	}
+	return count
+}
+
+// applyFiltersClientSide applies TUI filters to items (for remote mode)
+func applyFiltersClientSide(items []db.ContentItem, m Model) []db.ContentItem {
+	filtered := make([]db.ContentItem, 0, len(items))
+
+	for _, item := range items {
+		// Filter by priority
+		if m.priority == "high" && item.Priority != "high" {
+			continue
+		}
+		if m.priority == "medium" && item.Priority != "medium" {
+			continue
+		}
+		if m.priority == "low" && item.Priority != "low" {
+			continue
+		}
+		if m.priority == "favorites" && !item.Favorited {
+			continue
+		}
+		if m.priority == "unprioritized" && item.Priority != "" {
+			continue
+		}
+		// "all" shows all priorities
+
+		// Filter unprioritized items unless explicitly showing them
+		if !m.showUnprioritized && m.priority != "unprioritized" && item.Priority == "" {
+			continue
+		}
+
+		// Filter by read status (default: unread only)
+		if !m.showAll && item.Read {
+			continue
+		}
+
+		// Filter by source type
+		if m.filterType != "all" && item.SourceType != m.filterType {
+			continue
+		}
+
+		// Archived filter not applicable via API (API doesn't return archived by default)
+
+		filtered = append(filtered, item)
+	}
+
+	// Apply sort order
+	sortItemsByDate(filtered, m.sortNewest)
+
+	return filtered
 }
 
 // sortItemsByDate sorts items in place by published date

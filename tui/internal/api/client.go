@@ -50,8 +50,82 @@ type SourceListResponse struct {
 	Total   int      `json:"total"`
 }
 
-// NewClient creates a new API client with config loading
+// ContentItem represents a content item from the API
+type ContentItem struct {
+	ID           string          `json:"id"`
+	ExternalID   string          `json:"external_id"`
+	SourceID     string          `json:"source_id"`
+	Title        string          `json:"title"`
+	URL          string          `json:"url"`
+	Content      string          `json:"content"`
+	Summary      string          `json:"summary"`
+	PublishedAt  apiTime         `json:"published_at"`
+	FetchedAt    apiTime         `json:"fetched_at"`
+	Read         bool            `json:"read"`
+	Favorited    bool            `json:"favorited"`
+	ArchivedAt   *apiTime        `json:"archived_at"`
+	Priority     *string         `json:"priority"`
+	Analysis     json.RawMessage `json:"analysis"` // JSON object from API
+	SourceType   string          `json:"source_type"`
+	SourceName   string          `json:"source_name"`
+}
+
+// apiTime wraps time.Time to handle API's space-separated ISO8601 format
+type apiTime struct {
+	time.Time
+}
+
+// UnmarshalJSON parses API timestamps in "2025-11-05 17:42:11.630705+00:00" format
+func (t *apiTime) UnmarshalJSON(b []byte) error {
+	s := string(b)
+
+	// Handle null
+	if s == "null" {
+		t.Time = time.Time{}
+		return nil
+	}
+
+	// Remove quotes
+	if len(s) < 2 {
+		return fmt.Errorf("invalid time string: %s", s)
+	}
+	s = s[1 : len(s)-1]
+
+	// Try formats in order: with timezone, with microseconds no tz, without both
+	formats := []string{
+		"2006-01-02 15:04:05.999999-07:00", // With microseconds and timezone
+		"2006-01-02 15:04:05-07:00",        // With timezone, no microseconds
+		"2006-01-02 15:04:05.999999",       // With microseconds, no timezone (fetched_at)
+		"2006-01-02 15:04:05",              // No microseconds, no timezone
+	}
+
+	var parsed time.Time
+	var err error
+	for _, format := range formats {
+		parsed, err = time.Parse(format, s)
+		if err == nil {
+			t.Time = parsed
+			return nil
+		}
+	}
+
+	return fmt.Errorf("failed to parse time %q: %w", s, err)
+}
+
+// EntriesResponse represents the response from GET /api/entries
+type EntriesResponse struct {
+	Items          []ContentItem          `json:"items"`
+	Total          int                    `json:"total"`
+	FiltersApplied map[string]interface{} `json:"filters_applied"`
+}
+
+// NewClient creates a new API client with config loading (local mode)
 func NewClient() (*APIClient, error) {
+	return NewClientWithURL("")
+}
+
+// NewClientWithURL creates a new API client with optional custom base URL (remote mode)
+func NewClientWithURL(baseURL string) (*APIClient, error) {
 	// Load configuration using the config package
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -62,8 +136,13 @@ func NewClient() (*APIClient, error) {
 		return nil, fmt.Errorf("API key not found in config")
 	}
 
+	// Use provided URL or default to localhost
+	if baseURL == "" {
+		baseURL = "http://localhost:8989"
+	}
+
 	return &APIClient{
-		baseURL:    "http://localhost:8989",
+		baseURL:    baseURL,
 		apiKey:     cfg.API.Key,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}, nil
@@ -424,6 +503,73 @@ func (c *APIClient) UpdateContent(contentID string, request ContentUpdateRequest
 	}
 
 	return &apiResp, nil
+}
+
+// FetchEntries retrieves all content items from the API
+func (c *APIClient) FetchEntries() ([]ContentItem, error) {
+	return c.fetchEntriesWithParams("")
+}
+
+// FetchEntriesSince retrieves content items created/modified after the given timestamp
+func (c *APIClient) FetchEntriesSince(since time.Time) ([]ContentItem, error) {
+	// Format timestamp as ISO8601
+	sinceParam := since.Format(time.RFC3339)
+	return c.fetchEntriesWithParams("since=" + sinceParam)
+}
+
+// fetchEntriesWithParams is the common implementation for fetching entries
+func (c *APIClient) fetchEntriesWithParams(params string) ([]ContentItem, error) {
+	// Build URL with optional parameters
+	url := c.baseURL + "/api/entries"
+	if params != "" {
+		url += "?" + params
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("X-API-Key", c.apiKey)
+
+	// Send request
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Check for HTTP errors
+	if resp.StatusCode == 403 {
+		return nil, fmt.Errorf("authentication failed: invalid API key")
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response - API returns {success, message, data: {items: [...], total: N}}
+	var apiResp struct {
+		Success bool            `json:"success"`
+		Message string          `json:"message"`
+		Data    EntriesResponse `json:"data"`
+	}
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if !apiResp.Success {
+		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+	}
+
+	return apiResp.Data.Items, nil
 }
 
 // PruneCount gets the count of unprioritized items that would be pruned

@@ -446,7 +446,7 @@ func TestFavoritesFilter_ShowsReadItems(t *testing.T) {
 	}()
 
 	// Get favorites with showAll=false (should still show read favorites)
-	items, _, err := GetContentWithFilters("favorites", true, false, "all", true)
+	items, _, err := GetContentWithFilters("favorites", true, false, false, "all", true)
 	if err != nil {
 		t.Fatalf("GetContentWithFilters failed: %v", err)
 	}

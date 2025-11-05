@@ -81,8 +81,14 @@ func buildViewStateString(m Model) string {
 
 // RenderList renders the feed view with clean cyber styling
 func RenderList(m Model) string {
-	if m.width == 0 {
-		return "Loading..."
+	// Use defaults if WindowSizeMsg hasn't arrived yet
+	width := m.width
+	height := m.height
+	if width == 0 {
+		width = 80 // Standard terminal default
+	}
+	if height == 0 {
+		height = 24 // Standard terminal default
 	}
 
 	if m.loading {
@@ -106,7 +112,7 @@ func RenderList(m Model) string {
 
 	// Calculate spacing to right-align state and time
 	stateTimeString := fmt.Sprintf("%s  ◆ %s ", stateString, timeString) // Add space for right padding
-	availableWidth := m.width - len(title) - len(stateTimeString)
+	availableWidth := width - len(title) - len(stateTimeString)
 
 	var spacing string
 	if availableWidth > 0 {
@@ -119,20 +125,20 @@ func RenderList(m Model) string {
 	headerContent := fmt.Sprintf("%s%s%s", title, spacing, stateTimeString)
 
 	// Create gradient background for the full width header (no additional styling)
-	header := RenderWithGradientBackground(headerContent, m.width, string(theme.Cyan), string(theme.VibrantPurple))
+	header := RenderWithGradientBackground(headerContent, width, string(theme.Cyan), string(theme.VibrantPurple))
 
 	// Main content area
 	// Reserve space: header(1) + empty(1) + status(1) + command(1) + borders(1) = 5
-	contentHeight := m.height - 5
+	contentHeight := height - 5
 
 	// Left sidebar (25% width)
-	sidebarWidth := m.width / 4
+	sidebarWidth := width / 4
 	if sidebarWidth < 30 {
 		sidebarWidth = 30
 	}
 
 	// Right content (75% width)
-	contentWidth := m.width - sidebarWidth - 1
+	contentWidth := width - sidebarWidth - 1
 
 	// Build sidebar
 	sidebar := renderSidebar(m, sidebarWidth, contentHeight, theme)
@@ -169,7 +175,7 @@ func RenderList(m Model) string {
 	statusStyle := lipgloss.NewStyle().
 		Background(theme.DarkGray).
 		Foreground(theme.Gray).
-		Width(m.width).
+		Width(width).
 		Padding(0, 1)
 
 	// Build status bar (always shows counts and help)
@@ -219,13 +225,13 @@ func RenderList(m Model) string {
 		}
 		messageStyle := lipgloss.NewStyle().
 			Foreground(messageColor).
-			Width(m.width).
+			Width(width).
 			Padding(0, 1)
 		bottomLine = messageStyle.Render(m.statusMessage)
 	} else {
 		// Empty line when no message or command
 		emptyStyle := lipgloss.NewStyle().
-			Width(m.width).
+			Width(width).
 			Height(1)
 		bottomLine = emptyStyle.Render(" ")
 	}

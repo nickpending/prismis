@@ -29,16 +29,16 @@ class FileFetcher:
 
     def __init__(
         self,
-        config: Optional[Config] = None,
         max_items: Optional[int] = None,
+        config: Optional[Config] = None,
         timeout: int = 10,
         storage: Optional[Storage] = None,
     ):
         """Initialize file fetcher.
 
         Args:
-            config: Configuration object (loaded from file if not provided)
             max_items: Maximum items to return per fetch (defaults to config)
+            config: Configuration object (loaded from file if not provided)
             timeout: HTTP request timeout in seconds
             storage: Storage instance for querying previous content
         """

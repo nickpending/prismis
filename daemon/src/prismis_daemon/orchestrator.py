@@ -487,3 +487,55 @@ class DaemonOrchestrator:
         except Exception as e:
             self.console.print(f"[red]❌ Archival failed: {e}[/red]")
             return {"archived_count": 0}
+
+    def backfill_embeddings(self, limit: int = 50) -> dict:
+        """Generate embeddings for items without them (stragglers from failures).
+
+        Args:
+            limit: Maximum items to process per run (default 50)
+
+        Returns:
+            Dict with stats: processed_count, failed_count
+        """
+        try:
+            # Get items without embeddings
+            batch = self.storage.get_content_without_embeddings(limit=limit)
+
+            if not batch:
+                return {"processed": 0, "failed": 0}
+
+            processed = 0
+            failed = 0
+
+            for item in batch:
+                try:
+                    # Generate embedding from summary or content
+                    text = item["summary"] or item["content"] or item["title"]
+                    embedding = self.embedder.generate_embedding(
+                        text=text, title=item["title"]
+                    )
+
+                    if embedding:
+                        self.storage.add_embedding(
+                            content_id=item["id"], embedding=embedding
+                        )
+                        processed += 1
+                    else:
+                        failed += 1
+
+                except Exception as e:
+                    self.console.print(
+                        f"[yellow]⚠ Failed embedding for '{item['title']}': {e}[/yellow]"
+                    )
+                    failed += 1
+
+            if processed > 0:
+                self.console.print(
+                    f"[cyan]🔗 Auto-indexed {processed} stragglers ({failed} failed)[/cyan]"
+                )
+
+            return {"processed": processed, "failed": failed}
+
+        except Exception as e:
+            self.console.print(f"[red]❌ Embedding backfill failed: {e}[/red]")
+            return {"processed": 0, "failed": 0}

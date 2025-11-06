@@ -130,6 +130,17 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             max_instances=1,
         )
 
+        # Add embedding backfill job (runs every 6 hours to catch stragglers)
+        scheduler.add_job(
+            func=run_embedding_backfill_sync,
+            args=(orchestrator,),
+            trigger=IntervalTrigger(hours=6),
+            id="embedding_backfill",
+            name="Backfill missing embeddings",
+            replace_existing=True,
+            max_instances=1,
+        )
+
         # Setup signal handlers for graceful shutdown
         def signal_handler(sig, frame) -> None:
             console.print(
@@ -209,6 +220,20 @@ def run_archival_job_sync(orchestrator: DaemonOrchestrator) -> None:
     stats = orchestrator.run_archival_policy()
     if stats["archived_count"] > 0:
         console.print(f"[green]Archived {stats['archived_count']} items[/green]\n")
+
+
+def run_embedding_backfill_sync(orchestrator: DaemonOrchestrator) -> None:
+    """Synchronous wrapper for embedding backfill job."""
+    from datetime import datetime
+
+    console.print(
+        f"\n[blue]🔗 Running embedding backfill at {datetime.now().strftime('%H:%M:%S')}[/blue]"
+    )
+    stats = orchestrator.backfill_embeddings(limit=50)
+    if stats["processed"] > 0:
+        console.print(
+            f"[green]Indexed {stats['processed']} stragglers ({stats['failed']} failed)[/green]\n"
+        )
 
 
 app = typer.Typer()

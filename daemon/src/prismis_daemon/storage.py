@@ -1329,6 +1329,27 @@ class Storage:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to search content: {e}")
 
+    def count_content_without_embeddings(self) -> int:
+        """Count content items without embeddings.
+
+        Returns:
+            Count of items missing embeddings
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            cursor = self.conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM content
+                WHERE id NOT IN (SELECT content_id FROM embeddings)
+                """
+            )
+            return cursor.fetchone()[0]
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to count content without embeddings: {e}")
+
     def get_content_without_embeddings(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Get content items that don't have embeddings yet.
 

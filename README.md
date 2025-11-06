@@ -24,18 +24,21 @@ Think of it as having a research assistant who reads everything and only interru
 
 ## Status: Alpha
 
-**This is early software that works but has rough edges.** It's been in daily use for 3 months, handling 500+ items/day across 30+ sources, but expect quirks. Version 0.2.0 adds API clarity, CLI automation, and richer Reddit analysis. Each release gets more polished.
+**This is early software that works but has rough edges.** It's been in daily use for 3 months, handling 500+ items/day across 30+ sources, but expect quirks. Version 0.3.0 adds semantic search, remote TUI mode, smart archival, and static file monitoring. Each release gets more polished.
 
 ## ✨ Features
 
 - 🚀 **Instant TUI** - Launches in <100ms with gorgeous Bubbletea interface
 - 🧠 **AI-Powered Priority** - LLM analyzes content against YOUR interests (HIGH/MEDIUM/LOW)
+- 🔍 **Semantic Search** - Local embeddings enable vector similarity search across all content
+- 🌐 **Remote TUI Mode** - Access your daemon from anywhere with incremental sync
 - 🎨 **Fabric Integration** - 200+ AI analysis patterns with tab completion (`:fabric <TAB>` to browse)
 - 🔒 **Local-First** - Your data never leaves your machine. SQLite + Go binary
-- 📡 **Multi-Source** - RSS/Atom feeds, Reddit (API optional), YouTube transcripts
+- 📡 **Multi-Source** - RSS/Atom feeds, Reddit (API optional), YouTube transcripts, static files
 - 🎯 **Personal Context** - Define what matters in simple markdown
 - 🔔 **Smart Notifications** - Desktop alerts only for HIGH priority content
 - 🌐 **Web Interface** - Beautiful daily briefing accessible from any device on your network
+- 🗄️ **Smart Archival** - Priority-aware retention policy automatically manages old content
 - ⚡ **Zero-Ops** - No Docker, no PostgreSQL, no cloud services needed
 
 ## 🎬 Quick Start
@@ -111,7 +114,8 @@ host = "0.0.0.0"  # Allow access from other devices (default: 127.0.0.1)
 ### Terminal Interface
 
 ```bash
-prismis  # Launch instantly
+prismis           # Launch instantly (local mode)
+prismis --remote  # Remote mode with incremental sync from server daemon
 ```
 
 **Essential Keys:**
@@ -151,38 +155,61 @@ prismis-cli source add reddit://programming
 # YouTube channels (extracts transcripts)
 prismis-cli source add youtube://UC9-y-6csu5WGm29I7JiwpnA
 
+# Static file monitoring (GitHub changelogs, release notes)
+prismis-cli source add file:///path/to/CHANGELOG.md
+
 # List all sources
 prismis-cli source list
 
 # Remove a source
 prismis-cli source remove 3
 
+# Semantic search across all content
+prismis-cli search "local-first database innovations"
+
+# Retry failed LLM analysis
+prismis-cli analyze repair
+
 # Clean up unprioritized content
 prismis-cli prune               # Remove all unprioritized items
 prismis-cli prune --days 7      # Remove unprioritized items older than 7 days
 ```
 
-### CLI Automation (v0.2.0+)
+### Archival Policy
+
+Prismis automatically archives old content based on priority (configurable in `~/.config/prismis/config.toml`):
+
+**Retention Windows:**
+- **HIGH priority**: Kept until read, then archived after 30 days
+- **MEDIUM priority**: 14 days unread / 30 days read
+- **LOW priority**: 7 days unread / 30 days read
+
+**Protected from archival:**
+- Favorited items (⭐)
+- Items with notes
+- Unread HIGH priority items (kept indefinitely)
+
+This ensures important content stays visible until you've seen it, while automatically cleaning up old read content.
+
+### CLI Automation
 
 Query and export content for automation workflows:
 
 ```bash
 # Get a single entry (formatted display)
-prismis-cli get get <entry-id>
+prismis-cli get <entry-id>
 
 # Get raw content for piping to external tools
-prismis-cli get get <entry-id> --raw | fabric --pattern extract_wisdom
+prismis-cli get <entry-id> --raw | fabric --pattern extract_wisdom
 
 # List recent entries
-prismis-cli list list --limit 10
-prismis-cli list list --priority high --unread
+prismis-cli list --limit 10
+prismis-cli list --priority high --unread
 
 # Export in JSON or CSV format
-prismis-cli export export --format json > backup.json
-prismis-cli export export --format csv --priority high > high-priority.csv
+prismis-cli export --format json > backup.json
+prismis-cli export --format csv --priority high > high-priority.csv
 ```
-
-**Note**: CLI commands currently require double invocation (e.g., `get get` instead of just `get`). This will be fixed in v0.3.0.
 
 ### Running the Daemon
 
@@ -414,19 +441,20 @@ Some areas we'd love help with:
 
 ## Known Issues & Limitations
 
-**Current limitations in v0.2.0-alpha:**
+**Current limitations in v0.3.0-alpha:**
 
-- **CLI double-command UX** - Commands require double invocation like `prismis-cli get get <id>` instead of `prismis-cli get <id>` (workaround: just use the double syntax)
-- **API error codes** - Inconsistent error codes for missing routes (GET returns 404, PATCH returns 405)
 - **Daemon process management** - Manual start/stop (workaround: use tmux or `prismis-daemon &`)
 - **YouTube age-gating** - Some videos fail to extract transcripts (workaround: add RSS feed directly)
 - **Fabric errors** - May timeout on very long content (workaround: use shorter patterns like `summarize`)
 
 **What works well:**
-- ✅ RSS/Reddit/YouTube ingestion with full content extraction
+- ✅ RSS/Reddit/YouTube/file ingestion with full content extraction
 - ✅ Reddit comment enrichment for richer LLM analysis
-- ✅ Clear API naming (`/api/entries` with summary/raw/full modes)
-- ✅ CLI automation (get/list/export commands with piping support)
+- ✅ Semantic search with local embeddings and vector similarity
+- ✅ Remote TUI mode with incremental sync from server daemon
+- ✅ Priority-aware archival policy for automated retention
+- ✅ Clear API naming (`/api/entries` with consistent error codes)
+- ✅ CLI automation with single-command invocation and piping support
 - ✅ Fabric integration with 200+ patterns and tab completion
 - ✅ Web interface with mobile-responsive daily briefing
 - ✅ Audio briefing generation with Jarvis personality
@@ -434,26 +462,24 @@ Some areas we'd love help with:
 
 ## 🎯 Roadmap
 
-**v0.3.0** (Next release):
-- [ ] Fix CLI double-command UX (streamline to single command)
-- [ ] Fix API error code consistency
-- [ ] Add CLI search command for full-text queries
-- [ ] Enhance TUI filtering (date range, source, topics)
-- [ ] Fabric pattern showcase with documented workflows
+**v0.3.0** (Current):
+- [x] Semantic search with local embeddings
+- [x] Remote TUI mode with incremental sync
+- [x] Priority-aware archival policy
+- [x] Static file monitoring for changelogs
+- [x] CLI automation improvements
 
-**v0.4.0** (Future):
-- [ ] Fix daemon process management (systemd/launchd support)
+**v0.4.0** (Next):
+- [ ] Enhanced TUI filtering (date range, source, topics)
+- [ ] Daemon process management (systemd/launchd)
 - [ ] Better source error handling and recovery
 - [ ] Export markdown format for Obsidian integration
-- [ ] Source health monitoring in TUI
-- [ ] Enhanced YouTube transcript extraction
 
-**v1.0.0** (Stable):
+**v1.0.0** (Future):
 - [ ] MCP server for AI agent queries
 - [ ] Papers support (arxiv RSS, PDF ingestion)
 - [ ] Manual content ingestion (one-off URLs/PDFs)
 - [ ] Performance optimizations and full test coverage
-- [ ] Documentation site and plugin system
 
 ## 📄 License
 

@@ -37,7 +37,7 @@ class RSSFetcher:
         self.max_items = max_items or config.get_max_items("rss")
         self.config = config
         self.timeout = timeout
-        self.client = httpx.Client(timeout=timeout)
+        self.client = httpx.Client(timeout=timeout, follow_redirects=True)
 
     def fetch_content(self, source: dict) -> List[ContentItem]:
         """Fetch RSS feed and extract full content for each item.
@@ -112,15 +112,16 @@ class RSSFetcher:
                     # Extract full article content with trafilatura
                     content = self._extract_full_content(url, entry)
 
-                    # Create ContentItem
+                    # Create ContentItem (use fetched_at if no published_at)
+                    fetched_at = datetime.utcnow()
                     item = ContentItem(
                         source_id=source_id,
                         external_id=external_id,
                         title=title,
                         url=url,
                         content=content,
-                        published_at=published_at,
-                        fetched_at=datetime.utcnow(),
+                        published_at=published_at or fetched_at,
+                        fetched_at=fetched_at,
                     )
 
                     items.append(item)

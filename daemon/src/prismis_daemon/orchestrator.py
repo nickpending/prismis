@@ -195,7 +195,7 @@ class DaemonOrchestrator:
                                 )
                                 self.storage.store_embedding(content_id, embedding)
                                 self.console.print(
-                                    f"       🔗 Indexed for semantic search ({self.embedder.dimensions} dims)"
+                                    f"       🔗 Indexed for semantic search ({self.embedder.get_dimension()} dims)"
                                 )
                         except Exception as e:
                             logger.warning(

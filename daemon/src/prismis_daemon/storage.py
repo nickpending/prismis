@@ -1415,6 +1415,104 @@ class Storage:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content without embeddings: {e}")
 
+    def count_content_without_analysis(self) -> int:
+        """Count content items without complete analysis.
+
+        Checks for complete analysis failures where all three fields are NULL.
+        Does not count items with NULL priority but valid summary/analysis
+        (those were successfully analyzed but filtered as not relevant).
+
+        Returns:
+            Count of items needing analysis
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            cursor = self.conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM content
+                WHERE priority IS NULL
+                  AND summary IS NULL
+                  AND analysis IS NULL
+                  AND archived_at IS NULL
+                """
+            )
+            return cursor.fetchone()[0]
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to count content without analysis: {e}")
+
+    def get_content_without_analysis(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get content items that lack complete analysis.
+
+        Returns items where all three fields (priority, summary, analysis) are NULL,
+        indicating complete analysis failure. Does not return items with NULL priority
+        but valid summary/analysis (those were successfully filtered as not relevant).
+
+        Args:
+            limit: Maximum number of items to return
+
+        Returns:
+            List of content dicts without complete analysis
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            cursor = self.conn.execute(
+                """
+                SELECT c.*, s.name as source_name, s.type as source_type
+                FROM content c
+                LEFT JOIN sources s ON c.source_id = s.id
+                WHERE c.priority IS NULL
+                  AND c.summary IS NULL
+                  AND c.analysis IS NULL
+                  AND c.archived_at IS NULL
+                ORDER BY c.fetched_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+
+            results = []
+            for row in cursor.fetchall():
+                # Parse JSON analysis if present
+                analysis = None
+                if row["analysis"]:
+                    try:
+                        analysis = json.loads(row["analysis"])
+                    except json.JSONDecodeError:
+                        analysis = None
+
+                results.append(
+                    {
+                        "id": row["id"],
+                        "source_id": row["source_id"],
+                        "external_id": row["external_id"],
+                        "title": row["title"],
+                        "url": row["url"],
+                        "content": row["content"],
+                        "summary": row["summary"],
+                        "analysis": analysis,
+                        "priority": row["priority"],
+                        "published_at": row["published_at"],
+                        "fetched_at": row["fetched_at"],
+                        "read": bool(row["read"]),
+                        "favorited": bool(row["favorited"]),
+                        "notes": row["notes"],
+                        "source_name": row["source_name"],
+                        "source_type": row["source_type"],
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                    }
+                )
+
+            return results
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get content without analysis: {e}")
+
     def archive_old_content(self, config: Dict[str, Any]) -> int:
         """Archive content based on priority-aware aging windows.
 

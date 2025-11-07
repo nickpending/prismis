@@ -1,5 +1,6 @@
 """Content analysis and repair commands."""
 
+import time
 import typer
 from rich.console import Console
 from rich.prompt import Confirm
@@ -9,6 +10,7 @@ from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.config import Config
+from prismis_daemon.observability import log as obs_log
 
 console = Console()
 app = typer.Typer()  # Sub-typer for analyze commands
@@ -90,6 +92,10 @@ def repair(
             config = Config()
             summarizer = ContentSummarizer()
             evaluator = ContentEvaluator(config)
+
+            # Track repair operation start
+            start_time = time.time()
+            obs_log("cli.repair.start", source="cli", items=total, limit=limit)
 
             processed = 0
             skipped = 0
@@ -191,6 +197,18 @@ def repair(
                 except Exception as e:
                     console.print(f"  [red]✗ Failed: {e}[/red]")
                     failed += 1
+
+            # Track repair operation complete
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "cli.repair.complete",
+                source="cli",
+                duration_ms=duration_ms,
+                processed=processed,
+                skipped=skipped,
+                failed=failed,
+                total=total,
+            )
 
             # Summary
             console.print("\n[bold]Repair Complete[/bold]")

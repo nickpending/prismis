@@ -2,11 +2,18 @@
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Any, List, Optional
 
 import litellm
+from litellm import completion_cost
+
+try:
+    from .observability import log as obs_log
+except ImportError:
+    from observability import log as obs_log
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +184,53 @@ Evaluate this content and respond with the JSON format specified."""
             if self.api_base:
                 kwargs["api_base"] = self.api_base
 
-            response = litellm.completion(**kwargs)
+            # Track LLM call timing and cost for observability
+            start_time = time.time()
+
+            try:
+                response = litellm.completion(**kwargs)
+
+                # Calculate duration
+                duration_ms = int((time.time() - start_time) * 1000)
+
+                # Extract token usage
+                tokens = {
+                    "prompt": response.usage.prompt_tokens if response.usage else 0,
+                    "completion": response.usage.completion_tokens
+                    if response.usage
+                    else 0,
+                    "total": response.usage.total_tokens if response.usage else 0,
+                }
+
+                # Calculate cost
+                try:
+                    cost_usd = completion_cost(response)
+                except Exception:
+                    cost_usd = 0.0
+
+                # Log successful LLM call
+                obs_log(
+                    "llm.call",
+                    action="evaluate",
+                    model=self.model,
+                    tokens=tokens,
+                    cost_usd=cost_usd,
+                    duration_ms=duration_ms,
+                    status="success",
+                )
+
+            except Exception as e:
+                # Log failed LLM call
+                duration_ms = int((time.time() - start_time) * 1000)
+                obs_log(
+                    "llm.call",
+                    action="evaluate",
+                    model=self.model,
+                    status="error",
+                    error=str(e),
+                    duration_ms=duration_ms,
+                )
+                raise  # Re-raise to preserve existing error handling
 
             # Extract the response text
             response_text = response.choices[0].message.content

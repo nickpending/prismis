@@ -24,6 +24,7 @@ from .evaluator import ContentEvaluator
 from .notifier import Notifier
 from .defaults import ensure_config
 from .orchestrator import DaemonOrchestrator
+from .observability import get_logger as get_obs_logger
 
 # Load environment variables from ~/.config/prismis/.env
 config_home = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
@@ -141,6 +142,16 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             max_instances=1,
         )
 
+        # Add observability cleanup job (runs daily to remove old JSONL files)
+        scheduler.add_job(
+            func=run_observability_cleanup_sync,
+            trigger=IntervalTrigger(days=1),
+            id="observability_cleanup",
+            name="Cleanup old observability logs",
+            replace_existing=True,
+            max_instances=1,
+        )
+
         # Setup signal handlers for graceful shutdown
         def signal_handler(sig, frame) -> None:
             console.print(
@@ -234,6 +245,21 @@ def run_embedding_backfill_sync(orchestrator: DaemonOrchestrator) -> None:
         console.print(
             f"[green]Indexed {stats['processed']} stragglers ({stats['failed']} failed)[/green]\n"
         )
+
+
+def run_observability_cleanup_sync() -> None:
+    """Synchronous wrapper for observability cleanup job."""
+    from datetime import datetime
+
+    console.print(
+        f"\n[blue]🗑️  Running observability cleanup at {datetime.now().strftime('%H:%M:%S')}[/blue]"
+    )
+    obs_logger = get_obs_logger()
+    removed = obs_logger.cleanup_old_files(retention_days=30)
+    if removed > 0:
+        console.print(f"[green]Removed {removed} old observability files[/green]\n")
+    else:
+        console.print("[dim]No old files to remove[/dim]\n")
 
 
 app = typer.Typer()

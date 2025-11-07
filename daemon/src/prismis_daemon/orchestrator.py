@@ -1,6 +1,7 @@
 """Daemon orchestration logic, separated from entry point for testability."""
 
 import logging
+import time
 from typing import Optional, Dict, Any
 
 from rich.console import Console
@@ -13,6 +14,7 @@ try:
     from .notifier import Notifier
     from .embeddings import Embedder
     from .config import Config
+    from .observability import log as obs_log
 except ImportError:
     # When imported directly in tests
     from storage import Storage
@@ -21,6 +23,7 @@ except ImportError:
     from notifier import Notifier
     from config import Config
     from embeddings import Embedder
+    from observability import log as obs_log
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -345,6 +348,8 @@ class DaemonOrchestrator:
         Returns:
             Dict with stats: total_items, total_analyzed, total_new, total_updated, errors
         """
+        start_time = time.time()
+
         stats = {
             "total_items": 0,
             "total_analyzed": 0,
@@ -357,6 +362,9 @@ class DaemonOrchestrator:
         # Get active sources
         self.console.print("📡 Getting active sources...")
         sources = self.storage.get_active_sources()
+
+        # Log cycle start
+        obs_log("daemon.cycle.start", sources=len(sources), force_refetch=force_refetch)
 
         if not sources:
             self.console.print(
@@ -412,6 +420,17 @@ class DaemonOrchestrator:
 
         if force_refetch:
             self.console.print("🔄 Force refetch was enabled")
+
+        # Log cycle complete
+        duration_ms = int((time.time() - start_time) * 1000)
+        obs_log(
+            "daemon.cycle.complete",
+            duration_ms=duration_ms,
+            items_fetched=stats["total_items"],
+            items_new=stats["total_new"],
+            items_updated=stats["total_updated"],
+            errors=len(stats["errors"]),
+        )
 
         return stats
 

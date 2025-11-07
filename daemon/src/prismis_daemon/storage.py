@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from operator import itemgetter
@@ -11,10 +12,18 @@ from typing import List, Dict, Any, Optional, Union, Tuple, Set
 try:
     from .database import get_db_connection
     from .models import ContentItem
+    from .observability import log as obs_log
 except ImportError:
     # Handle case where we're imported from outside the package
     from database import get_db_connection
     from models import ContentItem
+
+    try:
+        from observability import log as obs_log
+    except ImportError:
+        # Graceful degradation if observability not available
+        def obs_log(*args, **kwargs) -> None:
+            pass
 
 
 class Storage:
@@ -165,6 +174,8 @@ class Storage:
         Raises:
             sqlite3.Error: If database operation fails
         """
+        start_time = time.time()
+
         # Convert dict to ContentItem if needed
         if isinstance(item, dict):
             # If no source_id provided, use the first available source
@@ -216,6 +227,15 @@ class Storage:
 
             if existing:
                 # Duplicate - external_id already exists
+                duration_ms = int((time.time() - start_time) * 1000)
+                obs_log(
+                    "db.insert",
+                    table="content",
+                    operation="add_content",
+                    row_count=0,
+                    duration_ms=duration_ms,
+                    status="duplicate",
+                )
                 return None
 
             # Serialize analysis dict to JSON if present
@@ -231,7 +251,7 @@ class Storage:
                     fetched_at, read, favorited, notes,
                     created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """,
                 (
@@ -253,10 +273,28 @@ class Storage:
             )
 
             conn.commit()
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "db.insert",
+                table="content",
+                operation="add_content",
+                row_count=1,
+                duration_ms=duration_ms,
+                status="success",
+            )
             return item.id
 
         except sqlite3.Error as e:
             conn.rollback()
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "db.insert",
+                table="content",
+                operation="add_content",
+                error=str(e),
+                duration_ms=duration_ms,
+                status="error",
+            )
             raise sqlite3.Error(f"Failed to add content: {e}")
 
     def create_or_update_content(
@@ -635,11 +673,12 @@ class Storage:
             success: Whether fetch was successful
             error_message: Error message if fetch failed
         """
+        start_time = time.time()
         try:
             if success:
-                self.conn.execute(
+                cursor = self.conn.execute(
                     """
-                    UPDATE sources 
+                    UPDATE sources
                     SET last_fetched_at = CURRENT_TIMESTAMP,
                         error_count = 0,
                         last_error = NULL,
@@ -649,9 +688,9 @@ class Storage:
                     (source_id,),
                 )
             else:
-                self.conn.execute(
+                cursor = self.conn.execute(
                     """
-                    UPDATE sources 
+                    UPDATE sources
                     SET error_count = error_count + 1,
                         last_error = ?,
                         updated_at = CURRENT_TIMESTAMP
@@ -663,7 +702,7 @@ class Storage:
                 # Deactivate source after 5 consecutive errors
                 self.conn.execute(
                     """
-                    UPDATE sources 
+                    UPDATE sources
                     SET active = 0
                     WHERE id = ? AND error_count >= 5
                     """,
@@ -671,9 +710,27 @@ class Storage:
                 )
 
             self.conn.commit()
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "db.update",
+                table="sources",
+                operation="update_source_fetch_status",
+                row_count=cursor.rowcount,
+                duration_ms=duration_ms,
+                status="success" if success else "error_tracked",
+            )
 
         except sqlite3.Error as e:
             self.conn.rollback()
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "db.update",
+                table="sources",
+                operation="update_source_fetch_status",
+                error=str(e),
+                duration_ms=duration_ms,
+                status="error",
+            )
             raise sqlite3.Error(f"Failed to update source status: {e}")
 
     def update_source(self, source_id: str, update_data: dict) -> bool:
@@ -888,6 +945,7 @@ class Storage:
         if read is None and favorited is None:
             raise ValueError("At least one of read or favorited must be provided")
 
+        start_time = time.time()
         try:
             # Use separate queries for each case to avoid dynamic SQL
             # Auto-unarchive when favoriting (archived_at = NULL)
@@ -911,10 +969,29 @@ class Storage:
                 )
 
             self.conn.commit()
+            duration_ms = int((time.time() - start_time) * 1000)
+            row_count = cursor.rowcount
+            obs_log(
+                "db.update",
+                table="content",
+                operation="update_content_status",
+                row_count=row_count,
+                duration_ms=duration_ms,
+                status="success" if row_count > 0 else "not_found",
+            )
             return cursor.rowcount > 0
 
         except sqlite3.Error as e:
             self.conn.rollback()
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "db.update",
+                table="content",
+                operation="update_content_status",
+                error=str(e),
+                duration_ms=duration_ms,
+                status="error",
+            )
             raise sqlite3.Error(f"Failed to update content status: {e}")
 
     def get_content_by_id(self, content_id: str) -> Optional[Dict[str, Any]]:

@@ -31,6 +31,7 @@ from .reports import ReportGenerator
 from .audio import AudioScriptGenerator, LspeakTTSEngine
 from .config import Config
 from .embeddings import Embedder
+from .observability import log as obs_log
 
 console = Console()
 
@@ -58,6 +59,7 @@ async def log_requests(request: Request, call_next) -> Response:
 
         # For list endpoints, try to extract item count from response
         count_info = ""
+        item_count = None
         if (
             request.url.path in ["/api/entries", "/api/search"]
             and response.status_code == 200
@@ -75,6 +77,7 @@ async def log_requests(request: Request, call_next) -> Response:
                     if "items" in data["data"]:
                         count = len(data["data"]["items"])
                         count_info = f" [{count} items]"
+                        item_count = count
 
                 # Rebuild response with same body
                 from fastapi.responses import Response as FastAPIResponse
@@ -93,6 +96,19 @@ async def log_requests(request: Request, call_next) -> Response:
         console.print(
             f"[dim]   📡 API: {request.method} {request.url.path}{query_str} from {client_ip} → {response.status_code}{count_info} ({duration:.0f}ms)[/dim]"
         )
+
+        # Log to observability system
+        obs_log(
+            "api.request",
+            method=request.method,
+            path=request.url.path,
+            query=request.url.query if request.url.query else None,
+            client_ip=client_ip,
+            status_code=response.status_code,
+            duration_ms=int(duration),
+            item_count=item_count,
+        )
+
         return response
 
     return await call_next(request)

@@ -2,6 +2,7 @@
 
 import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 
@@ -9,6 +10,7 @@ import praw
 
 from ..models import ContentItem
 from ..config import Config
+from ..observability import log as obs_log
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,8 @@ class RedditFetcher:
 
         items = []
 
+        start_time = time.time()
+
         try:
             logger.info(f"Fetching posts from r/{subreddit_name}")
             subreddit = self.reddit.subreddit(subreddit_name)
@@ -137,7 +141,32 @@ class RedditFetcher:
                 f"Successfully fetched {len(items)} posts from r/{subreddit_name}"
             )
 
+            # Log successful fetch
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "fetcher.complete",
+                fetcher_type="reddit",
+                source_id=source_id,
+                source_url=source_url,
+                subreddit=subreddit_name,
+                items_count=len(items),
+                duration_ms=duration_ms,
+                status="success",
+            )
+
         except Exception as e:
+            # Log fetch error
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "fetcher.error",
+                fetcher_type="reddit",
+                source_id=source_id,
+                source_url=source_url,
+                subreddit=subreddit_name,
+                error=str(e),
+                duration_ms=duration_ms,
+                status="error",
+            )
             raise Exception(
                 f"Failed to fetch Reddit content from r/{subreddit_name}: {e}"
             ) from e

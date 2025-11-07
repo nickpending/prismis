@@ -5,12 +5,14 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from ..models import ContentItem
 from ..config import Config
+from ..observability import log as obs_log
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,6 @@ class YouTubeFetcher:
         Returns:
             List of ContentItem objects with video transcripts
         """
-        import time
 
         start_time = time.time()
 
@@ -99,9 +100,35 @@ class YouTubeFetcher:
             logger.info(
                 f"Successfully processed {len(items)} videos with transcripts in {time.time() - start_time:.1f}s total"
             )
+
+            # Log successful fetch
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "fetcher.complete",
+                fetcher_type="youtube",
+                source_id=source_id,
+                source_url=source_url,
+                channel_url=channel_url,
+                items_count=len(items),
+                duration_ms=duration_ms,
+                status="success",
+            )
+
             return items
 
         except Exception as e:
+            # Log fetch error
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "fetcher.error",
+                fetcher_type="youtube",
+                source_id=source_id,
+                source_url=source_url,
+                channel_url=channel_url,
+                error=str(e),
+                duration_ms=duration_ms,
+                status="error",
+            )
             logger.error(f"Failed to fetch YouTube content from {channel_url}: {e}")
             raise Exception(f"YouTube fetch failed for {channel_url}: {e}") from e
 

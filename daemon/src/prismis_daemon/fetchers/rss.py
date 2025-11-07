@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -11,6 +12,7 @@ from trafilatura import extract, fetch_url
 
 from ..models import ContentItem
 from ..config import Config
+from ..observability import log as obs_log
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +56,8 @@ class RSSFetcher:
         source_url = source.get("url", "")
         source_id = source.get("id", "")
         items = []
+
+        start_time = time.time()
 
         try:
             # Parse RSS feed with timeout via httpx
@@ -143,7 +147,30 @@ class RSSFetcher:
                 )
             logger.info(f"Successfully fetched {len(items)} items from {source_url}")
 
+            # Log successful fetch
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "fetcher.complete",
+                fetcher_type="rss",
+                source_id=source_id,
+                source_url=source_url,
+                items_count=len(items),
+                duration_ms=duration_ms,
+                status="success",
+            )
+
         except Exception as e:
+            # Log fetch error
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "fetcher.error",
+                fetcher_type="rss",
+                source_id=source_id,
+                source_url=source_url,
+                error=str(e),
+                duration_ms=duration_ms,
+                status="error",
+            )
             raise Exception(f"Failed to fetch RSS feed {source_url}: {e}") from e
 
         finally:

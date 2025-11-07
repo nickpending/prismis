@@ -3,6 +3,7 @@
 import difflib
 import hashlib
 import logging
+import time
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
@@ -11,11 +12,13 @@ import httpx
 try:
     from ..config import Config
     from ..models import ContentItem
+    from ..observability import log as obs_log
     from ..storage import Storage
 except ImportError:
     from config import Config
     from models import ContentItem
     from storage import Storage
+    # obs_log will be missing in standalone mode - that's OK
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +62,25 @@ class FileFetcher:
         Returns:
             List with 0 or 1 ContentItem (only if content changed)
         """
+        start_time = time.time()
+
         url = source.get("url")
         source_id = source.get("id")
         source_name = source.get("display_name", source.get("name", "File"))
 
         if not url or not source_id:
             logger.warning(f"Missing url or source_id for file source: {source}")
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "fetcher.complete",
+                fetcher_type="file",
+                source_id=source_id or "unknown",
+                source_url=url or "unknown",
+                items_count=0,
+                duration_ms=duration_ms,
+                status="skipped",
+                reason="missing_params",
+            )
             return []
 
         # Fetch current content
@@ -84,6 +100,16 @@ class FileFetcher:
 
         except httpx.HTTPError as e:
             logger.warning(f"Failed to fetch {url}: {e}")
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "fetcher.error",
+                fetcher_type="file",
+                source_id=source_id,
+                source_url=url,
+                error=str(e),
+                duration_ms=duration_ms,
+                status="error",
+            )
             return []
 
         # Calculate content hash
@@ -103,6 +129,17 @@ class FileFetcher:
             if previous_hash == current_hash:
                 # Content unchanged - no new entry
                 logger.debug(f"No changes detected for {url}")
+                duration_ms = int((time.time() - start_time) * 1000)
+                obs_log(
+                    "fetcher.complete",
+                    fetcher_type="file",
+                    source_id=source_id,
+                    source_url=url,
+                    items_count=0,
+                    duration_ms=duration_ms,
+                    status="success",
+                    reason="no_changes",
+                )
                 return []
 
             # Content changed - generate diff
@@ -135,6 +172,19 @@ class FileFetcher:
             logger.info(
                 f"Change detected in {url}: {diff_stats['added_lines']}+ {diff_stats['removed_lines']}- lines"
             )
+
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "fetcher.complete",
+                fetcher_type="file",
+                source_id=source_id,
+                source_url=url,
+                items_count=1,
+                duration_ms=duration_ms,
+                status="success",
+                change_type="update",
+                diff_stats=diff_stats,
+            )
             return [item]
 
         else:
@@ -155,6 +205,19 @@ class FileFetcher:
             )
 
             logger.info(f"First fetch of {url} ({len(current_content)} chars)")
+
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "fetcher.complete",
+                fetcher_type="file",
+                source_id=source_id,
+                source_url=url,
+                items_count=1,
+                duration_ms=duration_ms,
+                status="success",
+                change_type="first_fetch",
+                content_size=len(current_content),
+            )
             return [item]
 
     def _generate_external_id(self, url: str, content_hash: str) -> str:

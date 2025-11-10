@@ -219,6 +219,8 @@ migrate: ## Apply database migrations (safe to run multiple times)
 	@echo "Applying database migrations..."
 	@sqlite3 $(DATA_DIR)/prismis.db "ALTER TABLE content ADD COLUMN archived_at TIMESTAMP;" 2>/dev/null || echo "  ✓ archived_at column exists"
 	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_content_archived ON content(archived_at);"
+	@sqlite3 $(DATA_DIR)/prismis.db "ALTER TABLE content ADD COLUMN interesting_override BOOLEAN DEFAULT 0;" 2>/dev/null || echo "  ✓ interesting_override column exists"
+	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_content_interesting ON content(interesting_override);"
 	@echo "Migrating sources table to support file type..."
 	@sqlite3 $(DATA_DIR)/prismis.db "DROP TABLE IF EXISTS sources_backup;"
 	@sqlite3 $(DATA_DIR)/prismis.db "CREATE TABLE sources_backup AS SELECT * FROM sources;"

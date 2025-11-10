@@ -994,6 +994,117 @@ class Storage:
             )
             raise sqlite3.Error(f"Failed to update content status: {e}")
 
+    def flag_interesting(self, content_id: str) -> bool:
+        """Flag a content item as interesting for context analysis.
+
+        Args:
+            content_id: UUID of the content to flag
+
+        Returns:
+            True if content was flagged, False if not found
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        start_time = time.time()
+        try:
+            cursor = self.conn.execute(
+                "UPDATE content SET interesting_override = 1 WHERE id = ?",
+                (content_id,),
+            )
+            self.conn.commit()
+            duration_ms = int((time.time() - start_time) * 1000)
+            row_count = cursor.rowcount
+            obs_log(
+                "db.update",
+                table="content",
+                operation="flag_interesting",
+                row_count=row_count,
+                duration_ms=duration_ms,
+                status="success" if row_count > 0 else "not_found",
+            )
+            return cursor.rowcount > 0
+
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "db.update",
+                table="content",
+                operation="flag_interesting",
+                error=str(e),
+                duration_ms=duration_ms,
+                status="error",
+            )
+            raise sqlite3.Error(f"Failed to flag content as interesting: {e}")
+
+    def get_flagged_items(self, limit: int = 50) -> list[Dict[str, Any]]:
+        """Get content items flagged as interesting.
+
+        Only returns unprioritized items (priority=NULL or LOW) that have been
+        flagged by the user for context analysis.
+
+        Args:
+            limit: Maximum number of items to return (default 50)
+
+        Returns:
+            List of content dictionaries with source information
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        start_time = time.time()
+        try:
+            cursor = self.conn.execute(
+                """
+                SELECT c.*, s.name as source_name, s.type as source_type
+                FROM content c
+                LEFT JOIN sources s ON c.source_id = s.id
+                WHERE c.interesting_override = 1
+                  AND (c.priority IS NULL OR c.priority = 'low')
+                  AND c.archived_at IS NULL
+                ORDER BY c.fetched_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = cursor.fetchall()
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            # Convert to list of dicts with JSON parsing
+            results = []
+            for row in rows:
+                content_dict = dict(row)
+                # Parse JSON analysis if present
+                if content_dict.get("analysis"):
+                    try:
+                        content_dict["analysis"] = json.loads(content_dict["analysis"])
+                    except json.JSONDecodeError:
+                        content_dict["analysis"] = None
+                results.append(content_dict)
+
+            obs_log(
+                "db.select",
+                table="content",
+                operation="get_flagged_items",
+                row_count=len(results),
+                duration_ms=duration_ms,
+                status="success",
+            )
+            return results
+
+        except sqlite3.Error as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "db.select",
+                table="content",
+                operation="get_flagged_items",
+                error=str(e),
+                duration_ms=duration_ms,
+                status="error",
+            )
+            raise sqlite3.Error(f"Failed to get flagged items: {e}")
+
     def get_content_by_id(self, content_id: str) -> Optional[Dict[str, Any]]:
         """Get a single content item by ID.
 
@@ -1129,6 +1240,8 @@ class Storage:
                 SELECT COUNT(*)
                 FROM content
                 WHERE (priority IS NULL OR priority = '')
+                  AND favorited = 0
+                  AND (interesting_override = 0 OR interesting_override IS NULL)
             """
             params = []
 
@@ -1170,6 +1283,8 @@ class Storage:
             query = """
                 DELETE FROM content
                 WHERE (priority IS NULL OR priority = '')
+                  AND favorited = 0
+                  AND (interesting_override = 0 OR interesting_override IS NULL)
             """
             params = []
 

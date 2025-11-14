@@ -56,6 +56,9 @@ class ContentUpdateRequest(BaseModel):
 
     read: Optional[bool] = Field(None, description="Mark as read/unread")
     favorited: Optional[bool] = Field(None, description="Mark as favorite/unfavorite")
+    interesting_override: Optional[bool] = Field(
+        None, description="Flag for context analysis"
+    )
 
 
 class AudioBriefingResponse(BaseModel):

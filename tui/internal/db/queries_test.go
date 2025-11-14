@@ -3,11 +3,23 @@ package db
 import (
 	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
+
+// resetDBForTest resets the singleton database connection for test isolation
+func resetDBForTest(t *testing.T) {
+	t.Helper()
+	if dbPool != nil {
+		dbPool.Close()
+	}
+	dbPool = nil
+	dbOnce = sync.Once{}
+	dbErr = nil
+}
 
 // createTestDB creates a temporary test database with sample data
 func createTestDB(t *testing.T) string {
@@ -43,7 +55,9 @@ func createTestDB(t *testing.T) string {
 		priority TEXT,
 		published_at TIMESTAMP,
 		read BOOLEAN DEFAULT 0,
-		favorited BOOLEAN DEFAULT 0
+		favorited BOOLEAN DEFAULT 0,
+		interesting_override BOOLEAN DEFAULT 0,
+		archived_at TIMESTAMP
 	);`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -101,6 +115,9 @@ func createTestDB(t *testing.T) string {
 }
 
 func TestGetContentByPriority(t *testing.T) {
+	// Reset singleton before test
+	resetDBForTest(t)
+
 	// Create test database
 	dbPath := createTestDB(t)
 
@@ -178,6 +195,9 @@ func TestGetContentByPriority(t *testing.T) {
 }
 
 func TestGetContentByPriorityEmptyDB(t *testing.T) {
+	// Reset singleton before test
+	resetDBForTest(t)
+
 	// Create empty test database
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "empty.db")
@@ -209,7 +229,9 @@ func TestGetContentByPriorityEmptyDB(t *testing.T) {
 		priority TEXT,
 		published_at TIMESTAMP,
 		read BOOLEAN DEFAULT 0,
-		favorited BOOLEAN DEFAULT 0
+		favorited BOOLEAN DEFAULT 0,
+		interesting_override BOOLEAN DEFAULT 0,
+		archived_at TIMESTAMP
 	);`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -237,6 +259,9 @@ func TestGetContentByPriorityEmptyDB(t *testing.T) {
 }
 
 func TestGetUnreadContent(t *testing.T) {
+	// Reset singleton before test
+	resetDBForTest(t)
+
 	// Create test database
 	dbPath := createTestDB(t)
 
@@ -279,6 +304,9 @@ func TestGetUnreadContent(t *testing.T) {
 func TestSourceInfoPopulated(t *testing.T) {
 	// INVARIANT: Source info must be populated from JOIN
 	// BREAKS: Users can't see where content is from
+
+	// Reset singleton before test
+	resetDBForTest(t)
 
 	dbPath := createTestDB(t)
 
@@ -339,6 +367,9 @@ func TestSourceInfoPopulated(t *testing.T) {
 }
 
 func TestMarkAsRead(t *testing.T) {
+	// Reset singleton before test
+	resetDBForTest(t)
+
 	// Create test database
 	dbPath := createTestDB(t)
 
@@ -386,6 +417,7 @@ func TestGetFavoritesCount_ReturnsAccurateTotal(t *testing.T) {
 	// INVARIANT: GetFavoritesCount must return the exact count of favorited items
 	// BREAKS: User trust if count is wrong - they think favorites are lost
 
+	resetDBForTest(t)
 	dbPath := createTestDB(t)
 	oldFunc := dbPathFunc
 	dbPathFunc = func() (string, error) {
@@ -432,8 +464,8 @@ func TestFavoritesFilter_ShowsReadItems(t *testing.T) {
 	// INVARIANT: Favorites filter must show ALL favorited items, including read ones
 	// BREAKS: Core feature promise - users favorite items to keep them accessible
 
-	// Force new connection for test isolation
-	CloseDB()
+	// Reset singleton before test
+	resetDBForTest(t)
 
 	dbPath := createTestDB(t)
 	oldFunc := dbPathFunc
@@ -446,7 +478,7 @@ func TestFavoritesFilter_ShowsReadItems(t *testing.T) {
 	}()
 
 	// Get favorites with showAll=false (should still show read favorites)
-	items, _, err := GetContentWithFilters("favorites", true, false, false, "all", true)
+	items, _, err := GetContentWithFilters("favorites", true, false, false, false, "all", true)
 	if err != nil {
 		t.Fatalf("GetContentWithFilters failed: %v", err)
 	}
@@ -475,8 +507,8 @@ func TestFavoritesPersistAcrossStatusChanges(t *testing.T) {
 	// INVARIANT: Favorited status must persist regardless of other state changes
 	// BREAKS: User curated content disappears, destroying trust
 
-	// Force new connection for test isolation
-	CloseDB()
+	// Reset singleton before test
+	resetDBForTest(t)
 
 	dbPath := createTestDB(t)
 	oldFunc := dbPathFunc
@@ -511,7 +543,7 @@ func TestFavoritesPersistAcrossStatusChanges(t *testing.T) {
 	}
 
 	// Verify it still appears in favorites filter
-	items, _, err := GetContentWithFilters("favorites", true, false, "all", true)
+	items, _, err := GetContentWithFilters("favorites", true, false, false, false, "all", true)
 	if err != nil {
 		t.Fatalf("GetContentWithFilters failed: %v", err)
 	}
@@ -538,11 +570,11 @@ func TestZGetFavoritesCount_HandlesDBError(t *testing.T) {
 	// FAILURE MODE: Database connection failure during count query
 	// GRACEFUL: Must return 0 with error, not panic
 
+	// Reset singleton before test
+	resetDBForTest(t)
+
 	// Save the original function
 	oldFunc := dbPathFunc
-
-	// Force close existing connection first
-	CloseDB()
 
 	// Now override dbPathFunc to return invalid path
 	dbPathFunc = func() (string, error) {
@@ -572,8 +604,8 @@ func TestConcurrentFavoriteOperations(t *testing.T) {
 	// FAILURE MODE: Concurrent modifications to favorites
 	// GRACEFUL: Count must remain consistent, no race conditions
 
-	// Force new connection for test isolation
-	CloseDB()
+	// Reset singleton before test
+	resetDBForTest(t)
 
 	dbPath := createTestDB(t)
 
@@ -647,6 +679,240 @@ func TestConcurrentFavoriteOperations(t *testing.T) {
 	for _, count := range counts {
 		if count < 2 || count > 4 {
 			t.Errorf("Invalid intermediate count detected: %d (should be 2-4)", count)
+		}
+	}
+}
+
+// TestToggleInteresting_Idempotent tests that toggling the same item multiple times is idempotent
+func TestToggleInteresting_Idempotent(t *testing.T) {
+	/*
+		INVARIANT: Toggle operations are idempotent
+		BREAKS: User's curation work becomes unpredictable
+		USER IMPACT: "I flagged this, why did it disappear?"
+	*/
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = originalDBPathFunc
+	}()
+
+	// Toggle to true twice
+	err := ToggleInteresting("1", true)
+	if err != nil {
+		t.Fatalf("First toggle failed: %v", err)
+	}
+
+	err = ToggleInteresting("1", true)
+	if err != nil {
+		t.Fatalf("Second toggle failed: %v", err)
+	}
+
+	// Verify still interesting
+	items, err := GetInterestingItems()
+	if err != nil {
+		t.Fatalf("Failed to get interesting items: %v", err)
+	}
+
+	found := false
+	for _, item := range items {
+		if item.ID == "1" && item.InterestingOverride {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("Item should still be interesting after double toggle to true")
+	}
+
+	// Toggle to false twice
+	err = ToggleInteresting("1", false)
+	if err != nil {
+		t.Fatalf("First false toggle failed: %v", err)
+	}
+
+	err = ToggleInteresting("1", false)
+	if err != nil {
+		t.Fatalf("Second false toggle failed: %v", err)
+	}
+
+	// Verify not interesting
+	items, err = GetInterestingItems()
+	if err != nil {
+		t.Fatalf("Failed to get interesting items: %v", err)
+	}
+
+	for _, item := range items {
+		if item.ID == "1" {
+			t.Errorf("Item should not be interesting after toggle to false")
+		}
+	}
+}
+
+// TestGetInterestingItems_MatchesFilter tests query consistency between two retrieval paths
+func TestGetInterestingItems_MatchesFilter(t *testing.T) {
+	/*
+		INVARIANT: GetInterestingItems() and GetContentWithFilters(interesting=true) return identical sets
+		BREAKS: Filter view shows different items than review command
+		USER IMPACT: "Where did my flagged items go?"
+	*/
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = originalDBPathFunc
+	}()
+
+	// Flag some items
+	testIDs := []string{"1", "3", "5"}
+	for _, id := range testIDs {
+		err := ToggleInteresting(id, true)
+		if err != nil {
+			t.Fatalf("Failed to flag item %s: %v", id, err)
+		}
+	}
+
+	// Get via dedicated query
+	interestingItems, err := GetInterestingItems()
+	if err != nil {
+		t.Fatalf("GetInterestingItems failed: %v", err)
+	}
+
+	// Get via filter
+	filteredItems, _, err := GetContentWithFilters("", false, false, false, true, "all", true)
+	if err != nil {
+		t.Fatalf("GetContentWithFilters failed: %v", err)
+	}
+
+	// Should return same count
+	if len(interestingItems) != len(filteredItems) {
+		t.Errorf("Query mismatch: GetInterestingItems returned %d, GetContentWithFilters returned %d",
+			len(interestingItems), len(filteredItems))
+	}
+
+	// Should contain same IDs
+	interestingMap := make(map[string]bool)
+	for _, item := range interestingItems {
+		interestingMap[item.ID] = true
+	}
+
+	for _, item := range filteredItems {
+		if !interestingMap[item.ID] {
+			t.Errorf("GetContentWithFilters returned item %s not in GetInterestingItems", item.ID)
+		}
+	}
+}
+
+// TestToggleInteresting_NonexistentID tests that flagging nonexistent items fails gracefully
+func TestToggleInteresting_NonexistentID(t *testing.T) {
+	/*
+		INVARIANT: Cannot flag non-existent content
+		BREAKS: Database integrity, wasted storage
+		USER IMPACT: System confusion, stale data
+	*/
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = originalDBPathFunc
+	}()
+
+	// Try to flag nonexistent item
+	err := ToggleInteresting("nonexistent-id", true)
+
+	// Should succeed (SQLite UPDATE with no rows is not an error)
+	// but verify it doesn't appear in results
+	if err != nil {
+		t.Fatalf("Toggle should not error on nonexistent ID: %v", err)
+	}
+
+	items, err := GetInterestingItems()
+	if err != nil {
+		t.Fatalf("Failed to get interesting items: %v", err)
+	}
+
+	for _, item := range items {
+		if item.ID == "nonexistent-id" {
+			t.Errorf("Nonexistent item should not appear in interesting items")
+		}
+	}
+}
+
+// TestGetInterestingItems_ExcludesArchived tests that archived items don't appear
+func TestGetInterestingItems_ExcludesArchived(t *testing.T) {
+	/*
+		INVARIANT: Flagged items that get archived don't appear in GetInterestingItems()
+		BREAKS: User sees deleted/archived content
+		USER IMPACT: Confusion about what's still active
+	*/
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = originalDBPathFunc
+	}()
+
+	// Flag an item
+	err := ToggleInteresting("1", true)
+	if err != nil {
+		t.Fatalf("Failed to flag item: %v", err)
+	}
+
+	// Verify it appears
+	items, err := GetInterestingItems()
+	if err != nil {
+		t.Fatalf("Failed to get interesting items: %v", err)
+	}
+
+	found := false
+	for _, item := range items {
+		if item.ID == "1" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("Item should appear in interesting items before archiving")
+	}
+
+	// Archive the item
+	db, err := GetDB()
+	if err != nil {
+		t.Fatalf("Failed to get DB: %v", err)
+	}
+
+	_, err = db.Exec("UPDATE content SET archived_at = ? WHERE id = ?", time.Now().Format(time.RFC3339), "1")
+	if err != nil {
+		t.Fatalf("Failed to archive item: %v", err)
+	}
+
+	// Verify it doesn't appear
+	items, err = GetInterestingItems()
+	if err != nil {
+		t.Fatalf("Failed to get interesting items after archive: %v", err)
+	}
+
+	for _, item := range items {
+		if item.ID == "1" {
+			t.Errorf("Archived item should not appear in interesting items")
 		}
 	}
 }

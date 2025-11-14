@@ -52,22 +52,23 @@ type SourceListResponse struct {
 
 // ContentItem represents a content item from the API
 type ContentItem struct {
-	ID           string          `json:"id"`
-	ExternalID   string          `json:"external_id"`
-	SourceID     string          `json:"source_id"`
-	Title        string          `json:"title"`
-	URL          string          `json:"url"`
-	Content      string          `json:"content"`
-	Summary      string          `json:"summary"`
-	PublishedAt  apiTime         `json:"published_at"`
-	FetchedAt    apiTime         `json:"fetched_at"`
-	Read         bool            `json:"read"`
-	Favorited    bool            `json:"favorited"`
-	ArchivedAt   *apiTime        `json:"archived_at"`
-	Priority     *string         `json:"priority"`
-	Analysis     json.RawMessage `json:"analysis"` // JSON object from API
-	SourceType   string          `json:"source_type"`
-	SourceName   string          `json:"source_name"`
+	ID                  string          `json:"id"`
+	ExternalID          string          `json:"external_id"`
+	SourceID            string          `json:"source_id"`
+	Title               string          `json:"title"`
+	URL                 string          `json:"url"`
+	Content             string          `json:"content"`
+	Summary             string          `json:"summary"`
+	PublishedAt         apiTime         `json:"published_at"`
+	FetchedAt           apiTime         `json:"fetched_at"`
+	Read                bool            `json:"read"`
+	Favorited           bool            `json:"favorited"`
+	InterestingOverride bool            `json:"interesting_override"`
+	ArchivedAt          *apiTime        `json:"archived_at"`
+	Priority            *string         `json:"priority"`
+	Analysis            json.RawMessage `json:"analysis"` // JSON object from API
+	SourceType          string          `json:"source_type"`
+	SourceName          string          `json:"source_name"`
 }
 
 // apiTime wraps time.Time to handle API's space-separated ISO8601 format
@@ -447,8 +448,9 @@ func (c *APIClient) GetSources() (*SourceListResponse, error) {
 
 // ContentUpdateRequest represents a request to update content properties
 type ContentUpdateRequest struct {
-	Read      *bool `json:"read,omitempty"`
-	Favorited *bool `json:"favorited,omitempty"`
+	Read                *bool `json:"read,omitempty"`
+	Favorited           *bool `json:"favorited,omitempty"`
+	InterestingOverride *bool `json:"interesting_override,omitempty"`
 }
 
 // UpdateContent updates content properties (read/favorited status)

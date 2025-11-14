@@ -39,6 +39,7 @@ func NewRegistry() *Registry {
 	// Reader-specific commands (actions only, not navigation)
 	r.Register("mark", cmdMark)
 	r.Register("favorite", cmdFavorite)
+	r.Register("interesting", cmdInteresting)
 	r.Register("open", cmdOpen)
 	r.Register("yank", cmdYank)
 	r.Register("copy", cmdCopy)
@@ -307,6 +308,13 @@ func cmdFavorite(args []string) tea.Cmd {
 	}
 }
 
+// cmdInteresting toggles interesting flag of current article
+func cmdInteresting(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return InterestingMsg{}
+	}
+}
+
 // cmdOpen opens current article URL in browser
 func cmdOpen(args []string) tea.Cmd {
 	return func() tea.Msg {
@@ -456,6 +464,9 @@ type MarkMsg struct{}
 
 // FavoriteMsg signals to toggle favorite status
 type FavoriteMsg struct{}
+
+// InterestingMsg signals to toggle interesting flag
+type InterestingMsg struct{}
 
 // OpenMsg signals to open URL in browser
 type OpenMsg struct{}

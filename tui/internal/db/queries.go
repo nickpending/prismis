@@ -12,19 +12,20 @@ import (
 
 // ContentItem represents a content item from the database
 type ContentItem struct {
-	ID         string
-	Title      string
-	URL        string
-	Summary    string
-	Priority   string
-	Content    string
-	Analysis   string // JSON field containing reading_summary, alpha_insights, patterns, entities
-	Published  time.Time
-	Read       bool
-	Favorited  bool   // Whether item is favorited
-	SourceType string // "rss", "reddit", "youtube", "file"
-	SourceName string // Source name (e.g., "SimonW Blog", "r/rust", "3Blue1Brown")
-	SourceID   string // Source UUID for updates
+	ID                  string
+	Title               string
+	URL                 string
+	Summary             string
+	Priority            string
+	Content             string
+	Analysis            string // JSON field containing reading_summary, alpha_insights, patterns, entities
+	Published           time.Time
+	Read                bool
+	Favorited           bool   // Whether item is favorited
+	InterestingOverride bool   // Whether item is flagged as interesting for context analysis
+	SourceType          string // "rss", "reddit", "youtube", "file"
+	SourceName          string // Source name (e.g., "SimonW Blog", "r/rust", "3Blue1Brown")
+	SourceID            string // Source UUID for updates
 }
 
 // queryContent is a unified helper function for querying content with filters
@@ -42,8 +43,8 @@ func queryContentWithFilter(priorityFilter string, readFilter *bool, showUnprior
 	// Note: Don't close the pool connection - it's managed globally
 
 	// Build query with proper JOIN to get source info
-	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis, 
-	                 c.published_at, c.read, c.favorited, s.type, s.name, c.source_id
+	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
+	                 c.published_at, c.read, c.favorited, c.interesting_override, s.type, s.name, c.source_id
 	          FROM content c
 	          JOIN sources s ON c.source_id = s.id
 	          WHERE 1=1`
@@ -100,6 +101,7 @@ func queryContentWithFilter(priorityFilter string, readFilter *bool, showUnprior
 			&publishedStr,
 			&item.Read,
 			&item.Favorited,
+			&item.InterestingOverride,
 			&sourceType,
 			&sourceName,
 			&item.SourceID,
@@ -169,7 +171,7 @@ func GetContentByPriority(priority string, showUnprioritized bool) ([]ContentIte
 }
 
 // GetContentWithFilters fetches content with all filter options applied
-func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool, showArchived bool, filterType string, sortNewest bool) ([]ContentItem, int, error) {
+func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool, showArchived bool, showInteresting bool, filterType string, sortNewest bool) ([]ContentItem, int, error) {
 	// Use singleton connection pool for efficiency
 	db, err := GetDB()
 	if err != nil {
@@ -178,7 +180,7 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 
 	// Build query with proper JOIN to get source info
 	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
-	                 c.published_at, c.read, c.favorited, s.type, s.name, c.source_id
+	                 c.published_at, c.read, c.favorited, c.interesting_override, s.type, s.name, c.source_id
 	          FROM content c
 	          JOIN sources s ON c.source_id = s.id
 	          WHERE 1=1`
@@ -212,8 +214,14 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 		args = append(args, priority)
 	}
 
-	// Filter out unprioritized content if requested
-	if !showUnprioritized {
+	// Add interesting filter if enabled
+	if showInteresting {
+		// Show only items flagged as interesting
+		query += " AND c.interesting_override = 1"
+	}
+
+	// Filter out unprioritized content if requested (but not when showing interesting items)
+	if !showUnprioritized && !showInteresting {
 		query += " AND c.priority IS NOT NULL AND c.priority != ''"
 	}
 
@@ -258,6 +266,7 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 			&publishedStr,
 			&item.Read,
 			&item.Favorited,
+			&item.InterestingOverride,
 			&sourceType,
 			&sourceName,
 			&item.SourceID,
@@ -478,6 +487,7 @@ func GetUnprioritizedContent(showAll bool) ([]ContentItem, int, error) {
 			&publishedStr,
 			&item.Read,
 			&item.Favorited,
+			&item.InterestingOverride,
 			&sourceType,
 			&sourceName,
 			&item.SourceID,
@@ -598,4 +608,113 @@ func MarkAsRead(contentID string) error {
 	}
 
 	return nil
+}
+
+// ToggleInteresting toggles the interesting_override flag for a content item
+func ToggleInteresting(contentID string, interesting bool) error {
+	db, err := GetDB()
+	if err != nil {
+		return fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	value := 0
+	if interesting {
+		value = 1
+	}
+
+	_, err = db.Exec("UPDATE content SET interesting_override = ? WHERE id = ?", value, contentID)
+	if err != nil {
+		return fmt.Errorf("failed to toggle interesting flag: %w", err)
+	}
+
+	return nil
+}
+
+// GetInterestingItems returns all items flagged as interesting, ignoring other filters
+func GetInterestingItems() ([]ContentItem, error) {
+	db, err := GetDB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
+	                 c.published_at, c.read, c.favorited, c.interesting_override, s.type, s.name, c.source_id
+	          FROM content c
+	          JOIN sources s ON c.source_id = s.id
+	          WHERE c.interesting_override = 1
+	          AND c.archived_at IS NULL
+	          ORDER BY c.published_at DESC`
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query interesting items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []ContentItem
+	for rows.Next() {
+		var item ContentItem
+		var publishedStr sql.NullString
+		var priority sql.NullString
+		var summary sql.NullString
+		var content sql.NullString
+		var analysis sql.NullString
+		var sourceType sql.NullString
+		var sourceName sql.NullString
+
+		err := rows.Scan(
+			&item.ID,
+			&item.Title,
+			&item.URL,
+			&summary,
+			&priority,
+			&content,
+			&analysis,
+			&publishedStr,
+			&item.Read,
+			&item.Favorited,
+			&item.InterestingOverride,
+			&sourceType,
+			&sourceName,
+			&item.SourceID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Handle nullable fields
+		if priority.Valid {
+			item.Priority = priority.String
+		}
+		if summary.Valid {
+			item.Summary = summary.String
+		}
+		if content.Valid {
+			item.Content = content.String
+		}
+		if analysis.Valid {
+			item.Analysis = analysis.String
+		}
+		if sourceType.Valid {
+			item.SourceType = sourceType.String
+		}
+		if sourceName.Valid {
+			item.SourceName = sourceName.String
+		}
+
+		// Parse published timestamp
+		if publishedStr.Valid {
+			if parsed, err := time.Parse(time.RFC3339, publishedStr.String); err == nil {
+				item.Published = parsed
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return items, nil
 }

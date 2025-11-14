@@ -36,10 +36,11 @@ type Model struct {
 	showUnprioritized bool           // Show items with null/empty priority (default false)
 	hiddenCount       int            // Count of hidden unprioritized items
 	// View state fields for header display
-	showAll      bool   // Show all items vs unread only (default false - unread only)
-	showArchived bool   // Show archived items only (default false - exclude archived)
-	sortNewest   bool   // Sort by newest first vs oldest first (default true - newest)
-	filterType   string // Source type filter: "all", "rss", "reddit", "youtube", "file" (default "all")
+	showAll         bool   // Show all items vs unread only (default false - unread only)
+	showArchived    bool   // Show archived items only (default false - exclude archived)
+	showInteresting bool   // Show only items flagged as interesting (default false)
+	sortNewest      bool   // Sort by newest first vs oldest first (default true - newest)
+	filterType      string // Source type filter: "all", "rss", "reddit", "youtube", "file" (default "all")
 	// Status message for user feedback
 	statusMessage string // Temporary status message to display
 	flashItem     int    // Index of item to flash (-1 for none)
@@ -251,6 +252,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.showUnprioritized,
 						m.showAll,
 						m.showArchived,
+						m.showInteresting,
 						m.filterType,
 						m.sortNewest,
 					)
@@ -372,6 +374,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			item := m.items[m.cursor]
 			// Use the operations package to toggle favorite status
 			return m, operations.ToggleArticleFavorite(item)
+		}
+
+	case commands.InterestingMsg:
+		// Toggle interesting flag (works in both list and reader views)
+		// Only allow flagging unprioritized items (priority=NULL or LOW)
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			if item.Priority == "" || item.Priority == "low" {
+				// Use the operations package to toggle interesting flag
+				return m, operations.ToggleArticleInteresting(item)
+			} else {
+				m.statusMessage = "Can only flag unprioritized items"
+				return m, clearStatusAfterDelay(2 * time.Second)
+			}
 		}
 
 	case commands.OpenMsg:
@@ -654,6 +670,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				return m, fetchItemsWithState(m, false)
 			}
+		// Toggle interesting items view
+		case "i":
+			if m.view == "list" {
+				m.showInteresting = !m.showInteresting
+				m.cursor = 0
+				m.loading = true
+				return m, fetchItemsWithState(m, false)
+			}
 		// Toggle unread/all view
 		case "u":
 			if m.view == "list" {
@@ -822,6 +846,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.showUnprioritized,
 						m.showAll,
 						m.showArchived,
+						m.showInteresting,
 						m.filterType,
 						m.sortNewest,
 					)
@@ -984,6 +1009,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = fmt.Sprintf("Failed to toggle favorite: %v", msg.Error)
 		}
 		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+
+	case operations.ArticleInterestingToggledMsg:
+		if msg.Success {
+			// Update the item in our local state
+			for i, item := range m.items {
+				if item.ID == msg.ID {
+					m.items[i].InterestingOverride = msg.Interesting
+					break
+				}
+			}
+			if msg.Interesting {
+				m.statusMessage = "Marked as interesting"
+			} else {
+				m.statusMessage = "Unmarked"
+			}
+		} else {
+			m.statusMessage = fmt.Sprintf("Failed to toggle interesting: %v", msg.Error)
+		}
+		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 	}
 
 	if len(cmds) > 0 {
@@ -1036,6 +1080,7 @@ func fetchItemsWithState(m Model, refreshData bool) tea.Cmd {
 			m.showUnprioritized,
 			m.showAll,
 			m.showArchived,
+			m.showInteresting,
 			m.filterType,
 			m.sortNewest,
 		)
@@ -1103,19 +1148,20 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 		}
 
 		newItem := db.ContentItem{
-			ID:         apiItem.ID,
-			Title:      apiItem.Title,
-			URL:        apiItem.URL,
-			Summary:    apiItem.Summary,
-			Priority:   priority,
-			Content:    apiItem.Content,
-			Analysis:   analysis,
-			Published:  apiItem.PublishedAt.Time,
-			Read:       apiItem.Read,
-			Favorited:  apiItem.Favorited,
-			SourceType: apiItem.SourceType,
-			SourceName: apiItem.SourceName,
-			SourceID:   apiItem.SourceID,
+			ID:                  apiItem.ID,
+			Title:               apiItem.Title,
+			URL:                 apiItem.URL,
+			Summary:             apiItem.Summary,
+			Priority:            priority,
+			Content:             apiItem.Content,
+			Analysis:            analysis,
+			Published:           apiItem.PublishedAt.Time,
+			Read:                apiItem.Read,
+			Favorited:           apiItem.Favorited,
+			InterestingOverride: apiItem.InterestingOverride,
+			SourceType:          apiItem.SourceType,
+			SourceName:          apiItem.SourceName,
+			SourceID:            apiItem.SourceID,
 		}
 
 		// Merge: replace existing item or append new
@@ -1183,13 +1229,18 @@ func applyFiltersClientSide(items []db.ContentItem, m Model) []db.ContentItem {
 		}
 		// "all" shows all priorities
 
-		// Filter unprioritized items unless explicitly showing them
-		if !m.showUnprioritized && m.priority != "unprioritized" && item.Priority == "" {
+		// Filter unprioritized items unless explicitly showing them (but not when showing interesting items)
+		if !m.showUnprioritized && !m.showInteresting && m.priority != "unprioritized" && item.Priority == "" {
 			continue
 		}
 
 		// Filter by read status (default: unread only)
 		if !m.showAll && item.Read {
+			continue
+		}
+
+		// Filter by interesting flag
+		if m.showInteresting && !item.InterestingOverride {
 			continue
 		}
 

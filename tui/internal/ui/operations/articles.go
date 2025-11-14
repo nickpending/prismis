@@ -38,6 +38,13 @@ type ArticleOpenedMsg struct {
 	Error   error
 }
 
+type ArticleInterestingToggledMsg struct {
+	ID          string
+	Interesting bool
+	Success     bool
+	Error       error
+}
+
 // MarkArticleRead marks an article as read
 func MarkArticleRead(id string) tea.Cmd {
 	return func() tea.Msg {
@@ -123,6 +130,22 @@ func OpenArticleInBrowser(url string) tea.Cmd {
 		return ArticleOpenedMsg{
 			Success: true,
 			Error:   nil,
+		}
+	}
+}
+
+// ToggleArticleInteresting toggles the interesting flag for an article
+func ToggleArticleInteresting(item db.ContentItem) tea.Cmd {
+	return func() tea.Msg {
+		// Toggle based on current status
+		newStatus := !item.InterestingOverride
+
+		err := service.ToggleInteresting(item.ID, newStatus)
+		return ArticleInterestingToggledMsg{
+			ID:          item.ID,
+			Interesting: newStatus,
+			Success:     err == nil,
+			Error:       err,
 		}
 	}
 }

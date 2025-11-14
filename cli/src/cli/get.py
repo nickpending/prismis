@@ -4,8 +4,8 @@ import sys
 
 import typer
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
 from .api_client import APIClient
 
@@ -15,20 +15,32 @@ console = Console()
 def get(
     entry_id: str = typer.Argument(..., help="UUID of the content entry to retrieve"),
     raw: bool = typer.Option(False, "--raw", help="Output raw content for piping"),
+    output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Retrieve a content entry by ID.
 
     Args:
         entry_id: UUID of the content entry
         raw: If True, output raw content text only (for piping to tools)
+        output_json: If True, output raw JSON instead of formatted display
     """
     try:
         client = APIClient()
+
+        if raw and output_json:
+            console.print("[red]✗ Error: Cannot use --raw and --json together[/red]")
+            raise typer.Exit(1)
 
         if raw:
             # Raw mode - output plain text to stdout for piping
             content = client.get_entry_raw(entry_id)
             sys.stdout.write(content)
+        elif output_json:
+            # JSON mode - output full API response
+            import json
+
+            entry = client.get_entry(entry_id)
+            sys.stdout.write(json.dumps(entry, indent=2) + "\n")
         else:
             # Formatted mode - display entry details with rich
             entry = client.get_entry(entry_id)
@@ -69,5 +81,6 @@ def get(
             console.print("\n")
 
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        if not output_json:
+            console.print(f"[red]✗ Error: {e}[/red]")
+        raise typer.Exit(1) from e

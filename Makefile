@@ -229,6 +229,8 @@ migrate: ## Apply database migrations (safe to run multiple times)
 	@sqlite3 $(DATA_DIR)/prismis.db "INSERT INTO sources SELECT * FROM sources_backup;"
 	@sqlite3 $(DATA_DIR)/prismis.db "DROP TABLE sources_backup;"
 	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_sources_active ON sources(active);"
+	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_content_priority ON content(priority);"
+	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_content_read ON content(read);"
 	@echo "✓ Migration complete"
 
 .PHONY: stop

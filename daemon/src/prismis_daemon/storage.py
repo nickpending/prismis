@@ -4,10 +4,10 @@ import json
 import sqlite3
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from operator import itemgetter
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union, Tuple, Set
+from typing import Any
 
 try:
     from .database import get_db_connection
@@ -33,7 +33,7 @@ class Storage:
     Uses connection reuse pattern for efficiency.
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         """Initialize storage with database connection.
 
         Args:
@@ -75,7 +75,7 @@ class Storage:
         """Context manager exit - ensures connection is closed."""
         self.close()
 
-    def add_source(self, url: str, source_type: str, name: Optional[str] = None) -> str:
+    def add_source(self, url: str, source_type: str, name: str | None = None) -> str:
         """Add a new content source to the database.
 
         Args:
@@ -118,9 +118,9 @@ class Storage:
 
         except sqlite3.Error as e:
             self.conn.rollback()
-            raise sqlite3.Error(f"Failed to add source: {e}")
+            raise sqlite3.Error(f"Failed to add source: {e}") from e
 
-    def get_active_sources(self) -> List[Dict[str, Any]]:
+    def get_active_sources(self) -> list[dict[str, Any]]:
         """Get all active content sources.
 
         Returns:
@@ -157,9 +157,9 @@ class Storage:
             return sources
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to get active sources: {e}")
+            raise sqlite3.Error(f"Failed to get active sources: {e}") from e
 
-    def add_content(self, item: Union[ContentItem, Dict[str, Any]]) -> Optional[str]:
+    def add_content(self, item: ContentItem | dict[str, Any]) -> str | None:
         """Add content item to database with deduplication.
 
         Uses external_id for deduplication - if content with same
@@ -295,11 +295,11 @@ class Storage:
                 duration_ms=duration_ms,
                 status="error",
             )
-            raise sqlite3.Error(f"Failed to add content: {e}")
+            raise sqlite3.Error(f"Failed to add content: {e}") from e
 
     def create_or_update_content(
-        self, item: Union[ContentItem, Dict[str, Any]]
-    ) -> Tuple[str, bool]:
+        self, item: ContentItem | dict[str, Any]
+    ) -> tuple[str, bool]:
         """Create new or update existing content with deduplication tracking.
 
         This is the enhanced version of add_content that returns tracking info
@@ -424,9 +424,9 @@ class Storage:
 
         except sqlite3.Error as e:
             self.conn.rollback()
-            raise sqlite3.Error(f"Failed to create or update content: {e}")
+            raise sqlite3.Error(f"Failed to create or update content: {e}") from e
 
-    def get_existing_external_ids(self, source_id: str) -> Set[str]:
+    def get_existing_external_ids(self, source_id: str) -> set[str]:
         """Get all external_ids for a source to enable bulk deduplication filtering.
 
         This is used by the orchestrator to pre-filter items before processing,
@@ -449,9 +449,9 @@ class Storage:
             return {row[0] for row in cursor.fetchall()}
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to get existing external_ids: {e}")
+            raise sqlite3.Error(f"Failed to get existing external_ids: {e}") from e
 
-    def _get_by_external_id(self, external_id: str) -> Optional[Dict[str, Any]]:
+    def _get_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         """Find content by external_id (private helper method).
 
         This is used internally by create_or_update_content() for single
@@ -504,11 +504,11 @@ class Storage:
             return None
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to get content by external_id: {e}")
+            raise sqlite3.Error(f"Failed to get content by external_id: {e}") from e
 
     def get_content_by_priority(
         self, priority: str, limit: int = 50, include_archived: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get unread content by priority level.
 
         Args:
@@ -560,6 +560,7 @@ class Storage:
                         "fetched_at": row["fetched_at"],
                         "read": bool(row["read"]),
                         "favorited": bool(row["favorited"]),
+                        "interesting_override": bool(row["interesting_override"]),
                         "notes": row["notes"],
                     }
                 )
@@ -567,11 +568,11 @@ class Storage:
             return content
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to get content by priority: {e}")
+            raise sqlite3.Error(f"Failed to get content by priority: {e}") from e
 
     def get_content_since(
-        self, since: Optional[datetime] = None, include_archived: bool = False
-    ) -> List[Dict[str, Any]]:
+        self, since: datetime | None = None, include_archived: bool = False
+    ) -> list[dict[str, Any]]:
         """Get content since a specific timestamp, or all content if since is None.
 
         Args:
@@ -588,7 +589,7 @@ class Storage:
                 SELECT c.*, s.name as source_name, s.type as source_type
                 FROM content c
                 JOIN sources s ON c.source_id = s.id
-                WHERE c.priority IS NOT NULL
+                WHERE 1=1
             """
 
             params = []
@@ -628,6 +629,7 @@ class Storage:
                         "fetched_at": row["fetched_at"],
                         "read": bool(row["read"]),
                         "favorited": bool(row["favorited"]),
+                        "interesting_override": bool(row["interesting_override"]),
                         "notes": row["notes"],
                     }
                 )
@@ -636,7 +638,7 @@ class Storage:
 
         except sqlite3.Error as e:
             since_str = since.isoformat() if since else "beginning"
-            raise sqlite3.Error(f"Failed to get content since {since_str}: {e}")
+            raise sqlite3.Error(f"Failed to get content since {since_str}: {e}") from e
 
     def mark_content_read(self, content_id: str) -> bool:
         """Mark a content item as read.
@@ -661,10 +663,10 @@ class Storage:
 
         except sqlite3.Error as e:
             self.conn.rollback()
-            raise sqlite3.Error(f"Failed to mark content as read: {e}")
+            raise sqlite3.Error(f"Failed to mark content as read: {e}") from e
 
     def update_source_fetch_status(
-        self, source_id: str, success: bool, error_message: Optional[str] = None
+        self, source_id: str, success: bool, error_message: str | None = None
     ) -> None:
         """Update source after fetch attempt.
 
@@ -731,7 +733,7 @@ class Storage:
                 duration_ms=duration_ms,
                 status="error",
             )
-            raise sqlite3.Error(f"Failed to update source status: {e}")
+            raise sqlite3.Error(f"Failed to update source status: {e}") from e
 
     def update_source(self, source_id: str, update_data: dict) -> bool:
         """Update source properties (name and/or URL).
@@ -789,7 +791,7 @@ class Storage:
             # Failed to update source
             return False
 
-    def get_all_sources(self) -> List[Dict[str, Any]]:
+    def get_all_sources(self) -> list[dict[str, Any]]:
         """Get all content sources (active and inactive).
 
         Returns:
@@ -825,7 +827,7 @@ class Storage:
             return sources
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to get all sources: {e}")
+            raise sqlite3.Error(f"Failed to get all sources: {e}") from e
 
     def pause_source(self, source_id: str) -> bool:
         """Pause a content source (set inactive).
@@ -851,7 +853,7 @@ class Storage:
 
         except sqlite3.Error as e:
             self.conn.rollback()
-            raise sqlite3.Error(f"Failed to pause source: {e}")
+            raise sqlite3.Error(f"Failed to pause source: {e}") from e
 
     def resume_source(self, source_id: str) -> bool:
         """Resume a paused content source (set active and reset errors).
@@ -878,7 +880,7 @@ class Storage:
 
         except sqlite3.Error as e:
             self.conn.rollback()
-            raise sqlite3.Error(f"Failed to resume source: {e}")
+            raise sqlite3.Error(f"Failed to resume source: {e}") from e
 
     def remove_source(self, source_id: str) -> bool:
         """Remove a content source from the database.
@@ -920,20 +922,22 @@ class Storage:
 
         except sqlite3.Error as e:
             self.conn.rollback()
-            raise sqlite3.Error(f"Failed to remove source: {e}")
+            raise sqlite3.Error(f"Failed to remove source: {e}") from e
 
     def update_content_status(
         self,
         content_id: str,
-        read: Optional[bool] = None,
-        favorited: Optional[bool] = None,
+        read: bool | None = None,
+        favorited: bool | None = None,
+        interesting_override: bool | None = None,
     ) -> bool:
-        """Update read and/or favorited status of content.
+        """Update read, favorited, and/or interesting_override status of content.
 
         Args:
             content_id: UUID of the content to update
             read: Set read status if provided
             favorited: Set favorited status if provided
+            interesting_override: Set interesting_override flag if provided
 
         Returns:
             True if content was updated, False if not found
@@ -942,31 +946,37 @@ class Storage:
             ValueError: If no update parameters provided
             sqlite3.Error: If database operation fails
         """
-        if read is None and favorited is None:
-            raise ValueError("At least one of read or favorited must be provided")
+        if read is None and favorited is None and interesting_override is None:
+            raise ValueError(
+                "At least one of read, favorited, or interesting_override must be provided"
+            )
 
         start_time = time.time()
         try:
-            # Use separate queries for each case to avoid dynamic SQL
-            # Auto-unarchive when favoriting (archived_at = NULL)
-            if read is not None and favorited is not None:
-                # Update both fields
-                cursor = self.conn.execute(
-                    "UPDATE content SET read = ?, favorited = ?, archived_at = NULL WHERE id = ?",
-                    (1 if read else 0, 1 if favorited else 0, content_id),
-                )
-            elif read is not None:
-                # Update only read status (no unarchiving)
-                cursor = self.conn.execute(
-                    "UPDATE content SET read = ? WHERE id = ?",
-                    (1 if read else 0, content_id),
-                )
-            else:  # favorited is not None
-                # Update only favorited status (auto-unarchive if favoriting)
-                cursor = self.conn.execute(
-                    "UPDATE content SET favorited = ?, archived_at = NULL WHERE id = ?",
-                    (1 if favorited else 0, content_id),
-                )
+            # Build SET clause with hardcoded field names (safe - not user input)
+            updates = []
+            params = []
+
+            if read is not None:
+                updates.append("read = ?")
+                params.append(1 if read else 0)
+
+            if favorited is not None:
+                updates.append("favorited = ?")
+                params.append(1 if favorited else 0)
+                # Auto-unarchive when favoriting
+                if favorited:
+                    updates.append("archived_at = NULL")
+
+            if interesting_override is not None:
+                updates.append("interesting_override = ?")
+                params.append(1 if interesting_override else 0)
+
+            params.append(content_id)
+
+            # Field names are constants, only values are parameterized
+            query = "UPDATE content SET " + ", ".join(updates) + " WHERE id = ?"  # noqa: S608
+            cursor = self.conn.execute(query, params)
 
             self.conn.commit()
             duration_ms = int((time.time() - start_time) * 1000)
@@ -992,7 +1002,7 @@ class Storage:
                 duration_ms=duration_ms,
                 status="error",
             )
-            raise sqlite3.Error(f"Failed to update content status: {e}")
+            raise sqlite3.Error(f"Failed to update content status: {e}") from e
 
     def flag_interesting(self, content_id: str) -> bool:
         """Flag a content item as interesting for context analysis.
@@ -1036,9 +1046,9 @@ class Storage:
                 duration_ms=duration_ms,
                 status="error",
             )
-            raise sqlite3.Error(f"Failed to flag content as interesting: {e}")
+            raise sqlite3.Error(f"Failed to flag content as interesting: {e}") from e
 
-    def get_flagged_items(self, limit: int = 50) -> list[Dict[str, Any]]:
+    def get_flagged_items(self, limit: int = 50) -> list[dict[str, Any]]:
         """Get content items flagged as interesting.
 
         Only returns unprioritized items (priority=NULL or LOW) that have been
@@ -1103,9 +1113,9 @@ class Storage:
                 duration_ms=duration_ms,
                 status="error",
             )
-            raise sqlite3.Error(f"Failed to get flagged items: {e}")
+            raise sqlite3.Error(f"Failed to get flagged items: {e}") from e
 
-    def get_content_by_id(self, content_id: str) -> Optional[Dict[str, Any]]:
+    def get_content_by_id(self, content_id: str) -> dict[str, Any] | None:
         """Get a single content item by ID.
 
         Args:
@@ -1152,6 +1162,7 @@ class Storage:
                     "fetched_at": row["fetched_at"],
                     "read": bool(row["read"]),
                     "favorited": bool(row["favorited"]),
+                    "interesting_override": bool(row["interesting_override"]),
                     "notes": row["notes"],
                     "source_name": row["source_name"],
                     "source_type": row["source_type"],
@@ -1161,9 +1172,9 @@ class Storage:
             return None
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to get content by ID: {e}")
+            raise sqlite3.Error(f"Failed to get content by ID: {e}") from e
 
-    def get_latest_content_for_source(self, source_id: str) -> Optional[Dict[str, Any]]:
+    def get_latest_content_for_source(self, source_id: str) -> dict[str, Any] | None:
         """Get the most recent content item for a given source.
 
         Args:
@@ -1212,6 +1223,7 @@ class Storage:
                     "fetched_at": row["fetched_at"],
                     "read": bool(row["read"]),
                     "favorited": bool(row["favorited"]),
+                    "interesting_override": bool(row["interesting_override"]),
                     "notes": row["notes"],
                     "source_name": row["source_name"],
                     "source_type": row["source_type"],
@@ -1221,9 +1233,9 @@ class Storage:
             return None
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to get latest content for source: {e}")
+            raise sqlite3.Error(f"Failed to get latest content for source: {e}") from e
 
-    def count_unprioritized(self, days: Optional[int] = None) -> int:
+    def count_unprioritized(self, days: int | None = None) -> int:
         """Count unprioritized content items, optionally filtered by age.
 
         Args:
@@ -1247,7 +1259,7 @@ class Storage:
 
             if days is not None:
                 # Calculate cutoff datetime
-                cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+                cutoff = datetime.now(UTC) - timedelta(days=days)
                 query += " AND published_at < ?"
                 params.append(cutoff.isoformat())
 
@@ -1259,7 +1271,7 @@ class Storage:
             print(f"Error counting unprioritized items: {e}")
             return 0
 
-    def delete_unprioritized(self, days: Optional[int] = None) -> int:
+    def delete_unprioritized(self, days: int | None = None) -> int:
         """Delete unprioritized content items, optionally filtered by age.
 
         Uses a transaction for safety and returns the count of deleted items.
@@ -1290,7 +1302,7 @@ class Storage:
 
             if days is not None:
                 # Calculate cutoff datetime
-                cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+                cutoff = datetime.now(UTC) - timedelta(days=days)
                 query += " AND published_at < ?"
                 params.append(cutoff.isoformat())
 
@@ -1310,7 +1322,7 @@ class Storage:
         except Exception as e:
             # Rollback on error
             self.conn.rollback()
-            raise sqlite3.Error(f"Failed to delete unprioritized items: {e}")
+            raise sqlite3.Error(f"Failed to delete unprioritized items: {e}") from e
 
     def cleanup_orphaned_vectors(self) -> int:
         """Clean up orphaned vectors from vec_content table.
@@ -1348,10 +1360,10 @@ class Storage:
 
         except Exception as e:
             self.conn.rollback()
-            raise sqlite3.Error(f"Failed to cleanup orphaned vectors: {e}")
+            raise sqlite3.Error(f"Failed to cleanup orphaned vectors: {e}") from e
 
     def add_embedding(
-        self, content_id: str, embedding: List[float], model: str = "all-MiniLM-L6-v2"
+        self, content_id: str, embedding: list[float], model: str = "all-MiniLM-L6-v2"
     ) -> None:
         """Store embedding vector for content item.
 
@@ -1393,14 +1405,14 @@ class Storage:
 
         except sqlite3.Error as e:
             self.conn.rollback()
-            raise sqlite3.Error(f"Failed to add embedding: {e}")
+            raise sqlite3.Error(f"Failed to add embedding: {e}") from e
 
     def search_content(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         limit: int = 20,
         min_score: float = 0.0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Semantic search using similarity-first ranking.
 
         Ranking formula: score = (similarity * 0.90) + (priority_weight * 0.10)
@@ -1519,7 +1531,7 @@ class Storage:
             return results[:limit]
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to search content: {e}")
+            raise sqlite3.Error(f"Failed to search content: {e}") from e
 
     def count_content_without_embeddings(self) -> int:
         """Count content items without embeddings.
@@ -1540,9 +1552,11 @@ class Storage:
             )
             return cursor.fetchone()[0]
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to count content without embeddings: {e}")
+            raise sqlite3.Error(
+                f"Failed to count content without embeddings: {e}"
+            ) from e
 
-    def get_content_without_embeddings(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_content_without_embeddings(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get content items that don't have embeddings yet.
 
         Used for batch embedding generation.
@@ -1605,7 +1619,7 @@ class Storage:
             return results
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to get content without embeddings: {e}")
+            raise sqlite3.Error(f"Failed to get content without embeddings: {e}") from e
 
     def count_content_without_analysis(self) -> int:
         """Count content items without complete analysis.
@@ -1633,9 +1647,9 @@ class Storage:
             )
             return cursor.fetchone()[0]
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to count content without analysis: {e}")
+            raise sqlite3.Error(f"Failed to count content without analysis: {e}") from e
 
-    def get_content_without_analysis(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_content_without_analysis(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get content items that lack complete analysis.
 
         Returns items where all three fields (priority, summary, analysis) are NULL,
@@ -1703,9 +1717,9 @@ class Storage:
             return results
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to get content without analysis: {e}")
+            raise sqlite3.Error(f"Failed to get content without analysis: {e}") from e
 
-    def archive_old_content(self, config: Dict[str, Any]) -> int:
+    def archive_old_content(self, config: dict[str, Any]) -> int:
         """Archive content based on priority-aware aging windows.
 
         Args:
@@ -1780,7 +1794,7 @@ class Storage:
 
         except sqlite3.Error as e:
             self.conn.rollback()
-            raise sqlite3.Error(f"Failed to archive content: {e}")
+            raise sqlite3.Error(f"Failed to archive content: {e}") from e
 
     def count_archived(self) -> int:
         """Count archived content items.
@@ -1798,7 +1812,7 @@ class Storage:
             return cursor.fetchone()[0]
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to count archived items: {e}")
+            raise sqlite3.Error(f"Failed to count archived items: {e}") from e
 
     def count_active(self) -> int:
         """Count active (non-archived) content items.
@@ -1816,4 +1830,145 @@ class Storage:
             return cursor.fetchone()[0]
 
         except sqlite3.Error as e:
-            raise sqlite3.Error(f"Failed to count active items: {e}")
+            raise sqlite3.Error(f"Failed to count active items: {e}") from e
+
+    def count_by_priority(self) -> dict[str, int]:
+        """Count content items by priority level.
+
+        Returns:
+            Dictionary with counts for each priority level:
+            - high: Count of high priority items
+            - medium: Count of medium priority items
+            - low: Count of low priority items
+            - unprioritized: Count of items with NULL priority
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            cursor = self.conn.execute("""
+                SELECT
+                    COALESCE(priority, 'unprioritized') as priority_level,
+                    COUNT(*) as count
+                FROM content
+                WHERE archived_at IS NULL
+                GROUP BY priority_level
+            """)
+
+            result = {"high": 0, "medium": 0, "low": 0, "unprioritized": 0}
+            for row in cursor.fetchall():
+                priority = row[0]
+                count = row[1]
+                result[priority] = count
+
+            return result
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to count by priority: {e}") from e
+
+    def count_by_read_status(self) -> dict[str, int]:
+        """Count content items by read status.
+
+        Returns:
+            Dictionary with counts:
+            - read: Count of read items
+            - unread: Count of unread items
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            cursor = self.conn.execute("""
+                SELECT
+                    CASE WHEN read THEN 'read' ELSE 'unread' END as status,
+                    COUNT(*) as count
+                FROM content
+                WHERE archived_at IS NULL
+                GROUP BY read
+            """)
+
+            result = {"read": 0, "unread": 0}
+            for row in cursor.fetchall():
+                status = row[0]
+                count = row[1]
+                result[status] = count
+
+            return result
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to count by read status: {e}") from e
+
+    def get_statistics(self) -> dict[str, Any]:
+        """Get all system statistics in a single optimized query.
+
+        Returns comprehensive statistics about content and sources using
+        a single query with conditional aggregation for optimal performance.
+
+        Returns:
+            Dictionary with content and source statistics:
+            - content.total: Total content items
+            - content.active: Active (non-archived) items
+            - content.archived: Archived items
+            - content.by_priority: Counts by priority level
+            - content.by_read_status: Counts by read status
+            - sources.total: Total sources
+            - sources.active: Active sources
+            - sources.paused: Paused sources
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            # Single query with conditional aggregation for content stats
+            content_cursor = self.conn.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN archived_at IS NULL THEN 1 ELSE 0 END) as active,
+                    SUM(CASE WHEN archived_at IS NOT NULL THEN 1 ELSE 0 END) as archived,
+                    SUM(CASE WHEN archived_at IS NULL AND priority = 'high' THEN 1 ELSE 0 END) as high,
+                    SUM(CASE WHEN archived_at IS NULL AND priority = 'medium' THEN 1 ELSE 0 END) as medium,
+                    SUM(CASE WHEN archived_at IS NULL AND priority = 'low' THEN 1 ELSE 0 END) as low,
+                    SUM(CASE WHEN archived_at IS NULL AND priority IS NULL THEN 1 ELSE 0 END) as unprioritized,
+                    SUM(CASE WHEN archived_at IS NULL AND read = 1 THEN 1 ELSE 0 END) as read,
+                    SUM(CASE WHEN archived_at IS NULL AND read = 0 THEN 1 ELSE 0 END) as unread
+                FROM content
+            """)
+
+            content_row = content_cursor.fetchone()
+
+            # Single query for source stats
+            source_cursor = self.conn.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) as active,
+                    SUM(CASE WHEN active = 0 THEN 1 ELSE 0 END) as paused
+                FROM sources
+            """)
+
+            source_row = source_cursor.fetchone()
+
+            return {
+                "content": {
+                    "total": content_row[0] or 0,
+                    "active": content_row[1] or 0,
+                    "archived": content_row[2] or 0,
+                    "by_priority": {
+                        "high": content_row[3] or 0,
+                        "medium": content_row[4] or 0,
+                        "low": content_row[5] or 0,
+                        "unprioritized": content_row[6] or 0,
+                    },
+                    "by_read_status": {
+                        "read": content_row[7] or 0,
+                        "unread": content_row[8] or 0,
+                    },
+                },
+                "sources": {
+                    "total": source_row[0] or 0,
+                    "active": source_row[1] or 0,
+                    "paused": source_row[2] or 0,
+                },
+            }
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get statistics: {e}") from e

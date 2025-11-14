@@ -23,6 +23,7 @@ def list(
     limit: int = typer.Option(
         50, "--limit", "-l", help="Maximum number of items (1-100)"
     ),
+    output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """List content entries with optional filtering.
 
@@ -32,15 +33,17 @@ def list(
         archived: If True, show only archived items
         include_archived: If True, include archived items with non-archived
         limit: Maximum number of items to display (1-100)
+        output_json: If True, output raw JSON instead of formatted table
     """
     try:
         client = APIClient()
 
         # Determine archive filter mode
         if archived and include_archived:
-            console.print(
-                "[red]✗ Error: Cannot use --archived and --include-archived together[/red]"
-            )
+            if not output_json:
+                console.print(
+                    "[red]✗ Error: Cannot use --archived and --include-archived together[/red]"
+                )
             raise typer.Exit(1)
 
         # Map flags to API parameter
@@ -58,6 +61,14 @@ def list(
             archive_filter=archive_filter,
             limit=limit,
         )
+
+        if output_json:
+            # JSON mode - output raw API response
+            import json
+            import sys
+
+            sys.stdout.write(json.dumps(entries, indent=2) + "\n")
+            return
 
         if not entries:
             console.print("[yellow]No entries found[/yellow]")
@@ -102,5 +113,6 @@ def list(
         console.print(f"\n[dim]Showing {len(entries)} entries[/dim]\n")
 
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        if not output_json:
+            console.print(f"[red]✗ Error: {e}[/red]")
+        raise typer.Exit(1) from e

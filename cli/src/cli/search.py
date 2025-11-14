@@ -14,23 +14,34 @@ def search(
     limit: int = typer.Option(
         20, "--limit", "-l", help="Maximum number of results (1-50)"
     ),
+    output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Search content using semantic similarity.
 
     Args:
         query: Search query string
         limit: Maximum number of results to return (1-50)
+        output_json: If True, output raw JSON instead of formatted table
     """
     try:
         client = APIClient()
 
         # Validate limit
         if limit < 1 or limit > 50:
-            console.print("[red]✗ Error: Limit must be between 1 and 50[/red]")
+            if not output_json:
+                console.print("[red]✗ Error: Limit must be between 1 and 50[/red]")
             raise typer.Exit(1)
 
         # Search content
         results = client.search(query, limit=limit)
+
+        if output_json:
+            # JSON mode - output raw API response
+            import json
+            import sys
+
+            sys.stdout.write(json.dumps(results, indent=2) + "\n")
+            return
 
         if not results:
             console.print(f"[yellow]No results found for '{query}'[/yellow]")
@@ -82,5 +93,6 @@ def search(
         )
 
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        if not output_json:
+            console.print(f"[red]✗ Error: {e}[/red]")
         raise typer.Exit(1) from e

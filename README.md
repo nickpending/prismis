@@ -173,6 +173,9 @@ prismis-cli analyze repair
 # Clean up unprioritized content
 prismis-cli prune               # Remove all unprioritized items
 prismis-cli prune --days 7      # Remove unprioritized items older than 7 days
+
+# View system statistics
+prismis-cli statistics          # Content and source counts
 ```
 
 ### Archival Policy
@@ -209,6 +212,23 @@ prismis-cli list --priority high --unread
 # Export in JSON or CSV format
 prismis-cli export --format json > backup.json
 prismis-cli export --format csv --priority high > high-priority.csv
+```
+
+**LLM-Friendly JSON Output:**
+
+Most CLI commands support `--json` for machine-readable output, perfect for AI agent integration:
+
+```bash
+# Get structured data for LLM processing
+prismis-cli statistics --json       # System metrics
+prismis-cli search "topic" --json   # Search results
+prismis-cli list --json             # Content list
+prismis-cli get <id> --json         # Entry metadata
+prismis-cli source list --json      # All sources
+prismis-cli source add <url> --json # Source creation response
+
+# Example: Let AI analyze your reading backlog
+prismis-cli list --priority high --unread --json | llm "Summarize my reading queue"
 ```
 
 ### Running the Daemon

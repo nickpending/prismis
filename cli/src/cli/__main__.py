@@ -28,6 +28,7 @@ from cli import (
     report,
     search,
     source,
+    statistics,
 )  # noqa: E402
 
 app = typer.Typer(
@@ -51,6 +52,9 @@ app.command(name="get", help="Retrieve content entries")(get.get)
 app.command(name="list", help="List content entries")(list.list)
 app.command(name="export", help="Export content to JSON/CSV")(export.export)
 app.command(name="search", help="Search content semantically")(search.search)
+app.command(name="statistics", help="Display system-wide statistics")(
+    statistics.statistics
+)
 
 
 def main() -> None:

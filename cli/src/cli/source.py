@@ -2,19 +2,19 @@
 
 import os
 import re
-from typing import Optional
 from pathlib import Path
+from typing import Optional
 
 import typer
+from prismis_daemon.database import init_db
+
+# For read operations only - direct database access is OK
+from prismis_daemon.storage import Storage
 from rich.console import Console
 from rich.table import Table
 
 # Import API client for write operations
 from .api_client import APIClient
-
-# For read operations only - direct database access is OK
-from prismis_daemon.storage import Storage
-from prismis_daemon.database import init_db
 
 app = typer.Typer(help="Manage content sources")
 console = Console()
@@ -81,6 +81,7 @@ def add(
     name: Optional[str] = typer.Option(
         None, "--name", "-n", help="Custom name for the source"
     ),
+    output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Add a new content source to Prismis."""
     try:
@@ -126,20 +127,31 @@ def add(
             name = extract_name_from_url(url)
 
         # Use API to add source (includes validation)
-        console.print(f"[yellow]Adding {source_type} source...[/yellow]")
+        if not output_json:
+            console.print(f"[yellow]Adding {source_type} source...[/yellow]")
 
         try:
             api_client = APIClient()
             result = api_client.add_source(url, source_type, name)
+
+            if output_json:
+                # JSON mode - output raw API response
+                import json
+                import sys
+
+                sys.stdout.write(json.dumps(result, indent=2) + "\n")
+                return
+
             source_id = result.get("id", "unknown")
         except RuntimeError as e:
             # Check if it's a validation error
             error_msg = str(e)
-            if "validation failed" in error_msg.lower():
-                console.print(f"[red]❌ Validation failed:[/red] {error_msg}")
-            else:
-                console.print(f"[red]❌ API error:[/red] {error_msg}")
-            raise typer.Exit(1)
+            if not output_json:
+                if "validation failed" in error_msg.lower():
+                    console.print(f"[red]❌ Validation failed:[/red] {error_msg}")
+                else:
+                    console.print(f"[red]❌ API error:[/red] {error_msg}")
+            raise typer.Exit(1) from e
 
         # Use the name from the API response if available
         response_name = result.get("name", name)
@@ -148,24 +160,36 @@ def add(
         console.print(f"[dim]ID: {source_id}[/dim]")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to add source:[/red] {str(e)}")
-        raise typer.Exit(1)
+        if not output_json:
+            console.print(f"[red]❌ Failed to add source:[/red] {str(e)}")
+        raise typer.Exit(1) from e
 
 
 @app.command("list")
-def list_sources() -> None:
+def list_sources(
+    output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
     """List all configured content sources."""
     try:
         # Ensure database exists
         db_path = get_db_path()
         if not db_path.exists():
-            console.print(
-                "[yellow]No database found. Run 'source add' to create one.[/yellow]"
-            )
+            if not output_json:
+                console.print(
+                    "[yellow]No database found. Run 'source add' to create one.[/yellow]"
+                )
             return
 
         storage = Storage()
         sources = storage.get_all_sources()
+
+        if output_json:
+            # JSON mode - output raw source list
+            import json
+            import sys
+
+            sys.stdout.write(json.dumps(sources, indent=2) + "\n")
+            return
 
         if not sources:
             console.print(
@@ -204,8 +228,9 @@ def list_sources() -> None:
         console.print(f"\n[dim]Total sources: {len(sources)}[/dim]")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to list sources:[/red] {str(e)}")
-        raise typer.Exit(1)
+        if not output_json:
+            console.print(f"[red]❌ Failed to list sources:[/red] {str(e)}")
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -262,13 +287,13 @@ def remove(
             )
         except RuntimeError as e:
             console.print(f"[red]❌ Failed to remove source:[/red] {str(e)}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
     except typer.Exit:
         raise
     except Exception as e:
         console.print(f"[red]❌ Failed to remove source:[/red] {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -285,7 +310,7 @@ def pause(
         raise
     except Exception as e:
         console.print(f"[red]❌ Failed to pause source:[/red] {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -302,7 +327,7 @@ def resume(
         raise
     except Exception as e:
         console.print(f"[red]❌ Failed to resume source:[/red] {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -320,7 +345,7 @@ def edit(
         raise
     except Exception as e:
         console.print(f"[red]❌ Failed to edit source:[/red] {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 if __name__ == "__main__":

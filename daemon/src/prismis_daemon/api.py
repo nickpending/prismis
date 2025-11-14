@@ -2,36 +2,36 @@
 
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
-from fastapi import FastAPI, Depends, Request, Query, HTTPException
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
-from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from rich.console import Console
 
-from .api_models import (
-    SourceRequest,
-    APIResponse,
-    SourceResponse,
-    ContentUpdateRequest,
-)
 from .api_errors import (
     APIError,
-    ValidationError,
     NotFoundError,
     ServerError,
+    ValidationError,
 )
-from .auth import verify_api_key
-from .storage import Storage
-from .validator import SourceValidator
-from .reports import ReportGenerator
+from .api_models import (
+    APIResponse,
+    ContentUpdateRequest,
+    SourceRequest,
+    SourceResponse,
+)
 from .audio import AudioScriptGenerator, LspeakTTSEngine
+from .auth import verify_api_key
 from .config import Config
 from .embeddings import Embedder
 from .observability import log as obs_log
+from .reports import ReportGenerator
+from .storage import Storage
+from .validator import SourceValidator
 
 console = Console()
 
@@ -461,7 +461,7 @@ async def update_content(
     request: ContentUpdateRequest,
     storage: Storage = Depends(get_storage),
 ) -> APIResponse:
-    """Update content properties (read status, favorited).
+    """Update content properties (read status, favorited, interesting_override).
 
     This endpoint allows clients to update content metadata.
     At least one field must be provided in the request.
@@ -469,7 +469,10 @@ async def update_content(
     try:
         # Update content status
         success = storage.update_content_status(
-            content_id, read=request.read, favorited=request.favorited
+            content_id,
+            read=request.read,
+            favorited=request.favorited,
+            interesting_override=request.interesting_override,
         )
 
         if not success:
@@ -485,6 +488,9 @@ async def update_content(
                 "id": content_id,
                 "read": updated_content["read"] if updated_content else None,
                 "favorited": updated_content["favorited"] if updated_content else None,
+                "interesting_override": updated_content["interesting_override"]
+                if updated_content
+                else None,
             },
         )
 
@@ -559,14 +565,15 @@ async def resume_source(
 
 @app.get("/api/entries", dependencies=[Depends(verify_api_key)])
 async def get_content(
-    priority: Optional[str] = Query(None, regex="^(high|medium|low)$"),
+    priority: str | None = Query(None, regex="^(high|medium|low)$"),
     unread_only: bool = Query(False),
     include_archived: bool = Query(False),
-    limit: int = Query(50, le=10000, ge=1),
-    since: Optional[str] = Query(
-        None, description="ISO8601 timestamp to filter content"
+    interesting_override: bool | None = Query(
+        None, description="Filter by interesting_override flag"
     ),
-    since_hours: Optional[int] = Query(
+    limit: int = Query(50, le=10000, ge=1),
+    since: str | None = Query(None, description="ISO8601 timestamp to filter content"),
+    since_hours: int | None = Query(
         None, ge=1, le=720, description="Hours to look back (convenience parameter)"
     ),
     storage: Storage = Depends(get_storage),
@@ -577,6 +584,7 @@ async def get_content(
         priority: Filter by priority level ('high', 'medium', 'low')
         unread_only: Only return unread items (default: False)
         include_archived: Include archived content (default: False)
+        interesting_override: Filter by interesting_override flag (default: None)
         limit: Maximum number of items to return (1-10000, default: 50)
         since: ISO8601 timestamp to filter content (e.g., '2025-11-05T12:00:00Z')
         since_hours: Hours to look back (1-720). Convenience parameter - converted to timestamp.
@@ -594,9 +602,9 @@ async def get_content(
 
     try:
         # Convert time parameters to datetime for storage layer
-        since_dt: Optional[datetime] = None
+        since_dt: datetime | None = None
         if since_hours:
-            since_dt = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+            since_dt = datetime.now(UTC) - timedelta(hours=since_hours)
         elif since:
             try:
                 since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
@@ -607,7 +615,10 @@ async def get_content(
 
         content_items = []
 
-        if priority:
+        # Handle interesting_override filter first (takes precedence)
+        if interesting_override is True:
+            content_items = storage.get_flagged_items(limit)
+        elif priority:
             # Get content by specific priority
             if unread_only:
                 # Use existing method that only returns unread items
@@ -663,6 +674,7 @@ async def get_content(
                     "priority": priority,
                     "unread_only": unread_only,
                     "include_archived": include_archived,
+                    "interesting_override": interesting_override,
                     "limit": limit,
                     "since": since,
                     "since_hours": since_hours,
@@ -730,7 +742,7 @@ async def semantic_search(
 @app.get("/api/entries/{content_id}", dependencies=[Depends(verify_api_key)])
 async def get_entry_summary(
     content_id: str,
-    include: Optional[str] = Query(None),
+    include: str | None = Query(None),
     storage: Storage = Depends(get_storage),
 ) -> dict:
     """Get a single content entry by ID.
@@ -833,7 +845,7 @@ async def health_check(storage: Storage = Depends(get_storage)) -> dict:
 
 @app.post("/api/prune", dependencies=[Depends(verify_api_key)])
 async def prune_unprioritized(
-    days: Optional[int] = None,
+    days: int | None = None,
     storage: Storage = Depends(get_storage),
 ) -> dict:
     """Prune (delete) unprioritized content items.
@@ -883,7 +895,7 @@ async def prune_unprioritized(
 
 @app.get("/api/prune/count", dependencies=[Depends(verify_api_key)])
 async def count_unprioritized(
-    days: Optional[int] = None,
+    days: int | None = None,
     storage: Storage = Depends(get_storage),
 ) -> dict:
     """Count unprioritized content items that would be pruned.
@@ -1047,8 +1059,37 @@ async def archive_status(
         raise ServerError(f"Failed to get archival status: {str(e)}")
 
 
+@app.get("/api/statistics", dependencies=[Depends(verify_api_key)])
+async def get_statistics(
+    storage: Storage = Depends(get_storage),
+) -> dict:
+    """Get system-wide statistics.
+
+    Returns comprehensive statistics about content, sources, and system state.
+
+    Args:
+        storage: Storage instance injected by FastAPI
+
+    Returns:
+        JSON response with statistics grouped by category
+    """
+    try:
+        # Get all statistics in a single optimized query
+        stats = storage.get_statistics()
+
+        return {
+            "success": True,
+            "message": "Statistics retrieved successfully",
+            "data": stats,
+        }
+
+    except Exception as e:
+        raise ServerError(f"Failed to get statistics: {str(e)}")
+
+
 # Mount audio files directory
 import os
+
 from fastapi.responses import FileResponse
 
 audio_dir = (

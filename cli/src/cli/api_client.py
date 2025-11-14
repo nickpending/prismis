@@ -1,11 +1,11 @@
 """API client for CLI to communicate with daemon."""
 
 import os
+import tomllib
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
-import tomllib
 
 
 class APIClient:
@@ -54,7 +54,7 @@ class APIClient:
         return api_key
 
     def add_source(
-        self, url: str, source_type: str, name: Optional[str] = None
+        self, url: str, source_type: str, name: str | None = None
     ) -> dict[str, Any]:
         """Add a new source via API.
 
@@ -218,7 +218,7 @@ class APIClient:
                     raise
                 raise RuntimeError(f"Unexpected error: {e}")
 
-    def count_unprioritized(self, days: Optional[int] = None) -> int:
+    def count_unprioritized(self, days: int | None = None) -> int:
         """Count unprioritized content items.
 
         Args:
@@ -256,7 +256,7 @@ class APIClient:
                     raise
                 raise RuntimeError(f"Unexpected error: {e}")
 
-    def prune_unprioritized(self, days: Optional[int] = None) -> dict:
+    def prune_unprioritized(self, days: int | None = None) -> dict:
         """Delete unprioritized content items.
 
         Args:
@@ -449,7 +449,7 @@ class APIClient:
 
     def get_content(
         self,
-        priority: Optional[str] = None,
+        priority: str | None = None,
         unread_only: bool = False,
         archive_filter: str = "exclude",
         limit: int = 50,
@@ -591,3 +591,40 @@ class APIClient:
                 if isinstance(e, RuntimeError):
                     raise
                 raise RuntimeError(f"Unexpected error: {e}") from e
+
+    def get_statistics(self) -> dict[str, Any]:
+        """Get system-wide statistics from API.
+
+        Returns:
+            Dict with content and source statistics
+
+        Raises:
+            RuntimeError: If API request fails
+        """
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.get(
+                    f"{self.base_url}/api/statistics",
+                    headers={"X-API-Key": self.api_key},
+                )
+
+                data = response.json()
+
+                # Check for API errors
+                if response.status_code >= 400:
+                    error_msg = data.get(
+                        "message", f"API error: {response.status_code}"
+                    )
+                    raise RuntimeError(error_msg)
+
+                if not data.get("success"):
+                    raise RuntimeError(data.get("message", "Unknown error"))
+
+                return data.get("data", {})
+
+        except httpx.RequestError as e:
+            raise RuntimeError(f"Network error: {e}") from e
+        except Exception as e:
+            if isinstance(e, RuntimeError):
+                raise
+            raise RuntimeError(f"Unexpected error: {e}") from e

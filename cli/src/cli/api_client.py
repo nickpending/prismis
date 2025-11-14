@@ -1,8 +1,8 @@
 """API client for CLI to communicate with daemon."""
 
 import os
-from typing import Optional, Dict, Any
 from pathlib import Path
+from typing import Any, Optional
 
 import httpx
 import tomllib
@@ -55,7 +55,7 @@ class APIClient:
 
     def add_source(
         self, url: str, source_type: str, name: Optional[str] = None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Add a new source via API.
 
         Args:
@@ -373,7 +373,7 @@ class APIClient:
                     raise
                 raise RuntimeError(f"Unexpected error: {e}")
 
-    def get_entry(self, entry_id: str) -> Dict[str, Any]:
+    def get_entry(self, entry_id: str) -> dict[str, Any]:
         """Get a single content entry by ID (summary without content field).
 
         Args:
@@ -453,7 +453,7 @@ class APIClient:
         unread_only: bool = False,
         archive_filter: str = "exclude",
         limit: int = 50,
-    ) -> list[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get content items with optional filtering.
 
         Args:
@@ -471,7 +471,7 @@ class APIClient:
         with httpx.Client(timeout=self.timeout) as client:
             try:
                 # Build query parameters
-                params: Dict[str, Any] = {"limit": limit}
+                params: dict[str, Any] = {"limit": limit}
                 if priority:
                     params["priority"] = priority
                 if unread_only:
@@ -547,3 +547,47 @@ class APIClient:
             if isinstance(e, RuntimeError):
                 raise
             raise RuntimeError(f"Unexpected error: {e}")
+
+    def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Search content using semantic similarity.
+
+        Args:
+            query: Search query string
+            limit: Maximum number of results to return (1-50)
+
+        Returns:
+            List of content items with relevance scores
+
+        Raises:
+            RuntimeError: If API request fails
+        """
+        with httpx.Client(timeout=self.timeout) as client:
+            try:
+                params: dict[str, Any] = {"q": query, "limit": limit}
+
+                response = client.get(
+                    f"{self.base_url}/api/search",
+                    headers={"X-API-Key": self.api_key},
+                    params=params,
+                )
+
+                data = response.json()
+
+                # Check for API errors
+                if response.status_code >= 400:
+                    error_msg = data.get(
+                        "message", f"API error: {response.status_code}"
+                    )
+                    raise RuntimeError(error_msg)
+
+                if not data.get("success"):
+                    raise RuntimeError(data.get("message", "Unknown error"))
+
+                return data.get("data", {}).get("items", [])
+
+            except httpx.RequestError as e:
+                raise RuntimeError(f"Network error: {e}") from e
+            except Exception as e:
+                if isinstance(e, RuntimeError):
+                    raise
+                raise RuntimeError(f"Unexpected error: {e}") from e

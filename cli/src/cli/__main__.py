@@ -17,7 +17,18 @@ if dotenv_path.exists():
 daemon_src = Path(__file__).parent.parent.parent.parent / "daemon" / "src"
 sys.path.insert(0, str(daemon_src))
 
-from cli import source, prune, report, get, list, export, archive, embeddings, analyze  # noqa: E402
+from cli import (
+    analyze,
+    archive,
+    embeddings,
+    export,
+    get,
+    list,
+    prune,
+    report,
+    search,
+    source,
+)  # noqa: E402
 
 app = typer.Typer(
     name="prismis-cli",
@@ -39,6 +50,7 @@ app.add_typer(analyze.app, name="analyze", help="Content analysis and repair")
 app.command(name="get", help="Retrieve content entries")(get.get)
 app.command(name="list", help="List content entries")(list.list)
 app.command(name="export", help="Export content to JSON/CSV")(export.export)
+app.command(name="search", help="Search content semantically")(search.search)
 
 
 def main() -> None:

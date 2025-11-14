@@ -56,6 +56,9 @@ func NewRegistry() *Registry {
 	// Archive toggle
 	r.Register("archived", cmdArchived)
 
+	// Context commands
+	r.Register("context", cmdContext)
+
 	return r
 }
 
@@ -398,6 +401,22 @@ func cmdArchived(args []string) tea.Cmd {
 	}
 }
 
+// cmdContext handles context commands
+func cmdContext(args []string) tea.Cmd {
+	return func() tea.Msg {
+		if len(args) == 0 {
+			return ErrorMsg{Message: "context: subcommand required (review)"}
+		}
+
+		switch args[0] {
+		case "review":
+			return ContextReviewMsg{}
+		default:
+			return ErrorMsg{Message: fmt.Sprintf("context: unknown subcommand '%s' (available: review)", args[0])}
+		}
+	}
+}
+
 // showError returns a command that shows an error message
 func showError(msg string) tea.Cmd {
 	return func() tea.Msg {
@@ -497,3 +516,6 @@ type ExportSourcesMsg struct{}
 
 // ArchivedMsg signals to toggle archived view
 type ArchivedMsg struct{}
+
+// ContextReviewMsg signals to review flagged items
+type ContextReviewMsg struct{}

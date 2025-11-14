@@ -59,8 +59,8 @@ type Model struct {
 	// Theme system
 	theme StyleTheme // Current color theme
 	// Remote mode
-	remoteURL  string    // If non-empty, use API instead of local DB
-	lastSync   time.Time // Last successful API fetch timestamp
+	remoteURL  string           // If non-empty, use API instead of local DB
+	lastSync   time.Time        // Last successful API fetch timestamp
 	itemsCache []db.ContentItem // Cached items for remote mode
 }
 
@@ -322,6 +322,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case commands.ExportSourcesMsg:
 		// Export sources to clipboard
 		return m, operations.ExportSources()
+
+	case commands.ContextReviewMsg:
+		// Review flagged items
+		return m, operations.ReviewFlaggedItems()
 
 	case commands.FabricMsg:
 		// Execute Fabric pattern on current item's full content
@@ -930,6 +934,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, fetchSources())
 		}
 
+	case operations.ContextReviewedMsg:
+		// Handle context review result
+		if msg.Error != nil {
+			m.statusMessage = fmt.Sprintf("Error: %v", msg.Error)
+		} else if msg.Count == 0 {
+			m.statusMessage = "No items flagged"
+		} else {
+			m.statusMessage = fmt.Sprintf("%d item%s flagged", msg.Count, pluralize(msg.Count))
+		}
+
 	case operations.AudioOperationMsg:
 		// Handle audio briefing generation message from operations package
 		m.statusMessage = msg.Message
@@ -1453,4 +1467,12 @@ func openInBrowser(url string) error {
 	}
 
 	return nil
+}
+
+// pluralize returns "s" for counts > 1, empty string otherwise
+func pluralize(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
 }

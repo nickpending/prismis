@@ -31,6 +31,7 @@ Think of it as having a research assistant who reads everything and only interru
 - 🚀 **Instant TUI** - Launches in <100ms with gorgeous Bubbletea interface
 - 🧠 **AI-Powered Priority** - LLM analyzes content against YOUR interests (HIGH/MEDIUM/LOW)
 - 🔍 **Semantic Search** - Local embeddings enable vector similarity search across all content
+- 🤖 **Context Assistant** - LLM analyzes flagged items to suggest context.md improvements with gap analysis
 - 🌐 **Remote TUI Mode** - Access your daemon from anywhere with incremental sync
 - 🎨 **Fabric Integration** - 200+ AI analysis patterns with tab completion (`:fabric <TAB>` to browse)
 - 🔒 **Local-First** - Your data never leaves your machine. SQLite + Go binary
@@ -122,6 +123,7 @@ prismis --remote  # Remote mode with incremental sync from server daemon
 - `1/2/3` - View HIGH/MEDIUM/LOW priority content
 - `j/k` - Navigate up/down (vim-style)
 - `Enter` - Read full article
+- `i` - Flag item as interesting (for context analysis)
 - `:` - Command mode (see below)
 - `S` - Manage sources
 - `?` - Show all keyboard shortcuts
@@ -133,6 +135,9 @@ prismis --remote  # Remote mode with incremental sync from server daemon
   - `:fabric summarize` - Create concise summary
   - `:fabric analyze_claims` - Fact-check claims
   - `:fabric explain_terms` - Explain technical terms
+- `:context suggest` - Get LLM topic suggestions from flagged items (requires flagging with `i`)
+- `:context edit` - Open context.md in $EDITOR
+- `:context review` - Show count of flagged items ready for analysis
 - `:audio` - Generate audio briefing from HIGH priority items (requires lspeak)
 - `:export sources` - Copy all configured sources to clipboard for backup
 - `:mark` - Mark article as read/unread
@@ -141,6 +146,22 @@ prismis --remote  # Remote mode with incremental sync from server daemon
 - `:prune!` - Force remove without confirmation
 - `:prune 7d` - Remove items older than 7 days
 - `:help` - Show all available commands
+
+### Context Assistant Workflow
+
+Improve your context.md over time by flagging interesting unprioritized items:
+
+1. **Flag interesting items** - Press `i` on unprioritized content that should have matched your topics but didn't
+2. **Get suggestions** - Run `:context suggest` to analyze flagged items with LLM
+3. **Review analysis** - Suggestions copied to clipboard with gap analysis:
+   - **Add**: New topic area not covered
+   - **Expand**: Existing topic too narrow
+   - **Narrow**: Existing topic too broad
+   - **Split**: One topic covering unrelated things
+4. **Update context.md** - Run `:context edit` or manually update based on suggestions
+5. **Repeat** - As you flag more items, patterns emerge and your context improves
+
+The LLM studies your existing topic style (length, phrasing, tone) and matches it in suggestions.
 
 ### Managing Sources
 
@@ -384,30 +405,33 @@ export ELEVENLABS_API_KEY=your-api-key
 
 ### API Access
 
-The daemon exposes a REST API for custom integrations and the web interface:
+The daemon exposes a REST API for custom integrations and the web interface.
+
+**Full API Documentation:** See [API.md](API.md) for complete endpoint reference, authentication, request/response formats, and client examples.
+
+**Quick Examples:**
 
 ```bash
 # Get last 24 hours of content (daily briefing)
-curl -H "X-API-Key: your-api-key" "http://localhost:8989/api/entries?since_hours=24"
+curl -H "X-API-Key: your-api-key" "http://localhost:8000/api/entries?since_hours=24"
 
 # Get high priority items only
-curl -H "X-API-Key: your-api-key" "http://localhost:8989/api/entries?priority=high&since_hours=24"
+curl -H "X-API-Key: your-api-key" "http://localhost:8000/api/entries?priority=high&since_hours=24"
 
 # Mark item as read
 curl -X PATCH -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"read": true}' \
-  "http://localhost:8989/api/entries/CONTENT_ID"
+  "http://localhost:8000/api/entries/CONTENT_ID"
 
-# Generate audio briefing
+# Get context suggestions from flagged items
 curl -X POST -H "X-API-Key: your-api-key" \
-  "http://localhost:8989/api/audio/briefings"
-
-# List all sources
-curl -H "X-API-Key: your-api-key" "http://localhost:8989/api/sources"
+  "http://localhost:8000/api/context"
 ```
 
 **API Key:** Found in `~/.config/prismis/config.toml` under `[api] -> api_key`
+
+**Interactive Docs:** http://localhost:8000/docs (Swagger UI)
 
 ## 🧪 Development
 
@@ -435,11 +459,9 @@ prismis/
 
 ## 📚 Documentation
 
-Visit [prismis.io/docs](https://prismis.io/docs) for:
-- Detailed setup guides
-- API documentation
-- Content source configuration
-- Custom integration examples
+- **[API Reference](API.md)** - Complete API documentation for building custom clients
+- **[prismis.io/docs](https://prismis.io/docs)** - Detailed setup guides and tutorials
+- **[Interactive API Docs](http://localhost:8000/docs)** - Swagger UI (when daemon running)
 
 ## 🤝 Contributing
 

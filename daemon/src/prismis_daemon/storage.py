@@ -33,6 +33,14 @@ class Storage:
     Uses connection reuse pattern for efficiency.
     """
 
+    # Prune protection WHERE clause - items excluded from deletion
+    # Used by both count_unprioritized() and delete_unprioritized()
+    PRUNE_EXCLUSION_WHERE = """
+        (priority IS NULL OR priority = '')
+        AND favorited = 0
+        AND (interesting_override = 0 OR interesting_override IS NULL)
+    """
+
     def __init__(self, db_path: Path | None = None):
         """Initialize storage with database connection.
 
@@ -1248,13 +1256,8 @@ class Storage:
             sqlite3.Error: If database operation fails
         """
         try:
-            query = """
-                SELECT COUNT(*)
-                FROM content
-                WHERE (priority IS NULL OR priority = '')
-                  AND favorited = 0
-                  AND (interesting_override = 0 OR interesting_override IS NULL)
-            """
+            # PRUNE_EXCLUSION_WHERE is a class constant (not user input)
+            query = "SELECT COUNT(*) FROM content WHERE " + self.PRUNE_EXCLUSION_WHERE  # noqa: S608
             params = []
 
             if days is not None:
@@ -1292,12 +1295,8 @@ class Storage:
             if count == 0:
                 return 0
 
-            query = """
-                DELETE FROM content
-                WHERE (priority IS NULL OR priority = '')
-                  AND favorited = 0
-                  AND (interesting_override = 0 OR interesting_override IS NULL)
-            """
+            # PRUNE_EXCLUSION_WHERE is a class constant (not user input)
+            query = "DELETE FROM content WHERE " + self.PRUNE_EXCLUSION_WHERE  # noqa: S608
             params = []
 
             if days is not None:

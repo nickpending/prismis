@@ -1,26 +1,33 @@
 """Shared test fixtures for all tests."""
 
+import os
+import sys
 import tempfile
 from pathlib import Path
-import pytest
 
-import sys
+import pytest
+from dotenv import load_dotenv
+
+# Load .env before anything else (same as daemon __main__.py does)
+config_home = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+dotenv_path = Path(config_home) / "prismis" / ".env"
+if dotenv_path.exists():
+    load_dotenv(dotenv_path)
 
 # Add src to path for absolute imports
 src_path = str(Path(__file__).parent.parent / "src")
 sys.path.insert(0, src_path)
 
 # Import from the package properly
-from prismis_daemon import database
-from prismis_daemon import config
+from prismis_daemon import config, database
 
 
 def init_db(path: Path) -> None:
     return database.init_db(path)
 
 
-def load_config() -> dict:
-    return config.load_config()
+def load_config() -> config.Config:
+    return config.Config.from_file()
 
 
 @pytest.fixture
@@ -61,11 +68,11 @@ def llm_config() -> dict:
 
 
 @pytest.fixture
-def full_config() -> dict:
+def full_config() -> config.Config:
     """Load full configuration including context for integration tests."""
     try:
-        config = load_config()
-        return config
+        cfg = load_config()
+        return cfg
     except Exception:
         # If config doesn't exist, skip tests that need it
         pytest.skip("Config file not found at ~/.config/prismis/config.toml")

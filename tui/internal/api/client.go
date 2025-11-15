@@ -774,3 +774,102 @@ func (c *APIClient) GenerateAudioBriefing() (*AudioBriefingResponse, error) {
 
 	return &audioResp, nil
 }
+
+// TopicSuggestion represents a suggested topic for context.md
+type TopicSuggestion struct {
+	Topic         string  `json:"topic"`
+	Section       string  `json:"section"`        // "high", "medium", or "low"
+	Action        string  `json:"action"`         // "expand", "narrow", "add", "split"
+	ExistingTopic *string `json:"existing_topic"` // null if action=add
+	GapAnalysis   string  `json:"gap_analysis"`
+	Rationale     string  `json:"rationale"`
+}
+
+// ContextSuggestionsResponse contains LLM-generated topic suggestions
+type ContextSuggestionsResponse struct {
+	SuggestedTopics []TopicSuggestion `json:"suggested_topics"`
+}
+
+// GetContextSuggestions analyzes flagged items and suggests topics for context.md
+func (c *APIClient) GetContextSuggestions() (*ContextSuggestionsResponse, error) {
+	// Create HTTP request - no body needed for POST
+	req, err := http.NewRequest("POST", c.baseURL+"/api/context", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("X-API-Key", c.apiKey)
+
+	// Use longer timeout for LLM analysis (30 seconds)
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Send request
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Check for specific HTTP status codes
+	if resp.StatusCode == 403 {
+		return nil, fmt.Errorf("authentication failed: invalid API key")
+	}
+	if resp.StatusCode == 422 {
+		var apiResp APIResponse
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			return nil, fmt.Errorf("validation error: %s", apiResp.Message)
+		}
+		return nil, fmt.Errorf("validation error: flag some items first using 'i' key")
+	}
+	if resp.StatusCode == 500 {
+		var apiResp APIResponse
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			return nil, fmt.Errorf("server error: %s", apiResp.Message)
+		}
+		return nil, fmt.Errorf("server error: context analysis failed")
+	}
+	if resp.StatusCode >= 400 {
+		var apiResp APIResponse
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			return nil, fmt.Errorf("API error: %s", apiResp.Message)
+		}
+		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
+	}
+
+	// Parse the wrapped response
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Check if operation was successful
+	if !apiResp.Success {
+		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+	}
+
+	// Extract suggested_topics from Data map
+	suggestedTopicsData, ok := apiResp.Data["suggested_topics"]
+	if !ok {
+		return nil, fmt.Errorf("response missing suggested_topics field")
+	}
+
+	// Marshal and unmarshal to convert to proper type
+	suggestedTopicsJSON, err := json.Marshal(suggestedTopicsData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal suggested_topics: %w", err)
+	}
+
+	var contextResp ContextSuggestionsResponse
+	if err := json.Unmarshal(suggestedTopicsJSON, &contextResp.SuggestedTopics); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal suggested_topics: %w", err)
+	}
+
+	return &contextResp, nil
+}

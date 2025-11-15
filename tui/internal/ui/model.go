@@ -327,6 +327,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Review flagged items
 		return m, operations.ReviewFlaggedItems()
 
+	case commands.ContextSuggestMsg:
+		// Get context suggestions from LLM
+		m.statusMessage = "Analyzing flagged items..."
+		return m, operations.GetContextSuggestions()
+
+	case commands.ContextEditMsg:
+		// Open context.md in $EDITOR
+		return m, operations.EditContextFile()
+
 	case commands.FabricMsg:
 		// Execute Fabric pattern on current item's full content
 		currentContent := ""
@@ -943,6 +952,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMessage = fmt.Sprintf("%d item%s flagged", msg.Count, pluralize(msg.Count))
 		}
+
+	case operations.ContextSuggestionsMsg:
+		// Handle context suggestions result
+		if msg.Error != nil {
+			m.statusMessage = fmt.Sprintf("Error: %v", msg.Error)
+		} else if msg.Count == 0 {
+			m.statusMessage = "No new topics suggested (copied to clipboard)"
+		} else {
+			m.statusMessage = fmt.Sprintf("%d topic%s suggested (copied to clipboard)", msg.Count, pluralize(msg.Count))
+		}
+		cmds = append(cmds, clearStatusAfterDelay(5*time.Second))
+
+	case operations.ContextEditMsg:
+		// Handle context edit result
+		if msg.Error != nil {
+			m.statusMessage = fmt.Sprintf("Error: %v", msg.Error)
+		} else {
+			m.statusMessage = "Context file closed"
+		}
+		cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
 
 	case operations.AudioOperationMsg:
 		// Handle audio briefing generation message from operations package

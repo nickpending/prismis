@@ -37,3 +37,7 @@ dev = [
     "pytest",
     "pytest-asyncio",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"src/prismis_daemon/api.py" = ["B008"]  # FastAPI Depends() in argument defaults
+"tests/**/*.py" = ["S101"]  # Allow assert statements in tests

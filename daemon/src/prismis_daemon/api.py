@@ -27,6 +27,7 @@ from .api_models import (
 from .audio import AudioScriptGenerator, LspeakTTSEngine
 from .auth import verify_api_key
 from .config import Config
+from .context_analyzer import ContextAnalyzer
 from .embeddings import Embedder
 from .observability import log as obs_log
 from .reports import ReportGenerator
@@ -1057,6 +1058,66 @@ async def archive_status(
 
     except Exception as e:
         raise ServerError(f"Failed to get archival status: {str(e)}")
+
+
+@app.post("/api/context", dependencies=[Depends(verify_api_key)])
+async def analyze_context(
+    storage: Storage = Depends(get_storage),
+    config: Config = Depends(get_config),
+) -> dict:
+    """Analyze flagged items and suggest topics for context.md.
+
+    Uses LLM to analyze flagged content items and suggest new topics
+    that should be added to the user's context.md file.
+
+    Args:
+        storage: Storage instance injected by FastAPI
+        config: Config instance injected by FastAPI
+
+    Returns:
+        JSON response with suggested topics array
+
+    Raises:
+        ValidationError: If no flagged items available
+        ServerError: If LLM analysis fails
+    """
+    try:
+        # Get flagged items (limit to 50 for token efficiency)
+        flagged_items = storage.get_flagged_items(limit=50)
+
+        if not flagged_items:
+            raise ValidationError(
+                "No items flagged for context analysis. "
+                "Use 'i' key in TUI to flag interesting items first."
+            )
+
+        # Load current context.md content
+        context_text = config.context
+
+        # Initialize context analyzer with LLM config
+        analyzer = ContextAnalyzer(
+            {
+                "model": config.llm_model,
+                "api_key": config.llm_api_key,
+                "api_base": config.llm_api_base,
+                "provider": config.llm_provider,
+            }
+        )
+
+        # Analyze and get suggestions
+        result = analyzer.analyze_flagged_items(flagged_items, context_text)
+
+        return {
+            "success": True,
+            "message": f"{len(result['suggested_topics'])} topics suggested",
+            "data": result,
+        }
+
+    except ValidationError:
+        raise  # Re-raise validation errors
+    except Exception as e:
+        obs_log("api.error", endpoint="/api/context", error=str(e))
+        raise ServerError(f"Failed to analyze context: {str(e)}") from e
 
 
 @app.get("/api/statistics", dependencies=[Depends(verify_api_key)])

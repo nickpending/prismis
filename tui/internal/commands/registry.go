@@ -405,14 +405,18 @@ func cmdArchived(args []string) tea.Cmd {
 func cmdContext(args []string) tea.Cmd {
 	return func() tea.Msg {
 		if len(args) == 0 {
-			return ErrorMsg{Message: "context: subcommand required (review)"}
+			return ErrorMsg{Message: "context: subcommand required (review, suggest, edit)"}
 		}
 
 		switch args[0] {
 		case "review":
 			return ContextReviewMsg{}
+		case "suggest":
+			return ContextSuggestMsg{}
+		case "edit":
+			return ContextEditMsg{}
 		default:
-			return ErrorMsg{Message: fmt.Sprintf("context: unknown subcommand '%s' (available: review)", args[0])}
+			return ErrorMsg{Message: fmt.Sprintf("context: unknown subcommand '%s' (available: review, suggest, edit)", args[0])}
 		}
 	}
 }
@@ -519,3 +523,5 @@ type ArchivedMsg struct{}
 
 // ContextReviewMsg signals to review flagged items
 type ContextReviewMsg struct{}
+type ContextSuggestMsg struct{}
+type ContextEditMsg struct{}

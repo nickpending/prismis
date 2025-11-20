@@ -86,7 +86,13 @@ Thumbs.db
 .claudex/
 .claudex-guard/
 .claudex-guard.yaml
+
+# MCP server files (dynamically created by various MCP servers)
 .mcp.json
+*.mcp.json
+.*.mcp
+.*-mcp
+*.mcp
 
 # Security - Momentum enhanced (NEVER COMMIT)
 *.key

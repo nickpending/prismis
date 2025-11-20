@@ -1,5 +1,6 @@
 """REST API server for Prismis daemon."""
 
+import os
 import re
 import time
 from datetime import UTC, datetime, timedelta
@@ -8,7 +9,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from rich.console import Console
 
@@ -89,8 +90,10 @@ async def log_requests(request: Request, call_next) -> Response:
                     headers=dict(response.headers),
                     media_type=response.media_type,
                 )
-            except Exception:
-                pass  # If parsing fails, just skip count
+            except Exception as e:
+                console.print(
+                    f"[dim red]Failed to parse response for item count: {e}[/dim red]"
+                )
 
         # Include query parameters for debugging
         query_str = f"?{request.url.query}" if request.url.query else ""
@@ -322,7 +325,7 @@ async def add_source(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to add source: {str(e)}")
+        raise ServerError(f"Failed to add source: {str(e)}") from e
 
 
 @app.get(
@@ -357,7 +360,7 @@ async def get_sources(storage: Storage = Depends(get_storage)) -> dict:
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to get sources: {str(e)}")
+        raise ServerError(f"Failed to get sources: {str(e)}") from e
 
 
 @app.patch(
@@ -421,7 +424,7 @@ async def update_source(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to update source: {str(e)}")
+        raise ServerError(f"Failed to update source: {str(e)}") from e
 
 
 @app.delete(
@@ -449,7 +452,7 @@ async def delete_source(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to remove source: {str(e)}")
+        raise ServerError(f"Failed to remove source: {str(e)}") from e
 
 
 @app.patch(
@@ -498,9 +501,9 @@ async def update_content(
     except APIError:
         raise  # Re-raise our custom errors
     except ValueError as e:
-        raise ValidationError(str(e))
+        raise ValidationError(str(e)) from e
     except Exception as e:
-        raise ServerError(f"Failed to update content: {str(e)}")
+        raise ServerError(f"Failed to update content: {str(e)}") from e
 
 
 @app.patch(
@@ -530,7 +533,7 @@ async def pause_source(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to pause source: {str(e)}")
+        raise ServerError(f"Failed to pause source: {str(e)}") from e
 
 
 @app.patch(
@@ -561,12 +564,15 @@ async def resume_source(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to resume source: {str(e)}")
+        raise ServerError(f"Failed to resume source: {str(e)}") from e
 
 
 @app.get("/api/entries", dependencies=[Depends(verify_api_key)])
 async def get_content(
-    priority: str | None = Query(None, regex="^(high|medium|low)$"),
+    priority: str | None = Query(
+        None,
+        description="Filter by priority level(s). Single: 'high' or comma-separated: 'high,medium,low'",
+    ),
     unread_only: bool = Query(False),
     include_archived: bool = Query(False),
     interesting_override: bool | None = Query(
@@ -582,7 +588,8 @@ async def get_content(
     """Get content items with optional filtering.
 
     Args:
-        priority: Filter by priority level ('high', 'medium', 'low')
+        priority: Filter by priority level(s). Single value ('high', 'medium', 'low') or
+                 comma-separated ('high,medium,low')
         unread_only: Only return unread items (default: False)
         include_archived: Include archived content (default: False)
         interesting_override: Filter by interesting_override flag (default: None)
@@ -595,11 +602,15 @@ async def get_content(
     Returns:
         JSON response with filtered content items
     """
-    # Explicit validation with user-friendly error messages
-    if priority and priority not in ["high", "medium", "low"]:
-        raise ValidationError(
-            f"Invalid priority '{priority}'. Must be one of: high, medium, low"
-        )
+    # Parse and validate priority parameter (supports comma-separated values)
+    priorities: list[str] = []
+    if priority:
+        priorities = [p.strip() for p in priority.split(",")]
+        invalid = [p for p in priorities if p not in ["high", "medium", "low"]]
+        if invalid:
+            raise ValidationError(
+                f"Invalid priority value(s): {', '.join(invalid)}. Must be one of: high, medium, low"
+            )
 
     try:
         # Convert time parameters to datetime for storage layer
@@ -609,30 +620,35 @@ async def get_content(
         elif since:
             try:
                 since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
-            except ValueError:
+            except ValueError as e:
                 raise ValidationError(
                     f"Invalid ISO8601 timestamp: {since}. Expected format: 2025-11-05T12:00:00Z"
-                )
+                ) from e
 
         content_items = []
 
         # Handle interesting_override filter first (takes precedence)
         if interesting_override is True:
             content_items = storage.get_flagged_items(limit)
-        elif priority:
-            # Get content by specific priority
+        elif priorities:
+            # Get content by specific priority/priorities
             if unread_only:
-                # Use existing method that only returns unread items
-                content_items = storage.get_content_by_priority(
-                    priority, limit, include_archived
-                )
+                # Call storage for each priority and combine results
+                for p in priorities:
+                    remaining = limit - len(content_items)
+                    if remaining <= 0:
+                        break
+                    items = storage.get_content_by_priority(
+                        p, remaining, include_archived
+                    )
+                    content_items.extend(items)
             else:
-                # Get content with time filter, then filter by priority
+                # Get content with time filter, then filter by priorities
                 all_content = storage.get_content_since(
                     since=since_dt, include_archived=include_archived
                 )
                 content_items = [
-                    item for item in all_content if item.get("priority") == priority
+                    item for item in all_content if item.get("priority") in priorities
                 ][:limit]
         else:
             # Get content from all priorities
@@ -684,7 +700,7 @@ async def get_content(
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to get content: {str(e)}")
+        raise ServerError(f"Failed to get content: {str(e)}") from e
 
 
 @app.get("/api/search", dependencies=[Depends(verify_api_key)])
@@ -737,7 +753,7 @@ async def semantic_search(
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to search content: {str(e)}")
+        raise ServerError(f"Failed to search content: {str(e)}") from e
 
 
 @app.get("/api/entries/{content_id}", dependencies=[Depends(verify_api_key)])
@@ -786,7 +802,7 @@ async def get_entry_summary(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to get entry: {str(e)}")
+        raise ServerError(f"Failed to get entry: {str(e)}") from e
 
 
 @app.get("/api/entries/{content_id}/raw", dependencies=[Depends(verify_api_key)])
@@ -841,7 +857,7 @@ async def health_check(storage: Storage = Depends(get_storage)) -> dict:
         }
     except Exception as e:
         # Let the exception handler format it consistently
-        raise ServerError(f"Health check failed: {str(e)}")
+        raise ServerError(f"Health check failed: {str(e)}") from e
 
 
 @app.post("/api/prune", dependencies=[Depends(verify_api_key)])
@@ -891,7 +907,7 @@ async def prune_unprioritized(
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to prune items: {str(e)}")
+        raise ServerError(f"Failed to prune items: {str(e)}") from e
 
 
 @app.get("/api/prune/count", dependencies=[Depends(verify_api_key)])
@@ -927,7 +943,7 @@ async def count_unprioritized(
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to count unprioritized items: {str(e)}")
+        raise ServerError(f"Failed to count unprioritized items: {str(e)}") from e
 
 
 @app.post("/api/audio/briefings", dependencies=[Depends(verify_api_key)])
@@ -1012,11 +1028,11 @@ async def generate_audio_briefing(
             raise ServerError(
                 "lspeak is not installed. Install with: "
                 "uv tool install git+https://github.com/nickpending/lspeak.git"
-            )
+            ) from e
         else:
-            raise ServerError(f"Audio generation failed: {error_msg}")
+            raise ServerError(f"Audio generation failed: {error_msg}") from e
     except Exception as e:
-        raise ServerError(f"Failed to generate audio briefing: {str(e)}")
+        raise ServerError(f"Failed to generate audio briefing: {str(e)}") from e
 
 
 @app.get("/api/archive/status", dependencies=[Depends(verify_api_key)])
@@ -1057,7 +1073,7 @@ async def archive_status(
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to get archival status: {str(e)}")
+        raise ServerError(f"Failed to get archival status: {str(e)}") from e
 
 
 @app.post("/api/context", dependencies=[Depends(verify_api_key)])
@@ -1145,13 +1161,11 @@ async def get_statistics(
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to get statistics: {str(e)}")
+        raise ServerError(f"Failed to get statistics: {str(e)}") from e
 
 
 # Mount audio files directory
-import os
 
-from fastapi.responses import FileResponse
 
 audio_dir = (
     Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))

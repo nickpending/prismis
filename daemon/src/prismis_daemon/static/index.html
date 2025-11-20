@@ -249,6 +249,12 @@
             border: 1px solid #666666;
         }
 
+        .badge-none {
+            background-color: rgba(136, 136, 136, 0.1);
+            color: #888888;
+            border: 1px solid #444444;
+        }
+
         .match-badge {
             display: inline-block;
             padding: 3px 8px;
@@ -664,6 +670,7 @@
                     const params = new URLSearchParams({
                         since_hours: '24',
                         limit: '100',
+                        priority: 'high,medium,low',
                         unread_only: 'false'
                     });
 
@@ -701,7 +708,7 @@
                     // Success - clear offline state
                     this.handleOnlineState();
 
-                    // Server already filtered to 24h via since_hours parameter
+                    // Server already filtered to 24h and prioritized items (high,medium,low)
                     this.content = data.data.items || [];
                     this.cachedContent = [...this.content]; // Cache successful response
                     this.renderContent();
@@ -960,7 +967,7 @@
                             </div>
                         </div>
                         <div class="item-meta">
-                            <span class="priority-badge badge-${item.priority}">${item.priority.toUpperCase()}</span>
+                            <span class="priority-badge badge-${item.priority || 'none'}">${(item.priority || 'none').toUpperCase()}</span>
                             <span>${this.escapeHtml(item.source_name || 'Unknown Source')}</span>
                             <span>${timeAgo}</span>
                             ${interestBadge}

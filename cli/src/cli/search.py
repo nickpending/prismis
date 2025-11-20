@@ -14,6 +14,9 @@ def search(
     limit: int = typer.Option(
         20, "--limit", "-l", help="Maximum number of results (1-50)"
     ),
+    compact: bool = typer.Option(
+        False, "--compact", help="Compact format (excludes content and analysis)"
+    ),
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Search content using semantic similarity.
@@ -21,6 +24,7 @@ def search(
     Args:
         query: Search query string
         limit: Maximum number of results to return (1-50)
+        compact: Return compact format for LLM consumption
         output_json: If True, output raw JSON instead of formatted table
     """
     try:
@@ -33,7 +37,7 @@ def search(
             raise typer.Exit(1)
 
         # Search content
-        results = client.search(query, limit=limit)
+        results = client.search(query, limit=limit, compact=compact)
 
         if output_json:
             # JSON mode - output raw API response

@@ -1,11 +1,11 @@
 """API client for CLI to communicate with daemon."""
 
 import os
-import tomllib
 from pathlib import Path
 from typing import Any
 
 import httpx
+import tomllib
 
 
 class APIClient:
@@ -42,7 +42,7 @@ class APIClient:
             with open(config_path, "rb") as f:
                 config = tomllib.load(f)
         except Exception as e:
-            raise RuntimeError(f"Failed to parse config: {e}")
+            raise RuntimeError(f"Failed to parse config: {e}") from e
 
         api_key = config.get("api", {}).get("key")
         if not api_key:
@@ -92,11 +92,11 @@ class APIClient:
                 return data.get("data", {})
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}")
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}")
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def remove_source(self, source_id: str) -> bool:
         """Remove a source via API.
@@ -132,11 +132,11 @@ class APIClient:
                 return True
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}")
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}")
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def pause_source(self, source_id: str) -> bool:
         """Pause a source via API.
@@ -172,11 +172,11 @@ class APIClient:
                 return True
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}")
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}")
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def resume_source(self, source_id: str) -> bool:
         """Resume a source via API.
@@ -212,11 +212,11 @@ class APIClient:
                 return True
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}")
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}")
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def count_unprioritized(self, days: int | None = None) -> int:
         """Count unprioritized content items.
@@ -250,11 +250,11 @@ class APIClient:
                 return data.get("data", {}).get("count", 0)
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}")
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}")
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def prune_unprioritized(self, days: int | None = None) -> dict:
         """Delete unprioritized content items.
@@ -288,11 +288,11 @@ class APIClient:
                 return data
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}")
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}")
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def get_report(self, period: str = "24h") -> str:
         """Generate a content report for the specified period.
@@ -325,11 +325,11 @@ class APIClient:
                 return data.get("data", {}).get("markdown", "")
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}")
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}")
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def edit_source(self, source_id: str, name: str) -> bool:
         """Edit a source's name via API.
@@ -367,11 +367,11 @@ class APIClient:
                 return True
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}")
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}")
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def get_entry(self, entry_id: str) -> dict[str, Any]:
         """Get a single content entry by ID (summary without content field).
@@ -407,11 +407,11 @@ class APIClient:
                 return data.get("data", {})
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}")
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}")
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def get_entry_raw(self, entry_id: str) -> str:
         """Get raw content of a single entry as plain text.
@@ -441,11 +441,11 @@ class APIClient:
                 return response.text
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}")
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}")
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def get_content(
         self,
@@ -505,11 +505,11 @@ class APIClient:
                 return data.get("data", {}).get("items", [])
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}")
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}")
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def get_archive_status(self) -> dict:
         """Get archival status from API.
@@ -548,12 +548,15 @@ class APIClient:
                 raise
             raise RuntimeError(f"Unexpected error: {e}")
 
-    def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+    def search(
+        self, query: str, limit: int = 20, compact: bool = False
+    ) -> list[dict[str, Any]]:
         """Search content using semantic similarity.
 
         Args:
             query: Search query string
             limit: Maximum number of results to return (1-50)
+            compact: Return compact format (excludes content and analysis)
 
         Returns:
             List of content items with relevance scores
@@ -564,6 +567,8 @@ class APIClient:
         with httpx.Client(timeout=self.timeout) as client:
             try:
                 params: dict[str, Any] = {"q": query, "limit": limit}
+                if compact:
+                    params["compact"] = "true"
 
                 response = client.get(
                     f"{self.base_url}/api/search",
@@ -586,11 +591,11 @@ class APIClient:
                 return data.get("data", {}).get("items", [])
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
+                raise RuntimeError(f"Network error: {e}") from e from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+                raise RuntimeError(f"Unexpected error: {e}") from e from e
 
     def get_statistics(self) -> dict[str, Any]:
         """Get system-wide statistics from API.

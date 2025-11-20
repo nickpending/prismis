@@ -710,6 +710,9 @@ async def semantic_search(
     min_score: float = Query(
         0.0, ge=0.0, le=1.0, description="Minimum relevance score"
     ),
+    compact: bool = Query(
+        False, description="Return compact format (excludes content and analysis)"
+    ),
     storage: Storage = Depends(get_storage),
 ) -> dict:
     """Semantic search across all content using embeddings.
@@ -721,6 +724,7 @@ async def semantic_search(
         q: Search query text
         limit: Maximum number of results (1-50, default: 20)
         min_score: Minimum relevance score filter (0.0-1.0, default: 0.0)
+        compact: Return compact format for LLM consumption
         storage: Storage instance injected by FastAPI
 
     Returns:
@@ -738,6 +742,23 @@ async def semantic_search(
             min_score=min_score,
         )
 
+        # Filter to compact fields if requested
+        if compact:
+            compact_fields = {
+                "id",
+                "title",
+                "url",
+                "priority",
+                "relevance_score",
+                "published_at",
+                "source_name",
+                "summary",
+            }
+            results = [
+                {k: v for k, v in item.items() if k in compact_fields}
+                for item in results
+            ]
+
         return {
             "success": True,
             "message": f"Found {len(results)} results for '{q}'",
@@ -748,6 +769,7 @@ async def semantic_search(
                 "filters_applied": {
                     "limit": limit,
                     "min_score": min_score,
+                    "compact": compact,
                 },
             },
         }

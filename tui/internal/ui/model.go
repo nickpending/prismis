@@ -139,6 +139,11 @@ func newModel(remoteURL string) Model {
 	}
 }
 
+// initRefreshMsg is sent to trigger refresh interval setup
+type initRefreshMsg struct {
+	interval time.Duration
+}
+
 // Init initializes the model and returns a command to fetch initial content
 func (m Model) Init() tea.Cmd {
 	// Initialize the sources viewport with empty content first
@@ -149,13 +154,15 @@ func (m Model) Init() tea.Cmd {
 		fetchSources(),
 	}
 
-	// Load config and set up auto-refresh if enabled
+	// Load config and send refresh interval as message
 	if cfg, err := config.LoadConfig(); err == nil {
 		interval := cfg.GetRefreshInterval()
 		if interval > 0 {
-			m.refreshInterval = time.Duration(interval) * time.Second
-			// Start the auto-refresh timer
-			cmds = append(cmds, autoRefreshCmd(m.refreshInterval))
+			refreshInterval := time.Duration(interval) * time.Second
+			// Send message to set up refresh (can't modify model in Init)
+			cmds = append(cmds, func() tea.Msg {
+				return initRefreshMsg{interval: refreshInterval}
+			})
 		}
 	}
 
@@ -189,6 +196,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sourceModal.SetSize(msg.Width, msg.Height)
 		m.helpModal.SetSize(msg.Width, msg.Height)
 		m.commandMode.SetWidth(msg.Width)
+
+	case initRefreshMsg:
+		// Set refresh interval and start timer
+		m.refreshInterval = msg.interval
+		return m, autoRefreshCmd(m.refreshInterval)
 	}
 
 	// Handle command mode updates first (highest priority)
@@ -816,6 +828,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.statusMessage = "✓ Refreshed"
 					}
 				}
+				// Schedule next auto-refresh after this one completes
+				if msg.isAutoRefresh && m.refreshInterval > 0 {
+					cmds = append(cmds, autoRefreshCmd(m.refreshInterval))
+				}
 				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
 			} else {
 				// Normal cursor bounds check
@@ -877,11 +893,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return result
 			}
 
-			// Schedule next auto-refresh
-			cmds = append(cmds, refreshCmd, autoRefreshCmd(m.refreshInterval))
-		} else if m.refreshInterval > 0 {
-			// If we couldn't refresh (loading/modal open), reschedule for next interval
-			cmds = append(cmds, autoRefreshCmd(m.refreshInterval))
+			// Trigger refresh (timer rescheduled after completion)
+			cmds = append(cmds, refreshCmd)
 		}
 
 	case operations.PruneCountMsg:

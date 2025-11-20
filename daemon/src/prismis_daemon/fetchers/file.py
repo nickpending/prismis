@@ -4,8 +4,8 @@ import difflib
 import hashlib
 import logging
 import time
-from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 
@@ -32,10 +32,10 @@ class FileFetcher:
 
     def __init__(
         self,
-        max_items: Optional[int] = None,
-        config: Optional[Config] = None,
+        max_items: int | None = None,
+        config: Config | None = None,
         timeout: int = 10,
-        storage: Optional[Storage] = None,
+        storage: Storage | None = None,
     ):
         """Initialize file fetcher.
 
@@ -53,7 +53,7 @@ class FileFetcher:
         self.storage = storage if storage else Storage()
         self.client = httpx.Client(timeout=timeout)
 
-    def fetch_content(self, source: Dict[str, Any]) -> List[ContentItem]:
+    def fetch_content(self, source: dict[str, Any]) -> list[ContentItem]:
         """Fetch file content and detect changes.
 
         Args:
@@ -159,8 +159,9 @@ class FileFetcher:
                 title=f"{source_name} Updated",
                 url=url,
                 content=diff_text,
-                published_at=datetime.now(timezone.utc),
-                fetched_at=datetime.now(timezone.utc),
+                published_at=datetime.now(UTC),
+                fetched_at=datetime.now(UTC),
+                priority="high",  # User-added file sources always HIGH priority
                 analysis={
                     "content_hash": current_hash,
                     "full_text": current_content,
@@ -195,8 +196,9 @@ class FileFetcher:
                 title=f"{source_name} Updated",
                 url=url,
                 content=current_content,
-                published_at=datetime.now(timezone.utc),
-                fetched_at=datetime.now(timezone.utc),
+                published_at=datetime.now(UTC),
+                fetched_at=datetime.now(UTC),
+                priority="high",  # User-added file sources always HIGH priority
                 analysis={
                     "content_hash": current_hash,
                     "full_text": current_content,
@@ -267,7 +269,7 @@ class FileFetcher:
 
     def _calculate_diff_stats(
         self, previous_content: str, current_content: str
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Calculate diff statistics (lines added/removed).
 
         Args:

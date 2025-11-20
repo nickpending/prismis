@@ -163,51 +163,50 @@ func GetContextSuggestions() tea.Cmd {
 
 // EditContextFile opens context.md in $EDITOR
 func EditContextFile() tea.Cmd {
-	return func() tea.Msg {
-		// Get context.md path
-		configDir := os.Getenv("XDG_CONFIG_HOME")
-		if configDir == "" {
-			homeDir, err := os.UserHomeDir()
-			if err != nil {
+	// Get context.md path
+	configDir := os.Getenv("XDG_CONFIG_HOME")
+	if configDir == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return func() tea.Msg {
 				return ContextEditMsg{
 					Success: false,
 					Error:   fmt.Errorf("failed to get home directory: %w", err),
 				}
 			}
-			configDir = filepath.Join(homeDir, ".config")
 		}
-		contextPath := filepath.Join(configDir, "prismis", "context.md")
+		configDir = filepath.Join(homeDir, ".config")
+	}
+	contextPath := filepath.Join(configDir, "prismis", "context.md")
 
-		// Check if file exists
-		if _, err := os.Stat(contextPath); os.IsNotExist(err) {
+	// Check if file exists
+	if _, err := os.Stat(contextPath); os.IsNotExist(err) {
+		return func() tea.Msg {
 			return ContextEditMsg{
 				Success: false,
 				Error:   fmt.Errorf("context.md not found at %s", contextPath),
 			}
 		}
+	}
 
-		// Get editor from environment
-		editor := os.Getenv("EDITOR")
-		if editor == "" {
-			editor = "vim" // Fallback to vim
-		}
+	// Get editor from environment
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vim" // Fallback to vim
+	}
 
-		// Open editor (this will suspend TUI)
-		cmd := exec.Command(editor, contextPath)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
+	// Use tea.ExecProcess to properly suspend TUI and restore terminal
+	c := exec.Command(editor, contextPath)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		if err != nil {
 			return ContextEditMsg{
 				Success: false,
 				Error:   fmt.Errorf("editor failed: %w", err),
 			}
 		}
-
 		return ContextEditMsg{
 			Success: true,
 			Error:   nil,
 		}
-	}
+	})
 }

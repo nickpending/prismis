@@ -86,6 +86,7 @@ Thumbs.db
 .claudex/
 .claudex-guard/
 .claudex-guard.yaml
+.mcp.json
 
 # Security - Momentum enhanced (NEVER COMMIT)
 *.key

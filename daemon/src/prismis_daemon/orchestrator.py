@@ -2,28 +2,28 @@
 
 import logging
 import time
-from typing import Optional, Dict, Any
+from typing import Any
 
 from rich.console import Console
 
 try:
     # When run as module
-    from .storage import Storage
-    from .summarizer import ContentSummarizer
+    from .config import Config
+    from .embeddings import Embedder
     from .evaluator import ContentEvaluator
     from .notifier import Notifier
-    from .embeddings import Embedder
-    from .config import Config
     from .observability import log as obs_log
+    from .storage import Storage
+    from .summarizer import ContentSummarizer
 except ImportError:
     # When imported directly in tests
-    from storage import Storage
-    from summarizer import ContentSummarizer
-    from evaluator import ContentEvaluator
-    from notifier import Notifier
     from config import Config
     from embeddings import Embedder
+    from evaluator import ContentEvaluator
+    from notifier import Notifier
     from observability import log as obs_log
+    from storage import Storage
+    from summarizer import ContentSummarizer
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -43,8 +43,8 @@ class DaemonOrchestrator:
         evaluator: ContentEvaluator,
         notifier: Notifier,
         config: Config,
-        console: Optional[Console] = None,
-        embedder: Optional[Embedder] = None,
+        console: Console | None = None,
+        embedder: Embedder | None = None,
     ):
         """Initialize orchestrator with dependencies.
 
@@ -74,8 +74,8 @@ class DaemonOrchestrator:
         self.embedder = embedder or Embedder()
 
     def fetch_source_content(
-        self, source: Dict[str, Any], force_refetch: bool = False
-    ) -> Dict[str, Any]:
+        self, source: dict[str, Any], force_refetch: bool = False
+    ) -> dict[str, Any]:
         """Fetch and process content from a single source with deduplication.
 
         Implements two-path deduplication:
@@ -264,13 +264,19 @@ class DaemonOrchestrator:
 
                     # Step 3e: Convert ContentItem to dict and add merged analysis
                     item_dict = item.to_dict()
+                    # File sources always HIGH priority (user explicitly added)
+                    priority = (
+                        item.priority
+                        if source.get("type") == "file" and item.priority
+                        else (
+                            evaluation.priority.value if evaluation.priority else None
+                        )
+                    )
                     item_dict.update(
                         {
                             "summary": summary_result.summary,
                             "analysis": merged_analysis,
-                            "priority": evaluation.priority.value
-                            if evaluation.priority
-                            else None,
+                            "priority": priority,
                         }
                     )
 

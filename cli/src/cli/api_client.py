@@ -1,11 +1,11 @@
 """API client for CLI to communicate with daemon."""
 
 import os
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import httpx
-import tomllib
 
 
 class APIClient:
@@ -542,11 +542,11 @@ class APIClient:
                 return data.get("data", {})
 
         except httpx.RequestError as e:
-            raise RuntimeError(f"Network error: {e}")
+            raise RuntimeError(f"Network error: {e}") from e
         except Exception as e:
             if isinstance(e, RuntimeError):
                 raise
-            raise RuntimeError(f"Unexpected error: {e}")
+            raise RuntimeError(f"Unexpected error: {e}") from e
 
     def search(
         self, query: str, limit: int = 20, compact: bool = False
@@ -568,7 +568,7 @@ class APIClient:
             try:
                 params: dict[str, Any] = {"q": query, "limit": limit}
                 if compact:
-                    params["compact"] = "true"
+                    params["compact"] = True
 
                 response = client.get(
                     f"{self.base_url}/api/search",
@@ -591,11 +591,11 @@ class APIClient:
                 return data.get("data", {}).get("items", [])
 
             except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e from e
+                raise RuntimeError(f"Network error: {e}") from e
             except Exception as e:
                 if isinstance(e, RuntimeError):
                     raise
-                raise RuntimeError(f"Unexpected error: {e}") from e from e
+                raise RuntimeError(f"Unexpected error: {e}") from e
 
     def get_statistics(self) -> dict[str, Any]:
         """Get system-wide statistics from API.

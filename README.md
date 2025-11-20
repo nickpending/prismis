@@ -241,12 +241,12 @@ Most CLI commands support `--json` for machine-readable output, perfect for AI a
 
 ```bash
 # Get structured data for LLM processing
-prismis-cli statistics --json       # System metrics
-prismis-cli search "topic" --json   # Search results
-prismis-cli list --json             # Content list
-prismis-cli get <id> --json         # Entry metadata
-prismis-cli source list --json      # All sources
-prismis-cli source add <url> --json # Source creation response
+prismis-cli statistics --json              # System metrics
+prismis-cli search "topic" --compact --json # Search results (compact: 24x smaller)
+prismis-cli list --json                    # Content list
+prismis-cli get <id> --json                # Entry metadata
+prismis-cli source list --json             # All sources
+prismis-cli source add <url> --json        # Source creation response
 
 # Example: Let AI analyze your reading backlog
 prismis-cli list --priority high --unread --json | llm "Summarize my reading queue"

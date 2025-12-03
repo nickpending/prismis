@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 import litellm
 from litellm import completion_cost
@@ -28,19 +28,19 @@ class ContentSummary:
     reading_summary: str
 
     # Universal structured analysis fields (extracted once during ingest)
-    alpha_insights: List[str]
-    patterns: List[str]
-    entities: List[str]  # These are the "topics" - key concepts/technologies
-    quotes: List[str]  # Key memorable quotes from the content
-    tools: List[str]  # Novel/interesting tools and libraries mentioned
-    urls: List[str]  # URLs referenced in the content
-    metadata: Dict[str, Any]
+    alpha_insights: list[str]
+    patterns: list[str]
+    entities: list[str]  # These are the "topics" - key concepts/technologies
+    quotes: list[str]  # Key memorable quotes from the content
+    tools: list[str]  # Novel/interesting tools and libraries mentioned
+    urls: list[str]  # URLs referenced in the content
+    metadata: dict[str, Any]
 
 
 class ContentSummarizer:
     """Generate summaries and extract structured insights from content."""
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize the summarizer with LLM configuration.
 
         Args:
@@ -77,8 +77,8 @@ class ContentSummarizer:
         url: str = "",
         source_type: str = "",
         source_name: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Optional[ContentSummary]:
+        metadata: dict[str, Any] | None = None,
+    ) -> ContentSummary | None:
         """Generate summary with universal structured analysis.
 
         Args:
@@ -256,12 +256,14 @@ class ContentSummarizer:
 
         Args:
             word_count: Number of words in content
-            source_type: Source type (reddit, youtube, rss, etc.)
+            source_type: Source type (reddit, youtube, rss, file, etc.)
 
         Returns:
-            Mode name: 'brief', 'detailed', or 'standard'
+            Mode name: 'brief', 'detailed', 'diff', or 'standard'
         """
-        if source_type == "reddit" and word_count < 300:
+        if source_type == "file":
+            return "diff"
+        elif source_type == "reddit" and word_count < 300:
             return "brief"
         elif source_type == "youtube" and word_count > 5000:
             return "detailed"
@@ -273,13 +275,17 @@ class ContentSummarizer:
 
         Args:
             word_count: Number of words in content
-            source_type: Source type (reddit, youtube, rss, etc.)
+            source_type: Source type (reddit, youtube, rss, file, etc.)
 
         Returns:
             System prompt string for the selected mode
         """
+        # Diff mode: File sources (content is unified diff)
+        if source_type == "file":
+            return self._get_diff_system_prompt()
+
         # Brief mode: Short Reddit posts (< 300 words)
-        if source_type == "reddit" and word_count < 300:
+        elif source_type == "reddit" and word_count < 300:
             return self._get_brief_system_prompt()
 
         # Detailed mode: Long YouTube videos (> 5000 words)
@@ -473,6 +479,54 @@ OUTPUT FORMAT:
             "- Reading summary: Comprehensive - approximately 20-25% of original content length. Provide richer detail with deeper analysis since source is extensive:",
         )
 
+    def _get_diff_system_prompt(self) -> str:
+        """Get diff-aware system prompt for file sources (content is unified diff).
+
+        Focuses analysis on what actually changed, not surrounding context.
+        """
+        return """You are an expert at analyzing unified diffs. The content is a UNIFIED DIFF showing changes to a file.
+
+CRITICAL: You MUST respond with ONLY valid JSON. Start with { and end with }. No preamble.
+
+UNDERSTANDING UNIFIED DIFF FORMAT:
+- Lines starting with "---" and "+++" are file headers (ignore these)
+- Lines starting with "@@" show line numbers where changes occur
+- Lines starting with "-" are REMOVED content (old version)
+- Lines starting with "+" are ADDED content (new version)
+- Lines without +/- prefix are CONTEXT (unchanged lines shown for reference)
+
+YOUR TASK: Analyze ONLY what actually changed (+ and - lines), NOT the context lines.
+Context lines are just there to show where changes occurred - do NOT summarize them as if they were new content.
+
+STEP 1: CREATE SUMMARIES
+- Summary: 400 chars max. Describe what CHANGED (e.g., "Updated documentation URLs from docs.claude.com to code.claude.com across 6 sections")
+- Reading summary: MARKDOWN format describing:
+  * # What Changed - brief overview of the change type
+  * ## Changes Made - specific changes with before/after when useful
+  * ## Impact - what this means for users/developers
+  * IMPORTANT: Focus on the ACTUAL changes, not the surrounding context
+
+STEP 2: EXTRACT INSIGHTS & PATTERNS
+- Alpha insights: What do these changes reveal? (e.g., "Documentation migration indicates platform consolidation")
+- Patterns: What patterns appear in the changes? (e.g., "Consistent URL scheme migration")
+
+STEP 3: EXTRACT TAGS (entities)
+Extract 3-5 tags about what changed. Examples:
+- URL migration: ["documentation", "url-migration"]
+- Bug fix: ["bugfix", "error-handling"]
+- Feature addition: ["feature", "api"]
+
+STEP 4: EXTRACT QUOTES
+Usually empty for diffs. Only include if changes contain genuinely insightful text.
+
+STEP 5: EXTRACT TOOLS
+Only tools that were ADDED or REMOVED in the changes, not tools mentioned in context.
+
+STEP 6: EXTRACT URLs
+Only URLs that were ADDED in the changes (lines starting with "+").
+
+Return JSON with: summary, reading_summary, alpha_insights, patterns, entities, quotes, tools, urls, metadata"""
+
     def _build_prompt(
         self,
         content: str,
@@ -480,7 +534,7 @@ OUTPUT FORMAT:
         url: str,
         source_type: str,
         source_name: str,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
     ) -> str:
         """Build the analysis prompt for the LLM.
 

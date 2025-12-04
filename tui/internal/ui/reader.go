@@ -113,13 +113,8 @@ func renderMetadata(metadata ContentMetadata, width int) string {
 	// URLs as section
 	if len(metadata.URLs) > 0 {
 		sections = append(sections, "## Links")
-		for i, url := range metadata.URLs {
-			if i < 3 { // Show first 3
-				sections = append(sections, fmt.Sprintf("- %s", url))
-			} else if i == 3 && len(metadata.URLs) > 3 {
-				sections = append(sections, fmt.Sprintf("- ... and %d more links", len(metadata.URLs)-3))
-				break
-			}
+		for _, url := range metadata.URLs {
+			sections = append(sections, fmt.Sprintf("- %s", url))
 		}
 		sections = append(sections, "")
 	}

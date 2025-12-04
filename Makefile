@@ -112,87 +112,12 @@ install-binaries: ## Install binaries to ~/.local/bin
 	fi
 
 .PHONY: install-config
-install-config: ## Create default config files (never overwrites existing)
+install-config: ## Create .env template (config.toml created by daemon on first run)
 	@echo "Setting up configuration..."
 	@mkdir -p $(CONFIG_DIR)
 	@mkdir -p $(DATA_DIR)
-	# Create default config.toml if not exists
-	@if [ ! -f $(CONFIG_DIR)/config.toml ]; then \
-		echo "Creating default config.toml..."; \
-		echo '[daemon]' > $(CONFIG_DIR)/config.toml; \
-		echo 'fetch_interval = 30  # minutes' >> $(CONFIG_DIR)/config.toml; \
-		echo 'batch_size = 10' >> $(CONFIG_DIR)/config.toml; \
-		echo 'retry_attempts = 3' >> $(CONFIG_DIR)/config.toml; \
-		echo 'max_items_rss = 100' >> $(CONFIG_DIR)/config.toml; \
-		echo 'max_items_reddit = 100' >> $(CONFIG_DIR)/config.toml; \
-		echo 'max_items_youtube = 50' >> $(CONFIG_DIR)/config.toml; \
-		echo 'max_days_lookback = 7' >> $(CONFIG_DIR)/config.toml; \
-		echo '' >> $(CONFIG_DIR)/config.toml; \
-		echo '[llm]' >> $(CONFIG_DIR)/config.toml; \
-		echo 'provider = "openai"' >> $(CONFIG_DIR)/config.toml; \
-		echo 'model = "gpt-4o-mini"' >> $(CONFIG_DIR)/config.toml; \
-		echo 'api_key = "env:OPENAI_API_KEY"  # Or set directly: "sk-..."' >> $(CONFIG_DIR)/config.toml; \
-		echo '' >> $(CONFIG_DIR)/config.toml; \
-		echo '[notifications]' >> $(CONFIG_DIR)/config.toml; \
-		echo 'enabled = true' >> $(CONFIG_DIR)/config.toml; \
-		echo 'priority_threshold = "high"' >> $(CONFIG_DIR)/config.toml; \
-		echo 'quiet_hours_start = "22:00"' >> $(CONFIG_DIR)/config.toml; \
-		echo 'quiet_hours_end = "08:00"' >> $(CONFIG_DIR)/config.toml; \
-		echo 'high_priority_only = true' >> $(CONFIG_DIR)/config.toml; \
-		echo 'command = "notify-send"' >> $(CONFIG_DIR)/config.toml; \
-		echo '' >> $(CONFIG_DIR)/config.toml; \
-		echo '[reddit]' >> $(CONFIG_DIR)/config.toml; \
-		echo 'client_id = "env:REDDIT_CLIENT_ID"' >> $(CONFIG_DIR)/config.toml; \
-		echo 'client_secret = "env:REDDIT_CLIENT_SECRET"' >> $(CONFIG_DIR)/config.toml; \
-		echo 'user_agent = "Prismis/0.1.0"' >> $(CONFIG_DIR)/config.toml; \
-		echo '' >> $(CONFIG_DIR)/config.toml; \
-		echo '[api]' >> $(CONFIG_DIR)/config.toml; \
-		echo 'key = "prismis-local-dev-key"' >> $(CONFIG_DIR)/config.toml; \
-		echo '' >> $(CONFIG_DIR)/config.toml; \
-		echo '[archival]' >> $(CONFIG_DIR)/config.toml; \
-		echo 'enabled = true' >> $(CONFIG_DIR)/config.toml; \
-		echo '' >> $(CONFIG_DIR)/config.toml; \
-		echo '[archival.windows]' >> $(CONFIG_DIR)/config.toml; \
-		echo 'high_read = 30        # HIGH: archive read after 30 days' >> $(CONFIG_DIR)/config.toml; \
-		echo 'medium_unread = 14    # MEDIUM: archive unread after 14 days' >> $(CONFIG_DIR)/config.toml; \
-		echo 'medium_read = 30      # MEDIUM: archive read after 30 days' >> $(CONFIG_DIR)/config.toml; \
-		echo 'low_unread = 7        # LOW: archive unread after 7 days' >> $(CONFIG_DIR)/config.toml; \
-		echo 'low_read = 30         # LOW: archive read after 30 days' >> $(CONFIG_DIR)/config.toml; \
-		echo '' >> $(CONFIG_DIR)/config.toml; \
-		echo '# Database location is handled automatically using XDG standards' >> $(CONFIG_DIR)/config.toml; \
-		echo '# Database will be in $$XDG_DATA_HOME/prismis/prismis.db' >> $(CONFIG_DIR)/config.toml; \
-		echo "✓ Created config.toml"; \
-	else \
-		echo "✓ config.toml already exists (preserved)"; \
-	fi
-	# Create default context.md if not exists
-	@if [ ! -f $(CONFIG_DIR)/context.md ]; then \
-		echo "Creating default context.md..."; \
-		echo '# Personal Context for Content Prioritization' > $(CONFIG_DIR)/context.md; \
-		echo '' >> $(CONFIG_DIR)/context.md; \
-		echo '## High Priority Topics' >> $(CONFIG_DIR)/context.md; \
-		echo '- AI/LLM breakthroughs, especially local models' >> $(CONFIG_DIR)/context.md; \
-		echo '- Important security vulnerabilities in my stack' >> $(CONFIG_DIR)/context.md; \
-		echo '- Breaking changes in tools I use daily' >> $(CONFIG_DIR)/context.md; \
-		echo '' >> $(CONFIG_DIR)/context.md; \
-		echo '## Medium Priority Topics' >> $(CONFIG_DIR)/context.md; \
-		echo '- General programming best practices' >> $(CONFIG_DIR)/context.md; \
-		echo '- New tool releases' >> $(CONFIG_DIR)/context.md; \
-		echo '- Performance optimization techniques' >> $(CONFIG_DIR)/context.md; \
-		echo '' >> $(CONFIG_DIR)/context.md; \
-		echo '## Low Priority Topics' >> $(CONFIG_DIR)/context.md; \
-		echo '- Programming tutorials for beginners' >> $(CONFIG_DIR)/context.md; \
-		echo '- General tech news' >> $(CONFIG_DIR)/context.md; \
-		echo '- Conference announcements' >> $(CONFIG_DIR)/context.md; \
-		echo '' >> $(CONFIG_DIR)/context.md; \
-		echo '## Not Interested' >> $(CONFIG_DIR)/context.md; \
-		echo '- Crypto, blockchain, web3' >> $(CONFIG_DIR)/context.md; \
-		echo '- Gaming news' >> $(CONFIG_DIR)/context.md; \
-		echo '- Politics' >> $(CONFIG_DIR)/context.md; \
-		echo "✓ Created context.md"; \
-	else \
-		echo "✓ context.md already exists (preserved)"; \
-	fi
+	# Note: config.toml and context.md are created by daemon on first run
+	# This ensures correct schema with all required fields
 	# Create .env template if not exists
 	@if [ ! -f $(CONFIG_DIR)/.env ]; then \
 		echo "Creating .env template..."; \
@@ -202,9 +127,15 @@ install-config: ## Create default config files (never overwrites existing)
 		echo '# Required: OpenAI API key (or your chosen LLM provider)' >> $(CONFIG_DIR)/.env; \
 		echo 'OPENAI_API_KEY=sk-your-key-here' >> $(CONFIG_DIR)/.env; \
 		echo '' >> $(CONFIG_DIR)/.env; \
+		echo '# Optional: For local models (LM Studio, Ollama), no key needed' >> $(CONFIG_DIR)/.env; \
+		echo '# Edit config.toml [llm] section instead' >> $(CONFIG_DIR)/.env; \
+		echo '' >> $(CONFIG_DIR)/.env; \
 		echo '# Optional: Reddit API credentials (only needed for reddit:// sources)' >> $(CONFIG_DIR)/.env; \
 		echo 'REDDIT_CLIENT_ID=your-reddit-client-id' >> $(CONFIG_DIR)/.env; \
 		echo 'REDDIT_CLIENT_SECRET=your-reddit-client-secret' >> $(CONFIG_DIR)/.env; \
+		echo '' >> $(CONFIG_DIR)/.env; \
+		echo '# Optional: ElevenLabs API key (for :audio command with elevenlabs provider)' >> $(CONFIG_DIR)/.env; \
+		echo 'ELEVENLABS_API_KEY=your-elevenlabs-key' >> $(CONFIG_DIR)/.env; \
 		chmod 600 $(CONFIG_DIR)/.env; \
 		echo "✓ Created .env template (edit and add your API keys)"; \
 	else \

@@ -14,17 +14,17 @@ from dotenv import load_dotenv
 from rich.console import Console
 
 from .config import Config
-from .storage import Storage
-from .fetchers.rss import RSSFetcher
-from .fetchers.reddit import RedditFetcher
-from .fetchers.youtube import YouTubeFetcher
-from .fetchers.file import FileFetcher
-from .summarizer import ContentSummarizer
-from .evaluator import ContentEvaluator
-from .notifier import Notifier
 from .defaults import ensure_config
-from .orchestrator import DaemonOrchestrator
+from .evaluator import ContentEvaluator
+from .fetchers.file import FileFetcher
+from .fetchers.reddit import RedditFetcher
+from .fetchers.rss import RSSFetcher
+from .fetchers.youtube import YouTubeFetcher
+from .notifier import Notifier
 from .observability import get_logger as get_obs_logger
+from .orchestrator import DaemonOrchestrator
+from .storage import Storage
+from .summarizer import ContentSummarizer
 
 # Load environment variables from ~/.config/prismis/.env
 config_home = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
@@ -314,8 +314,9 @@ def main(
     """Main entry point for Prismis daemon."""
     # Common setup for both modes
     try:
-        # Ensure config files exist
-        ensure_config()
+        # Ensure config files exist - exits if new config created
+        if not ensure_config():
+            sys.exit(0)
 
         # Load configuration
         console.print("📂 Loading configuration...")

@@ -1,10 +1,9 @@
 """Configuration loading from TOML and context.md files."""
 
-import tomllib
 import os
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from .defaults import DEFAULT_CONTEXT_MD
 
@@ -49,18 +48,22 @@ class Config:
 
     # Archival settings (required fields, no defaults)
     archival_enabled: bool
-    archival_high_read: Optional[int]  # None = never archive HIGH
+    archival_high_read: int | None  # None = never archive HIGH
     archival_medium_unread: int
     archival_medium_read: int
     archival_low_unread: int
     archival_low_read: int
 
     # Optional fields with defaults must come last
-    llm_api_base: Optional[str] = None  # For Ollama and custom endpoints
+    llm_api_base: str | None = None  # For Ollama and custom endpoints
 
     # Audio settings (uses lspeak for all TTS)
     audio_provider: str = "system"  # system (free, native TTS) or elevenlabs
-    audio_voice: Optional[str] = None  # Voice ID/name (provider-specific)
+    audio_voice: str | None = None  # Voice ID/name (provider-specific)
+
+    # LLM retry settings
+    llm_max_retries: int = 3  # Max retry attempts for transient LLM errors
+    llm_retry_backoff_base: float = 2.0  # Exponential backoff base (2^attempt seconds)
 
     def get_max_items(self, source_type: str) -> int:
         """Get max items limit for a specific source type.
@@ -143,8 +146,18 @@ class Config:
                     f"{field_name} must be positive (or None to disable), got {value}"
                 )
 
+        # Validate LLM retry settings
+        if not 0 <= self.llm_max_retries <= 10:
+            raise ValueError(
+                f"llm_max_retries must be between 0 and 10, got {self.llm_max_retries}"
+            )
+        if not 1.0 <= self.llm_retry_backoff_base <= 10.0:
+            raise ValueError(
+                f"llm_retry_backoff_base must be between 1.0 and 10.0, got {self.llm_retry_backoff_base}"
+            )
+
     @classmethod
-    def from_file(cls, config_path: Optional[Path] = None) -> "Config":
+    def from_file(cls, config_path: Path | None = None) -> "Config":
         """Load configuration from TOML file.
 
         Args:
@@ -173,7 +186,7 @@ class Config:
             with open(config_path, "rb") as f:
                 config_dict = tomllib.load(f)
         except Exception as e:
-            raise ValueError(f"Failed to parse config file {config_path}: {e}")
+            raise ValueError(f"Failed to parse config file {config_path}: {e}") from e
 
         # Extract daemon settings
         daemon = config_dict.get("daemon", {})
@@ -244,7 +257,7 @@ class Config:
                 archival_low_read=archival["windows"]["low_read"],
             )
         except KeyError as e:
-            raise ValueError(f"Missing required config field: {e}")
+            raise ValueError(f"Missing required config field: {e}") from e
 
         # Validate the loaded config
         config.validate()

@@ -73,6 +73,90 @@ class DaemonOrchestrator:
         self.console = console or Console()
         self.embedder = embedder or Embedder()
 
+    def _is_transient_error(self, error: Exception) -> bool:
+        """Check if an error is transient and should be retried.
+
+        Args:
+            error: The exception that occurred
+
+        Returns:
+            True if the error is transient (timeout, rate limit, connection)
+        """
+        error_str = str(error).lower()
+        transient_patterns = [
+            "timeout",
+            "rate limit",
+            "rate_limit",
+            "ratelimit",
+            "429",
+            "connection",
+            "temporarily unavailable",
+            "service unavailable",
+            "503",
+            "502",
+            "500",
+        ]
+        return any(pattern in error_str for pattern in transient_patterns)
+
+    def _call_with_retry(self, func, *args, **kwargs):
+        """Call a function with exponential backoff retry for transient errors.
+
+        Args:
+            func: Function to call
+            *args: Positional arguments for func
+            **kwargs: Keyword arguments for func
+
+        Returns:
+            Result of func(*args, **kwargs)
+
+        Raises:
+            Exception: If all retries exhausted or non-transient error
+        """
+        max_retries = self.config.llm_max_retries
+        backoff_base = self.config.llm_retry_backoff_base
+        last_error = None
+
+        for attempt in range(max_retries + 1):  # +1 for initial attempt
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                last_error = e
+
+                # Don't retry non-transient errors
+                if not self._is_transient_error(e):
+                    raise
+
+                # Don't retry if we've exhausted attempts
+                if attempt >= max_retries:
+                    obs_log(
+                        "llm.retry",
+                        action="exhausted",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        error=str(e),
+                    )
+                    raise
+
+                # Calculate backoff delay
+                delay = backoff_base**attempt  # 2^0=1, 2^1=2, 2^2=4 seconds
+                obs_log(
+                    "llm.retry",
+                    action="retrying",
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    delay_seconds=delay,
+                    error=str(e),
+                )
+                self.console.print(
+                    f"       ⚠️  LLM error (attempt {attempt + 1}/{max_retries + 1}), "
+                    f"retrying in {delay}s: {e}",
+                    style="yellow",
+                )
+                time.sleep(delay)
+
+        # Should never reach here, but just in case
+        raise last_error  # type: ignore
+
     def fetch_source_content(
         self, source: dict[str, Any], force_refetch: bool = False
     ) -> dict[str, Any]:
@@ -214,7 +298,8 @@ class DaemonOrchestrator:
                     if hasattr(item, "analysis") and item.analysis:
                         metadata = item.analysis.get("metrics", {})
 
-                    summary_result = self.summarizer.summarize_with_analysis(
+                    summary_result = self._call_with_retry(
+                        self.summarizer.summarize_with_analysis,
                         content=item.content,
                         title=item.title,
                         url=item.url,
@@ -235,7 +320,8 @@ class DaemonOrchestrator:
                     )
 
                     # Step 3b: Evaluate priority against user context
-                    evaluation = self.evaluator.evaluate_content(
+                    evaluation = self._call_with_retry(
+                        self.evaluator.evaluate_content,
                         content=item.content,
                         title=item.title,
                         url=item.url,

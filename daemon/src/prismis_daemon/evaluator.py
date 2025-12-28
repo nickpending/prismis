@@ -5,12 +5,13 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 import litellm
 from litellm import completion_cost
 
 try:
+    from .circuit_breaker import get_circuit_breaker
     from .observability import log as obs_log
 except ImportError:
     from observability import log as obs_log
@@ -30,15 +31,15 @@ class PriorityLevel(str, Enum):
 class ContentEvaluation:
     """Result of evaluating content against user interests."""
 
-    priority: Optional[PriorityLevel]  # Can be None for unprioritized content
-    matched_interests: List[str]
-    reasoning: Optional[str] = None
+    priority: PriorityLevel | None  # Can be None for unprioritized content
+    matched_interests: list[str]
+    reasoning: str | None = None
 
 
 class ContentEvaluator:
     """Evaluates content against user interests using LLM integration."""
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """Initialize the content evaluator.
 
         Args:
@@ -95,7 +96,7 @@ class ContentEvaluator:
 
     def _build_evaluation_prompt(
         self, content: str, title: str, url: str, context: str
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """Build the evaluation prompt for the LLM.
 
         Args:
@@ -155,7 +156,7 @@ Evaluate this content and respond with the JSON format specified."""
             {"role": "user", "content": user_prompt},
         ]
 
-    def _call_llm(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    def _call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
         """Call LiteLLM with the evaluation prompt.
 
         Args:
@@ -183,6 +184,15 @@ Evaluate this content and respond with the JSON format specified."""
                 kwargs["api_key"] = self.api_key
             if self.api_base:
                 kwargs["api_base"] = self.api_base
+
+            # Check circuit breaker before LLM call
+            circuit = get_circuit_breaker()
+            if not circuit.check_can_proceed():
+                status = circuit.get_status()
+                raise RuntimeError(
+                    f"LLM circuit breaker is open (quota exhausted). "
+                    f"Recovery in {status.get('recovery_in_seconds', 'unknown')}s"
+                )
 
             # Track LLM call timing and cost for observability
             start_time = time.time()
@@ -219,7 +229,13 @@ Evaluate this content and respond with the JSON format specified."""
                     status="success",
                 )
 
+                # Record success for circuit breaker (closes if half-open)
+                circuit.record_success()
+
             except Exception as e:
+                # Record failure for circuit breaker (may open circuit)
+                circuit.record_failure(e)
+
                 # Log failed LLM call
                 duration_ms = int((time.time() - start_time) * 1000)
                 obs_log(
@@ -240,12 +256,12 @@ Evaluate this content and respond with the JSON format specified."""
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM response as JSON: {e}")
-            raise ValueError(f"Invalid JSON response from LLM: {e}")
+            raise ValueError(f"Invalid JSON response from LLM: {e}") from e
         except Exception as e:
             logger.error(f"LLM evaluation failed: {e}")
             raise
 
-    def _parse_evaluation_response(self, response: Dict[str, Any]) -> ContentEvaluation:
+    def _parse_evaluation_response(self, response: dict[str, Any]) -> ContentEvaluation:
         """Parse the LLM response into a ContentEvaluation.
 
         Args:

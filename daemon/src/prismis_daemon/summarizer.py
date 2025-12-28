@@ -10,6 +10,7 @@ import litellm
 from litellm import completion_cost
 
 try:
+    from .circuit_breaker import get_circuit_breaker
     from .observability import log as obs_log
 except ImportError:
     from observability import log as obs_log
@@ -138,6 +139,15 @@ class ContentSummarizer:
             if self.api_base:
                 kwargs["api_base"] = self.api_base
 
+            # Check circuit breaker before LLM call
+            circuit = get_circuit_breaker()
+            if not circuit.check_can_proceed():
+                status = circuit.get_status()
+                raise RuntimeError(
+                    f"LLM circuit breaker is open (quota exhausted). "
+                    f"Recovery in {status.get('recovery_in_seconds', 'unknown')}s"
+                )
+
             # Track LLM call timing and cost for observability
             start_time = time.time()
 
@@ -173,7 +183,13 @@ class ContentSummarizer:
                     status="success",
                 )
 
+                # Record success for circuit breaker (closes if half-open)
+                circuit.record_success()
+
             except Exception as e:
+                # Record failure for circuit breaker (may open circuit)
+                circuit.record_failure(e)
+
                 # Log failed LLM call
                 duration_ms = int((time.time() - start_time) * 1000)
                 obs_log(

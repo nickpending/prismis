@@ -583,6 +583,10 @@ async def get_content(
     since_hours: int | None = Query(
         None, ge=1, le=720, description="Hours to look back (convenience parameter)"
     ),
+    sort_by: str | None = Query(
+        None,
+        description="Sort order: 'priority' (default), 'date', or 'unread'",
+    ),
     storage: Storage = Depends(get_storage),
 ) -> dict:
     """Get content items with optional filtering.
@@ -597,6 +601,7 @@ async def get_content(
         since: ISO8601 timestamp to filter content (e.g., '2025-11-05T12:00:00Z')
         since_hours: Hours to look back (1-720). Convenience parameter - converted to timestamp.
                      If neither since nor since_hours provided, returns all content.
+        sort_by: Sort order - 'priority' (default), 'date', or 'unread'
         storage: Storage instance injected by FastAPI
 
     Returns:
@@ -611,6 +616,10 @@ async def get_content(
             raise ValidationError(
                 f"Invalid priority value(s): {', '.join(invalid)}. Must be one of: high, medium, low"
             )
+
+    # Validate sort_by parameter
+    valid_sort_options = ["priority", "date", "unread"]
+    effective_sort = sort_by if sort_by in valid_sort_options else "priority"
 
     try:
         # Convert time parameters to datetime for storage layer
@@ -680,6 +689,27 @@ async def get_content(
                 )
                 content_items = all_content[:limit]
 
+        # Apply sorting based on sort_by parameter
+        # Helper to get sortable date (ISO strings sort correctly alphabetically)
+        def get_date(item: dict) -> str:
+            return item.get("published_at") or ""
+
+        priority_order = {"high": 0, "medium": 1, "low": 2, None: 3}
+
+        if effective_sort == "date":
+            # Sort by published_at descending (newest first)
+            content_items.sort(key=get_date, reverse=True)
+        elif effective_sort == "unread":
+            # Sort by read status (unread first), then by date descending
+            # Use stable sort: first by date desc, then by read status
+            content_items.sort(key=get_date, reverse=True)
+            content_items.sort(key=lambda x: 1 if x.get("read_at") else 0)
+        else:
+            # Default: sort by priority ascending, then date descending
+            # Use stable sort: first by date desc, then by priority
+            content_items.sort(key=get_date, reverse=True)
+            content_items.sort(key=lambda x: priority_order.get(x.get("priority"), 3))
+
         # Format response consistently with other endpoints
         return {
             "success": True,
@@ -695,6 +725,7 @@ async def get_content(
                     "limit": limit,
                     "since": since,
                     "since_hours": since_hours,
+                    "sort_by": effective_sort,
                 },
             },
         }

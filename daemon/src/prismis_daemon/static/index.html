@@ -73,8 +73,49 @@
         }
 
         .refresh-info {
-            font-size: 13px;
-            color: #888888;
+            font-size: 11px;
+            color: #555555;
+        }
+
+        .status-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .sort-control select {
+            appearance: none;
+            -webkit-appearance: none;
+            background: linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%);
+            color: #00D9FF;
+            border: 1px solid #333333;
+            border-radius: 4px;
+            padding: 8px 32px 8px 12px;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2300D9FF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .sort-control select:hover {
+            border-color: #00D9FF;
+            background: linear-gradient(180deg, #333333 0%, #222222 100%);
+        }
+
+        .sort-control select:focus {
+            outline: none;
+            border-color: #00D9FF;
+        }
+
+        .sort-control select option {
+            background: #1a1a1a;
+            color: #EEEEEE;
+            padding: 8px;
         }
 
         .audio-controls {
@@ -557,7 +598,16 @@
 
     <div class="status-bar">
         <div class="status-info" id="statusInfo">Loading...</div>
-        <div class="refresh-info" id="refreshInfo">Last 24 hours • Refreshes every 30s</div>
+        <div class="status-right">
+            <div class="sort-control">
+                <select id="sortSelect" title="Sort order">
+                    <option value="priority">Priority</option>
+                    <option value="date">Newest</option>
+                    <option value="unread">Unread</option>
+                </select>
+            </div>
+            <div class="refresh-info" id="refreshInfo">24h • 30s refresh</div>
+        </div>
     </div>
 
     <div id="errorContainer"></div>
@@ -583,6 +633,7 @@
         class PrismisWebapp {
             constructor() {
                 this.apiKey = localStorage.getItem('prismis_api_key');
+                this.sortBy = localStorage.getItem('prismis_sort') || 'priority';
                 this.content = [];
                 this.cachedContent = [];
                 this.refreshInterval = null;
@@ -599,6 +650,12 @@
 
             init() {
                 this.setupEventListeners();
+
+                // Initialize sort dropdown from stored preference
+                const sortSelect = document.getElementById('sortSelect');
+                if (sortSelect) {
+                    sortSelect.value = this.sortBy;
+                }
 
                 if (!this.apiKey) {
                     this.showApiKeyModal();
@@ -631,6 +688,13 @@
                     if (e.target.classList.contains('retry-btn')) {
                         this.retryConnection();
                     }
+                });
+
+                // Sort dropdown
+                document.getElementById('sortSelect').addEventListener('change', (e) => {
+                    this.sortBy = e.target.value;
+                    localStorage.setItem('prismis_sort', this.sortBy);
+                    this.loadContent();
                 });
             }
 
@@ -671,7 +735,8 @@
                         since_hours: '24',
                         limit: '100',
                         priority: 'high,medium,low',
-                        unread_only: 'false'
+                        unread_only: 'false',
+                        sort_by: this.sortBy
                     });
 
                     const controller = new AbortController();

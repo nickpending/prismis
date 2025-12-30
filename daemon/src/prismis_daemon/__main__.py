@@ -153,17 +153,19 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             max_instances=1,
         )
 
-        # Setup signal handlers for graceful shutdown
-        def signal_handler(sig, frame) -> None:
-            console.print(
-                "\n[yellow]Received shutdown signal, stopping scheduler...[/yellow]"
-            )
-            if scheduler and scheduler.running:
-                scheduler.shutdown(wait=False)
-            sys.exit(0)
+        # Setup async-aware signal handlers for graceful shutdown
+        shutdown_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
 
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+        def request_shutdown():
+            if not shutdown_event.is_set():
+                console.print(
+                    "\n[yellow]Received shutdown signal, stopping gracefully...[/yellow]"
+                )
+                shutdown_event.set()
+
+        loop.add_signal_handler(signal.SIGINT, request_shutdown)
+        loop.add_signal_handler(signal.SIGTERM, request_shutdown)
 
         # Start scheduler
         scheduler.start()
@@ -192,18 +194,26 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
         )
         console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
-        # Keep the event loop running
-        try:
-            await asyncio.Event().wait()
-        except KeyboardInterrupt:
-            pass
+        # Wait for shutdown signal
+        await shutdown_event.wait()
+
+        # Graceful shutdown sequence
+        console.print("[yellow]Stopping scheduler...[/yellow]")
+        if scheduler and scheduler.running:
+            scheduler.shutdown(wait=True)
+        console.print("[yellow]Stopping API server...[/yellow]")
+        api_server.should_exit = True
+        # Give API server a moment to finish in-flight requests
+        await asyncio.sleep(0.5)
+        console.print("[green]✅ Shutdown complete[/green]")
 
     except Exception as e:
         console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
         sys.exit(1)
     finally:
+        # Ensure scheduler is stopped even on error path
         if scheduler and scheduler.running:
-            scheduler.shutdown(wait=True)
+            scheduler.shutdown(wait=False)
 
 
 def run_orchestrator_sync(orchestrator: DaemonOrchestrator) -> None:

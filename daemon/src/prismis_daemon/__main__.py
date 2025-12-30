@@ -20,6 +20,7 @@ from .fetchers.file import FileFetcher
 from .fetchers.reddit import RedditFetcher
 from .fetchers.rss import RSSFetcher
 from .fetchers.youtube import YouTubeFetcher
+from .locking import acquire_daemon_lock
 from .notifier import Notifier
 from .observability import get_logger as get_obs_logger
 from .orchestrator import DaemonOrchestrator
@@ -312,83 +313,86 @@ def main(
     ),
 ) -> None:
     """Main entry point for Prismis daemon."""
-    # Common setup for both modes
-    try:
-        # Ensure config files exist - exits if new config created
-        if not ensure_config():
-            sys.exit(0)
-
-        # Load configuration
-        console.print("📂 Loading configuration...")
-        config = Config.from_file()
-
-        # Validate LLM configuration at startup (before any mode-specific code)
-        validate_llm_config(config)
-    except Exception as e:
-        console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
-        sys.exit(1)
-
-    if once:
-        console.print("[bold blue]Starting Prismis daemon (--once mode)[/bold blue]")
-
+    # Acquire daemon lock first - fail fast if another instance running
+    with acquire_daemon_lock():
+        # Common setup for both modes
         try:
-            # Initialize components
-            console.print("🔧 Initializing components...")
-            storage = Storage()
+            # Ensure config files exist - exits if new config created
+            if not ensure_config():
+                sys.exit(0)
 
-            # Create all fetchers with config
-            rss_fetcher = RSSFetcher(config=config)
-            reddit_fetcher = RedditFetcher(config=config)
-            youtube_fetcher = YouTubeFetcher(config=config)
-            file_fetcher = FileFetcher(config=config, storage=storage)
+            # Load configuration
+            console.print("📂 Loading configuration...")
+            config = Config.from_file()
 
-            # Create LLM config dict for summarizer and evaluator
-            llm_config = {
-                "provider": config.llm_provider,
-                "model": config.llm_model,
-                "api_key": config.llm_api_key,
-            }
-            # Add api_base if configured (for Ollama)
-            if config.llm_api_base:
-                llm_config["api_base"] = config.llm_api_base
-            notification_config = {
-                "high_priority_only": config.high_priority_only,
-                "command": config.notification_command,
-            }
-
-            summarizer = ContentSummarizer(llm_config)
-            evaluator = ContentEvaluator(llm_config)
-            notifier = Notifier(notification_config)
-
-            # Create and run orchestrator with all dependencies
-            orchestrator = DaemonOrchestrator(
-                storage=storage,
-                rss_fetcher=rss_fetcher,
-                reddit_fetcher=reddit_fetcher,
-                youtube_fetcher=youtube_fetcher,
-                file_fetcher=file_fetcher,
-                summarizer=summarizer,
-                evaluator=evaluator,
-                notifier=notifier,
-                config=config,
-                console=console,
-            )
-
-            stats = orchestrator.run_once()
-
-            # Exit with error if there were problems
-            if stats["errors"] and stats["total_analyzed"] == 0:
-                sys.exit(1)
-
+            # Validate LLM configuration at startup (before any mode-specific code)
+            validate_llm_config(config)
         except Exception as e:
             console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
             sys.exit(1)
-    else:
-        mode = "test mode (5 second intervals)" if test_mode else "scheduler mode"
-        console.print(f"[bold blue]Starting Prismis daemon ({mode})[/bold blue]")
+        if once:
+            console.print(
+                "[bold blue]Starting Prismis daemon (--once mode)[/bold blue]"
+            )
 
-        # Run the scheduler with already validated config
-        asyncio.run(run_scheduler(config, test_mode=test_mode))
+            try:
+                # Initialize components
+                console.print("🔧 Initializing components...")
+                storage = Storage()
+
+                # Create all fetchers with config
+                rss_fetcher = RSSFetcher(config=config)
+                reddit_fetcher = RedditFetcher(config=config)
+                youtube_fetcher = YouTubeFetcher(config=config)
+                file_fetcher = FileFetcher(config=config, storage=storage)
+
+                # Create LLM config dict for summarizer and evaluator
+                llm_config = {
+                    "provider": config.llm_provider,
+                    "model": config.llm_model,
+                    "api_key": config.llm_api_key,
+                }
+                # Add api_base if configured (for Ollama)
+                if config.llm_api_base:
+                    llm_config["api_base"] = config.llm_api_base
+                notification_config = {
+                    "high_priority_only": config.high_priority_only,
+                    "command": config.notification_command,
+                }
+
+                summarizer = ContentSummarizer(llm_config)
+                evaluator = ContentEvaluator(llm_config)
+                notifier = Notifier(notification_config)
+
+                # Create and run orchestrator with all dependencies
+                orchestrator = DaemonOrchestrator(
+                    storage=storage,
+                    rss_fetcher=rss_fetcher,
+                    reddit_fetcher=reddit_fetcher,
+                    youtube_fetcher=youtube_fetcher,
+                    file_fetcher=file_fetcher,
+                    summarizer=summarizer,
+                    evaluator=evaluator,
+                    notifier=notifier,
+                    config=config,
+                    console=console,
+                )
+
+                stats = orchestrator.run_once()
+
+                # Exit with error if there were problems
+                if stats["errors"] and stats["total_analyzed"] == 0:
+                    sys.exit(1)
+
+            except Exception as e:
+                console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
+                sys.exit(1)
+        else:
+            mode = "test mode (5 second intervals)" if test_mode else "scheduler mode"
+            console.print(f"[bold blue]Starting Prismis daemon ({mode})[/bold blue]")
+
+            # Run the scheduler with already validated config
+            asyncio.run(run_scheduler(config, test_mode=test_mode))
 
 
 if __name__ == "__main__":

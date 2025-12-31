@@ -167,41 +167,35 @@ func (m HelpModal) View(theme StyleTheme) string {
 	// FILTERS & SORTING section
 	content.WriteString(sectionHeader("FILTERS & SORTING"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("1/2/3", "HIGH/MED/LOW", "0", "Unprioritized"))
+	content.WriteString(format2Col("1/2/3/4", "Priority/Favorites", "0/i", "Unprioritized/Interesting"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("a", "Show all", "u", "Toggle unread"))
-	content.WriteString("\n")
-	content.WriteString(format2Col("d", "Toggle date sort", "s", "Cycle sources"))
+	content.WriteString(format2Col("a/u/v", "All/Unread/Archived", "d/s", "Date sort/Sources"))
 	content.WriteString("\n\n")
 
-	// ARTICLE COMMANDS section - Most used commands
+	// ARTICLE COMMANDS section
 	content.WriteString(sectionHeader("ARTICLE COMMANDS (:)"))
 	content.WriteString("\n")
 	content.WriteString(format2Col(":mark", "Toggle read", ":favorite", "Toggle star"))
 	content.WriteString("\n")
-	content.WriteString(format2Col(":open", "Open in browser", ":yank", "Copy URL"))
+	content.WriteString(format2Col(":interesting", "Flag for context", ":open", "Open in browser"))
 	content.WriteString("\n")
-	content.WriteString(format2Col(":copy [summary|content]", "Copy to clipboard", ":fabric <pattern>", "AI analysis"))
-	content.WriteString("\n")
-	content.WriteString(format2Col(":audio", "Audio briefing", ":export sources", "Export sources"))
+	content.WriteString(format2Col(":yank/:copy", "Copy URL/field", ":fabric <pattern>", "AI analysis"))
 	content.WriteString("\n\n")
 
 	// SOURCE COMMANDS section
 	content.WriteString(sectionHeader("SOURCE COMMANDS (:)"))
 	content.WriteString("\n")
-	content.WriteString(format2Col(":add <url>", "Add source", ":remove <id>", "Remove source"))
+	content.WriteString(format2Col(":add/:remove", "Add/remove source", ":pause/:resume", "Pause/resume"))
 	content.WriteString("\n")
-	content.WriteString(format2Col(":pause <url>", "Pause source", ":resume <url>", "Resume source"))
-	content.WriteString("\n")
-	content.WriteString(format2Col(":edit <id> <name>", "Rename source", "", ""))
+	content.WriteString(format2Col(":edit <id> <name>", "Rename source", ":export sources", "Export OPML"))
 	content.WriteString("\n\n")
 
 	// MAINTENANCE COMMANDS section
 	content.WriteString(sectionHeader("MAINTENANCE (:)"))
 	content.WriteString("\n")
-	content.WriteString(format2Col(":unprioritized", "Count unprioritized", ":prune", "Delete unprioritized"))
+	content.WriteString(format2Col(":unprioritized", "Count unprioritized", ":prune[!] [days]", "Delete old"))
 	content.WriteString("\n")
-	content.WriteString(format2Col(":prune!", "Force delete", ":prune 7d", "Delete older than 7 days"))
+	content.WriteString(format2Col(":context ...", "review/suggest/edit", ":audio", "Audio briefing"))
 	content.WriteString("\n\n")
 
 	// READER MODE section - Simplified

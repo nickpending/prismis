@@ -23,6 +23,18 @@ def list(
     limit: int = typer.Option(
         50, "--limit", "-l", help="Maximum number of items (1-100)"
     ),
+    source: Optional[str] = typer.Option(
+        None,
+        "--source",
+        "-s",
+        help="Filter by source name (case-insensitive substring)",
+    ),
+    compact: bool = typer.Option(
+        False, "--compact", help="Compact format (excludes content and analysis)"
+    ),
+    since_hours: Optional[int] = typer.Option(
+        None, "--since-hours", help="Only show items from last N hours (1-720)"
+    ),
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """List content entries with optional filtering.
@@ -33,6 +45,9 @@ def list(
         archived: If True, show only archived items
         include_archived: If True, include archived items with non-archived
         limit: Maximum number of items to display (1-100)
+        source: Filter by source name (case-insensitive substring)
+        compact: Return compact format
+        since_hours: Only show items from last N hours
         output_json: If True, output raw JSON instead of formatted table
     """
     try:
@@ -60,6 +75,9 @@ def list(
             unread_only=unread,
             archive_filter=archive_filter,
             limit=limit,
+            source=source,
+            compact=compact,
+            since_hours=since_hours,
         )
 
         if output_json:
@@ -92,7 +110,7 @@ def list(
                 title = title[:57] + "..."
 
             # Format priority with color
-            priority_val = entry.get("priority", "N/A").upper()
+            priority_val = (entry.get("priority") or "N/A").upper()
             if priority_val == "HIGH":
                 priority_display = f"[red]{priority_val}[/red]"
             elif priority_val == "MEDIUM":

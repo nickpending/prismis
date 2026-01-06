@@ -1,11 +1,11 @@
 """Embedding management commands."""
 
 import typer
+from prismis_daemon.storage import Storage
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from prismis_daemon.storage import Storage
-from prismis_daemon.embeddings import Embedder
+# Heavy import (sentence-transformers) is lazy-loaded in generate() to keep CLI fast
 
 console = Console()
 app = typer.Typer()  # Sub-typer for embeddings commands
@@ -31,7 +31,7 @@ def cleanup() -> None:
 
     except Exception as e:
         console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command(name="status")
@@ -70,7 +70,7 @@ def status() -> None:
 
     except Exception as e:
         console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command(name="generate")
@@ -93,6 +93,9 @@ def generate() -> None:
                 f"[bold]Generating embeddings for {total_missing} items...[/bold]"
             )
             console.print("[dim]This may take 10-30 minutes for large datasets[/dim]\n")
+
+            # Lazy import heavy embedding dependencies (only when actually generating)
+            from prismis_daemon.embeddings import Embedder
 
             # Initialize embedder
             embedder = Embedder()
@@ -152,4 +155,4 @@ def generate() -> None:
 
     except Exception as e:
         console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e

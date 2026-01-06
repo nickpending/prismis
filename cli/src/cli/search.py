@@ -14,6 +14,12 @@ def search(
     limit: int = typer.Option(
         20, "--limit", "-l", help="Maximum number of results (1-50)"
     ),
+    source: str = typer.Option(
+        None,
+        "--source",
+        "-s",
+        help="Filter by source name (case-insensitive substring)",
+    ),
     compact: bool = typer.Option(
         False, "--compact", help="Compact format (excludes content and analysis)"
     ),
@@ -24,6 +30,7 @@ def search(
     Args:
         query: Search query string
         limit: Maximum number of results to return (1-50)
+        source: Filter results to sources containing this substring
         compact: Return compact format for LLM consumption
         output_json: If True, output raw JSON instead of formatted table
     """
@@ -37,7 +44,7 @@ def search(
             raise typer.Exit(1)
 
         # Search content
-        results = client.search(query, limit=limit, compact=compact)
+        results = client.search(query, limit=limit, compact=compact, source=source)
 
         if output_json:
             # JSON mode - output raw API response
@@ -70,7 +77,7 @@ def search(
                 title = title[:47] + "..."
 
             # Format priority with color
-            priority_val = result.get("priority", "N/A").upper()
+            priority_val = (result.get("priority") or "N/A").upper()
             if priority_val == "HIGH":
                 priority_display = f"[red]{priority_val}[/red]"
             elif priority_val == "MEDIUM":

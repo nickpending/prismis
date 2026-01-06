@@ -515,7 +515,11 @@ class Storage:
             raise sqlite3.Error(f"Failed to get content by external_id: {e}") from e
 
     def get_content_by_priority(
-        self, priority: str, limit: int = 50, include_archived: bool = False
+        self,
+        priority: str,
+        limit: int = 50,
+        include_archived: bool = False,
+        source_filter: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get unread content by priority level.
 
@@ -523,6 +527,7 @@ class Storage:
             priority: Priority level ('high', 'medium', 'low')
             limit: Maximum number of items to return
             include_archived: Include archived content if True
+            source_filter: Filter by source name (case-insensitive substring match)
 
         Returns:
             List of content dictionaries
@@ -535,14 +540,21 @@ class Storage:
                 JOIN sources s ON c.source_id = s.id
                 WHERE c.priority = ? AND c.read = 0
             """
+            params: list[Any] = [priority]
 
             # Add archived filter unless explicitly including archived
             if not include_archived:
                 query += " AND c.archived_at IS NULL"
 
-            query += " ORDER BY c.published_at DESC LIMIT ?"
+            # Add source filter if provided
+            if source_filter:
+                query += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
+                params.append(source_filter)
 
-            cursor = self.conn.execute(query, (priority, limit))
+            query += " ORDER BY c.published_at DESC LIMIT ?"
+            params.append(limit)
+
+            cursor = self.conn.execute(query, tuple(params))
 
             content = []
             for row in cursor.fetchall():
@@ -579,7 +591,10 @@ class Storage:
             raise sqlite3.Error(f"Failed to get content by priority: {e}") from e
 
     def get_content_since(
-        self, since: datetime | None = None, include_archived: bool = False
+        self,
+        since: datetime | None = None,
+        include_archived: bool = False,
+        source_filter: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get content since a specific timestamp, or all content if since is None.
 
@@ -587,6 +602,7 @@ class Storage:
             since: Timestamp to filter content (returns content published after this time).
                    If None, returns all content regardless of time.
             include_archived: Include archived content if True
+            source_filter: Filter by source name (case-insensitive substring match)
 
         Returns:
             List of content dictionaries with source information
@@ -600,7 +616,7 @@ class Storage:
                 WHERE 1=1
             """
 
-            params = []
+            params: list[Any] = []
             if since is not None:
                 query += " AND c.fetched_at > ?"
                 params.append(since.strftime("%Y-%m-%d %H:%M:%S.%f+00:00"))
@@ -608,6 +624,11 @@ class Storage:
             # Add archived filter unless explicitly including archived
             if not include_archived:
                 query += " AND c.archived_at IS NULL"
+
+            # Add source filter if provided
+            if source_filter:
+                query += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
+                params.append(source_filter)
 
             query += " ORDER BY c.priority ASC, c.published_at DESC"
 
@@ -1406,23 +1427,53 @@ class Storage:
             self.conn.rollback()
             raise sqlite3.Error(f"Failed to add embedding: {e}") from e
 
+    def _calculate_source_authority(
+        self, source_name: str | None, source_type: str | None
+    ) -> float:
+        """Derive source authority from metadata for search ranking.
+
+        Primary/official sources rank higher than social discussion.
+        No stored column needed - calculated at query time.
+
+        Args:
+            source_name: Name of the source (e.g., "Anthropic Research")
+            source_type: Type of source (rss, reddit, youtube, file)
+
+        Returns:
+            Authority score 0.0-1.0
+        """
+        # Primary sources (official channels) get highest authority
+        if source_name and "anthropic" in source_name.lower():
+            return 1.0
+
+        # Type-based defaults
+        type_authority = {
+            "file": 0.9,  # User-added content, intentional
+            "rss": 0.6,  # Curated feeds, generally reliable
+            "youtube": 0.5,  # Mixed quality
+            "reddit": 0.3,  # Discussion/noise, lower signal
+        }
+        return type_authority.get(source_type or "", 0.5)
+
     def search_content(
         self,
         query_embedding: list[float],
         limit: int = 20,
         min_score: float = 0.0,
+        source_filter: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Semantic search using similarity-first ranking.
+        """Semantic search using similarity-first ranking with source authority.
 
-        Ranking formula: score = (similarity * 0.90) + (priority_weight * 0.10)
+        Ranking formula: score = (similarity * 0.80) + (priority * 0.10) + (authority * 0.10)
 
-        Search prioritizes semantic match - you want what you searched for, not just
-        high-priority content. Priority provides minor boost to break ties.
+        Search prioritizes semantic match, with boosts for priority and source authority.
+        Authoritative sources (Anthropic, user files) rank higher than social discussion.
 
         Args:
             query_embedding: Query vector (384 dimensions)
             limit: Maximum number of results to return
             min_score: Minimum relevance score (0.0-1.0)
+            source_filter: Optional substring to filter source names (case-insensitive)
 
         Returns:
             List of content dicts with relevance_score field
@@ -1464,8 +1515,14 @@ class Storage:
                 "LEFT JOIN sources s ON c.source_id = s.id "
                 "WHERE c.id IN (" + placeholders + ")"
             )
+            params: list[Any] = list(content_ids)
 
-            cursor = self.conn.execute(query, content_ids)
+            # Add source filter at SQL level if provided
+            if source_filter:
+                query += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
+                params.append(source_filter)
+
+            cursor = self.conn.execute(query, params)
 
             # Build dict of content by id
             content_by_id = {}
@@ -1516,9 +1573,16 @@ class Storage:
                 priority_weights = {"high": 1.0, "medium": 0.5, "low": 0.0}
                 priority_weight = priority_weights.get(content["priority"], 0.0)
 
-                # Similarity-first ranking: 90% semantic match, 10% priority boost
-                # Search is about finding what you're looking for, not surfacing important content
-                relevance_score = similarity * 0.90 + priority_weight * 0.10
+                # Source authority (primary sources > social discussion)
+                authority = self._calculate_source_authority(
+                    content["source_name"], content["source_type"]
+                )
+
+                # Ranking: 80% semantic match, 10% priority, 10% source authority
+                # Authoritative sources win ties over Reddit/social chatter
+                relevance_score = (
+                    similarity * 0.80 + priority_weight * 0.10 + authority * 0.10
+                )
 
                 # Apply minimum score filter
                 if relevance_score >= min_score:

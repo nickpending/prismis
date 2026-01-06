@@ -1,16 +1,13 @@
 """Content analysis and repair commands."""
 
 import time
+
 import typer
+from prismis_daemon.storage import Storage
 from rich.console import Console
 from rich.prompt import Confirm
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from prismis_daemon.storage import Storage
-from prismis_daemon.summarizer import ContentSummarizer
-from prismis_daemon.evaluator import ContentEvaluator
-from prismis_daemon.config import Config
-from prismis_daemon.observability import log as obs_log
+# Heavy imports (litellm) are lazy-loaded in repair() to keep CLI fast
 
 console = Console()
 app = typer.Typer()  # Sub-typer for analyze commands
@@ -57,7 +54,7 @@ def status() -> None:
 
     except Exception as e:
         console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command(name="repair")
@@ -87,6 +84,12 @@ def repair(
             if not force:
                 cost_estimate = total * 0.02
                 console.print(f"[dim]Estimated cost: ${cost_estimate:.2f}[/dim]\n")
+
+            # Lazy import heavy LLM dependencies (only when actually repairing)
+            from prismis_daemon.config import Config
+            from prismis_daemon.evaluator import ContentEvaluator
+            from prismis_daemon.observability import log as obs_log
+            from prismis_daemon.summarizer import ContentSummarizer
 
             # Initialize analysis components
             config = Config()
@@ -220,4 +223,4 @@ def repair(
 
     except Exception as e:
         console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e

@@ -1,11 +1,11 @@
 """API client for CLI to communicate with daemon."""
 
 import os
-import tomllib
 from pathlib import Path
 from typing import Any
 
 import httpx
+import tomllib
 
 
 class APIClient:
@@ -453,6 +453,9 @@ class APIClient:
         unread_only: bool = False,
         archive_filter: str = "exclude",
         limit: int = 50,
+        source: str | None = None,
+        compact: bool = False,
+        since_hours: int | None = None,
     ) -> list[dict[str, Any]]:
         """Get content items with optional filtering.
 
@@ -461,6 +464,9 @@ class APIClient:
             unread_only: Only return unread items
             archive_filter: Archive filtering ('exclude', 'only', 'include')
             limit: Maximum number of items to return (1-100)
+            source: Filter by source name (case-insensitive substring match)
+            compact: Return compact format (excludes content and analysis)
+            since_hours: Only return items from last N hours
 
         Returns:
             List of content item dictionaries
@@ -476,6 +482,12 @@ class APIClient:
                     params["priority"] = priority
                 if unread_only:
                     params["unread_only"] = True
+                if source:
+                    params["source"] = source
+                if compact:
+                    params["compact"] = True
+                if since_hours:
+                    params["since_hours"] = since_hours
 
                 # Map archive_filter to API parameters
                 if archive_filter == "only":
@@ -549,7 +561,11 @@ class APIClient:
             raise RuntimeError(f"Unexpected error: {e}") from e
 
     def search(
-        self, query: str, limit: int = 20, compact: bool = False
+        self,
+        query: str,
+        limit: int = 20,
+        compact: bool = False,
+        source: str | None = None,
     ) -> list[dict[str, Any]]:
         """Search content using semantic similarity.
 
@@ -557,6 +573,7 @@ class APIClient:
             query: Search query string
             limit: Maximum number of results to return (1-50)
             compact: Return compact format (excludes content and analysis)
+            source: Filter by source name (case-insensitive substring match)
 
         Returns:
             List of content items with relevance scores
@@ -569,6 +586,8 @@ class APIClient:
                 params: dict[str, Any] = {"q": query, "limit": limit}
                 if compact:
                     params["compact"] = True
+                if source:
+                    params["source"] = source
 
                 response = client.get(
                     f"{self.base_url}/api/search",

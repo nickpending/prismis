@@ -587,6 +587,12 @@ async def get_content(
         None,
         description="Sort order: 'priority' (default), 'date', or 'unread'",
     ),
+    source: str | None = Query(
+        None, description="Filter by source name (case-insensitive substring match)"
+    ),
+    compact: bool = Query(
+        False, description="Return compact format (excludes content and analysis)"
+    ),
     storage: Storage = Depends(get_storage),
 ) -> dict:
     """Get content items with optional filtering.
@@ -602,6 +608,8 @@ async def get_content(
         since_hours: Hours to look back (1-720). Convenience parameter - converted to timestamp.
                      If neither since nor since_hours provided, returns all content.
         sort_by: Sort order - 'priority' (default), 'date', or 'unread'
+        source: Filter results to sources containing this substring (case-insensitive)
+        compact: Return compact format for LLM consumption
         storage: Storage instance injected by FastAPI
 
     Returns:
@@ -648,13 +656,15 @@ async def get_content(
                     if remaining <= 0:
                         break
                     items = storage.get_content_by_priority(
-                        p, remaining, include_archived
+                        p, remaining, include_archived, source_filter=source
                     )
                     content_items.extend(items)
             else:
                 # Get content with time filter, then filter by priorities
                 all_content = storage.get_content_since(
-                    since=since_dt, include_archived=include_archived
+                    since=since_dt,
+                    include_archived=include_archived,
+                    source_filter=source,
                 )
                 content_items = [
                     item for item in all_content if item.get("priority") in priorities
@@ -664,7 +674,7 @@ async def get_content(
             if unread_only:
                 # Get unread from all priorities, respecting limit
                 high_items = storage.get_content_by_priority(
-                    "high", limit, include_archived
+                    "high", limit, include_archived, source_filter=source
                 )
                 remaining_limit = limit - len(high_items)
 
@@ -672,20 +682,25 @@ async def get_content(
                 low_items = []
                 if remaining_limit > 0:
                     medium_items = storage.get_content_by_priority(
-                        "medium", remaining_limit, include_archived
+                        "medium",
+                        remaining_limit,
+                        include_archived,
+                        source_filter=source,
                     )
                     remaining_limit = remaining_limit - len(medium_items)
 
                 if remaining_limit > 0:
                     low_items = storage.get_content_by_priority(
-                        "low", remaining_limit, include_archived
+                        "low", remaining_limit, include_archived, source_filter=source
                     )
 
                 content_items = high_items + medium_items + low_items
             else:
                 # Get all content (or filtered by time if since/since_hours provided)
                 all_content = storage.get_content_since(
-                    since=since_dt, include_archived=include_archived
+                    since=since_dt,
+                    include_archived=include_archived,
+                    source_filter=source,
                 )
                 content_items = all_content[:limit]
 
@@ -710,6 +725,22 @@ async def get_content(
             content_items.sort(key=get_date, reverse=True)
             content_items.sort(key=lambda x: priority_order.get(x.get("priority"), 3))
 
+        # Filter to compact fields if requested
+        if compact:
+            compact_fields = {
+                "id",
+                "title",
+                "url",
+                "priority",
+                "published_at",
+                "source_name",
+                "summary",
+            }
+            content_items = [
+                {k: v for k, v in item.items() if k in compact_fields}
+                for item in content_items
+            ]
+
         # Format response consistently with other endpoints
         return {
             "success": True,
@@ -726,6 +757,8 @@ async def get_content(
                     "since": since,
                     "since_hours": since_hours,
                     "sort_by": effective_sort,
+                    "source": source,
+                    "compact": compact,
                 },
             },
         }
@@ -741,6 +774,9 @@ async def semantic_search(
     min_score: float = Query(
         0.0, ge=0.0, le=1.0, description="Minimum relevance score"
     ),
+    source: str | None = Query(
+        None, description="Filter by source name (case-insensitive substring match)"
+    ),
     compact: bool = Query(
         False, description="Return compact format (excludes content and analysis)"
     ),
@@ -748,13 +784,14 @@ async def semantic_search(
 ) -> dict:
     """Semantic search across all content using embeddings.
 
-    Uses similarity-first ranking: 90% semantic match + 10% priority boost
-    (Search finds what you're looking for, not just important content)
+    Uses similarity-first ranking: 80% semantic match + 10% priority + 10% authority
+    (Search finds what you're looking for, with boost for authoritative sources)
 
     Args:
         q: Search query text
         limit: Maximum number of results (1-50, default: 20)
         min_score: Minimum relevance score filter (0.0-1.0, default: 0.0)
+        source: Filter results to sources containing this substring (case-insensitive)
         compact: Return compact format for LLM consumption
         storage: Storage instance injected by FastAPI
 
@@ -771,6 +808,7 @@ async def semantic_search(
             query_embedding=query_embedding,
             limit=limit,
             min_score=min_score,
+            source_filter=source,
         )
 
         # Filter to compact fields if requested
@@ -800,6 +838,7 @@ async def semantic_search(
                 "filters_applied": {
                     "limit": limit,
                     "min_score": min_score,
+                    "source": source,
                     "compact": compact,
                 },
             },

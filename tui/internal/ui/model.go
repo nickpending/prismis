@@ -112,6 +112,11 @@ func NewModelRemote(remoteURL string) Model {
 
 // newModel creates a new Model instance with optional remote URL
 func newModel(remoteURL string) Model {
+	// Set global remote URL so all API clients use it
+	if remoteURL != "" {
+		api.SetRemoteURL(remoteURL)
+	}
+
 	return Model{
 		items:             []db.ContentItem{},
 		cursor:            0,

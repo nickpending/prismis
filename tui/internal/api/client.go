@@ -6,10 +6,31 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/nickpending/prismis/internal/config"
 )
+
+// globalRemoteURL stores the remote URL set via --remote flag
+var (
+	globalRemoteURL string
+	remoteURLMu     sync.RWMutex
+)
+
+// SetRemoteURL sets the global remote URL for all API clients
+func SetRemoteURL(url string) {
+	remoteURLMu.Lock()
+	defer remoteURLMu.Unlock()
+	globalRemoteURL = url
+}
+
+// GetRemoteURL returns the global remote URL
+func GetRemoteURL() string {
+	remoteURLMu.RLock()
+	defer remoteURLMu.RUnlock()
+	return globalRemoteURL
+}
 
 // APIClient handles HTTP communication with the daemon
 type APIClient struct {
@@ -137,7 +158,10 @@ func NewClientWithURL(baseURL string) (*APIClient, error) {
 		return nil, fmt.Errorf("API key not found in config")
 	}
 
-	// Use provided URL or default to localhost
+	// Use provided URL, then global remote URL, then default to localhost
+	if baseURL == "" {
+		baseURL = GetRemoteURL()
+	}
 	if baseURL == "" {
 		baseURL = "http://localhost:8989"
 	}

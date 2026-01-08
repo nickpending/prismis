@@ -3,6 +3,7 @@
 import os
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from dotenv import load_dotenv
@@ -17,7 +18,7 @@ if dotenv_path.exists():
 daemon_src = Path(__file__).parent.parent.parent.parent / "daemon" / "src"
 sys.path.insert(0, str(daemon_src))
 
-from cli import (
+from cli import (  # noqa: E402
     analyze,
     archive,
     embeddings,
@@ -29,13 +30,27 @@ from cli import (
     search,
     source,
     statistics,
-)  # noqa: E402
+)
+from cli.remote import set_remote_url  # noqa: E402
 
 app = typer.Typer(
     name="prismis-cli",
     help="Prismis CLI - Manage content sources and configuration",
     add_completion=False,
 )
+
+
+@app.callback()
+def main_callback(
+    remote: Annotated[
+        str | None,
+        typer.Option("--remote", help="Remote daemon URL (e.g., http://server:8989)"),
+    ] = None,
+) -> None:
+    """Prismis CLI - Manage content sources and configuration."""
+    if remote:
+        set_remote_url(remote)
+
 
 # Add multi-command modules as sub-typers
 app.add_typer(source.app, name="source", help="Manage content sources")

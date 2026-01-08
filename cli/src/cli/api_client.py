@@ -7,13 +7,15 @@ from typing import Any
 import httpx
 import tomllib
 
+from cli.remote import get_remote_url
+
 
 class APIClient:
     """Client for communicating with Prismis daemon API."""
 
     def __init__(self):
         """Initialize API client with config."""
-        self.base_url = "http://localhost:8989"
+        self.base_url = get_remote_url()
         self.api_key = self._load_api_key()
         self.timeout = httpx.Timeout(30.0)  # 30 second timeout for validation
 

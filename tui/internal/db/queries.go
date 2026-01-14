@@ -322,6 +322,102 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 	return items, hiddenCount, nil
 }
 
+// GetAllContent fetches all content with only archived filtering applied.
+// All other filtering (priority, read status, interesting, source type) happens client-side.
+// This unifies DB and API modes to use the same filtering logic in applyFiltersClientSide().
+func GetAllContent(showArchived bool) ([]ContentItem, error) {
+	db, err := GetDB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	// Minimal SQL - only archived filter applied server-side
+	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
+	                 c.published_at, c.read, c.favorited, c.interesting_override, s.type, s.name, c.source_id
+	          FROM content c
+	          JOIN sources s ON c.source_id = s.id
+	          WHERE `
+
+	if showArchived {
+		query += "c.archived_at IS NOT NULL"
+	} else {
+		query += "c.archived_at IS NULL"
+	}
+
+	query += " ORDER BY c.published_at DESC"
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query content: %w", err)
+	}
+	defer rows.Close()
+
+	var items []ContentItem
+	for rows.Next() {
+		var item ContentItem
+		var publishedStr sql.NullString
+		var priority sql.NullString
+		var summary sql.NullString
+		var content sql.NullString
+		var analysis sql.NullString
+		var sourceType sql.NullString
+		var sourceName sql.NullString
+
+		err := rows.Scan(
+			&item.ID,
+			&item.Title,
+			&item.URL,
+			&summary,
+			&priority,
+			&content,
+			&analysis,
+			&publishedStr,
+			&item.Read,
+			&item.Favorited,
+			&item.InterestingOverride,
+			&sourceType,
+			&sourceName,
+			&item.SourceID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		if priority.Valid {
+			item.Priority = priority.String
+		}
+		if summary.Valid {
+			item.Summary = summary.String
+		}
+		if content.Valid {
+			item.Content = content.String
+		}
+		if analysis.Valid {
+			item.Analysis = analysis.String
+		}
+		if sourceType.Valid {
+			item.SourceType = sourceType.String
+		}
+		if sourceName.Valid {
+			item.SourceName = sourceName.String
+		}
+
+		if publishedStr.Valid {
+			if parsed, err := time.Parse(time.RFC3339, publishedStr.String); err == nil {
+				item.Published = parsed
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return items, nil
+}
+
 // dbPathFunc is a variable holding the function to get DB path (for testing)
 var dbPathFunc = getDefaultDBPath
 

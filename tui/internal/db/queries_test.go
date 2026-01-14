@@ -916,3 +916,106 @@ func TestGetInterestingItems_ExcludesArchived(t *testing.T) {
 		}
 	}
 }
+
+// TestGetAllContent_ReturnsAllNonArchived tests the simplified query function
+func TestGetAllContent_ReturnsAllNonArchived(t *testing.T) {
+	/*
+		INVARIANT: GetAllContent(false) returns all non-archived items regardless of priority/read status
+		BREAKS: Client-side filtering receives incomplete data
+		USER IMPACT: Items disappear unexpectedly when filters applied
+	*/
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = originalDBPathFunc
+		CloseDB()
+	}()
+
+	// Get all non-archived content
+	items, err := GetAllContent(false)
+	if err != nil {
+		t.Fatalf("GetAllContent failed: %v", err)
+	}
+
+	// Test DB has 6 items, none archived by default
+	if len(items) != 6 {
+		t.Errorf("Expected 6 items from GetAllContent(false), got %d", len(items))
+	}
+
+	// Verify it includes read items (ID 6 is read)
+	foundRead := false
+	for _, item := range items {
+		if item.ID == "6" && item.Read {
+			foundRead = true
+			break
+		}
+	}
+	if !foundRead {
+		t.Error("GetAllContent should include read items")
+	}
+
+	// Verify it includes items of all priorities (including unprioritized if any)
+	priorities := make(map[string]bool)
+	for _, item := range items {
+		priorities[item.Priority] = true
+	}
+	if !priorities["high"] || !priorities["medium"] || !priorities["low"] {
+		t.Error("GetAllContent should include items of all priorities")
+	}
+}
+
+// TestGetAllContent_ArchivedFilter tests that showArchived correctly filters
+func TestGetAllContent_ArchivedFilter(t *testing.T) {
+	/*
+		INVARIANT: GetAllContent(true) returns ONLY archived items
+		BREAKS: Mixing active and archived content
+		USER IMPACT: Deleted items reappear, or active items hidden
+	*/
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = originalDBPathFunc
+		CloseDB()
+	}()
+
+	// Archive one item
+	db, err := GetDB()
+	if err != nil {
+		t.Fatalf("Failed to get DB: %v", err)
+	}
+	_, err = db.Exec("UPDATE content SET archived_at = ? WHERE id = ?", time.Now().Format(time.RFC3339), "1")
+	if err != nil {
+		t.Fatalf("Failed to archive item: %v", err)
+	}
+
+	// Get non-archived - should have 5 items (6 total minus 1 archived)
+	nonArchived, err := GetAllContent(false)
+	if err != nil {
+		t.Fatalf("GetAllContent(false) failed: %v", err)
+	}
+	if len(nonArchived) != 5 {
+		t.Errorf("Expected 5 non-archived items, got %d", len(nonArchived))
+	}
+
+	// Get archived - should have 1 item
+	archived, err := GetAllContent(true)
+	if err != nil {
+		t.Fatalf("GetAllContent(true) failed: %v", err)
+	}
+	if len(archived) != 1 {
+		t.Errorf("Expected 1 archived item, got %d", len(archived))
+	}
+	if len(archived) > 0 && archived[0].ID != "1" {
+		t.Errorf("Expected archived item ID '1', got '%s'", archived[0].ID)
+	}
+}

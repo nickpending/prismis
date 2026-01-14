@@ -264,19 +264,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.remoteURL != "" {
 					result = fetchItemsRemote(m)
 				} else {
-					items, hiddenCount, err := db.GetContentWithFilters(
-						m.priority,
-						m.showUnprioritized,
-						m.showAll,
-						m.showArchived,
-						m.showInteresting,
-						m.filterType,
-						m.sortNewest,
-					)
-					result = itemsLoadedMsg{
-						items:       items,
-						hiddenCount: hiddenCount,
-						err:         err,
+					// Fetch all content, filter client-side (unified with remote mode)
+					allItems, err := db.GetAllContent(m.showArchived)
+					if err != nil {
+						result = itemsLoadedMsg{err: err}
+					} else {
+						result = itemsLoadedMsg{
+							items:       applyFiltersClientSide(allItems, m),
+							hiddenCount: countHiddenUnprioritized(allItems, m),
+							err:         nil,
+						}
 					}
 				}
 
@@ -875,19 +872,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.remoteURL != "" {
 					result = fetchItemsRemote(m)
 				} else {
-					items, hiddenCount, err := db.GetContentWithFilters(
-						m.priority,
-						m.showUnprioritized,
-						m.showAll,
-						m.showArchived,
-						m.showInteresting,
-						m.filterType,
-						m.sortNewest,
-					)
-					result = itemsLoadedMsg{
-						items:       items,
-						hiddenCount: hiddenCount,
-						err:         err,
+					// Fetch all content, filter client-side (unified with remote mode)
+					allItems, err := db.GetAllContent(m.showArchived)
+					if err != nil {
+						result = itemsLoadedMsg{err: err}
+					} else {
+						result = itemsLoadedMsg{
+							items:       applyFiltersClientSide(allItems, m),
+							hiddenCount: countHiddenUnprioritized(allItems, m),
+							err:         nil,
+						}
 					}
 				}
 
@@ -1135,20 +1129,15 @@ func fetchItemsWithState(m Model, refreshData bool) tea.Cmd {
 			}
 		}
 
-		// Local mode: always fetch from database (filtering happens there)
-		items, hiddenCount, err := db.GetContentWithFilters(
-			m.priority,
-			m.showUnprioritized,
-			m.showAll,
-			m.showArchived,
-			m.showInteresting,
-			m.filterType,
-			m.sortNewest,
-		)
+		// Local mode: fetch all content, filter client-side (unified with remote mode)
+		allItems, err := db.GetAllContent(m.showArchived)
+		if err != nil {
+			return itemsLoadedMsg{err: err}
+		}
 		return itemsLoadedMsg{
-			items:       items,
-			hiddenCount: hiddenCount,
-			err:         err,
+			items:       applyFiltersClientSide(allItems, m),
+			hiddenCount: countHiddenUnprioritized(allItems, m),
+			err:         nil,
 		}
 	}
 }
@@ -1296,7 +1285,8 @@ func applyFiltersClientSide(items []db.ContentItem, m Model) []db.ContentItem {
 		}
 
 		// Filter by read status (default: unread only)
-		if !m.showAll && item.Read {
+		// Exception: favorites always show regardless of read status
+		if !m.showAll && m.priority != "favorites" && item.Read {
 			continue
 		}
 
@@ -1310,7 +1300,7 @@ func applyFiltersClientSide(items []db.ContentItem, m Model) []db.ContentItem {
 			continue
 		}
 
-		// Archived filter not applicable via API (API doesn't return archived by default)
+		// Note: archived filter is applied at query level (GetAllContent), not here
 
 		filtered = append(filtered, item)
 	}

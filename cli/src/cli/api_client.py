@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 import tomllib
 
-from cli.remote import get_remote_url
+from cli.remote import get_remote_key, get_remote_url, is_remote_mode
 
 
 class APIClient:
@@ -22,13 +22,24 @@ class APIClient:
     def _load_api_key(self) -> str:
         """Load API key from config file.
 
+        Uses [remote].key if in remote mode, otherwise [api].key.
+
         Returns:
             API key from config
 
         Raises:
             RuntimeError: If config not found or API key missing
         """
-        # XDG Base Directory support
+        # Check for remote mode first
+        if is_remote_mode():
+            remote_key = get_remote_key()
+            if remote_key:
+                return remote_key
+            raise RuntimeError(
+                "Remote mode configured but [remote].key not set in config.toml"
+            )
+
+        # Local mode: load from [api].key
         xdg_config_home = os.environ.get(
             "XDG_CONFIG_HOME", str(Path.home() / ".config")
         )

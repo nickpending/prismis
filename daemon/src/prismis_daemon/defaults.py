@@ -56,6 +56,12 @@ host = "127.0.0.1"  # API server host binding (127.0.0.1=localhost only, 0.0.0.0
 # Audio briefing configuration (optional - only used for :audio command)
 provider = "system"  # system (free, uses macOS/Linux native TTS) | elevenlabs (requires ELEVENLABS_API_KEY)
 # voice = "Rachel"  # Voice name/ID (provider-specific, optional - uncomment to set)
+
+[remote]
+# Remote daemon connection for CLI/TUI when daemon runs on another machine
+# Uncomment both to connect to remote instead of localhost
+# url = "https://prismis.example.com"
+# key = "remote-daemon-api-key"
 """
 
 DEFAULT_CONTEXT_MD = """# Personal Context for Prismis

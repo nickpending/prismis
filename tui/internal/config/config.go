@@ -20,6 +20,10 @@ type Config struct {
 	Reports *struct {
 		OutputPath string `toml:"output_path"` // Directory to save reports, required
 	} `toml:"reports"`
+	Remote *struct {
+		URL string `toml:"url"` // Remote daemon URL (e.g., https://prismis.example.com)
+		Key string `toml:"key"` // API key for remote daemon
+	} `toml:"remote"`
 }
 
 // LoadConfig loads configuration from the standard XDG config path with sensible defaults
@@ -98,4 +102,25 @@ func (c *Config) GetReportsOutputPath() (string, error) {
 	}
 
 	return outputPath, nil
+}
+
+// HasRemoteConfig returns true if [remote] section is configured with a URL
+func (c *Config) HasRemoteConfig() bool {
+	return c.Remote != nil && c.Remote.URL != ""
+}
+
+// GetRemoteURL returns the remote daemon URL if configured
+func (c *Config) GetRemoteURL() string {
+	if c.Remote != nil {
+		return c.Remote.URL
+	}
+	return ""
+}
+
+// GetRemoteKey returns the remote API key if configured
+func (c *Config) GetRemoteKey() string {
+	if c.Remote != nil {
+		return c.Remote.Key
+	}
+	return ""
 }

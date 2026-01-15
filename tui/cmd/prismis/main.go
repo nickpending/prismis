@@ -5,6 +5,7 @@ import (
 	"log"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/nickpending/prismis/internal/config"
 	"github.com/nickpending/prismis/internal/ui"
 )
 
@@ -13,12 +14,19 @@ func main() {
 	remoteURL := flag.String("remote", "", "Remote daemon URL (e.g., http://server:8989)")
 	flag.Parse()
 
-	// Create model with remote URL if provided
+	// Create model: --remote flag > config [remote].url > local mode
 	var initialModel tea.Model
 	if *remoteURL != "" {
+		// Explicit --remote flag takes priority
 		initialModel = ui.NewModelRemote(*remoteURL)
 	} else {
-		initialModel = ui.NewModel()
+		// Check config for [remote] section
+		cfg, err := config.LoadConfig()
+		if err == nil && cfg.HasRemoteConfig() {
+			initialModel = ui.NewModelRemote(cfg.GetRemoteURL())
+		} else {
+			initialModel = ui.NewModel()
+		}
 	}
 
 	// Configure program to not clear screen on exit and use alt screen buffer

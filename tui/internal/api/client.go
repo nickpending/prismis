@@ -154,21 +154,38 @@ func NewClientWithURL(baseURL string) (*APIClient, error) {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if cfg.API.Key == "" {
-		return nil, fmt.Errorf("API key not found in config")
+	// Determine if we're in remote mode and get appropriate URL/key
+	// Priority: provided URL > global remote URL > config remote URL > localhost
+	isRemote := false
+	if baseURL != "" {
+		isRemote = true
+	} else if GetRemoteURL() != "" {
+		baseURL = GetRemoteURL()
+		isRemote = true
+	} else if cfg.HasRemoteConfig() {
+		baseURL = cfg.GetRemoteURL()
+		isRemote = true
+	} else {
+		baseURL = "http://localhost:8989"
 	}
 
-	// Use provided URL, then global remote URL, then default to localhost
-	if baseURL == "" {
-		baseURL = GetRemoteURL()
-	}
-	if baseURL == "" {
-		baseURL = "http://localhost:8989"
+	// Get API key based on mode
+	var apiKey string
+	if isRemote {
+		apiKey = cfg.GetRemoteKey()
+		if apiKey == "" {
+			return nil, fmt.Errorf("remote mode requires [remote].key in config.toml")
+		}
+	} else {
+		apiKey = cfg.API.Key
+		if apiKey == "" {
+			return nil, fmt.Errorf("API key not found in config")
+		}
 	}
 
 	return &APIClient{
 		baseURL:    baseURL,
-		apiKey:     cfg.API.Key,
+		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}, nil
 }

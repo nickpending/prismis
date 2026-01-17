@@ -117,7 +117,7 @@ func newModel(remoteURL string) Model {
 		api.SetRemoteURL(remoteURL)
 	}
 
-	return Model{
+	m := Model{
 		items:             []db.ContentItem{},
 		cursor:            0,
 		priority:          "all",
@@ -142,6 +142,13 @@ func newModel(remoteURL string) Model {
 		theme:     CleanCyberTheme, // Default theme
 		remoteURL: remoteURL,       // Remote mode if non-empty
 	}
+
+	// Propagate remote URL to source modal for API-based source fetching
+	if remoteURL != "" {
+		m.sourceModal.SetRemoteURL(remoteURL)
+	}
+
+	return m
 }
 
 // initRefreshMsg is sent to trigger refresh interval setup
@@ -156,7 +163,7 @@ func (m Model) Init() tea.Cmd {
 
 	cmds := []tea.Cmd{
 		fetchItemsWithState(m, true),
-		fetchSources(),
+		fetchSources(m.remoteURL),
 	}
 
 	// Load config and send refresh interval as message
@@ -226,7 +233,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sourceModal, cmd = m.sourceModal.Update(msg)
 		// If modal was closed, refresh sources
 		if !m.sourceModal.IsVisible() {
-			return m, fetchSources()
+			return m, fetchSources(m.remoteURL)
 		}
 		return m, cmd
 	}
@@ -764,11 +771,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle source updates regardless of modal visibility
 		if msg.err == nil {
 			m.sources = msg.sources
+			// In remote mode, calculate unread counts from cached items
+			if m.remoteURL != "" && len(m.itemsCache) > 0 {
+				m.sources = calculateUnreadCounts(m.sources, m.itemsCache)
+			}
 			// Update the sources viewport with new data
 			m.updateSourcesViewport()
 			// Update modal if it's visible
 			if m.sourceModal.IsVisible() {
-				m.sourceModal.LoadSources(msg.sources)
+				m.sourceModal.LoadSources(m.sources)
 			}
 		}
 
@@ -788,6 +799,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.lastSync = msg.newLastSync
 				}
 				// If no new items, keep existing lastSync unchanged
+
+				// Recalculate source unread counts from updated cache
+				if len(m.sources) > 0 {
+					m.sources = calculateUnreadCounts(m.sources, m.itemsCache)
+					m.updateSourcesViewport()
+				}
 			}
 
 			// Handle cursor position
@@ -952,7 +969,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, refreshCmd)
 
 			// Also refresh the sources panel to show updated source list
-			cmds = append(cmds, fetchSources())
+			cmds = append(cmds, fetchSources(m.remoteURL))
 		}
 
 	case operations.ContextReviewedMsg:
@@ -1338,15 +1355,73 @@ func autoRefreshCmd(interval time.Duration) tea.Cmd {
 	})
 }
 
-// fetchSources returns a command that fetches all sources from the database
-func fetchSources() tea.Cmd {
+// fetchSources returns a command that fetches all sources
+// If remoteURL is non-empty, fetches from API; otherwise uses local database
+func fetchSources(remoteURL string) tea.Cmd {
 	return func() tea.Msg {
+		if remoteURL != "" {
+			return fetchSourcesRemote(remoteURL)
+		}
 		sources, err := db.GetSourcesWithCounts()
 		return sourcesLoadedMsg{
 			sources: sources,
 			err:     err,
 		}
 	}
+}
+
+// fetchSourcesRemote fetches sources from the remote API
+func fetchSourcesRemote(remoteURL string) sourcesLoadedMsg {
+	client, err := api.NewClientWithURL(remoteURL)
+	if err != nil {
+		return sourcesLoadedMsg{err: err}
+	}
+
+	apiSources, err := client.GetSources()
+	if err != nil {
+		return sourcesLoadedMsg{err: err}
+	}
+
+	// Convert API sources to DB format
+	sources := make([]db.Source, 0, len(apiSources.Sources))
+	for _, apiSource := range apiSources.Sources {
+		name := ""
+		if apiSource.Name != nil {
+			name = *apiSource.Name
+		}
+		sources = append(sources, db.Source{
+			ID:          apiSource.ID,
+			URL:         apiSource.URL,
+			Name:        name,
+			Type:        apiSource.Type,
+			Active:      apiSource.Active,
+			UnreadCount: 0, // API doesn't provide unread counts
+			LastFetched: apiSource.LastFetched,
+			ErrorCount:  apiSource.ErrorCount,
+		})
+	}
+
+	return sourcesLoadedMsg{sources: sources}
+}
+
+// calculateUnreadCounts updates source unread counts from cached content items
+func calculateUnreadCounts(sources []db.Source, items []db.ContentItem) []db.Source {
+	// Build a map of source_id -> unread count
+	unreadBySource := make(map[string]int)
+	for _, item := range items {
+		if !item.Read {
+			unreadBySource[item.SourceID]++
+		}
+	}
+
+	// Update sources with calculated counts
+	for i := range sources {
+		if count, ok := unreadBySource[sources[i].ID]; ok {
+			sources[i].UnreadCount = count
+		}
+	}
+
+	return sources
 }
 
 // clearStatusAfterDelay returns a command that clears the status message after a delay

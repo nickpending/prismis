@@ -62,6 +62,9 @@ type SourceModal struct {
 	// Viewport for scrolling content
 	viewport viewport.Model
 	ready    bool // Whether viewport is ready
+
+	// Remote mode support
+	remoteURL string // If non-empty, use API instead of local DB
 }
 
 // NewSourceModal creates a new SourceModal instance
@@ -89,6 +92,11 @@ func NewSourceModal() SourceModal {
 		viewport:    vp,
 		ready:       false,
 	}
+}
+
+// SetRemoteURL sets the remote URL for API-based source fetching
+func (m *SourceModal) SetRemoteURL(url string) {
+	m.remoteURL = url
 }
 
 // SetSize updates the modal size based on terminal dimensions
@@ -357,7 +365,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 			m.errorMsg = ""
 			m.UpdateContent()
 			return m, tea.Batch(
-				fetchSources(),
+				fetchSources(m.remoteURL),
 				tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 					return clearStatusMsg{}
 				}),

@@ -347,7 +347,7 @@ async def get_sources(storage: Storage = Depends(get_storage)) -> dict:
                     type=source["type"],
                     name=source.get("name"),
                     active=source.get("active", True),
-                    last_fetched=source.get("last_fetched"),
+                    last_fetched=source.get("last_fetched_at"),
                     error_count=source.get("error_count", 0),
                     last_error=source.get("last_error"),
                 )

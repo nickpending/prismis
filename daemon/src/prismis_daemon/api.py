@@ -763,7 +763,7 @@ async def get_content(
                 )
                 content_items = [
                     item for item in all_content if item.get("priority") in priorities
-                ][:limit]
+                ]
         else:
             # Get content from all priorities
             if unread_only:
@@ -797,7 +797,7 @@ async def get_content(
                     include_archived=include_archived,
                     source_filter=source,
                 )
-                content_items = all_content[:limit]
+                content_items = all_content
 
         # Apply sorting based on sort_by parameter
         # Helper to get sortable date (ISO strings sort correctly alphabetically)
@@ -823,6 +823,9 @@ async def get_content(
         # Deduplicate by fuzzy title matching (80% similarity)
         # Groups similar items, keeps highest priority as primary
         content_items = deduplicate_content(content_items)
+
+        # Apply limit AFTER deduplication to ensure duplicates are properly grouped
+        content_items = content_items[:limit]
 
         # Filter to compact fields if requested
         if compact:

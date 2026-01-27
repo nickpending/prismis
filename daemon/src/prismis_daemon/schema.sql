@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS content (
     interesting_override BOOLEAN DEFAULT 0,  -- User-flagged for context analysis
     notes TEXT,
     archived_at TIMESTAMP DEFAULT NULL,  -- Soft archival (NULL = active)
+    user_feedback TEXT CHECK(user_feedback IN ('up', 'down', NULL)),  -- User feedback: 'up' = useful, 'down' = not useful
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
@@ -71,6 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_content_source ON content(source_id);
 CREATE INDEX IF NOT EXISTS idx_content_fetched ON content(fetched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_content_archived ON content(archived_at);
 CREATE INDEX IF NOT EXISTS idx_content_interesting ON content(interesting_override);
+CREATE INDEX IF NOT EXISTS idx_content_user_feedback ON content(user_feedback);
 CREATE INDEX IF NOT EXISTS idx_sources_active ON sources(active);
 CREATE INDEX IF NOT EXISTS idx_source_categories_source ON source_categories(source_id);
 CREATE INDEX IF NOT EXISTS idx_source_categories_category ON source_categories(category_id);

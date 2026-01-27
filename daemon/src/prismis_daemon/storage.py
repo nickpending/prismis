@@ -581,6 +581,7 @@ class Storage:
                         "read": bool(row["read"]),
                         "favorited": bool(row["favorited"]),
                         "interesting_override": bool(row["interesting_override"]),
+                        "user_feedback": row["user_feedback"],
                         "notes": row["notes"],
                     }
                 )
@@ -659,6 +660,7 @@ class Storage:
                         "read": bool(row["read"]),
                         "favorited": bool(row["favorited"]),
                         "interesting_override": bool(row["interesting_override"]),
+                        "user_feedback": row["user_feedback"],
                         "notes": row["notes"],
                     }
                 )
@@ -959,25 +961,42 @@ class Storage:
         read: bool | None = None,
         favorited: bool | None = None,
         interesting_override: bool | None = None,
+        user_feedback: str | None = "__NOT_PROVIDED__",
     ) -> bool:
-        """Update read, favorited, and/or interesting_override status of content.
+        """Update read, favorited, interesting_override, and/or user_feedback status.
 
         Args:
             content_id: UUID of the content to update
             read: Set read status if provided
             favorited: Set favorited status if provided
             interesting_override: Set interesting_override flag if provided
+            user_feedback: Set user feedback ('up', 'down', or None to clear).
+                          Use special value "__NOT_PROVIDED__" to indicate param was not passed.
 
         Returns:
             True if content was updated, False if not found
 
         Raises:
-            ValueError: If no update parameters provided
+            ValueError: If no update parameters provided or invalid user_feedback value
             sqlite3.Error: If database operation fails
         """
-        if read is None and favorited is None and interesting_override is None:
+        # Check if user_feedback was explicitly provided (not the default sentinel)
+        user_feedback_provided = user_feedback != "__NOT_PROVIDED__"
+
+        if (
+            read is None
+            and favorited is None
+            and interesting_override is None
+            and not user_feedback_provided
+        ):
             raise ValueError(
-                "At least one of read, favorited, or interesting_override must be provided"
+                "At least one of read, favorited, interesting_override, or user_feedback must be provided"
+            )
+
+        # Validate user_feedback if provided
+        if user_feedback_provided and user_feedback not in ("up", "down", None):
+            raise ValueError(
+                f"Invalid user_feedback value: {user_feedback}. Must be 'up', 'down', or None"
             )
 
         start_time = time.time()
@@ -1000,6 +1019,10 @@ class Storage:
             if interesting_override is not None:
                 updates.append("interesting_override = ?")
                 params.append(1 if interesting_override else 0)
+
+            if user_feedback_provided:
+                updates.append("user_feedback = ?")
+                params.append(user_feedback)  # Can be 'up', 'down', or None
 
             params.append(content_id)
 
@@ -1192,6 +1215,7 @@ class Storage:
                     "read": bool(row["read"]),
                     "favorited": bool(row["favorited"]),
                     "interesting_override": bool(row["interesting_override"]),
+                    "user_feedback": row["user_feedback"],
                     "notes": row["notes"],
                     "source_name": row["source_name"],
                     "source_type": row["source_type"],
@@ -1549,6 +1573,7 @@ class Storage:
                     "fetched_at": row["fetched_at"],
                     "read": bool(row["read"]),
                     "favorited": bool(row["favorited"]),
+                    "user_feedback": row["user_feedback"],
                     "notes": row["notes"],
                     "source_name": row["source_name"],
                     "source_type": row["source_type"],

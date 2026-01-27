@@ -308,6 +308,32 @@
             font-weight: 600;
         }
 
+        .duplicate-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            background-color: rgba(0, 217, 255, 0.1);
+            color: #00D9FF;
+            border: 1px solid #00D9FF;
+            font-weight: 600;
+            cursor: help;
+        }
+
+        .duplicate-badge:hover::after {
+            content: attr(title);
+            position: absolute;
+            background: #222222;
+            border: 1px solid #00D9FF;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+            z-index: 100;
+            margin-top: 4px;
+            margin-left: -8px;
+        }
+
         .must-reads-section {
             background: #222222;
             padding: 25px;
@@ -1015,8 +1041,16 @@
                     if (Array.isArray(matchedInterests) && matchedInterests.length > 0) {
                         const matchCount = matchedInterests.length;
                         const matchText = `${matchCount} interest${matchCount > 1 ? 's' : ''} matched`;
-                        interestBadge = `<span class="match-badge">✨ ${this.escapeHtml(matchText)}</span>`;
+                        interestBadge = `<span class="match-badge">${this.escapeHtml(matchText)}</span>`;
                     }
+                }
+
+                // Calculate duplicate badge
+                let duplicateBadge = '';
+                if (item.duplicate_count && item.duplicate_count > 1) {
+                    const sources = item.duplicate_sources || [];
+                    const sourcesText = sources.length > 0 ? `From: ${sources.join(', ')}` : '';
+                    duplicateBadge = `<span class="duplicate-badge" title="${this.escapeHtml(sourcesText)}">x${item.duplicate_count} sources</span>`;
                 }
 
                 return `
@@ -1035,6 +1069,7 @@
                             <span class="priority-badge badge-${item.priority || 'none'}">${(item.priority || 'none').toUpperCase()}</span>
                             <span>${this.escapeHtml(item.source_name || 'Unknown Source')}</span>
                             <span>${timeAgo}</span>
+                            ${duplicateBadge}
                             ${interestBadge}
                         </div>
                         <div class="item-summary">

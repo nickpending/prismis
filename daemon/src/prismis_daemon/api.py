@@ -3,6 +3,8 @@
 import os
 import re
 import time
+from collections import defaultdict
+from difflib import SequenceMatcher
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -274,6 +276,99 @@ def extract_name_from_url(url: str, source_type: str) -> str:
     domain = url_clean.split("/")[0].split("?")[0]
 
     return domain.split(".")[0].title() if "." in domain else domain
+
+
+def normalize_title_for_comparison(title: str) -> str:
+    """Normalize title for fuzzy comparison.
+
+    Removes common prefixes, lowercases, and strips whitespace.
+    """
+    if not title:
+        return ""
+    # Lowercase and strip
+    normalized = title.lower().strip()
+    # Remove common prefixes like [Discussion], [R], etc.
+    normalized = re.sub(r"^\[.*?\]\s*", "", normalized)
+    # Remove leading articles
+    normalized = re.sub(r"^(the|a|an)\s+", "", normalized)
+    return normalized
+
+
+def title_similarity(title1: str, title2: str) -> float:
+    """Calculate similarity ratio between two titles.
+
+    Uses SequenceMatcher for fuzzy matching.
+    Returns a float between 0.0 (no match) and 1.0 (exact match).
+    """
+    norm1 = normalize_title_for_comparison(title1)
+    norm2 = normalize_title_for_comparison(title2)
+    if not norm1 or not norm2:
+        return 0.0
+    return SequenceMatcher(None, norm1, norm2).ratio()
+
+
+def deduplicate_content(
+    items: list[dict], similarity_threshold: float = 0.80
+) -> list[dict]:
+    """Deduplicate content items by fuzzy title matching.
+
+    Groups items with similar titles and keeps the highest priority one as primary.
+    Adds duplicate_count and duplicate_sources fields to grouped items.
+
+    Args:
+        items: List of content item dicts
+        similarity_threshold: Minimum similarity ratio (0.0-1.0) to consider duplicate
+
+    Returns:
+        Deduplicated list with duplicate metadata added to primary items
+    """
+    if not items:
+        return items
+
+    priority_order = {"high": 0, "medium": 1, "low": 2, None: 3, "": 3}
+
+    # Track which items have been grouped
+    grouped_indices: set[int] = set()
+    result: list[dict] = []
+
+    for i, item in enumerate(items):
+        if i in grouped_indices:
+            continue
+
+        # Find all similar items
+        group = [item]
+        group_sources = [item.get("source_name", "Unknown")]
+
+        for j, other in enumerate(items[i + 1 :], start=i + 1):
+            if j in grouped_indices:
+                continue
+
+            similarity = title_similarity(
+                item.get("title", ""), other.get("title", "")
+            )
+            if similarity >= similarity_threshold:
+                group.append(other)
+                group_sources.append(other.get("source_name", "Unknown"))
+                grouped_indices.add(j)
+
+        # Sort group by priority (highest first) to pick the best one
+        group.sort(key=lambda x: priority_order.get(x.get("priority"), 3))
+        primary = group[0].copy()  # Don't mutate original
+
+        # Add duplicate metadata if there are duplicates
+        if len(group) > 1:
+            primary["duplicate_count"] = len(group)
+            # Unique sources for the duplicates
+            unique_sources = list(dict.fromkeys(group_sources))
+            primary["duplicate_sources"] = unique_sources
+        else:
+            primary["duplicate_count"] = 1
+            primary["duplicate_sources"] = None
+
+        result.append(primary)
+        grouped_indices.add(i)
+
+    return result
 
 
 @app.post(
@@ -725,6 +820,10 @@ async def get_content(
             content_items.sort(key=get_date, reverse=True)
             content_items.sort(key=lambda x: priority_order.get(x.get("priority"), 3))
 
+        # Deduplicate by fuzzy title matching (80% similarity)
+        # Groups similar items, keeps highest priority as primary
+        content_items = deduplicate_content(content_items)
+
         # Filter to compact fields if requested
         if compact:
             compact_fields = {
@@ -735,6 +834,8 @@ async def get_content(
                 "published_at",
                 "source_name",
                 "summary",
+                "duplicate_count",
+                "duplicate_sources",
             }
             content_items = [
                 {k: v for k, v in item.items() if k in compact_fields}

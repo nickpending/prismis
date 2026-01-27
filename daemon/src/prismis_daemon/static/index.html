@@ -253,10 +253,10 @@
             cursor: not-allowed;
         }
 
+        /* Ghost Style vote buttons - subtle, non-distracting */
         .vote-btn {
             background: transparent;
-            border: 1px solid #444444;
-            color: #666666;
+            border: 1px solid transparent;
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 14px;
@@ -264,39 +264,24 @@
             transition: all 0.2s ease;
             min-height: 32px;
             min-width: 32px;
+            opacity: 0.5;
+            filter: grayscale(100%);
         }
 
         .vote-btn:hover {
             background: rgba(255, 255, 255, 0.05);
-            border-color: #666666;
+            opacity: 0.7;
         }
 
-        .vote-btn.up:hover {
-            background: rgba(0, 200, 83, 0.1);
-            border-color: #00C853;
-            color: #00C853;
-        }
-
-        .vote-btn.down:hover {
-            background: rgba(255, 82, 82, 0.1);
-            border-color: #FF5252;
-            color: #FF5252;
-        }
-
-        .vote-btn.voted.up {
-            background: rgba(0, 200, 83, 0.2);
-            border-color: #00C853;
-            color: #00C853;
-        }
-
-        .vote-btn.voted.down {
-            background: rgba(255, 82, 82, 0.2);
-            border-color: #FF5252;
-            color: #FF5252;
+        /* Selected state: subtle grey outline, full opacity */
+        .vote-btn.voted {
+            border-color: #555555;
+            opacity: 0.85;
+            filter: grayscale(100%);
         }
 
         .vote-btn:disabled {
-            opacity: 0.4;
+            opacity: 0.3;
             cursor: not-allowed;
         }
 

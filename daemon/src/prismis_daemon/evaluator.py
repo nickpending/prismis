@@ -34,6 +34,7 @@ class ContentEvaluation:
     priority: PriorityLevel | None  # Can be None for unprioritized content
     matched_interests: list[str]
     reasoning: str | None = None
+    preference_influenced: bool = False  # True if learned preferences affected evaluation
 
 
 class ContentEvaluator:
@@ -70,7 +71,12 @@ class ContentEvaluator:
         logger.info(f"ContentEvaluator initialized with model: {self.model}")
 
     def evaluate_content(
-        self, content: str, title: str, url: str, context: str
+        self,
+        content: str,
+        title: str,
+        url: str,
+        context: str,
+        learned_preferences: str | None = None,
     ) -> ContentEvaluation:
         """Evaluate content relevance against user context.
 
@@ -79,23 +85,37 @@ class ContentEvaluator:
             title: Title of the content
             url: URL of the content
             context: User's personal context for evaluation
+            learned_preferences: Optional learned preferences from user feedback (for_llm_context)
 
         Returns:
             ContentEvaluation with priority level and matched interests
         """
         logger.debug(f"Evaluating content '{title[:50]}...' against user context")
+        if learned_preferences:
+            logger.debug("Including learned preferences in evaluation")
 
         try:
-            messages = self._build_evaluation_prompt(content, title, url, context)
+            messages = self._build_evaluation_prompt(
+                content, title, url, context, learned_preferences
+            )
             response = self._call_llm(messages)
-            return self._parse_evaluation_response(response)
+            evaluation = self._parse_evaluation_response(response)
+            # Mark as preference-influenced if learned preferences were used
+            if learned_preferences:
+                evaluation.preference_influenced = True
+            return evaluation
         except Exception as e:
             logger.error(f"Content evaluation failed: {e}", exc_info=True)
             # Re-raise to stop processing completely per requirements
             raise
 
     def _build_evaluation_prompt(
-        self, content: str, title: str, url: str, context: str
+        self,
+        content: str,
+        title: str,
+        url: str,
+        context: str,
+        learned_preferences: str | None = None,
     ) -> list[dict[str, str]]:
         """Build the evaluation prompt for the LLM.
 
@@ -104,6 +124,7 @@ class ContentEvaluator:
             title: Title of the content
             url: URL of the content
             context: User's personal context
+            learned_preferences: Optional learned preferences from user feedback
 
         Returns:
             List of messages for the LLM
@@ -127,7 +148,7 @@ CRITICAL EVALUATION RULES:
 
 Priority Assignment Logic:
 - high: ONLY if it matches topics in "High Priority Topics" section
-- medium: ONLY if it matches topics in "Medium Priority Topics" section  
+- medium: ONLY if it matches topics in "Medium Priority Topics" section
 - low: ONLY if it matches topics in "Low Priority Topics" section
 - null: If NO interests match OR if it matches "Not Interested" topics
 
@@ -138,6 +159,17 @@ Examples:
 - Security tool that matches high priority → priority: "high", matched_interests: ["LLM-driven security tools"]
 - BJJ training video → priority: "low", matched_interests: ["Brazilian Jiu-Jitsu training approaches"]
 - Basic password management article → priority: null, matched_interests: [] (matches Not Interested)"""
+
+        # Inject learned preferences if available (from user feedback history)
+        if learned_preferences:
+            system_prompt += f"""
+
+LEARNED USER PREFERENCES (from recent feedback):
+{learned_preferences}
+
+Use these learned preferences to SUPPLEMENT (not override) the user's context above.
+If content matches topics the user has upvoted, consider boosting priority slightly.
+If content matches topics the user has downvoted, consider lowering priority."""
 
         user_prompt = f"""User's Personal Context:
 {context}

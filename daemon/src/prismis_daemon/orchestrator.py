@@ -158,7 +158,10 @@ class DaemonOrchestrator:
         raise last_error  # type: ignore
 
     def fetch_source_content(
-        self, source: dict[str, Any], force_refetch: bool = False
+        self,
+        source: dict[str, Any],
+        force_refetch: bool = False,
+        learned_preferences: str | None = None,
     ) -> dict[str, Any]:
         """Fetch and process content from a single source with deduplication.
 
@@ -169,6 +172,7 @@ class DaemonOrchestrator:
         Args:
             source: Source dict with id, url, name, type
             force_refetch: If True, process all items regardless of existence
+            learned_preferences: Optional learned preferences from user feedback for LLM
 
         Returns:
             Dict with processing stats: items_fetched, items_processed, items_new, items_updated, new_high_priority_items
@@ -326,6 +330,7 @@ class DaemonOrchestrator:
                         title=item.title,
                         url=item.url,
                         context=self.config.context,
+                        learned_preferences=learned_preferences,
                     )
 
                     # Step 3c: Build LLM analysis data
@@ -339,6 +344,7 @@ class DaemonOrchestrator:
                         "urls": summary_result.urls,
                         "matched_interests": evaluation.matched_interests,
                         "priority_reasoning": evaluation.reasoning,
+                        "preference_influenced": evaluation.preference_influenced,
                         "metadata": summary_result.metadata,
                     }
 
@@ -451,6 +457,22 @@ class DaemonOrchestrator:
             "new_high_priority_items": [],  # Aggregate new HIGH priority items
         }
 
+        # Fetch learned preferences for LLM evaluation (003-light-preference-learning)
+        # Only activates if user has provided at least 5 votes in the last 30 days
+        learned_preferences = None
+        try:
+            feedback_stats = self.storage.get_feedback_statistics(since_days=30)
+            total_votes = feedback_stats.get("totals", {}).get("total_votes", 0)
+            if total_votes >= 5:
+                learned_preferences = feedback_stats.get("for_llm_context")
+                if learned_preferences:
+                    self.console.print(
+                        f"🧠 Using learned preferences from {total_votes} votes (last 30 days)"
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to fetch feedback statistics: {e}")
+            # Continue without learned preferences - not critical
+
         # Get active sources
         self.console.print("📡 Getting active sources...")
         sources = self.storage.get_active_sources()
@@ -474,7 +496,9 @@ class DaemonOrchestrator:
 
             try:
                 # Use the new fetch_source_content method with deduplication
-                source_stats = self.fetch_source_content(source, force_refetch)
+                source_stats = self.fetch_source_content(
+                    source, force_refetch, learned_preferences
+                )
 
                 # Aggregate stats
                 stats["total_items"] += source_stats["items_fetched"]

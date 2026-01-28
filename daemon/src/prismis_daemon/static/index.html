@@ -296,6 +296,26 @@
             border: 1px solid #444444;
         }
 
+        /* Learned preference indicator - subtle tint on priority badge */
+        .priority-badge.learned {
+            position: relative;
+        }
+        .priority-badge.learned::after {
+            content: '✦';
+            font-size: 8px;
+            margin-left: 4px;
+            opacity: 0.7;
+        }
+        .badge-high.learned {
+            box-shadow: 0 0 4px rgba(255, 0, 102, 0.3);
+        }
+        .badge-medium.learned {
+            box-shadow: 0 0 4px rgba(255, 136, 0, 0.3);
+        }
+        .badge-low.learned {
+            box-shadow: 0 0 4px rgba(102, 102, 102, 0.3);
+        }
+
         .match-badge {
             display: inline-block;
             padding: 3px 8px;
@@ -1019,6 +1039,11 @@
                     }
                 }
 
+                // Check if priority was influenced by learned preferences
+                const preferenceInfluenced = item.analysis?.preference_influenced === true;
+                const learnedClass = preferenceInfluenced ? 'learned' : '';
+                const learnedTitle = preferenceInfluenced ? ' (influenced by your feedback)' : '';
+
                 return `
                     <div class="content-item" data-priority="${item.priority}">
                         <div class="item-header">
@@ -1032,7 +1057,7 @@
                             </div>
                         </div>
                         <div class="item-meta">
-                            <span class="priority-badge badge-${item.priority || 'none'}">${(item.priority || 'none').toUpperCase()}</span>
+                            <span class="priority-badge badge-${item.priority || 'none'} ${learnedClass}" title="${(item.priority || 'none').toUpperCase()}${learnedTitle}">${(item.priority || 'none').toUpperCase()}</span>
                             <span>${this.escapeHtml(item.source_name || 'Unknown Source')}</span>
                             <span>${timeAgo}</span>
                             ${interestBadge}

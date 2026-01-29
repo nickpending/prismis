@@ -3,7 +3,6 @@
 import os
 import re
 import time
-from collections import defaultdict
 from difflib import SequenceMatcher
 from datetime import UTC, datetime, timedelta
 from pathlib import Path

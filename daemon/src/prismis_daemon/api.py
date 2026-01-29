@@ -698,6 +698,10 @@ async def get_content(
     compact: bool = Query(
         False, description="Return compact format (excludes content and analysis)"
     ),
+    skip_dedup: bool = Query(
+        True,
+        description="Skip fuzzy title deduplication (default: True for faster responses)",
+    ),
     storage: Storage = Depends(get_storage),
 ) -> dict:
     """Get content items with optional filtering.
@@ -715,6 +719,7 @@ async def get_content(
         sort_by: Sort order - 'priority' (default), 'date', or 'unread'
         source: Filter results to sources containing this substring (case-insensitive)
         compact: Return compact format for LLM consumption
+        skip_dedup: Skip fuzzy title deduplication (default: True for faster responses)
         storage: Storage instance injected by FastAPI
 
     Returns:
@@ -830,9 +835,14 @@ async def get_content(
             content_items.sort(key=get_date, reverse=True)
             content_items.sort(key=lambda x: priority_order.get(x.get("priority"), 3))
 
-        # Deduplicate by fuzzy title matching (80% similarity)
+        # Deduplicate by fuzzy title matching (80% similarity) if enabled
         # Groups similar items, keeps highest priority as primary
-        content_items = deduplicate_content(content_items)
+        # Default: skip_dedup=True for fast responses; set to False to enable deduplication
+        if not skip_dedup:
+            # Cap items for deduplication to avoid O(n²) timeout on large datasets
+            # 200 items @ O(n²) = 40,000 comparisons, runs in ~2-3 seconds
+            dedup_cap = min(len(content_items), 200)
+            content_items = deduplicate_content(content_items[:dedup_cap])
 
         # Apply limit AFTER deduplication to ensure duplicates are properly grouped
         content_items = content_items[:limit]

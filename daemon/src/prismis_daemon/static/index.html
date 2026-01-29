@@ -814,7 +814,8 @@
                         limit: '100',
                         priority: 'high,medium,low',
                         unread_only: 'false',
-                        sort_by: this.sortBy
+                        sort_by: this.sortBy,
+                        skip_dedup: 'false'  // Enable duplicate detection and grouping
                     });
 
                     const controller = new AbortController();

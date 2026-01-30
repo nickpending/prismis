@@ -46,10 +46,10 @@ type ArticleInterestingToggledMsg struct {
 }
 
 type ArticleVotedMsg struct {
-	ID       string
-	Vote     string // "up", "down", or "" (cleared)
-	Success  bool
-	Error    error
+	ID      string
+	Vote    string // "up", "down", or "" (cleared)
+	Success bool
+	Error   error
 }
 
 // MarkArticleRead marks an article as read
@@ -161,7 +161,7 @@ func ToggleArticleInteresting(item db.ContentItem) tea.Cmd {
 // vote should be "up", "down", or "" to clear
 func SetArticleVote(item db.ContentItem, vote string) tea.Cmd {
 	return func() tea.Msg {
-		err := db.SetUserFeedback(item.ID, vote)
+		err := service.SetUserFeedback(item.ID, vote)
 		return ArticleVotedMsg{
 			ID:      item.ID,
 			Vote:    vote,

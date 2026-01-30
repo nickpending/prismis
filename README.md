@@ -30,6 +30,7 @@ Think of it as having a research assistant who reads everything and only interru
 
 - 🚀 **Instant TUI** - Launches in <100ms with gorgeous Bubbletea interface
 - 🧠 **AI-Powered Priority** - LLM analyzes content against YOUR interests (HIGH/MEDIUM/LOW)
+- 👍 **Preference Learning** - Upvote/downvote content to train AI prioritization over time
 - 🔍 **Semantic Search** - Local embeddings enable vector similarity search across all content
 - 🤖 **Context Assistant** - LLM analyzes flagged items to suggest context.md improvements with gap analysis
 - 🌐 **Remote TUI Mode** - Access your daemon from anywhere with incremental sync
@@ -123,6 +124,7 @@ prismis --remote  # Remote mode with incremental sync from server daemon
 - `1/2/3` - View HIGH/MEDIUM/LOW priority content
 - `j/k` - Navigate up/down (vim-style)
 - `Enter` - Read full article
+- `+`/`-` - Upvote/downvote content (trains AI prioritization)
 - `i` - Flag item as interesting (for context analysis)
 - `:` - Command mode (see below)
 - `S` - Manage sources

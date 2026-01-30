@@ -1274,6 +1274,7 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 			Read:                apiItem.Read,
 			Favorited:           apiItem.Favorited,
 			InterestingOverride: apiItem.InterestingOverride,
+			UserFeedback:        apiItem.UserFeedback,
 			SourceType:          apiItem.SourceType,
 			SourceName:          apiItem.SourceName,
 			SourceID:            apiItem.SourceID,

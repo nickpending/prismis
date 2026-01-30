@@ -104,3 +104,30 @@ func ToggleInteresting(contentID string, interesting bool) error {
 
 	return nil
 }
+
+// SetUserFeedback sets the user feedback vote for a content item via the API
+// vote should be "up", "down", or "" (empty string to clear)
+func SetUserFeedback(contentID string, vote string) error {
+	if err := initContentService(); err != nil {
+		return err
+	}
+
+	// Use nil for empty string to clear the vote
+	var votePtr *string
+	if vote == "" {
+		votePtr = nil
+	} else {
+		votePtr = &vote
+	}
+
+	request := api.ContentUpdateRequest{
+		UserFeedback: votePtr,
+	}
+
+	_, err := globalContentService.client.UpdateContent(contentID, request)
+	if err != nil {
+		return fmt.Errorf("failed to set user feedback: %w", err)
+	}
+
+	return nil
+}

@@ -85,6 +85,7 @@ type ContentItem struct {
 	Read                bool            `json:"read"`
 	Favorited           bool            `json:"favorited"`
 	InterestingOverride bool            `json:"interesting_override"`
+	UserFeedback        string          `json:"user_feedback"`
 	ArchivedAt          *apiTime        `json:"archived_at"`
 	Priority            *string         `json:"priority"`
 	Analysis            json.RawMessage `json:"analysis"` // JSON object from API
@@ -489,9 +490,10 @@ func (c *APIClient) GetSources() (*SourceListResponse, error) {
 
 // ContentUpdateRequest represents a request to update content properties
 type ContentUpdateRequest struct {
-	Read                *bool `json:"read,omitempty"`
-	Favorited           *bool `json:"favorited,omitempty"`
-	InterestingOverride *bool `json:"interesting_override,omitempty"`
+	Read                *bool   `json:"read,omitempty"`
+	Favorited           *bool   `json:"favorited,omitempty"`
+	InterestingOverride *bool   `json:"interesting_override,omitempty"`
+	UserFeedback        *string `json:"user_feedback,omitempty"`
 }
 
 // UpdateContent updates content properties (read/favorited status)

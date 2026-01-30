@@ -2226,20 +2226,24 @@ class Storage:
             raise ValueError(f"Invalid feedback value: {feedback}")
 
         try:
-            time_filter = ""
-            if since_days:
-                time_filter = f"AND c.updated_at >= datetime('now', '-{since_days} days')"
-
-            cursor = self.conn.execute(f"""
+            query = """
                 SELECT 
                     c.id, c.title, c.url, c.summary, c.content, c.priority,
                     c.analysis, c.published_at, c.read, c.favorited,
                     c.user_feedback, s.name as source_name, s.type as source_type
                 FROM content c
                 LEFT JOIN sources s ON c.source_id = s.id
-                WHERE c.user_feedback = ? {time_filter}
-                ORDER BY c.updated_at DESC
-            """, (feedback,))
+                WHERE c.user_feedback = ?
+            """
+            params: list = [feedback]
+
+            if since_days:
+                query += " AND c.updated_at >= datetime('now', ?)"
+                params.append(f'-{since_days} days')
+
+            query += " ORDER BY c.updated_at DESC"
+
+            cursor = self.conn.execute(query, params)
 
             items = []
             for row in cursor.fetchall():

@@ -558,7 +558,7 @@ func GetUnprioritizedContent(showAll bool) ([]ContentItem, int, error) {
 
 	// Build query for items with NULL or empty priority
 	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis, 
-	                 c.published_at, c.read, c.favorited, s.type, s.name, c.source_id
+	                 c.published_at, c.read, c.favorited, c.interesting_override, c.user_feedback, s.type, s.name, c.source_id
 	          FROM content c
 	          JOIN sources s ON c.source_id = s.id
 	          WHERE (c.priority IS NULL OR c.priority = '')`

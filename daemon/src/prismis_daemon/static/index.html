@@ -253,6 +253,38 @@
             cursor: not-allowed;
         }
 
+        /* Ghost Style vote buttons - subtle, non-distracting */
+        .vote-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-height: 32px;
+            min-width: 32px;
+            opacity: 0.5;
+            filter: grayscale(100%);
+        }
+
+        .vote-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            opacity: 0.7;
+        }
+
+        /* Selected state: subtle grey outline, full opacity */
+        .vote-btn.voted {
+            border-color: #555555;
+            opacity: 0.85;
+            filter: grayscale(100%);
+        }
+
+        .vote-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
         .item-meta {
             font-size: 13px;
             color: #888888;
@@ -978,6 +1010,15 @@
                         this.markAsRead(itemId, e.target);
                     });
                 });
+
+                // Add event listeners for vote buttons in Top 3
+                container.querySelectorAll('.vote-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const itemId = e.target.dataset.itemId;
+                        const vote = e.target.dataset.vote;
+                        this.handleVote(itemId, vote, e.target);
+                    });
+                });
             }
 
             renderContent() {
@@ -1002,6 +1043,15 @@
                         this.markAsRead(itemId, e.target);
                     });
                 });
+
+                // Add event listeners for vote buttons
+                container.querySelectorAll('.vote-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const itemId = e.target.dataset.itemId;
+                        const vote = e.target.dataset.vote;
+                        this.handleVote(itemId, vote, e.target);
+                    });
+                });
             }
 
             renderContentItem(item, isTop3 = false) {
@@ -1019,8 +1069,12 @@
                     }
                 }
 
+                // Vote button states
+                const upVoted = item.user_feedback === 'up' ? 'voted' : '';
+                const downVoted = item.user_feedback === 'down' ? 'voted' : '';
+
                 return `
-                    <div class="content-item" data-priority="${item.priority}">
+                    <div class="content-item" data-priority="${item.priority}" data-item-id="${item.id}">
                         <div class="item-header">
                             <div class="item-title">
                                 <a href="${this.escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">
@@ -1028,6 +1082,8 @@
                                 </a>
                             </div>
                             <div class="item-actions">
+                                <button class="vote-btn up ${upVoted}" data-item-id="${item.id}" data-vote="up" title="Good content">👍</button>
+                                <button class="vote-btn down ${downVoted}" data-item-id="${item.id}" data-vote="down" title="Not useful">👎</button>
                                 ${!item.read ? `<button class="mark-read-btn" data-item-id="${item.id}">Mark Read</button>` : ''}
                             </div>
                         </div>
@@ -1119,6 +1175,88 @@
                         button.textContent = 'Mark Read';
                         this.showError(`Failed to mark as read: ${error.message}`);
                     }
+                }
+            }
+
+            async handleVote(itemId, vote, button) {
+                // If offline, don't allow voting
+                if (this.isOffline) {
+                    this.showError('Cannot vote while offline');
+                    return;
+                }
+
+                // Find current item state
+                const item = this.content.find(c => c.id === itemId);
+                if (!item) return;
+
+                // Determine new vote state (toggle if same vote, otherwise set new vote)
+                const currentVote = item.user_feedback;
+                const newVote = (currentVote === vote) ? null : vote;
+
+                // Disable all vote buttons for this item during request
+                const itemElement = document.querySelector(`.content-item[data-item-id="${itemId}"]`);
+                const voteButtons = itemElement ? itemElement.querySelectorAll('.vote-btn') : [];
+                voteButtons.forEach(btn => btn.disabled = true);
+
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+                    const response = await fetch(`/api/entries/${itemId}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-API-Key': this.apiKey
+                        },
+                        body: JSON.stringify({ user_feedback: newVote }),
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    if (!response.ok) {
+                        // Check for daemon offline scenarios
+                        if (response.status >= 500 || response.status === 502 || response.status === 503 || response.status === 504) {
+                            this.handleOfflineState(new Error('DAEMON_DOWN'));
+                            return;
+                        }
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    const data = await response.json();
+
+                    // Update local state
+                    item.user_feedback = data.data.user_feedback;
+
+                    // Also update cached content
+                    const cachedItem = this.cachedContent.find(c => c.id === itemId);
+                    if (cachedItem) {
+                        cachedItem.user_feedback = data.data.user_feedback;
+                    }
+
+                    // Update button states visually
+                    voteButtons.forEach(btn => {
+                        btn.classList.remove('voted');
+                        const btnVote = btn.dataset.vote;
+                        if (btnVote === data.data.user_feedback) {
+                            btn.classList.add('voted');
+                        }
+                    });
+
+                } catch (error) {
+                    console.error('Failed to vote:', error);
+
+                    // Check for connection errors
+                    if (error.name === 'AbortError' ||
+                        error.message.includes('fetch') ||
+                        error.message.includes('NetworkError')) {
+                        this.handleOfflineState(error);
+                    } else {
+                        this.showError(`Failed to vote: ${error.message}`);
+                    }
+                } finally {
+                    // Re-enable buttons
+                    voteButtons.forEach(btn => btn.disabled = false);
                 }
             }
 

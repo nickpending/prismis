@@ -471,13 +471,21 @@ async def update_content(
     At least one field must be provided in the request.
     """
     try:
+        # Build kwargs for update_content_status
+        # Only pass user_feedback if it was explicitly provided in the request
+        update_kwargs = {
+            "read": request.read,
+            "favorited": request.favorited,
+            "interesting_override": request.interesting_override,
+        }
+
+        # Check if user_feedback was explicitly set in the request JSON
+        # We need to distinguish between "not provided" and "explicitly set to null"
+        if hasattr(request, "user_feedback"):
+            update_kwargs["user_feedback"] = request.user_feedback
+
         # Update content status
-        success = storage.update_content_status(
-            content_id,
-            read=request.read,
-            favorited=request.favorited,
-            interesting_override=request.interesting_override,
-        )
+        success = storage.update_content_status(content_id, **update_kwargs)
 
         if not success:
             raise NotFoundError("Content", content_id)
@@ -493,6 +501,9 @@ async def update_content(
                 "read": updated_content["read"] if updated_content else None,
                 "favorited": updated_content["favorited"] if updated_content else None,
                 "interesting_override": updated_content["interesting_override"]
+                if updated_content
+                else None,
+                "user_feedback": updated_content.get("user_feedback")
                 if updated_content
                 else None,
             },

@@ -39,7 +39,7 @@ func NewRegistry() *Registry {
 	// Reader-specific commands (actions only, not navigation)
 	r.Register("mark", cmdMark)
 	r.Register("favorite", cmdFavorite)
-	r.Register("interesting", cmdInteresting)
+	// Note: :interesting removed - use :up/:down for feedback
 	r.Register("up", cmdUpvote)
 	r.Register("down", cmdDownvote)
 	r.Register("open", cmdOpen)
@@ -313,13 +313,6 @@ func cmdFavorite(args []string) tea.Cmd {
 	}
 }
 
-// cmdInteresting toggles interesting flag of current article
-func cmdInteresting(args []string) tea.Cmd {
-	return func() tea.Msg {
-		return InterestingMsg{}
-	}
-}
-
 // cmdUpvote upvotes the current article (or clears if already upvoted)
 func cmdUpvote(args []string) tea.Cmd {
 	return func() tea.Msg {
@@ -503,9 +496,6 @@ type MarkMsg struct{}
 
 // FavoriteMsg signals to toggle favorite status
 type FavoriteMsg struct{}
-
-// InterestingMsg signals to toggle interesting flag
-type InterestingMsg struct{}
 
 // UpvoteMsg signals to upvote the current article
 type UpvoteMsg struct{}

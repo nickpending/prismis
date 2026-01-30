@@ -410,20 +410,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, operations.ToggleArticleFavorite(item)
 		}
 
-	case commands.InterestingMsg:
-		// Toggle interesting flag (works in both list and reader views)
-		// Only allow flagging unprioritized items (priority=NULL or LOW)
-		if len(m.items) > 0 && m.cursor < len(m.items) {
-			item := m.items[m.cursor]
-			if item.Priority == "" || item.Priority == "low" {
-				// Use the operations package to toggle interesting flag
-				return m, operations.ToggleArticleInteresting(item)
-			} else {
-				m.statusMessage = "Can only flag unprioritized items"
-				return m, clearStatusAfterDelay(2 * time.Second)
-			}
-		}
-
 	case commands.UpvoteMsg:
 		// Upvote current item (works on ALL content, not just unprioritized)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
@@ -1356,8 +1342,8 @@ func applyFiltersClientSide(items []db.ContentItem, m Model) []db.ContentItem {
 			continue
 		}
 
-		// Filter by interesting flag
-		if m.showInteresting && !item.InterestingOverride {
+		// Filter by upvoted flag (previously "interesting")
+		if m.showInteresting && item.UserFeedback != "up" {
 			continue
 		}
 

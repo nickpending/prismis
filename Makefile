@@ -166,6 +166,19 @@ migrate: ## Apply database migrations (safe to run multiple times)
 	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_sources_active ON sources(active);"
 	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_content_priority ON content(priority);"
 	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_content_read ON content(read);"
+	@echo "Migrating config.toml..."
+	@if [ -f $(CONFIG_DIR)/config.toml ] && ! grep -q "\[context\]" $(CONFIG_DIR)/config.toml 2>/dev/null; then \
+		echo "" >> $(CONFIG_DIR)/config.toml; \
+		echo "[context]" >> $(CONFIG_DIR)/config.toml; \
+		echo "# Auto-update context.md based on user feedback votes" >> $(CONFIG_DIR)/config.toml; \
+		echo "auto_update_enabled = true" >> $(CONFIG_DIR)/config.toml; \
+		echo "auto_update_interval_days = 30" >> $(CONFIG_DIR)/config.toml; \
+		echo "auto_update_min_votes = 5" >> $(CONFIG_DIR)/config.toml; \
+		echo "backup_count = 10" >> $(CONFIG_DIR)/config.toml; \
+		echo "  ✓ Added [context] section to config.toml"; \
+	else \
+		echo "  ✓ [context] section exists"; \
+	fi
 	@echo "✓ Migration complete"
 
 .PHONY: stop

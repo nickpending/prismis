@@ -23,6 +23,7 @@ type ContentItem struct {
 	Read                bool
 	Favorited           bool   // Whether item is favorited
 	InterestingOverride bool   // Whether item is flagged as interesting for context analysis
+	UserFeedback        string // User feedback: "up", "down", or "" (empty = no vote)
 	SourceType          string // "rss", "reddit", "youtube", "file"
 	SourceName          string // Source name (e.g., "SimonW Blog", "r/rust", "3Blue1Brown")
 	SourceID            string // Source UUID for updates
@@ -44,7 +45,7 @@ func queryContentWithFilter(priorityFilter string, readFilter *bool, showUnprior
 
 	// Build query with proper JOIN to get source info
 	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
-	                 c.published_at, c.read, c.favorited, c.interesting_override, s.type, s.name, c.source_id
+	                 c.published_at, c.read, c.favorited, c.interesting_override, c.user_feedback, s.type, s.name, c.source_id
 	          FROM content c
 	          JOIN sources s ON c.source_id = s.id
 	          WHERE 1=1`
@@ -87,6 +88,7 @@ func queryContentWithFilter(priorityFilter string, readFilter *bool, showUnprior
 		var summary sql.NullString
 		var content sql.NullString
 		var analysis sql.NullString
+		var userFeedback sql.NullString
 		var sourceType sql.NullString
 		var sourceName sql.NullString
 
@@ -102,6 +104,7 @@ func queryContentWithFilter(priorityFilter string, readFilter *bool, showUnprior
 			&item.Read,
 			&item.Favorited,
 			&item.InterestingOverride,
+			&userFeedback,
 			&sourceType,
 			&sourceName,
 			&item.SourceID,
@@ -122,6 +125,9 @@ func queryContentWithFilter(priorityFilter string, readFilter *bool, showUnprior
 		}
 		if analysis.Valid {
 			item.Analysis = analysis.String
+		}
+		if userFeedback.Valid {
+			item.UserFeedback = userFeedback.String
 		}
 		if sourceType.Valid {
 			item.SourceType = sourceType.String
@@ -180,7 +186,7 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 
 	// Build query with proper JOIN to get source info
 	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
-	                 c.published_at, c.read, c.favorited, c.interesting_override, s.type, s.name, c.source_id
+	                 c.published_at, c.read, c.favorited, c.interesting_override, c.user_feedback, s.type, s.name, c.source_id
 	          FROM content c
 	          JOIN sources s ON c.source_id = s.id
 	          WHERE 1=1`
@@ -252,6 +258,7 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 		var summary sql.NullString
 		var content sql.NullString
 		var analysis sql.NullString
+		var userFeedback sql.NullString
 		var sourceType sql.NullString
 		var sourceName sql.NullString
 
@@ -267,6 +274,7 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 			&item.Read,
 			&item.Favorited,
 			&item.InterestingOverride,
+			&userFeedback,
 			&sourceType,
 			&sourceName,
 			&item.SourceID,
@@ -287,6 +295,9 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 		}
 		if analysis.Valid {
 			item.Analysis = analysis.String
+		}
+		if userFeedback.Valid {
+			item.UserFeedback = userFeedback.String
 		}
 		if sourceType.Valid {
 			item.SourceType = sourceType.String
@@ -333,7 +344,7 @@ func GetAllContent(showArchived bool) ([]ContentItem, error) {
 
 	// Minimal SQL - only archived filter applied server-side
 	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
-	                 c.published_at, c.read, c.favorited, c.interesting_override, s.type, s.name, c.source_id
+	                 c.published_at, c.read, c.favorited, c.interesting_override, c.user_feedback, s.type, s.name, c.source_id
 	          FROM content c
 	          JOIN sources s ON c.source_id = s.id
 	          WHERE `
@@ -360,6 +371,7 @@ func GetAllContent(showArchived bool) ([]ContentItem, error) {
 		var summary sql.NullString
 		var content sql.NullString
 		var analysis sql.NullString
+		var userFeedback sql.NullString
 		var sourceType sql.NullString
 		var sourceName sql.NullString
 
@@ -375,6 +387,7 @@ func GetAllContent(showArchived bool) ([]ContentItem, error) {
 			&item.Read,
 			&item.Favorited,
 			&item.InterestingOverride,
+			&userFeedback,
 			&sourceType,
 			&sourceName,
 			&item.SourceID,
@@ -394,6 +407,9 @@ func GetAllContent(showArchived bool) ([]ContentItem, error) {
 		}
 		if analysis.Valid {
 			item.Analysis = analysis.String
+		}
+		if userFeedback.Valid {
+			item.UserFeedback = userFeedback.String
 		}
 		if sourceType.Valid {
 			item.SourceType = sourceType.String
@@ -569,6 +585,7 @@ func GetUnprioritizedContent(showAll bool) ([]ContentItem, int, error) {
 		var summary sql.NullString
 		var content sql.NullString
 		var analysis sql.NullString
+		var userFeedback sql.NullString
 		var sourceType sql.NullString
 		var sourceName sql.NullString
 
@@ -584,6 +601,7 @@ func GetUnprioritizedContent(showAll bool) ([]ContentItem, int, error) {
 			&item.Read,
 			&item.Favorited,
 			&item.InterestingOverride,
+			&userFeedback,
 			&sourceType,
 			&sourceName,
 			&item.SourceID,
@@ -604,6 +622,9 @@ func GetUnprioritizedContent(showAll bool) ([]ContentItem, int, error) {
 		}
 		if analysis.Valid {
 			item.Analysis = analysis.String
+		}
+		if userFeedback.Valid {
+			item.UserFeedback = userFeedback.String
 		}
 		if sourceType.Valid {
 			item.SourceType = sourceType.String
@@ -726,6 +747,35 @@ func ToggleInteresting(contentID string, interesting bool) error {
 	return nil
 }
 
+// SetUserFeedback sets the user feedback for a content item.
+// vote should be "up", "down", or "" (empty string to clear)
+func SetUserFeedback(contentID string, vote string) error {
+	db, err := GetDB()
+	if err != nil {
+		return fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	// Validate vote value
+	if vote != "" && vote != "up" && vote != "down" {
+		return fmt.Errorf("invalid vote value: %s (must be 'up', 'down', or empty)", vote)
+	}
+
+	// Use NULL for empty string to match database schema
+	var voteValue interface{}
+	if vote == "" {
+		voteValue = nil
+	} else {
+		voteValue = vote
+	}
+
+	_, err = db.Exec("UPDATE content SET user_feedback = ? WHERE id = ?", voteValue, contentID)
+	if err != nil {
+		return fmt.Errorf("failed to set user feedback: %w", err)
+	}
+
+	return nil
+}
+
 // GetInterestingItems returns all items flagged as interesting, ignoring other filters
 func GetInterestingItems() ([]ContentItem, error) {
 	db, err := GetDB()
@@ -734,7 +784,7 @@ func GetInterestingItems() ([]ContentItem, error) {
 	}
 
 	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
-	                 c.published_at, c.read, c.favorited, c.interesting_override, s.type, s.name, c.source_id
+	                 c.published_at, c.read, c.favorited, c.interesting_override, c.user_feedback, s.type, s.name, c.source_id
 	          FROM content c
 	          JOIN sources s ON c.source_id = s.id
 	          WHERE c.interesting_override = 1
@@ -755,6 +805,7 @@ func GetInterestingItems() ([]ContentItem, error) {
 		var summary sql.NullString
 		var content sql.NullString
 		var analysis sql.NullString
+		var userFeedback sql.NullString
 		var sourceType sql.NullString
 		var sourceName sql.NullString
 
@@ -770,6 +821,7 @@ func GetInterestingItems() ([]ContentItem, error) {
 			&item.Read,
 			&item.Favorited,
 			&item.InterestingOverride,
+			&userFeedback,
 			&sourceType,
 			&sourceName,
 			&item.SourceID,
@@ -790,6 +842,9 @@ func GetInterestingItems() ([]ContentItem, error) {
 		}
 		if analysis.Valid {
 			item.Analysis = analysis.String
+		}
+		if userFeedback.Valid {
+			item.UserFeedback = userFeedback.String
 		}
 		if sourceType.Valid {
 			item.SourceType = sourceType.String

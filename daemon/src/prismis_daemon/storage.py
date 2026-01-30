@@ -2060,3 +2060,148 @@ class Storage:
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get statistics: {e}") from e
+
+    def get_feedback_statistics(
+        self, since_days: int | None = None
+    ) -> dict[str, Any]:
+        """Get user feedback statistics aggregated by source and topic.
+
+        Provides aggregated feedback data for preference learning (003).
+        Includes per-source vote counts, ratios, and extracted topics.
+
+        Args:
+            since_days: Optional limit to feedback within N days (None = all time)
+
+        Returns:
+            Dictionary with feedback statistics:
+            - totals: Overall upvote/downvote counts
+            - by_source: Per-source breakdown with ratios
+            - topics_upvoted: Topics from upvoted content (from analysis.matched_interests)
+            - topics_downvoted: Topics from downvoted content
+            - for_llm_context: Pre-formatted summary for prompt injection
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            # Build time filter
+            time_filter = ""
+            if since_days:
+                time_filter = f"AND c.updated_at >= datetime('now', '-{since_days} days')"
+
+            # Overall totals
+            totals_cursor = self.conn.execute(f"""
+                SELECT
+                    SUM(CASE WHEN user_feedback = 'up' THEN 1 ELSE 0 END) as upvotes,
+                    SUM(CASE WHEN user_feedback = 'down' THEN 1 ELSE 0 END) as downvotes,
+                    COUNT(CASE WHEN user_feedback IS NOT NULL THEN 1 END) as total_votes
+                FROM content c
+                WHERE user_feedback IS NOT NULL {time_filter}
+            """)
+            totals_row = totals_cursor.fetchone()
+
+            # Per-source breakdown
+            source_cursor = self.conn.execute(f"""
+                SELECT
+                    s.name,
+                    s.id,
+                    SUM(CASE WHEN c.user_feedback = 'up' THEN 1 ELSE 0 END) as upvotes,
+                    SUM(CASE WHEN c.user_feedback = 'down' THEN 1 ELSE 0 END) as downvotes,
+                    COUNT(CASE WHEN c.user_feedback IS NOT NULL THEN 1 END) as total
+                FROM content c
+                JOIN sources s ON c.source_id = s.id
+                WHERE c.user_feedback IS NOT NULL {time_filter}
+                GROUP BY s.id, s.name
+                HAVING total > 0
+                ORDER BY total DESC
+            """)
+
+            by_source = []
+            for row in source_cursor.fetchall():
+                total = row[4]
+                upvotes = row[2]
+                downvotes = row[3]
+                ratio = upvotes / total if total > 0 else 0.0
+                by_source.append({
+                    "source_name": row[0],
+                    "source_id": row[1],
+                    "upvotes": upvotes,
+                    "downvotes": downvotes,
+                    "total": total,
+                    "upvote_ratio": round(ratio, 2),
+                })
+
+            # Extract topics from upvoted content (from analysis.matched_interests)
+            upvoted_cursor = self.conn.execute(f"""
+                SELECT c.analysis, c.title
+                FROM content c
+                WHERE c.user_feedback = 'up' {time_filter}
+                AND c.analysis IS NOT NULL
+            """)
+
+            topics_upvoted: dict[str, int] = {}
+            for row in upvoted_cursor.fetchall():
+                try:
+                    analysis = json.loads(row[0]) if row[0] else {}
+                    interests = analysis.get("matched_interests", [])
+                    for interest in interests:
+                        if interest:
+                            topics_upvoted[interest] = topics_upvoted.get(interest, 0) + 1
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            # Extract topics from downvoted content
+            downvoted_cursor = self.conn.execute(f"""
+                SELECT c.analysis, c.title
+                FROM content c
+                WHERE c.user_feedback = 'down' {time_filter}
+                AND c.analysis IS NOT NULL
+            """)
+
+            topics_downvoted: dict[str, int] = {}
+            for row in downvoted_cursor.fetchall():
+                try:
+                    analysis = json.loads(row[0]) if row[0] else {}
+                    interests = analysis.get("matched_interests", [])
+                    for interest in interests:
+                        if interest:
+                            topics_downvoted[interest] = topics_downvoted.get(interest, 0) + 1
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            # Sort topics by frequency
+            sorted_upvoted = sorted(topics_upvoted.items(), key=lambda x: x[1], reverse=True)
+            sorted_downvoted = sorted(topics_downvoted.items(), key=lambda x: x[1], reverse=True)
+
+            # Build LLM context summary (for 003)
+            llm_context_parts = []
+            if sorted_upvoted:
+                top_liked = [t[0] for t in sorted_upvoted[:5]]
+                llm_context_parts.append(f"User prefers: {', '.join(top_liked)}")
+            if sorted_downvoted:
+                top_disliked = [t[0] for t in sorted_downvoted[:5]]
+                llm_context_parts.append(f"User dislikes: {', '.join(top_disliked)}")
+
+            # Add source preferences
+            trusted_sources = [s["source_name"] for s in by_source if s["upvote_ratio"] >= 0.7 and s["total"] >= 2]
+            untrusted_sources = [s["source_name"] for s in by_source if s["upvote_ratio"] <= 0.3 and s["total"] >= 2]
+            if trusted_sources:
+                llm_context_parts.append(f"Trusted sources: {', '.join(trusted_sources[:3])}")
+            if untrusted_sources:
+                llm_context_parts.append(f"Less trusted sources: {', '.join(untrusted_sources[:3])}")
+
+            return {
+                "totals": {
+                    "upvotes": totals_row[0] or 0,
+                    "downvotes": totals_row[1] or 0,
+                    "total_votes": totals_row[2] or 0,
+                },
+                "by_source": by_source,
+                "topics_upvoted": [{"topic": t[0], "count": t[1]} for t in sorted_upvoted],
+                "topics_downvoted": [{"topic": t[0], "count": t[1]} for t in sorted_downvoted],
+                "for_llm_context": " | ".join(llm_context_parts) if llm_context_parts else None,
+                "time_period": f"last {since_days} days" if since_days else "all time",
+            }
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get feedback statistics: {e}") from e

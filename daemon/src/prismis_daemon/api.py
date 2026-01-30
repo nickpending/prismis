@@ -1267,6 +1267,39 @@ async def get_statistics(
         raise ServerError(f"Failed to get statistics: {str(e)}") from e
 
 
+@app.get("/api/feedback/statistics", dependencies=[Depends(verify_api_key)])
+async def get_feedback_statistics(
+    since_days: int | None = Query(None, description="Limit to feedback within N days"),
+    storage: Storage = Depends(get_storage),
+) -> dict:
+    """Get user feedback statistics aggregated by source and topic.
+
+    Returns feedback patterns for preference learning:
+    - Overall vote totals
+    - Per-source upvote/downvote counts and ratios
+    - Topics extracted from upvoted/downvoted content
+    - Pre-formatted summary for LLM prompt injection
+
+    Args:
+        since_days: Optional limit to feedback within N days (None = all time)
+        storage: Storage instance injected by FastAPI
+
+    Returns:
+        JSON response with aggregated feedback statistics
+    """
+    try:
+        stats = storage.get_feedback_statistics(since_days=since_days)
+
+        return {
+            "success": True,
+            "message": "Feedback statistics retrieved successfully",
+            "data": stats,
+        }
+
+    except Exception as e:
+        raise ServerError(f"Failed to get feedback statistics: {str(e)}") from e
+
+
 # Mount audio files directory
 
 

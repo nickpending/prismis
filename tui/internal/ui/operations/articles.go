@@ -45,6 +45,13 @@ type ArticleInterestingToggledMsg struct {
 	Error       error
 }
 
+type ArticleVotedMsg struct {
+	ID       string
+	Vote     string // "up", "down", or "" (cleared)
+	Success  bool
+	Error    error
+}
+
 // MarkArticleRead marks an article as read
 func MarkArticleRead(id string) tea.Cmd {
 	return func() tea.Msg {
@@ -148,4 +155,36 @@ func ToggleArticleInteresting(item db.ContentItem) tea.Cmd {
 			Error:       err,
 		}
 	}
+}
+
+// SetArticleVote sets the user feedback vote for an article
+// vote should be "up", "down", or "" to clear
+func SetArticleVote(item db.ContentItem, vote string) tea.Cmd {
+	return func() tea.Msg {
+		err := db.SetUserFeedback(item.ID, vote)
+		return ArticleVotedMsg{
+			ID:      item.ID,
+			Vote:    vote,
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// UpvoteArticle sets an upvote on the article, or clears if already upvoted
+func UpvoteArticle(item db.ContentItem) tea.Cmd {
+	newVote := "up"
+	if item.UserFeedback == "up" {
+		newVote = "" // Toggle off if already upvoted
+	}
+	return SetArticleVote(item, newVote)
+}
+
+// DownvoteArticle sets a downvote on the article, or clears if already downvoted
+func DownvoteArticle(item db.ContentItem) tea.Cmd {
+	newVote := "down"
+	if item.UserFeedback == "down" {
+		newVote = "" // Toggle off if already downvoted
+	}
+	return SetArticleVote(item, newVote)
 }

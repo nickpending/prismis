@@ -152,6 +152,10 @@ migrate: ## Apply database migrations (safe to run multiple times)
 	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_content_archived ON content(archived_at);"
 	@sqlite3 $(DATA_DIR)/prismis.db "ALTER TABLE content ADD COLUMN interesting_override BOOLEAN DEFAULT 0;" 2>/dev/null || echo "  ✓ interesting_override column exists"
 	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_content_interesting ON content(interesting_override);"
+	@sqlite3 $(DATA_DIR)/prismis.db "ALTER TABLE content ADD COLUMN user_feedback TEXT CHECK(user_feedback IN ('up', 'down', NULL));" 2>/dev/null || echo "  ✓ user_feedback column exists"
+	@sqlite3 $(DATA_DIR)/prismis.db "CREATE INDEX IF NOT EXISTS idx_content_user_feedback ON content(user_feedback);"
+	@echo "Migrating interesting_override to user_feedback..."
+	@sqlite3 $(DATA_DIR)/prismis.db "UPDATE content SET user_feedback = 'up' WHERE interesting_override = 1 AND user_feedback IS NULL;" 2>/dev/null || true
 	@echo "Migrating sources table to support file type..."
 	@sqlite3 $(DATA_DIR)/prismis.db "DROP TABLE IF EXISTS sources_backup;"
 	@sqlite3 $(DATA_DIR)/prismis.db "CREATE TABLE sources_backup AS SELECT * FROM sources;"

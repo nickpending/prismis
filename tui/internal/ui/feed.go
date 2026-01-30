@@ -498,6 +498,18 @@ func renderContentList(m Model, width, height int, theme StyleTheme) string {
 			metaParts = append(metaParts, tags)
 		}
 
+		// User feedback indicator (prepend so it's visible)
+		var feedbackIndicator string
+		switch item.UserFeedback {
+		case "up":
+			feedbackIndicator = lipgloss.NewStyle().Foreground(theme.Green).Render("👍")
+		case "down":
+			feedbackIndicator = lipgloss.NewStyle().Foreground(theme.Red).Render("👎")
+		}
+		if feedbackIndicator != "" {
+			metaParts = append([]string{feedbackIndicator}, metaParts...)
+		}
+
 		line2 = "        " + strings.Join(metaParts, " | ")
 
 		lines = append(lines, line1, line2)

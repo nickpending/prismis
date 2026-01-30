@@ -424,6 +424,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case commands.UpvoteMsg:
+		// Upvote current item (works on ALL content, not just unprioritized)
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			return m, operations.UpvoteArticle(item)
+		}
+
+	case commands.DownvoteMsg:
+		// Downvote current item (works on ALL content, not just unprioritized)
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			return m, operations.DownvoteArticle(item)
+		}
+
 	case commands.OpenMsg:
 		// Open URL in browser (works in both list and reader views)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
@@ -748,6 +762,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor = 0
 				m.loading = true
 				return m, fetchItemsWithState(m, false)
+			}
+		// Upvote current item (+)
+		case "+", "=":
+			if len(m.items) > 0 && m.cursor < len(m.items) {
+				item := m.items[m.cursor]
+				return m, operations.UpvoteArticle(item)
+			}
+		// Downvote current item (-)
+		case "-", "_":
+			if len(m.items) > 0 && m.cursor < len(m.items) {
+				item := m.items[m.cursor]
+				return m, operations.DownvoteArticle(item)
 			}
 		// Open source management modal (capital S)
 		case "S":
@@ -1098,6 +1124,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			m.statusMessage = fmt.Sprintf("Failed to toggle interesting: %v", msg.Error)
+		}
+		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
+
+	case operations.ArticleVotedMsg:
+		if msg.Success {
+			// Update the item in our local state
+			for i, item := range m.items {
+				if item.ID == msg.ID {
+					m.items[i].UserFeedback = msg.Vote
+					break
+				}
+			}
+			switch msg.Vote {
+			case "up":
+				m.statusMessage = "👍 Upvoted"
+			case "down":
+				m.statusMessage = "👎 Downvoted"
+			default:
+				m.statusMessage = "Vote cleared"
+			}
+		} else {
+			m.statusMessage = fmt.Sprintf("Failed to vote: %v", msg.Error)
 		}
 		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 	}

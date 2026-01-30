@@ -40,6 +40,8 @@ func NewRegistry() *Registry {
 	r.Register("mark", cmdMark)
 	r.Register("favorite", cmdFavorite)
 	r.Register("interesting", cmdInteresting)
+	r.Register("up", cmdUpvote)
+	r.Register("down", cmdDownvote)
 	r.Register("open", cmdOpen)
 	r.Register("yank", cmdYank)
 	r.Register("copy", cmdCopy)
@@ -318,6 +320,20 @@ func cmdInteresting(args []string) tea.Cmd {
 	}
 }
 
+// cmdUpvote upvotes the current article (or clears if already upvoted)
+func cmdUpvote(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return UpvoteMsg{}
+	}
+}
+
+// cmdDownvote downvotes the current article (or clears if already downvoted)
+func cmdDownvote(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return DownvoteMsg{}
+	}
+}
+
 // cmdOpen opens current article URL in browser
 func cmdOpen(args []string) tea.Cmd {
 	return func() tea.Msg {
@@ -490,6 +506,12 @@ type FavoriteMsg struct{}
 
 // InterestingMsg signals to toggle interesting flag
 type InterestingMsg struct{}
+
+// UpvoteMsg signals to upvote the current article
+type UpvoteMsg struct{}
+
+// DownvoteMsg signals to downvote the current article
+type DownvoteMsg struct{}
 
 // OpenMsg signals to open URL in browser
 type OpenMsg struct{}

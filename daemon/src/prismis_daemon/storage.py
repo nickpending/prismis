@@ -2205,3 +2205,61 @@ class Storage:
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get feedback statistics: {e}") from e
+
+    def get_content_by_feedback(
+        self, feedback: str, since_days: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Get content items with a specific feedback vote.
+
+        Args:
+            feedback: Feedback value to filter by ("up" or "down")
+            since_days: Optional limit to items updated within N days
+
+        Returns:
+            List of content items with the specified feedback
+
+        Raises:
+            ValueError: If feedback value is invalid
+            sqlite3.Error: If database operation fails
+        """
+        if feedback not in ("up", "down"):
+            raise ValueError(f"Invalid feedback value: {feedback}")
+
+        try:
+            time_filter = ""
+            if since_days:
+                time_filter = f"AND c.updated_at >= datetime('now', '-{since_days} days')"
+
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    c.id, c.title, c.url, c.summary, c.content, c.priority,
+                    c.analysis, c.published_at, c.read, c.favorited,
+                    c.user_feedback, s.name as source_name, s.type as source_type
+                FROM content c
+                LEFT JOIN sources s ON c.source_id = s.id
+                WHERE c.user_feedback = ? {time_filter}
+                ORDER BY c.updated_at DESC
+            """, (feedback,))
+
+            items = []
+            for row in cursor.fetchall():
+                items.append({
+                    "id": row[0],
+                    "title": row[1],
+                    "url": row[2],
+                    "summary": row[3],
+                    "content": row[4],
+                    "priority": row[5],
+                    "analysis": row[6],
+                    "published_at": row[7],
+                    "read": bool(row[8]),
+                    "favorited": bool(row[9]),
+                    "user_feedback": row[10],
+                    "source_name": row[11],
+                    "source_type": row[12],
+                })
+
+            return items
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get content by feedback: {e}") from e

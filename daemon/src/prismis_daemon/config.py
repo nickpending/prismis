@@ -54,6 +54,12 @@ class Config:
     archival_low_unread: int
     archival_low_read: int
 
+    # Context auto-update settings
+    context_auto_update_enabled: bool
+    context_auto_update_interval_days: int
+    context_auto_update_min_votes: int
+    context_backup_count: int
+
     # Optional fields with defaults must come last
     llm_api_base: str | None = None  # For Ollama and custom endpoints
 
@@ -156,6 +162,20 @@ class Config:
                 f"llm_retry_backoff_base must be between 1.0 and 10.0, got {self.llm_retry_backoff_base}"
             )
 
+        # Validate context auto-update settings
+        if not 1 <= self.context_auto_update_interval_days <= 365:
+            raise ValueError(
+                f"context_auto_update_interval_days must be between 1 and 365, got {self.context_auto_update_interval_days}"
+            )
+        if not 1 <= self.context_auto_update_min_votes <= 1000:
+            raise ValueError(
+                f"context_auto_update_min_votes must be between 1 and 1000, got {self.context_auto_update_min_votes}"
+            )
+        if not 1 <= self.context_backup_count <= 100:
+            raise ValueError(
+                f"context_backup_count must be between 1 and 100, got {self.context_backup_count}"
+            )
+
     @classmethod
     def from_file(cls, config_path: Path | None = None) -> "Config":
         """Load configuration from TOML file.
@@ -196,6 +216,7 @@ class Config:
         api = config_dict.get("api", {})
         audio = config_dict.get("audio", {})
         archival = config_dict.get("archival", {})
+        context_config = config_dict.get("context", {})
 
         # Load context markdown
         context_file = config_path.parent / "context.md"
@@ -255,6 +276,10 @@ class Config:
                 archival_medium_read=archival["windows"]["medium_read"],
                 archival_low_unread=archival["windows"]["low_unread"],
                 archival_low_read=archival["windows"]["low_read"],
+                context_auto_update_enabled=context_config["auto_update_enabled"],
+                context_auto_update_interval_days=context_config["auto_update_interval_days"],
+                context_auto_update_min_votes=context_config["auto_update_min_votes"],
+                context_backup_count=context_config["backup_count"],
             )
         except KeyError as e:
             raise ValueError(f"Missing required config field: {e}") from e

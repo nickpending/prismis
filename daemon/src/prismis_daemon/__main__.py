@@ -26,6 +26,7 @@ from .observability import get_logger as get_obs_logger
 from .orchestrator import DaemonOrchestrator
 from .storage import Storage
 from .summarizer import ContentSummarizer
+from .context_auto_updater import run_context_update
 
 # Load environment variables from ~/.config/prismis/.env
 config_home = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
@@ -153,6 +154,21 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             max_instances=1,
         )
 
+        # Add context auto-update job (runs daily, checks internally if update is needed)
+        if config.context_auto_update_enabled:
+            scheduler.add_job(
+                func=run_context_update_sync,
+                args=(config, storage),
+                trigger=IntervalTrigger(days=1),  # Check daily, actual update based on config interval
+                id="context_auto_update",
+                name="Auto-update context.md from feedback",
+                replace_existing=True,
+                max_instances=1,
+            )
+            console.print(
+                f"[dim]Context auto-update enabled (every {config.context_auto_update_interval_days} days, min {config.context_auto_update_min_votes} votes)[/dim]"
+            )
+
         # Setup async-aware signal handlers for graceful shutdown
         shutdown_event = asyncio.Event()
         loop = asyncio.get_running_loop()
@@ -271,6 +287,17 @@ def run_observability_cleanup_sync() -> None:
         console.print(f"[green]Removed {removed} old observability files[/green]\n")
     else:
         console.print("[dim]No old files to remove[/dim]\n")
+
+
+def run_context_update_sync(config: Config, storage: Storage) -> None:
+    """Synchronous wrapper for context auto-update job."""
+    from datetime import datetime
+
+    console.print(
+        f"\n[blue]📝 Checking context auto-update at {datetime.now().strftime('%H:%M:%S')}[/blue]"
+    )
+    
+    run_context_update(config, storage)
 
 
 app = typer.Typer()

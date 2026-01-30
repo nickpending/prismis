@@ -62,6 +62,24 @@ provider = "system"  # system (free, uses macOS/Linux native TTS) | elevenlabs (
 # Uncomment both to connect to remote instead of localhost
 # url = "https://prismis.example.com"
 # key = "remote-daemon-api-key"
+
+[archival]
+# Automatic archival of old content
+enabled = true
+[archival.windows]
+# Days to keep content by priority/read status (null = never archive)
+high_read = null  # Never archive HIGH priority even if read
+medium_unread = 30
+medium_read = 14
+low_unread = 14
+low_read = 7
+
+[context]
+# Auto-update context.md based on user feedback votes
+auto_update_enabled = true
+auto_update_interval_days = 30  # How often to run auto-update
+auto_update_min_votes = 5  # Minimum votes before auto-updating
+backup_count = 10  # Number of context.md backups to keep
 """
 
 DEFAULT_CONTEXT_MD = """# Personal Context for Prismis

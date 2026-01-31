@@ -1094,25 +1094,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 
-	case operations.ArticleInterestingToggledMsg:
-		if msg.Success {
-			// Update the item in our local state
-			for i, item := range m.items {
-				if item.ID == msg.ID {
-					m.items[i].InterestingOverride = msg.Interesting
-					break
-				}
-			}
-			if msg.Interesting {
-				m.statusMessage = "Marked as interesting"
-			} else {
-				m.statusMessage = "Unmarked"
-			}
-		} else {
-			m.statusMessage = fmt.Sprintf("Failed to toggle interesting: %v", msg.Error)
-		}
-		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
-
 	case operations.ArticleVotedMsg:
 		if msg.Success {
 			// Update the item in our local state

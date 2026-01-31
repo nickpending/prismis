@@ -34,10 +34,10 @@ type ContextEditMsg struct {
 	Error   error
 }
 
-// ReviewFlaggedItems returns count of flagged items
+// ReviewFlaggedItems returns count of upvoted items
 func ReviewFlaggedItems() tea.Cmd {
 	return func() tea.Msg {
-		items, err := db.GetInterestingItems()
+		count, err := db.CountUpvotedItems()
 		if err != nil {
 			return ContextReviewedMsg{
 				Count:   0,
@@ -47,7 +47,7 @@ func ReviewFlaggedItems() tea.Cmd {
 		}
 
 		return ContextReviewedMsg{
-			Count:   len(items),
+			Count:   count,
 			Success: true,
 			Error:   nil,
 		}

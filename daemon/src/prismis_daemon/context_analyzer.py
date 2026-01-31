@@ -55,10 +55,10 @@ class ContextAnalyzer:
     def analyze_flagged_items(
         self, flagged_items: list[dict[str, Any]], context_text: str
     ) -> dict[str, Any]:
-        """Analyze flagged items to suggest new topics for context.md.
+        """Analyze upvoted items to suggest new topics for context.md.
 
         Args:
-            flagged_items: List of content items flagged as interesting
+            flagged_items: List of content items with user_feedback='up'
             context_text: Current context.md file contents
 
         Returns:
@@ -217,12 +217,12 @@ The user runs automated content prioritization that:
 - Fetches content from RSS feeds, Reddit, YouTube
 - Evaluates content against their context.md topics
 - Prioritizes matching items (high/medium/low)
-- Leaves unmatched items unprioritized
 
-The user manually FLAGGED unprioritized items as interesting - proving context.md missed them.
+The user UPVOTED these items - signaling they found them valuable. This feedback helps identify
+gaps in context.md or topics that deserve higher priority.
 
 TASK:
-Analyze WHY context.md missed each item and recommend fixes.
+Analyze why these upvoted items might indicate context.md improvements are needed.
 
 OUTPUT FORMAT:
 Return ONLY valid JSON:
@@ -266,7 +266,7 @@ High priority: {existing_high}
 Medium priority: {existing_medium}
 Low priority: {existing_low}
 
-FLAGGED ITEMS (unprioritized items user marked interesting):
+UPVOTED ITEMS (content user found valuable):
 
 {items_formatted}
 

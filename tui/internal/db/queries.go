@@ -220,10 +220,10 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 		args = append(args, priority)
 	}
 
-	// Add interesting filter if enabled
+	// Add upvoted filter if enabled (previously "interesting")
 	if showInteresting {
-		// Show only items flagged as interesting
-		query += " AND c.interesting_override = 1"
+		// Show only items user has upvoted
+		query += " AND c.user_feedback = 'up'"
 	}
 
 	// Filter out unprioritized content if requested (but not when showing interesting items)
@@ -727,26 +727,6 @@ func MarkAsRead(contentID string) error {
 	return nil
 }
 
-// ToggleInteresting toggles the interesting_override flag for a content item
-func ToggleInteresting(contentID string, interesting bool) error {
-	db, err := GetDB()
-	if err != nil {
-		return fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	value := 0
-	if interesting {
-		value = 1
-	}
-
-	_, err = db.Exec("UPDATE content SET interesting_override = ? WHERE id = ?", value, contentID)
-	if err != nil {
-		return fmt.Errorf("failed to toggle interesting flag: %w", err)
-	}
-
-	return nil
-}
-
 // SetUserFeedback sets the user feedback for a content item.
 // vote should be "up", "down", or "" (empty string to clear)
 func SetUserFeedback(contentID string, vote string) error {
@@ -776,96 +756,18 @@ func SetUserFeedback(contentID string, vote string) error {
 	return nil
 }
 
-// GetInterestingItems returns all items flagged as interesting, ignoring other filters
-func GetInterestingItems() ([]ContentItem, error) {
+// CountUpvotedItems returns the count of upvoted items (user_feedback = 'up')
+func CountUpvotedItems() (int, error) {
 	db, err := GetDB()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
+		return 0, fmt.Errorf("failed to get database connection: %w", err)
 	}
 
-	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
-	                 c.published_at, c.read, c.favorited, c.interesting_override, c.user_feedback, s.type, s.name, c.source_id
-	          FROM content c
-	          JOIN sources s ON c.source_id = s.id
-	          WHERE c.interesting_override = 1
-	          AND c.archived_at IS NULL
-	          ORDER BY c.published_at DESC`
-
-	rows, err := db.Query(query)
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM content WHERE user_feedback = 'up' AND archived_at IS NULL").Scan(&count)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query interesting items: %w", err)
-	}
-	defer rows.Close()
-
-	var items []ContentItem
-	for rows.Next() {
-		var item ContentItem
-		var publishedStr sql.NullString
-		var priority sql.NullString
-		var summary sql.NullString
-		var content sql.NullString
-		var analysis sql.NullString
-		var userFeedback sql.NullString
-		var sourceType sql.NullString
-		var sourceName sql.NullString
-
-		err := rows.Scan(
-			&item.ID,
-			&item.Title,
-			&item.URL,
-			&summary,
-			&priority,
-			&content,
-			&analysis,
-			&publishedStr,
-			&item.Read,
-			&item.Favorited,
-			&item.InterestingOverride,
-			&userFeedback,
-			&sourceType,
-			&sourceName,
-			&item.SourceID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Handle nullable fields
-		if priority.Valid {
-			item.Priority = priority.String
-		}
-		if summary.Valid {
-			item.Summary = summary.String
-		}
-		if content.Valid {
-			item.Content = content.String
-		}
-		if analysis.Valid {
-			item.Analysis = analysis.String
-		}
-		if userFeedback.Valid {
-			item.UserFeedback = userFeedback.String
-		}
-		if sourceType.Valid {
-			item.SourceType = sourceType.String
-		}
-		if sourceName.Valid {
-			item.SourceName = sourceName.String
-		}
-
-		// Parse published timestamp
-		if publishedStr.Valid {
-			if parsed, err := time.Parse(time.RFC3339, publishedStr.String); err == nil {
-				item.Published = parsed
-			}
-		}
-
-		items = append(items, item)
+		return 0, fmt.Errorf("failed to count upvoted items: %w", err)
 	}
 
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	return items, nil
+	return count, nil
 }

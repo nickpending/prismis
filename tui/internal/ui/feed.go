@@ -30,9 +30,9 @@ func buildViewStateString(m Model) string {
 		states = append(states, "Priority: PRIORITIZED")
 	}
 
-	// View state (interesting takes precedence, then unread vs all)
+	// View state (upvoted takes precedence, then unread vs all)
 	if m.showInteresting {
-		states = append(states, "View: INTERESTING")
+		states = append(states, "View: UPVOTED")
 	} else if m.showAll {
 		states = append(states, "View: ALL")
 	} else {

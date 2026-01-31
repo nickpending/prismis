@@ -1101,10 +1101,13 @@ class Storage:
             raise sqlite3.Error(f"Failed to flag content as interesting: {e}") from e
 
     def get_flagged_items(self, limit: int = 50) -> list[dict[str, Any]]:
-        """Get content items flagged as interesting.
+        """Get content items flagged for context analysis (upvoted items).
 
-        Only returns unprioritized items (priority=NULL or LOW) that have been
-        flagged by the user for context analysis.
+        Returns items with user_feedback='up' for context analysis.
+        Works on all content regardless of priority (not just unprioritized).
+        
+        Note: Previously used interesting_override, now uses user_feedback='up'.
+        The migration in Makefile converts interesting_override=1 to user_feedback='up'.
 
         Args:
             limit: Maximum number of items to return (default 50)
@@ -1122,8 +1125,7 @@ class Storage:
                 SELECT c.*, s.name as source_name, s.type as source_type
                 FROM content c
                 LEFT JOIN sources s ON c.source_id = s.id
-                WHERE c.interesting_override = 1
-                  AND (c.priority IS NULL OR c.priority = 'low')
+                WHERE c.user_feedback = 'up'
                   AND c.archived_at IS NULL
                 ORDER BY c.fetched_at DESC
                 LIMIT ?

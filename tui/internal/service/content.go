@@ -87,24 +87,6 @@ func ToggleFavorite(contentID string, favorited bool) error {
 	return nil
 }
 
-// ToggleInteresting toggles the interesting_override flag for a content item via the API
-func ToggleInteresting(contentID string, interesting bool) error {
-	if err := initContentService(); err != nil {
-		return err
-	}
-
-	request := api.ContentUpdateRequest{
-		InterestingOverride: &interesting,
-	}
-
-	_, err := globalContentService.client.UpdateContent(contentID, request)
-	if err != nil {
-		return fmt.Errorf("failed to toggle interesting: %w", err)
-	}
-
-	return nil
-}
-
 // SetUserFeedback sets the user feedback vote for a content item via the API
 // vote should be "up", "down", or "" (empty string to clear)
 func SetUserFeedback(contentID string, vote string) error {

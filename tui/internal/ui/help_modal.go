@@ -179,7 +179,7 @@ func (m HelpModal) View(theme StyleTheme) string {
 	content.WriteString("\n")
 	content.WriteString(format2Col(":up / +", "Upvote (feedback)", ":down / -", "Downvote (feedback)"))
 	content.WriteString("\n")
-	content.WriteString(format2Col(":interesting", "Flag for context", ":open", "Open in browser"))
+	content.WriteString(format2Col("i", "View upvoted items", ":open", "Open in browser"))
 	content.WriteString("\n")
 	content.WriteString(format2Col(":yank/:copy", "Copy URL/field", ":fabric <pattern>", "AI analysis"))
 	content.WriteString("\n\n")

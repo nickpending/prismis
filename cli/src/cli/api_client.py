@@ -665,3 +665,39 @@ class APIClient:
             if isinstance(e, RuntimeError):
                 raise
             raise RuntimeError(f"Unexpected error: {e}") from e
+
+    def get_sources(self) -> list[dict[str, Any]]:
+        """Get all configured sources via API.
+
+        Returns:
+            List of source dictionaries
+
+        Raises:
+            RuntimeError: If API request fails
+        """
+        with httpx.Client(timeout=self.timeout) as client:
+            try:
+                response = client.get(
+                    f"{self.base_url}/api/sources",
+                    headers={"X-API-Key": self.api_key},
+                )
+
+                data = response.json()
+
+                if response.status_code >= 400:
+                    error_msg = data.get(
+                        "message", f"API error: {response.status_code}"
+                    )
+                    raise RuntimeError(error_msg)
+
+                if not data.get("success"):
+                    raise RuntimeError(data.get("message", "Unknown error"))
+
+                return data.get("data", {}).get("sources", [])
+
+            except httpx.RequestError as e:
+                raise RuntimeError(f"Network error: {e}") from e
+            except Exception as e:
+                if isinstance(e, RuntimeError):
+                    raise
+                raise RuntimeError(f"Unexpected error: {e}") from e

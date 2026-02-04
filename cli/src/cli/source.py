@@ -1,29 +1,15 @@
 """Source management commands for Prismis CLI."""
 
-import os
 import re
-from pathlib import Path
-from typing import Optional
 
 import typer
-from prismis_daemon.database import init_db
-
-# For read operations only - direct database access is OK
-from prismis_daemon.storage import Storage
 from rich.console import Console
 from rich.table import Table
 
-# Import API client for write operations
 from .api_client import APIClient
 
 app = typer.Typer(help="Manage content sources")
 console = Console()
-
-
-def get_db_path() -> Path:
-    """Get the correct XDG-compliant database path."""
-    data_home = os.getenv("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
-    return Path(data_home) / "prismis" / "prismis.db"
 
 
 def extract_name_from_url(url: str) -> str:
@@ -78,19 +64,13 @@ def add(
     url: str = typer.Argument(
         ..., help="URL of the content source (RSS, reddit://, youtube://)"
     ),
-    name: Optional[str] = typer.Option(
+    name: str | None = typer.Option(
         None, "--name", "-n", help="Custom name for the source"
     ),
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Add a new content source to Prismis."""
     try:
-        # Ensure database exists
-        db_path = get_db_path()
-        if not db_path.exists():
-            console.print("[yellow]Database not found, initializing...[/yellow]")
-            init_db()
-
         # Detect source type from URL
         source_type = "rss"  # Default
 
@@ -171,17 +151,8 @@ def list_sources(
 ) -> None:
     """List all configured content sources."""
     try:
-        # Ensure database exists
-        db_path = get_db_path()
-        if not db_path.exists():
-            if not output_json:
-                console.print(
-                    "[yellow]No database found. Run 'source add' to create one.[/yellow]"
-                )
-            return
-
-        storage = Storage()
-        sources = storage.get_all_sources()
+        api_client = APIClient()
+        sources = api_client.get_sources()
 
         if output_json:
             # JSON mode - output raw source list
@@ -208,12 +179,14 @@ def list_sources(
 
         for source in sources:
             # Format values
-            active_str = "✅ Yes" if source["active"] else "❌ No"
-            error_str = str(source["error_count"]) if source["error_count"] else "—"
-            last_fetched = source["last_fetched_at"] or "Never"
+            active_str = "✅ Yes" if source.get("active") else "❌ No"
+            error_str = (
+                str(source.get("error_count", 0)) if source.get("error_count") else "—"
+            )
+            last_fetched = source.get("last_fetched") or "Never"
             if last_fetched != "Never":
                 # Truncate timestamp for readability
-                last_fetched = last_fetched[:19]
+                last_fetched = str(last_fetched)[:19]
 
             # Truncate name if too long
             name = source["name"] or "Unnamed"
@@ -240,16 +213,10 @@ def remove(
 ) -> None:
     """Remove a content source from Prismis."""
     try:
-        # Ensure database exists
-        db_path = get_db_path()
-        if not db_path.exists():
-            console.print("[red]No database found.[/red]")
-            raise typer.Exit(1)
-
-        storage = Storage()
+        api_client = APIClient()
 
         # First, try to get the source to show what we're removing
-        sources = storage.get_all_sources()
+        sources = api_client.get_sources()
         source_to_remove = None
         for source in sources:
             if source["id"] == source_id:
@@ -280,7 +247,6 @@ def remove(
 
         # Remove the source via API
         try:
-            api_client = APIClient()
             api_client.remove_source(source_id)
             console.print(
                 f"[green]✅ Removed source:[/green] {source_to_remove['name'] or 'Unnamed'}"

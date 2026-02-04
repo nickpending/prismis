@@ -1,14 +1,25 @@
 """Embedding management commands."""
 
 import typer
-from prismis_daemon.storage import Storage
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-# Heavy import (sentence-transformers) is lazy-loaded in generate() to keep CLI fast
+from .remote import is_remote_mode
+
+# Heavy imports (sentence-transformers, Storage) are lazy-loaded to support client-only installs
 
 console = Console()
 app = typer.Typer()  # Sub-typer for embeddings commands
+
+
+def _check_local_mode(command: str) -> None:
+    """Check if running in remote mode and exit with guidance."""
+    if is_remote_mode():
+        console.print(
+            f"[yellow]'{command}' requires local daemon access.[/yellow]\n"
+            "[dim]Run this command on the server where the daemon is installed.[/dim]"
+        )
+        raise typer.Exit(1)
 
 
 @app.command(name="cleanup")
@@ -18,7 +29,10 @@ def cleanup() -> None:
     Virtual tables don't support CASCADE, so vectors can remain after
     content deletion. This command removes orphaned vectors.
     """
+    _check_local_mode("embeddings cleanup")
     try:
+        from prismis_daemon.storage import Storage
+
         console.print("[dim]Checking for orphaned vectors...[/dim]")
 
         with Storage() as storage:
@@ -37,7 +51,10 @@ def cleanup() -> None:
 @app.command(name="status")
 def status() -> None:
     """Show semantic search indexing status."""
+    _check_local_mode("embeddings status")
     try:
+        from prismis_daemon.storage import Storage
+
         with Storage() as storage:
             # Count total embeddings
             cursor = storage.conn.execute("SELECT COUNT(*) FROM embeddings")
@@ -80,7 +97,10 @@ def generate() -> None:
     Processes items in batches of 100, committing after each batch.
     Shows progress and handles failures gracefully.
     """
+    _check_local_mode("embeddings generate")
     try:
+        from prismis_daemon.storage import Storage
+
         with Storage() as storage:
             # Count items needing embeddings
             total_missing = storage.count_content_without_embeddings()

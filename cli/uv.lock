@@ -1139,14 +1139,19 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
-    { name = "prismis-daemon" },
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "typer" },
 ]
 
+[package.optional-dependencies]
+local = [
+    { name = "prismis-daemon" },
+]
+
 [package.dev-dependencies]
 dev = [
+    { name = "prismis-daemon" },
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
@@ -1154,14 +1159,16 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "prismis-daemon", editable = "../daemon" },
+    { name = "prismis-daemon", marker = "extra == 'local'", editable = "../daemon" },
     { name = "python-dotenv" },
     { name = "rich", specifier = ">=14.1.0" },
     { name = "typer", specifier = ">=0.16.0" },
 ]
+provides-extras = ["local"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "prismis-daemon", editable = "../daemon" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-cov", specifier = ">=6.2.1" },
 ]

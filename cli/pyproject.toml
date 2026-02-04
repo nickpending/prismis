@@ -1,16 +1,19 @@
 [project]
 name = "prismis-cli"
 version = "0.1.0"
-description = "Add your description here"
+description = "Prismis CLI - manage content sources and query your Prismis instance"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28.1",
-    "prismis-daemon",
     "python-dotenv",
     "rich>=14.1.0",
     "typer>=0.16.0",
 ]
+
+[project.optional-dependencies]
+# Install with daemon for local/server usage: uv pip install prismis-cli[local]
+local = ["prismis-daemon"]
 
 [project.scripts]
 prismis-cli = "cli.__main__:main"
@@ -19,6 +22,7 @@ prismis-cli = "cli.__main__:main"
 dev = [
     "pytest>=8.4.1",
     "pytest-cov>=6.2.1",
+    "prismis-daemon",
 ]
 
 [tool.uv]

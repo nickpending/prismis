@@ -3,20 +3,34 @@
 import time
 
 import typer
-from prismis_daemon.storage import Storage
 from rich.console import Console
 from rich.prompt import Confirm
 
-# Heavy imports (litellm) are lazy-loaded in repair() to keep CLI fast
+from .remote import is_remote_mode
+
+# Heavy imports (litellm, Storage) are lazy-loaded to support client-only installs
 
 console = Console()
 app = typer.Typer()  # Sub-typer for analyze commands
 
 
+def _check_local_mode(command: str) -> None:
+    """Check if running in remote mode and exit with guidance."""
+    if is_remote_mode():
+        console.print(
+            f"[yellow]'{command}' requires local daemon access.[/yellow]\n"
+            "[dim]Run this command on the server where the daemon is installed.[/dim]"
+        )
+        raise typer.Exit(1)
+
+
 @app.command(name="status")
 def status() -> None:
     """Show content analysis status and repair statistics."""
+    _check_local_mode("analyze status")
     try:
+        from prismis_daemon.storage import Storage
+
         with Storage() as storage:
             # Count items needing analysis
             missing = storage.count_content_without_analysis()
@@ -69,7 +83,10 @@ def repair(
     Prompts for confirmation before analyzing each item (costs ~$0.02/item).
     Updates summary, priority, and analysis fields using LLM.
     """
+    _check_local_mode("analyze repair")
     try:
+        from prismis_daemon.storage import Storage
+
         with Storage() as storage:
             # Get items needing repair
             items = storage.get_content_without_analysis(limit=limit)

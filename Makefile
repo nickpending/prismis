@@ -111,6 +111,40 @@ install-binaries: ## Install binaries to ~/.local/bin
 		echo "Add to your shell profile: export PATH=\"\$$HOME/.local/bin:\$$PATH\""; \
 	fi
 
+.PHONY: install-cli-client
+install-cli-client: ## Install CLI only (for remote machines, no daemon deps)
+	@echo "Installing prismis-cli (client-only mode)..."
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "⚠️  uv is not installed. Installing uv..."; \
+		curl -LsSf https://astral.sh/uv/install.sh | sh; \
+		export PATH="$$HOME/.cargo/bin:$$PATH"; \
+	fi
+	cd cli && uv tool install . --python 3.13 --reinstall
+	@echo "✓ Installed prismis-cli (client mode)"
+	@echo ""
+	@echo "Usage: prismis-cli --remote http://server:8989 <command>"
+	@echo "Or configure [remote] section in ~/.config/prismis/config.toml"
+
+.PHONY: install-tui
+install-tui: check-deps build-tui ## Install TUI only (for remote machines)
+	@echo "Installing prismis TUI..."
+	@mkdir -p $(INSTALL_DIR)
+	@if [ -f tui/prismis ]; then \
+		cp tui/prismis $(INSTALL_DIR)/prismis; \
+		chmod +x $(INSTALL_DIR)/prismis; \
+		if [[ "$$(uname)" == "Darwin" ]]; then \
+			codesign --remove-signature $(INSTALL_DIR)/prismis 2>/dev/null; \
+			codesign -s - $(INSTALL_DIR)/prismis; \
+		fi; \
+		echo "✓ Installed prismis TUI"; \
+	else \
+		echo "✗ TUI not built"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "Usage: prismis --remote http://server:8989"
+	@echo "Or configure [remote] section in ~/.config/prismis/config.toml"
+
 .PHONY: install-config
 install-config: ## Create .env template (config.toml created by daemon on first run)
 	@echo "Setting up configuration..."

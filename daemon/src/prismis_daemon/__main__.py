@@ -443,7 +443,19 @@ def migrate_config() -> None:
         sys.exit(1)
 
     old_provider = llm.get("provider", "openai")
+    old_model = llm.get("model", "gpt-4.1-mini")
     old_api_key = llm.get("api_key", "")
+
+    # Map old provider names to adapter + base_url
+    provider_map = {
+        "openai": ("openai", "openai", "https://api.openai.com/v1"),
+        "anthropic": ("anthropic", "anthropic", "https://api.anthropic.com"),
+        "ollama": ("ollama", "ollama", "http://localhost:11434"),
+    }
+    adapter, key_name, base_url = provider_map.get(
+        old_provider, ("openai", "openai", "https://api.openai.com/v1")
+    )
+    service_name = f"prismis-{old_provider}"
 
     console.print(f"Found old config format: provider={old_provider}")
 
@@ -455,14 +467,14 @@ def migrate_config() -> None:
     if services_path.exists():
         console.print(f"[dim]Skipping {services_path} (already exists)[/dim]")
     else:
-        services_content = """\
-default_service = "prismis-openai"
+        services_content = f"""\
+default_service = "{service_name}"
 
-[services.prismis-openai]
-adapter = "openai"
-key = "openai"
-base_url = "https://api.openai.com/v1"
-default_model = "gpt-4.1-mini"
+[services.{service_name}]
+adapter = "{adapter}"
+key = "{key_name}"
+base_url = "{base_url}"
+default_model = "{old_model}"
 """
         services_path.write_text(services_content)
         console.print(f"[green]Created {services_path}[/green]")
@@ -478,7 +490,7 @@ default_model = "gpt-4.1-mini"
         env_var = old_api_key[4:]
         resolved_key = os.environ.get(env_var, "")
         if not resolved_key:
-            key_warning = f"Environment variable {env_var} not set. You will need to manually set [keys.openai] value in {apiconf_path}"
+            key_warning = f"Environment variable {env_var} not set. You will need to manually set [keys.{key_name}] value in {apiconf_path}"
             resolved_key = old_api_key  # Write the unexpanded string
 
     if apiconf_path.exists():
@@ -486,21 +498,21 @@ default_model = "gpt-4.1-mini"
         with open(apiconf_path, "rb") as f:
             apiconf_dict = tomllib.load(f)
 
-        if "keys" in apiconf_dict and "openai" in apiconf_dict["keys"]:
+        if "keys" in apiconf_dict and key_name in apiconf_dict["keys"]:
             console.print(
-                f"[dim]Skipping {apiconf_path} ([keys.openai] already exists)[/dim]"
+                f"[dim]Skipping {apiconf_path} ([keys.{key_name}] already exists)[/dim]"
             )
         else:
-            # Append [keys.openai] section
+            # Append [keys.{key_name}] section
             apiconf_text = apiconf_path.read_text()
             if not apiconf_text.endswith("\n"):
                 apiconf_text += "\n"
-            apiconf_text += f'\n[keys.openai]\nvalue = "{resolved_key}"\n'
+            apiconf_text += f'\n[keys.{key_name}]\nvalue = "{resolved_key}"\n'
             apiconf_path.write_text(apiconf_text)
-            console.print(f"[green]Added [keys.openai] to {apiconf_path}[/green]")
+            console.print(f"[green]Added [keys.{key_name}] to {apiconf_path}[/green]")
     else:
         apiconf_content = f"""\
-[keys.openai]
+[keys.{key_name}]
 value = "{resolved_key}"
 """
         apiconf_path.write_text(apiconf_content)
@@ -556,7 +568,7 @@ output = 75.00
 
     # Step 5: Update prismis config.toml [llm] section
     # Use text-based replacement to preserve user's other sections
-    new_llm_section = '[llm]\nservice = "prismis-openai"'
+    new_llm_section = f'[llm]\nservice = "{service_name}"'
 
     # Match the [llm] section up to the next section header or end of file
     pattern = r"\[llm\].*?(?=\n\[|\Z)"

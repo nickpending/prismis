@@ -134,7 +134,7 @@ Created default configuration at {config_dir}/
 
 Next steps:
   1. Edit .env with your API keys (OPENAI_API_KEY, etc.)
-  2. For local models, edit config.toml [llm] section (provider, model, api_base)
+  2. Configure your LLM service in ~/.config/llm-core/services.toml, or run 'prismis-daemon migrate-config'
   3. Optionally customize context.md with your interests
 
 Then run: prismis-daemon

@@ -1,5 +1,6 @@
 """Configuration loading from TOML and context.md files."""
 
+import logging
 import os
 import tomllib
 from dataclasses import dataclass
@@ -222,6 +223,11 @@ class Config:
             raise ValueError(
                 "Config format outdated: [llm] section uses 'provider'/'model'/'api_key' fields. "
                 "Run 'prismis-daemon migrate-config' to upgrade your config.toml to the new format."
+            )
+        if "provider" in llm and "service" in llm:
+            logging.getLogger(__name__).warning(
+                "Config [llm] section has both 'provider' and 'service' — "
+                "old 'provider' key is ignored. Remove it to silence this warning."
             )
 
         # Handle environment variable expansion

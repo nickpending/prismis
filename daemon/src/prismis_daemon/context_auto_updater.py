@@ -365,6 +365,7 @@ Generate the complete updated context.md."""
             }
 
             obs_log(
+                "llm.call",
                 operation="context_auto_update",
                 duration_ms=result.duration_ms,
                 tokens=tokens,

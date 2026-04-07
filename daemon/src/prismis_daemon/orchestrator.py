@@ -210,7 +210,7 @@ class DaemonOrchestrator:
                             )
 
                         if is_new:
-                            stats["new_items"] += 1
+                            stats["items_new"] += 1
                         continue
 
                     # Pass source name and metadata for context

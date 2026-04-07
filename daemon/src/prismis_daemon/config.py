@@ -25,9 +25,7 @@ class Config:
     max_days_lookback: int
 
     # LLM settings
-    llm_provider: str  # openai, ollama, anthropic, groq
-    llm_model: str
-    llm_api_key: str
+    llm_service: str  # Service name from ~/.config/llm-core/services.toml
 
     # Reddit settings
     reddit_client_id: str
@@ -61,15 +59,9 @@ class Config:
     context_backup_count: int
 
     # Optional fields with defaults must come last
-    llm_api_base: str | None = None  # For Ollama and custom endpoints
-
     # Audio settings (uses lspeak for all TTS)
     audio_provider: str = "system"  # system (free, native TTS) or elevenlabs
     audio_voice: str | None = None  # Voice ID/name (provider-specific)
-
-    # LLM retry settings
-    llm_max_retries: int = 3  # Max retry attempts for transient LLM errors
-    llm_retry_backoff_base: float = 2.0  # Exponential backoff base (2^attempt seconds)
 
     def get_max_items(self, source_type: str) -> int:
         """Get max items limit for a specific source type.
@@ -152,16 +144,6 @@ class Config:
                     f"{field_name} must be positive (or None to disable), got {value}"
                 )
 
-        # Validate LLM retry settings
-        if not 0 <= self.llm_max_retries <= 10:
-            raise ValueError(
-                f"llm_max_retries must be between 0 and 10, got {self.llm_max_retries}"
-            )
-        if not 1.0 <= self.llm_retry_backoff_base <= 10.0:
-            raise ValueError(
-                f"llm_retry_backoff_base must be between 1.0 and 10.0, got {self.llm_retry_backoff_base}"
-            )
-
         # Validate context auto-update settings
         if not 1 <= self.context_auto_update_interval_days <= 365:
             raise ValueError(
@@ -235,8 +217,14 @@ class Config:
                 return os.environ.get(env_var, value)
             return value
 
+        # Detect old config format
+        if "provider" in llm and "service" not in llm:
+            raise ValueError(
+                "Config format outdated: [llm] section uses 'provider'/'model'/'api_key' fields. "
+                "Run 'prismis-daemon migrate-config' to upgrade your config.toml to the new format."
+            )
+
         # Handle environment variable expansion
-        api_key = expand_env_var(llm.get("api_key", "env:OPENAI_API_KEY"))
         reddit_client_id = expand_env_var(
             reddit.get("client_id", "env:REDDIT_CLIENT_ID")
         )
@@ -253,10 +241,7 @@ class Config:
                 max_items_youtube=daemon["max_items_youtube"],
                 max_items_file=daemon["max_items_file"],
                 max_days_lookback=daemon["max_days_lookback"],
-                llm_provider=llm["provider"],
-                llm_model=llm["model"],
-                llm_api_key=api_key,
-                llm_api_base=llm.get("api_base"),  # Optional for Ollama/custom
+                llm_service=llm["service"],
                 reddit_client_id=reddit_client_id,
                 reddit_client_secret=reddit_client_secret,
                 reddit_user_agent=reddit["user_agent"],
@@ -277,7 +262,9 @@ class Config:
                 archival_low_unread=archival["windows"]["low_unread"],
                 archival_low_read=archival["windows"]["low_read"],
                 context_auto_update_enabled=context_config["auto_update_enabled"],
-                context_auto_update_interval_days=context_config["auto_update_interval_days"],
+                context_auto_update_interval_days=context_config[
+                    "auto_update_interval_days"
+                ],
                 context_auto_update_min_votes=context_config["auto_update_min_votes"],
                 context_backup_count=context_config["backup_count"],
             )

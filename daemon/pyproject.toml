@@ -9,12 +9,11 @@ description = "Prismis daemon for content fetching and analysis"
 requires-python = ">=3.13"
 dependencies = [
     "apscheduler",
-    "backoff",
     "cryptography",
     "fastapi>=0.116.1",
     "feedparser",
     "httpx",
-    "litellm<=1.82.6",
+    "llm-core>=0.1.0",
     "praw>=7.8.1",
     "pydantic",
     "python-dotenv",
@@ -41,3 +40,6 @@ dev = [
 [tool.ruff.lint.per-file-ignores]
 "src/prismis_daemon/api.py" = ["B008"]  # FastAPI Depends() in argument defaults
 "tests/**/*.py" = ["S101"]  # Allow assert statements in tests
+
+[tool.uv.sources]
+llm-core = { path = "/Users/rudy/development/projects/llm-core/python", editable = true }

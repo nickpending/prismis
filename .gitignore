@@ -205,3 +205,6 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 .streamlit/secrets.toml
+
+# Base compliance patterns (auto-added by gitignore-check)
+.sable/

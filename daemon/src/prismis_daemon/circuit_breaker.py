@@ -174,19 +174,21 @@ class CircuitBreaker:
         return status
 
 
-# Global singleton instance
-_breaker: CircuitBreaker | None = None
+# Service-keyed circuit breaker registry
+_breakers: dict[str, CircuitBreaker] = {}
 
 
-def get_circuit_breaker() -> CircuitBreaker:
-    """Get global circuit breaker instance (singleton)."""
-    global _breaker
-    if _breaker is None:
-        _breaker = CircuitBreaker()
-    return _breaker
+def get_circuit_breaker(service_name: str) -> CircuitBreaker:
+    """Get or create circuit breaker for the given service."""
+    if service_name not in _breakers:
+        _breakers[service_name] = CircuitBreaker()
+    return _breakers[service_name]
 
 
-def reset_circuit_breaker() -> None:
-    """Reset circuit breaker (for testing)."""
-    global _breaker
-    _breaker = None
+def reset_circuit_breaker(service_name: str | None = None) -> None:
+    """Reset circuit breaker (for testing). Resets specific service or all if None."""
+    global _breakers
+    if service_name is None:
+        _breakers = {}
+    else:
+        _breakers.pop(service_name, None)

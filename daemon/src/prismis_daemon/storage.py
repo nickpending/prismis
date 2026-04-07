@@ -39,6 +39,7 @@ class Storage:
         (priority IS NULL OR priority = '')
         AND favorited = 0
         AND (interesting_override = 0 OR interesting_override IS NULL)
+        AND (user_feedback != 'up' OR user_feedback IS NULL)
     """
 
     def __init__(self, db_path: Path | None = None):
@@ -1105,7 +1106,7 @@ class Storage:
 
         Returns items with user_feedback='up' for context analysis.
         Works on all content regardless of priority (not just unprioritized).
-        
+
         Note: Previously used interesting_override, now uses user_feedback='up'.
         The migration in Makefile converts interesting_override=1 to user_feedback='up'.
 
@@ -2063,9 +2064,7 @@ class Storage:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get statistics: {e}") from e
 
-    def get_feedback_statistics(
-        self, since_days: int | None = None
-    ) -> dict[str, Any]:
+    def get_feedback_statistics(self, since_days: int | None = None) -> dict[str, Any]:
         """Get user feedback statistics aggregated by source and topic.
 
         Provides aggregated feedback data for preference learning (003).
@@ -2089,7 +2088,9 @@ class Storage:
             # Build time filter
             time_filter = ""
             if since_days:
-                time_filter = f"AND c.updated_at >= datetime('now', '-{since_days} days')"
+                time_filter = (
+                    f"AND c.updated_at >= datetime('now', '-{since_days} days')"
+                )
 
             # Overall totals
             totals_cursor = self.conn.execute(f"""
@@ -2124,14 +2125,16 @@ class Storage:
                 upvotes = row[2]
                 downvotes = row[3]
                 ratio = upvotes / total if total > 0 else 0.0
-                by_source.append({
-                    "source_name": row[0],
-                    "source_id": row[1],
-                    "upvotes": upvotes,
-                    "downvotes": downvotes,
-                    "total": total,
-                    "upvote_ratio": round(ratio, 2),
-                })
+                by_source.append(
+                    {
+                        "source_name": row[0],
+                        "source_id": row[1],
+                        "upvotes": upvotes,
+                        "downvotes": downvotes,
+                        "total": total,
+                        "upvote_ratio": round(ratio, 2),
+                    }
+                )
 
             # Extract topics from upvoted content (from analysis.matched_interests)
             upvoted_cursor = self.conn.execute(f"""
@@ -2148,7 +2151,9 @@ class Storage:
                     interests = analysis.get("matched_interests", [])
                     for interest in interests:
                         if interest:
-                            topics_upvoted[interest] = topics_upvoted.get(interest, 0) + 1
+                            topics_upvoted[interest] = (
+                                topics_upvoted.get(interest, 0) + 1
+                            )
                 except (json.JSONDecodeError, TypeError):
                     pass
 
@@ -2167,13 +2172,19 @@ class Storage:
                     interests = analysis.get("matched_interests", [])
                     for interest in interests:
                         if interest:
-                            topics_downvoted[interest] = topics_downvoted.get(interest, 0) + 1
+                            topics_downvoted[interest] = (
+                                topics_downvoted.get(interest, 0) + 1
+                            )
                 except (json.JSONDecodeError, TypeError):
                     pass
 
             # Sort topics by frequency
-            sorted_upvoted = sorted(topics_upvoted.items(), key=lambda x: x[1], reverse=True)
-            sorted_downvoted = sorted(topics_downvoted.items(), key=lambda x: x[1], reverse=True)
+            sorted_upvoted = sorted(
+                topics_upvoted.items(), key=lambda x: x[1], reverse=True
+            )
+            sorted_downvoted = sorted(
+                topics_downvoted.items(), key=lambda x: x[1], reverse=True
+            )
 
             # Build LLM context summary (for 003)
             llm_context_parts = []
@@ -2185,12 +2196,24 @@ class Storage:
                 llm_context_parts.append(f"User dislikes: {', '.join(top_disliked)}")
 
             # Add source preferences
-            trusted_sources = [s["source_name"] for s in by_source if s["upvote_ratio"] >= 0.7 and s["total"] >= 2]
-            untrusted_sources = [s["source_name"] for s in by_source if s["upvote_ratio"] <= 0.3 and s["total"] >= 2]
+            trusted_sources = [
+                s["source_name"]
+                for s in by_source
+                if s["upvote_ratio"] >= 0.7 and s["total"] >= 2
+            ]
+            untrusted_sources = [
+                s["source_name"]
+                for s in by_source
+                if s["upvote_ratio"] <= 0.3 and s["total"] >= 2
+            ]
             if trusted_sources:
-                llm_context_parts.append(f"Trusted sources: {', '.join(trusted_sources[:3])}")
+                llm_context_parts.append(
+                    f"Trusted sources: {', '.join(trusted_sources[:3])}"
+                )
             if untrusted_sources:
-                llm_context_parts.append(f"Less trusted sources: {', '.join(untrusted_sources[:3])}")
+                llm_context_parts.append(
+                    f"Less trusted sources: {', '.join(untrusted_sources[:3])}"
+                )
 
             return {
                 "totals": {
@@ -2199,9 +2222,15 @@ class Storage:
                     "total_votes": totals_row[2] or 0,
                 },
                 "by_source": by_source,
-                "topics_upvoted": [{"topic": t[0], "count": t[1]} for t in sorted_upvoted],
-                "topics_downvoted": [{"topic": t[0], "count": t[1]} for t in sorted_downvoted],
-                "for_llm_context": " | ".join(llm_context_parts) if llm_context_parts else None,
+                "topics_upvoted": [
+                    {"topic": t[0], "count": t[1]} for t in sorted_upvoted
+                ],
+                "topics_downvoted": [
+                    {"topic": t[0], "count": t[1]} for t in sorted_downvoted
+                ],
+                "for_llm_context": " | ".join(llm_context_parts)
+                if llm_context_parts
+                else None,
                 "time_period": f"last {since_days} days" if since_days else "all time",
             }
 
@@ -2241,7 +2270,7 @@ class Storage:
 
             if since_days:
                 query += " AND c.updated_at >= datetime('now', ?)"
-                params.append(f'-{since_days} days')
+                params.append(f"-{since_days} days")
 
             query += " ORDER BY c.updated_at DESC"
 
@@ -2249,21 +2278,23 @@ class Storage:
 
             items = []
             for row in cursor.fetchall():
-                items.append({
-                    "id": row[0],
-                    "title": row[1],
-                    "url": row[2],
-                    "summary": row[3],
-                    "content": row[4],
-                    "priority": row[5],
-                    "analysis": row[6],
-                    "published_at": row[7],
-                    "read": bool(row[8]),
-                    "favorited": bool(row[9]),
-                    "user_feedback": row[10],
-                    "source_name": row[11],
-                    "source_type": row[12],
-                })
+                items.append(
+                    {
+                        "id": row[0],
+                        "title": row[1],
+                        "url": row[2],
+                        "summary": row[3],
+                        "content": row[4],
+                        "priority": row[5],
+                        "analysis": row[6],
+                        "published_at": row[7],
+                        "read": bool(row[8]),
+                        "favorited": bool(row[9]),
+                        "user_feedback": row[10],
+                        "source_name": row[11],
+                        "source_type": row[12],
+                    }
+                )
 
             return items
 

@@ -261,12 +261,16 @@ class Config:
                 archival_medium_read=archival["windows"]["medium_read"],
                 archival_low_unread=archival["windows"]["low_unread"],
                 archival_low_read=archival["windows"]["low_read"],
-                context_auto_update_enabled=context_config["auto_update_enabled"],
-                context_auto_update_interval_days=context_config[
-                    "auto_update_interval_days"
-                ],
-                context_auto_update_min_votes=context_config["auto_update_min_votes"],
-                context_backup_count=context_config["backup_count"],
+                context_auto_update_enabled=context_config.get(
+                    "auto_update_enabled", True
+                ),
+                context_auto_update_interval_days=context_config.get(
+                    "auto_update_interval_days", 30
+                ),
+                context_auto_update_min_votes=context_config.get(
+                    "auto_update_min_votes", 5
+                ),
+                context_backup_count=context_config.get("backup_count", 10),
             )
         except KeyError as e:
             raise ValueError(f"Missing required config field: {e}") from e

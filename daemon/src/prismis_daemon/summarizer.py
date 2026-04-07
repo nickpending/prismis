@@ -2,12 +2,10 @@
 
 import json
 import logging
-import time
 from dataclasses import dataclass
 from typing import Any
 
-import litellm
-from litellm import completion_cost
+from llm_core import complete
 
 try:
     from .circuit_breaker import get_circuit_breaker
@@ -41,35 +39,16 @@ class ContentSummary:
 class ContentSummarizer:
     """Generate summaries and extract structured insights from content."""
 
-    def __init__(self, config: dict[str, Any] | None = None):
-        """Initialize the summarizer with LLM configuration.
+    def __init__(self, service_name: str):
+        """Initialize the summarizer with llm-core service.
 
         Args:
-            config: Optional configuration dict with:
-                - model: LLM model name (default: gpt-4o-mini)
-                - api_key: API key for the provider
+            service_name: Service name from ~/.config/llm-core/services.toml
         """
-        self.config = config or {}
-        if not self.config or "model" not in self.config:
-            raise ValueError("Model must be specified in config")
-        self.model = self.config["model"]
-
-        # Store credentials for direct passing to litellm
-        self.api_key = self.config.get("api_key")
-        self.api_base = self.config.get("api_base")
-
-        # Validate Ollama configuration
-        provider = self.config.get("provider", "openai").lower()
-        if provider == "ollama" and not self.api_base:
-            raise ValueError(
-                "Ollama provider requires 'api_base' in config (e.g., 'http://localhost:11434')"
-            )
-
-        # Configure LiteLLM settings
-        litellm.drop_params = True  # Drop unsupported params instead of erroring
+        self.service_name = service_name
         self.temperature = 0.3  # Lower temperature for consistent analysis
 
-        logger.info(f"ContentSummarizer initialized with model: {self.model}")
+        logger.info(f"ContentSummarizer initialized with service: {self.service_name}")
 
     def summarize_with_analysis(
         self,
@@ -117,30 +96,12 @@ class ContentSummarizer:
             )
 
             # Call LLM
-            logger.debug(f"Calling {self.model} for content analysis")
-
-            # Build kwargs for litellm call
-            kwargs = {
-                "model": self.model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": system_prompt,
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": self.temperature,
-                "response_format": {"type": "json_object"},  # Request JSON response
-            }
-
-            # Add credentials if provided
-            if self.api_key:
-                kwargs["api_key"] = self.api_key
-            if self.api_base:
-                kwargs["api_base"] = self.api_base
+            logger.debug(
+                f"Calling llm-core service {self.service_name} for content analysis"
+            )
 
             # Check circuit breaker before LLM call
-            circuit = get_circuit_breaker()
+            circuit = get_circuit_breaker(self.service_name)
             if not circuit.check_can_proceed():
                 status = circuit.get_status()
                 raise RuntimeError(
@@ -148,38 +109,33 @@ class ContentSummarizer:
                     f"Recovery in {status.get('recovery_in_seconds', 'unknown')}s"
                 )
 
-            # Track LLM call timing and cost for observability
-            start_time = time.time()
-
             try:
-                response = litellm.completion(**kwargs)
-
-                # Calculate duration
-                duration_ms = int((time.time() - start_time) * 1000)
+                result = complete(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    service=self.service_name,
+                    temperature=self.temperature,
+                    json=True,
+                )
 
                 # Extract token usage
                 tokens = {
-                    "prompt": response.usage.prompt_tokens if response.usage else 0,
-                    "completion": response.usage.completion_tokens
-                    if response.usage
-                    else 0,
-                    "total": response.usage.total_tokens if response.usage else 0,
+                    "prompt": result.tokens.input,
+                    "completion": result.tokens.output,
+                    "total": result.tokens.input + result.tokens.output,
                 }
 
-                # Calculate cost
-                try:
-                    cost_usd = completion_cost(response)
-                except Exception:
-                    cost_usd = 0.0
+                # Cost already estimated by llm_core
+                cost_usd = result.cost
 
                 # Log successful LLM call
                 obs_log(
                     "llm.call",
                     action="summarize",
-                    model=self.model,
+                    model=result.model,
                     tokens=tokens,
                     cost_usd=cost_usd,
-                    duration_ms=duration_ms,
+                    duration_ms=result.duration_ms,
                     status="success",
                 )
 
@@ -191,24 +147,22 @@ class ContentSummarizer:
                 circuit.record_failure(e)
 
                 # Log failed LLM call
-                duration_ms = int((time.time() - start_time) * 1000)
                 obs_log(
                     "llm.call",
                     action="summarize",
-                    model=self.model,
+                    model=self.service_name,
                     status="error",
                     error=str(e),
-                    duration_ms=duration_ms,
                 )
                 raise  # Re-raise to preserve existing error handling
 
             # Extract and parse response
-            response_text = response.choices[0].message.content
+            response_text = result.text
             logger.debug("Received structured response from LLM")
 
             # Parse JSON response
             try:
-                result = json.loads(response_text)
+                parsed = json.loads(response_text)
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse LLM JSON response: {e}")
                 return None
@@ -223,26 +177,26 @@ class ContentSummarizer:
                 "quotes",  # Required - core extraction feature
             ]
             for field in required_fields:
-                if field not in result:
+                if field not in parsed:
                     logger.error(f"Missing required field '{field}' in LLM response")
                     return None
 
             # Ensure optional fields exist with defaults
-            result.setdefault("tools", [])
-            result.setdefault("urls", [])
+            parsed.setdefault("tools", [])
+            parsed.setdefault("urls", [])
 
             # Create ContentSummary object
             return ContentSummary(
-                summary=result["summary"],
-                reading_summary=result["reading_summary"],
-                alpha_insights=result.get("alpha_insights", []),
-                patterns=result.get("patterns", []),
-                entities=result.get("entities", []),
-                quotes=result.get("quotes", []),
-                tools=result.get("tools", []),
-                urls=result.get("urls", []),
+                summary=parsed["summary"],
+                reading_summary=parsed["reading_summary"],
+                alpha_insights=parsed.get("alpha_insights", []),
+                patterns=parsed.get("patterns", []),
+                entities=parsed.get("entities", []),
+                quotes=parsed.get("quotes", []),
+                tools=parsed.get("tools", []),
+                urls=parsed.get("urls", []),
                 metadata={
-                    "model": self.model,
+                    "model": result.model,
                     "content_length": len(content),
                     "word_count": word_count,
                     "summarization_mode": mode,

@@ -3,11 +3,9 @@
 import json
 import logging
 import re
-import time
 from typing import Any
 
-import litellm
-from litellm import completion_cost
+from llm_core import complete
 
 try:
     from .observability import log as obs_log
@@ -20,37 +18,16 @@ logger = logging.getLogger(__name__)
 class ContextAnalyzer:
     """Analyze flagged content items to suggest new topics for context.md."""
 
-    def __init__(self, config: dict[str, Any] | None = None):
+    def __init__(self, service_name: str):
         """Initialize the context analyzer.
 
         Args:
-            config: Optional configuration dict with:
-                - model: LLM model name (default: gpt-4o-mini)
-                - api_key: API key for the provider
-                - api_base: API base URL (for Ollama)
-                - provider: Provider name (openai, ollama, anthropic, groq)
+            service_name: Service name from ~/.config/llm-core/services.toml
         """
-        self.config = config or {}
-        if not self.config or "model" not in self.config:
-            raise ValueError("Model must be specified in config")
-        self.model = self.config["model"]
-
-        # Store credentials for direct passing to litellm
-        self.api_key = self.config.get("api_key")
-        self.api_base = self.config.get("api_base")
-
-        # Validate Ollama configuration
-        provider = self.config.get("provider", "openai").lower()
-        if provider == "ollama" and not self.api_base:
-            raise ValueError(
-                "Ollama provider requires 'api_base' in config (e.g., 'http://localhost:11434')"
-            )
-
-        # Configure LiteLLM settings
-        litellm.drop_params = True  # Drop unsupported params automatically
+        self.service_name = service_name
         self.temperature = 0.3  # Fixed for consistent analysis
 
-        logger.info(f"ContextAnalyzer initialized with model: {self.model}")
+        logger.info(f"ContextAnalyzer initialized with service: {self.service_name}")
 
     def analyze_flagged_items(
         self, flagged_items: list[dict[str, Any]], context_text: str
@@ -278,7 +255,7 @@ Analyze each item and recommend context.md improvements."""
         ]
 
     def _call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
-        """Call LiteLLM with the analysis prompt.
+        """Call llm-core with the analysis prompt.
 
         Args:
             messages: Messages to send to the LLM
@@ -290,72 +267,57 @@ Analyze each item and recommend context.md improvements."""
             Exception: If LLM call fails
         """
         try:
-            logger.debug(f"Calling {self.model} for context analysis")
+            logger.debug(
+                f"Calling llm-core service {self.service_name} for context analysis"
+            )
 
-            # Build kwargs for litellm call
-            kwargs = {
-                "model": self.model,
-                "messages": messages,
-                "temperature": self.temperature,
-                "response_format": {"type": "json_object"},  # Request JSON response
-            }
-
-            # Add credentials if provided
-            if self.api_key:
-                kwargs["api_key"] = self.api_key
-            if self.api_base:
-                kwargs["api_base"] = self.api_base
-
-            # Track LLM call timing and cost for observability
-            start_time = time.time()
+            # Extract system and user prompts from messages
+            system_prompt = messages[0]["content"]
+            user_prompt = messages[1]["content"]
 
             try:
-                response = litellm.completion(**kwargs)
-
-                # Calculate duration
-                duration_ms = int((time.time() - start_time) * 1000)
+                result = complete(
+                    prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    service=self.service_name,
+                    temperature=self.temperature,
+                    json=True,
+                )
 
                 # Extract token usage
                 tokens = {
-                    "prompt": response.usage.prompt_tokens if response.usage else 0,
-                    "completion": response.usage.completion_tokens
-                    if response.usage
-                    else 0,
-                    "total": response.usage.total_tokens if response.usage else 0,
+                    "prompt": result.tokens.input,
+                    "completion": result.tokens.output,
+                    "total": result.tokens.input + result.tokens.output,
                 }
 
-                # Calculate cost
-                try:
-                    cost_usd = completion_cost(response)
-                except Exception:
-                    cost_usd = 0.0
+                # Cost already estimated by llm_core
+                cost_usd = result.cost
 
                 # Log successful LLM call
                 obs_log(
                     "llm.call",
                     action="context_analysis",
-                    model=self.model,
+                    model=result.model,
                     tokens=tokens,
                     cost_usd=cost_usd,
-                    duration_ms=duration_ms,
+                    duration_ms=result.duration_ms,
                     status="success",
                 )
 
             except Exception as e:
                 # Log failed LLM call
-                duration_ms = int((time.time() - start_time) * 1000)
                 obs_log(
                     "llm.call",
                     action="context_analysis",
-                    model=self.model,
+                    model=self.service_name,
                     status="error",
                     error=str(e),
-                    duration_ms=duration_ms,
                 )
                 raise  # Re-raise to preserve existing error handling
 
-            # Extract the response text
-            response_text = response.choices[0].message.content
+            # Extract and parse response
+            response_text = result.text
 
             # Parse JSON response
             return json.loads(response_text)

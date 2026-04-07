@@ -3,8 +3,8 @@
 import os
 import re
 import time
-from difflib import SequenceMatcher
 from datetime import UTC, datetime, timedelta
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -342,9 +342,7 @@ def deduplicate_content(
             if j in grouped_indices:
                 continue
 
-            similarity = title_similarity(
-                item.get("title", ""), other.get("title", "")
-            )
+            similarity = title_similarity(item.get("title", ""), other.get("title", ""))
             if similarity >= similarity_threshold:
                 group.append(other)
                 group_sources.append(other.get("source_name", "Unknown"))
@@ -1326,15 +1324,8 @@ async def analyze_context(
         # Load current context.md content
         context_text = config.context
 
-        # Initialize context analyzer with LLM config
-        analyzer = ContextAnalyzer(
-            {
-                "model": config.llm_model,
-                "api_key": config.llm_api_key,
-                "api_base": config.llm_api_base,
-                "provider": config.llm_provider,
-            }
-        )
+        # Initialize context analyzer with llm-core service name
+        analyzer = ContextAnalyzer(config.llm_service)
 
         # Analyze and get suggestions
         result = analyzer.analyze_flagged_items(flagged_items, context_text)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -184,10 +185,22 @@ func NewClientWithURL(baseURL string) (*APIClient, error) {
 		}
 	}
 
+	// Use transport-level timeouts instead of total client timeout.
+	// Total timeout doesn't work for large responses over slow links (e.g., 80MB over Tailscale).
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second, // Connection timeout
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second, // Time to first byte
+		IdleConnTimeout:       90 * time.Second,
+	}
+
 	return &APIClient{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		httpClient: &http.Client{Transport: transport}, // No total timeout - body can take as long as needed
 	}, nil
 }
 

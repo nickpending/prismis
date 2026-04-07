@@ -8,17 +8,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import litellm
-from litellm import completion_cost
+from llm_core import complete
 
 try:
     from .config import Config
-    from .storage import Storage
     from .observability import log as obs_log
+    from .storage import Storage
 except ImportError:
     from config import Config
-    from storage import Storage
     from observability import log as obs_log
+    from storage import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -35,25 +34,21 @@ class ContextAutoUpdater:
         """
         self.config = config
         self.storage = storage
-        
+
         # Get paths
         self.context_path = self._get_context_path()
         self.backup_dir = self.context_path.parent / "context_backups"
-        
+
         # LLM settings from config
-        self.model = config.llm_model
-        self.api_key = config.llm_api_key
-        self.api_base = config.llm_api_base
-        
-        # Configure LiteLLM
-        litellm.drop_params = True
+        self.service_name = config.llm_service
         self.temperature = 0.3
-        
-        logger.info(f"ContextAutoUpdater initialized with model: {self.model}")
+
+        logger.info(f"ContextAutoUpdater initialized with service: {self.service_name}")
 
     def _get_context_path(self) -> Path:
         """Get the path to context.md from XDG config."""
         import os
+
         xdg_config_home = os.environ.get(
             "XDG_CONFIG_HOME", str(Path.home() / ".config")
         )
@@ -80,7 +75,10 @@ class ContextAutoUpdater:
                 last_update_ts = float(last_update_file.read_text().strip())
                 days_since = (time.time() - last_update_ts) / (24 * 60 * 60)
                 if days_since < self.config.context_auto_update_interval_days:
-                    return False, f"Only {days_since:.1f} days since last update (need {self.config.context_auto_update_interval_days})"
+                    return (
+                        False,
+                        f"Only {days_since:.1f} days since last update (need {self.config.context_auto_update_interval_days})",
+                    )
             except (ValueError, OSError) as e:
                 logger.warning(f"Could not read last update timestamp: {e}")
 
@@ -89,9 +87,12 @@ class ContextAutoUpdater:
             since_days=self.config.context_auto_update_interval_days
         )
         total_votes = stats.get("totals", {}).get("total_votes", 0)
-        
+
         if total_votes < self.config.context_auto_update_min_votes:
-            return False, f"Only {total_votes} votes (need {self.config.context_auto_update_min_votes})"
+            return (
+                False,
+                f"Only {total_votes} votes (need {self.config.context_auto_update_min_votes})",
+            )
 
         return True, f"Ready: {total_votes} votes, interval passed"
 
@@ -111,7 +112,7 @@ class ContextAutoUpdater:
         # Create timestamped backup
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_path = self.backup_dir / f"context_{timestamp}.md"
-        
+
         shutil.copy2(self.context_path, backup_path)
         logger.info(f"Backed up context.md to {backup_path}")
 
@@ -126,8 +127,8 @@ class ContextAutoUpdater:
             return
 
         backups = sorted(self.backup_dir.glob("context_*.md"), reverse=True)
-        
-        for old_backup in backups[self.config.context_backup_count:]:
+
+        for old_backup in backups[self.config.context_backup_count :]:
             old_backup.unlink()
             logger.debug(f"Removed old backup: {old_backup}")
 
@@ -142,19 +143,19 @@ class ContextAutoUpdater:
         try:
             # Get all content with votes in the time window
             voted_items = []
-            
+
             # Query upvoted items
             up_items = self.storage.get_content_by_feedback(
                 feedback="up",
-                since_days=self.config.context_auto_update_interval_days
+                since_days=self.config.context_auto_update_interval_days,
             )
             for item in up_items:
                 voted_items.append(self._format_article(item, "up"))
 
             # Query downvoted items
             down_items = self.storage.get_content_by_feedback(
-                feedback="down", 
-                since_days=self.config.context_auto_update_interval_days
+                feedback="down",
+                since_days=self.config.context_auto_update_interval_days,
             )
             for item in down_items:
                 voted_items.append(self._format_article(item, "down"))
@@ -179,7 +180,11 @@ class ContextAutoUpdater:
         matched_interests = []
         if item.get("analysis"):
             try:
-                analysis = json.loads(item["analysis"]) if isinstance(item["analysis"], str) else item["analysis"]
+                analysis = (
+                    json.loads(item["analysis"])
+                    if isinstance(item["analysis"], str)
+                    else item["analysis"]
+                )
                 matched_interests = analysis.get("matched_interests", [])
             except (json.JSONDecodeError, TypeError):
                 pass
@@ -217,16 +222,30 @@ class ContextAutoUpdater:
         # Extract key stats
         topics_upvoted = stats.get("topics_upvoted", [])[:10]  # Top 10
         topics_downvoted = stats.get("topics_downvoted", [])[:10]
-        
+
         # Format topics for readability
-        upvoted_str = ", ".join([f"{t['topic']} ({t['count']})" for t in topics_upvoted]) if topics_upvoted else "None"
-        downvoted_str = ", ".join([f"{t['topic']} ({t['count']})" for t in topics_downvoted]) if topics_downvoted else "None"
+        upvoted_str = (
+            ", ".join([f"{t['topic']} ({t['count']})" for t in topics_upvoted])
+            if topics_upvoted
+            else "None"
+        )
+        downvoted_str = (
+            ", ".join([f"{t['topic']} ({t['count']})" for t in topics_downvoted])
+            if topics_downvoted
+            else "None"
+        )
 
         # Get trusted/distrusted sources
         by_source = stats.get("by_source", [])
-        trusted = [s["source_name"] for s in by_source if s.get("upvote_ratio", 0) >= 0.7][:5]
-        distrusted = [s["source_name"] for s in by_source if s.get("upvote_ratio", 0) <= 0.3 and s.get("total", 0) >= 3][:5]
-        
+        trusted = [
+            s["source_name"] for s in by_source if s.get("upvote_ratio", 0) >= 0.7
+        ][:5]
+        distrusted = [
+            s["source_name"]
+            for s in by_source
+            if s.get("upvote_ratio", 0) <= 0.3 and s.get("total", 0) >= 3
+        ][:5]
+
         trusted_str = ", ".join(trusted) if trusted else "None"
         distrusted_str = ", ".join(distrusted) if distrusted else "None"
 
@@ -311,7 +330,7 @@ Generate the complete updated context.md."""
         return True, "Valid"
 
     def _call_llm(self, messages: list[dict[str, str]]) -> str:
-        """Call LiteLLM to generate updated context.
+        """Call llm-core to generate updated context.
 
         Args:
             messages: Messages to send to the LLM
@@ -322,48 +341,38 @@ Generate the complete updated context.md."""
         Raises:
             Exception: If LLM call fails
         """
-        logger.debug(f"Calling {self.model} for context update")
+        logger.debug(f"Calling llm-core service {self.service_name} for context update")
 
-        kwargs = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": self.temperature,
-        }
-
-        if self.api_key:
-            kwargs["api_key"] = self.api_key
-        if self.api_base:
-            kwargs["api_base"] = self.api_base
-
-        start_time = time.time()
+        # Extract system and user prompts from messages
+        system_prompt = messages[0]["content"]
+        user_prompt = messages[1]["content"]
 
         try:
-            response = litellm.completion(**kwargs)
-            duration_ms = int((time.time() - start_time) * 1000)
+            result = complete(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                service=self.service_name,
+                temperature=self.temperature,
+            )
 
             # Extract content
-            content = response.choices[0].message.content.strip()
+            content = result.text.strip()
 
             # Log for observability
             tokens = {
-                "prompt": response.usage.prompt_tokens if response.usage else 0,
-                "completion": response.usage.completion_tokens if response.usage else 0,
+                "prompt": result.tokens.input,
+                "completion": result.tokens.output,
             }
-
-            try:
-                cost = completion_cost(completion_response=response)
-            except Exception:
-                cost = 0.0
 
             obs_log(
                 operation="context_auto_update",
-                duration_ms=duration_ms,
+                duration_ms=result.duration_ms,
                 tokens=tokens,
-                cost=cost,
-                model=self.model,
+                cost=result.cost,
+                model=result.model,
             )
 
-            logger.info(f"Context update LLM call completed in {duration_ms}ms")
+            logger.info(f"Context update LLM call completed in {result.duration_ms}ms")
             return content
 
         except Exception as e:
@@ -388,7 +397,7 @@ Generate the complete updated context.md."""
             # Load current context
             if not self.context_path.exists():
                 return False, "No context.md found"
-            
+
             current_context = self.context_path.read_text()
 
             # Get voted articles
@@ -425,7 +434,10 @@ Generate the complete updated context.md."""
             # Record update timestamp
             self._get_last_update_path().write_text(str(time.time()))
 
-            return True, f"Updated successfully ({len(voted_articles)} articles processed)"
+            return (
+                True,
+                f"Updated successfully ({len(voted_articles)} articles processed)",
+            )
 
         except Exception as e:
             logger.error(f"Context auto-update failed: {e}", exc_info=True)
@@ -441,7 +453,7 @@ def run_context_update(config: Config, storage: Storage) -> None:
     """
     updater = ContextAutoUpdater(config, storage)
     success, message = updater.update()
-    
+
     if success:
         logger.info(f"Context auto-update: {message}")
     else:

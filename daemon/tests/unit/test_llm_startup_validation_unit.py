@@ -1,10 +1,11 @@
 """Unit tests for LLM startup validation logic."""
 
+import sys
 import tempfile
-import pytest
 from pathlib import Path
 from unittest.mock import patch
-import sys
+
+import pytest
 
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
@@ -12,35 +13,29 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 from prismis_daemon.__main__ import validate_llm_config
 from prismis_daemon.config import Config
 
+# llm_validator.py IS the wrapper around llm_core — mocking through it is correct
+_HEALTH_CHECK_MOCK = (
+    "prismis_daemon.llm_validator.llm_core.health_check"  # claudex-guard: allow-mock
+)
 
-def test_INVARIANT_provider_specific_validation_ollama_requires_api_base() -> None:
-    """
-    INVARIANT: Ollama provider validation MUST require api_base configuration
-    BREAKS: Startup allows broken Ollama config, analysis fails later
-    """
-    # Create real config file with Ollama provider but missing api_base
-    temp_dir = tempfile.mkdtemp()
-
-    try:
-        config_path = Path(temp_dir) / "config.toml"
-        invalid_ollama_config = """
+# Valid new-format config TOML template for tests
+VALID_CONFIG_TOML = """\
 [daemon]
 fetch_interval = 30
 max_items_rss = 25
 max_items_reddit = 50
 max_items_youtube = 10
+max_items_file = 5
 max_days_lookback = 30
 
 [llm]
-provider = "ollama"
-model = "ollama/llama2"
-api_key = ""
-# Missing api_base - this should cause validation failure
+service = "prismis-openai"
 
 [reddit]
 client_id = "env:REDDIT_CLIENT_ID"
 client_secret = "env:REDDIT_CLIENT_SECRET"
 user_agent = "test"
+max_comments = 100
 
 [notifications]
 high_priority_only = true
@@ -48,19 +43,59 @@ command = "echo"
 
 [api]
 key = "test-api-key"
+
+[archival]
+enabled = false
+
+[archival.windows]
+high_read = 30
+medium_unread = 14
+medium_read = 30
+low_unread = 7
+low_read = 30
+
+[context]
+auto_update_enabled = false
+auto_update_interval_days = 7
+auto_update_min_votes = 5
+backup_count = 3
 """
-        config_path.write_text(invalid_ollama_config)
 
-        # Create context.md
-        context_path = Path(temp_dir) / "context.md"
-        context_path.write_text("# Test Context\nHigh Priority: Testing")
 
-        # Load real config
+def _create_config_dir(config_toml: str = VALID_CONFIG_TOML) -> tuple:
+    """Create a temp config directory with config.toml and context.md.
+
+    Returns:
+        Tuple of (temp_dir, config_path)
+    """
+    temp_dir = tempfile.mkdtemp()
+    config_path = Path(temp_dir) / "config.toml"
+    config_path.write_text(config_toml)
+
+    context_path = Path(temp_dir) / "context.md"
+    context_path.write_text("# Test Context\nHigh Priority: Testing")
+
+    return temp_dir, config_path
+
+
+def test_INVARIANT_valid_service_config_passes_validation() -> None:
+    """
+    INVARIANT: Valid service config MUST pass validation when health check succeeds
+    BREAKS: Valid configs rejected, preventing daemon start
+    """
+    temp_dir, config_path = _create_config_dir()
+
+    try:
         config = Config.from_file(config_path)
 
-        # Validation MUST fail for Ollama without api_base
-        with pytest.raises(SystemExit):
-            validate_llm_config(config)
+        with patch(_HEALTH_CHECK_MOCK) as mock_health:
+            mock_health.return_value = None  # Success
+
+            # Should NOT raise exception for valid config
+            try:
+                validate_llm_config(config)
+            except SystemExit:
+                pytest.fail("Valid config should not cause SystemExit")
 
     finally:
         import shutil
@@ -68,33 +103,53 @@ key = "test-api-key"
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def test_INVARIANT_provider_specific_validation_openai_accepts_minimal_config() -> None:
+def test_INVARIANT_health_check_failure_prevents_daemon_start() -> None:
     """
-    INVARIANT: OpenAI provider validation MUST work with just model and api_key
-    BREAKS: Valid OpenAI configs rejected, preventing daemon start
+    INVARIANT: Failed health check MUST prevent daemon start (never runs with broken config)
+    BREAKS: Daemon starts but fails during content analysis, corrupting user experience
     """
-    temp_dir = tempfile.mkdtemp()
+    temp_dir, config_path = _create_config_dir()
 
     try:
-        config_path = Path(temp_dir) / "config.toml"
-        valid_openai_config = """
+        config = Config.from_file(config_path)
+
+        with patch(_HEALTH_CHECK_MOCK) as mock_health:
+            mock_health.side_effect = Exception("Connection refused")
+
+            # Validation MUST prevent daemon start
+            with pytest.raises(SystemExit):
+                validate_llm_config(config)
+
+    finally:
+        import shutil
+
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_INVARIANT_old_config_format_rejected() -> None:
+    """
+    INVARIANT: Old config format with provider/model/api_key MUST be rejected
+    BREAKS: Old configs silently accepted, causing runtime errors
+    """
+    old_format_config = """\
 [daemon]
 fetch_interval = 30
 max_items_rss = 25
 max_items_reddit = 50
 max_items_youtube = 10
+max_items_file = 5
 max_days_lookback = 30
 
 [llm]
 provider = "openai"
 model = "gpt-4o-mini"
 api_key = "sk-test-key-1234567890"
-# No api_base needed for OpenAI
 
 [reddit]
 client_id = "env:REDDIT_CLIENT_ID"
 client_secret = "env:REDDIT_CLIENT_SECRET"
 user_agent = "test"
+max_comments = 100
 
 [notifications]
 high_priority_only = true
@@ -102,23 +157,29 @@ command = "echo"
 
 [api]
 key = "test-api-key"
+
+[archival]
+enabled = false
+
+[archival.windows]
+high_read = 30
+medium_unread = 14
+medium_read = 30
+low_unread = 7
+low_read = 30
+
+[context]
+auto_update_enabled = false
+auto_update_interval_days = 7
+auto_update_min_votes = 5
+backup_count = 3
 """
-        config_path.write_text(valid_openai_config)
+    temp_dir, config_path = _create_config_dir(old_format_config)
 
-        context_path = Path(temp_dir) / "context.md"
-        context_path.write_text("# Test Context\nHigh Priority: Testing")
-
-        config = Config.from_file(config_path)
-
-        # Mock only the external LLM API call
-        with patch("litellm.ahealth_check") as mock_health:
-            mock_health.return_value = None  # Success
-
-            # Should NOT raise exception for valid OpenAI config
-            try:
-                validate_llm_config(config)
-            except SystemExit:
-                pytest.fail("Valid OpenAI config should not cause SystemExit")
+    try:
+        # Config.from_file should raise ValueError for old format
+        with pytest.raises(ValueError, match="Config format outdated"):
+            Config.from_file(config_path)
 
     finally:
         import shutil
@@ -126,103 +187,23 @@ key = "test-api-key"
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def test_INVARIANT_error_message_clarity_invalid_provider() -> None:
+def test_INVARIANT_startup_validation_calls_health_check_with_service() -> None:
     """
-    INVARIANT: Error messages MUST provide actionable guidance for fixing config
-    BREAKS: Users get cryptic errors, can't fix their configuration
+    INVARIANT: Startup validation MUST call llm_core.health_check with the configured service name
+    BREAKS: Health check called with wrong arguments, silently passing with incorrect config
     """
-    temp_dir = tempfile.mkdtemp()
+    temp_dir, config_path = _create_config_dir()
 
     try:
-        config_path = Path(temp_dir) / "config.toml"
-        invalid_provider_config = """
-[daemon]
-fetch_interval = 30
-max_items_rss = 25
-max_items_reddit = 50
-max_items_youtube = 10
-max_days_lookback = 30
-
-[llm]
-provider = "nonexistent_provider"
-model = "invalid-model"
-api_key = "fake-key"
-
-[reddit]
-client_id = "env:REDDIT_CLIENT_ID"
-client_secret = "env:REDDIT_CLIENT_SECRET"
-user_agent = "test"
-
-[notifications]
-high_priority_only = true
-command = "echo"
-
-[api]
-key = "test-api-key"
-"""
-        config_path.write_text(invalid_provider_config)
-
-        context_path = Path(temp_dir) / "context.md"
-        context_path.write_text("# Test Context\nHigh Priority: Testing")
-
         config = Config.from_file(config_path)
 
-        # Should fail with clear error about invalid provider
-        with pytest.raises(SystemExit):
+        with patch(_HEALTH_CHECK_MOCK) as mock_health:
+            mock_health.return_value = None
+
             validate_llm_config(config)
 
-    finally:
-        import shutil
-
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def test_INVARIANT_startup_validation_prevents_broken_daemon() -> None:
-    """
-    INVARIANT: Invalid LLM config MUST prevent daemon start (never runs with broken config)
-    BREAKS: Daemon starts but fails during content analysis, corrupting user experience
-    """
-    temp_dir = tempfile.mkdtemp()
-
-    try:
-        config_path = Path(temp_dir) / "config.toml"
-        # Create config that will fail at Analyzer initialization
-        broken_config = """
-[daemon]
-fetch_interval = 30
-max_items_rss = 25
-max_items_reddit = 50
-max_items_youtube = 10
-max_days_lookback = 30
-
-[llm]
-provider = "ollama"
-model = "ollama/llama2"
-api_key = ""
-# Intentionally missing api_base for Ollama
-
-[reddit]
-client_id = "env:REDDIT_CLIENT_ID"
-client_secret = "env:REDDIT_CLIENT_SECRET"
-user_agent = "test"
-
-[notifications]
-high_priority_only = true
-command = "echo"
-
-[api]
-key = "test-api-key"
-"""
-        config_path.write_text(broken_config)
-
-        context_path = Path(temp_dir) / "context.md"
-        context_path.write_text("# Test Context\nHigh Priority: Testing")
-
-        config = Config.from_file(config_path)
-
-        # Validation MUST prevent daemon start
-        with pytest.raises(SystemExit):
-            validate_llm_config(config)
+            # Verify health_check was called with correct service name
+            mock_health.assert_called_once_with(service="prismis-openai")
 
     finally:
         import shutil

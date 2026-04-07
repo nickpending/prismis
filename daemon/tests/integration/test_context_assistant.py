@@ -3,8 +3,9 @@
 Tests prune protection invariants AND context suggestion API invariants.
 """
 
+import logging
 from pathlib import Path
-from unittest import mock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,6 +15,16 @@ from prismis_daemon.config import Config
 from prismis_daemon.context_analyzer import ContextAnalyzer
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
+
+logger = logging.getLogger(__name__)
+
+# Mock targets for external dependencies accessed through prismis wrappers
+_CONFIG_FROM_FILE_MOCK = (
+    "prismis_daemon.api.Config.from_file"  # claudex-guard: allow-mock
+)
+_LLM_COMPLETE_MOCK = (
+    "prismis_daemon.context_analyzer.complete"  # claudex-guard: allow-mock
+)
 
 # ===== EXISTING TESTS: Prune Protection Invariants =====
 
@@ -87,9 +98,9 @@ def test_INVARIANT_flagged_items_not_deleted_by_prune(test_db: Path) -> None:
         )
         content_id = storage.add_content(item)
 
-        # Flag first 2 items
+        # Flag first 2 items via user_feedback='up' (the current flagging mechanism)
         if i < 2:
-            storage.flag_interesting(content_id)
+            storage.update_content_status(content_id, user_feedback="up")
             flagged_items.append(content_id)
         else:
             unflagged_items.append(content_id)
@@ -142,7 +153,7 @@ def test_INVARIANT_favorited_items_also_protected_from_prune(test_db: Path) -> N
     both_id = None
     neither_id = None
 
-    for i, case in enumerate(["favorited", "flagged", "both", "neither"]):
+    for _i, case in enumerate(["favorited", "flagged", "both", "neither"]):
         item = ContentItem(
             source_id=source_id,
             external_id=f"test-{case}",
@@ -245,13 +256,11 @@ def test_INVARIANT_flagged_items_unchanged_after_suggest(
 
     # Make API call (will fail without OpenAI key, but that's OK for this test)
     try:
-        response = api_client.post(
-            "/api/context", headers={"X-API-Key": "prismis-api-4d5e"}
-        )
+        api_client.post("/api/context", headers={"X-API-Key": "prismis-api-4d5e"})
         # Response might be 422 (no flagged items if wrong DB) or 500 (LLM error)
         # We don't care - we're testing database integrity
-    except Exception:
-        pass  # Failures are fine, we're testing state integrity
+    except Exception as exc:
+        logger.debug("Expected API failure during state integrity test: %s", exc)
 
     # Verify state unchanged after API call
     flagged_after = storage.get_flagged_items()
@@ -264,7 +273,7 @@ def test_INVARIANT_flagged_items_unchanged_after_suggest(
 
 
 def test_INVARIANT_empty_flagged_returns_empty_suggestions(
-    test_db: Path, full_config: dict
+    test_db: Path, full_config: "Config"
 ) -> None:
     """
     INVARIANT: Empty flagged items returns empty suggestions without LLM call
@@ -274,20 +283,13 @@ def test_INVARIANT_empty_flagged_returns_empty_suggestions(
     Storage(test_db)  # Initialize but don't add any flagged items
 
     # Get context text from config
-    config = Config.from_file()
-    context_text = config.context
+    context_text = full_config.context
 
-    # Create analyzer with real config
-    llm_config = {
-        "model": full_config.get("llm", {}).get("model", "gpt-4o-mini"),
-        "api_key": full_config.get("llm", {}).get("api_key"),
-        "api_base": full_config.get("llm", {}).get("api_base"),
-        "provider": full_config.get("llm", {}).get("provider", "openai"),
-    }
-    analyzer = ContextAnalyzer(llm_config)
+    # Create analyzer with llm-core service name (new API)
+    analyzer = ContextAnalyzer(full_config.llm_service)
 
     # Mock _call_llm to verify it's never called
-    with mock.patch.object(
+    with patch.object(
         analyzer, "_call_llm", side_effect=AssertionError("LLM should not be called")
     ) as mock_llm:
         # Call with empty list
@@ -319,28 +321,41 @@ def test_INVARIANT_no_credentials_in_errors(
         url="https://example.com/cred",
     )
     content_id = storage.add_content(item)
-    storage.flag_interesting(content_id)
+    storage.update_content_status(content_id, user_feedback="up")
 
-    # Mock Config to inject a fake API key we can detect
-    fake_api_key = "sk-test-SENSITIVE-KEY-12345"
+    # Fake API key that should never appear in error responses
+    fake_llm_service_key = "sk-test-SENSITIVE-KEY-12345"
+    # Auth API key - must match what auth.py reads from Config
+    auth_api_key = "test-api-key-for-cred-test"
 
-    with mock.patch("prismis_daemon.api.Config.from_file") as mock_config:
-        # Create mock config with sensitive key
-        mock_instance = mock.MagicMock()
-        mock_instance.llm_api_key = fake_api_key
-        mock_instance.llm_model = "gpt-4o-mini"
-        mock_instance.llm_provider = "openai"
-        mock_instance.context = "# Test Context"
-        mock_config.return_value = mock_instance
+    # Mock both auth config and API endpoint config
+    _AUTH_CONFIG_MOCK = (
+        "prismis_daemon.auth.Config.from_file"  # claudex-guard: allow-mock
+    )
 
-        # Mock LLM call to raise error with API key in exception
-        with mock.patch(
-            "prismis_daemon.context_analyzer.litellm.completion",
-            side_effect=Exception(f"API call failed with key {fake_api_key}"),
+    with (
+        patch(_CONFIG_FROM_FILE_MOCK) as mock_api_config,
+        patch(_AUTH_CONFIG_MOCK) as mock_auth_config,
+    ):
+        # Auth config: returns valid API key so auth passes
+        auth_instance = MagicMock()  # claudex-guard: allow-mock
+        auth_instance.api_key = auth_api_key
+        mock_auth_config.return_value = auth_instance
+
+        # API config: returns service pointing to fake key (via llm_service)
+        api_instance = MagicMock()  # claudex-guard: allow-mock
+        api_instance.llm_service = "prismis-openai"
+        api_instance.context = "# Test Context"
+        mock_api_config.return_value = api_instance
+
+        # Mock LLM call to raise error mentioning the sensitive key
+        with patch(
+            _LLM_COMPLETE_MOCK,
+            side_effect=Exception(f"API call failed with key {fake_llm_service_key}"),
         ):
-            # Make API call
+            # Make API call with valid auth key
             response = api_client.post(
-                "/api/context", headers={"X-API-Key": "prismis-api-4d5e"}
+                "/api/context", headers={"X-API-Key": auth_api_key}
             )
 
             # Verify error response
@@ -350,11 +365,13 @@ def test_INVARIANT_no_credentials_in_errors(
             response_text = response.text
             response_json = response.json()
 
-            assert fake_api_key not in response_text, "API key found in response body"
-            assert fake_api_key not in response_json.get("message", ""), (
-                "API key found in error message"
+            assert fake_llm_service_key not in response_text, (
+                "LLM service key found in response body"
             )
-            assert "sk-test" not in response_text, "Partial API key found in response"
+            assert fake_llm_service_key not in response_json.get("message", ""), (
+                "LLM service key found in error message"
+            )
+            assert "sk-test" not in response_text, "Partial key found in response"
 
 
 def test_FAILURE_database_locked_during_get_flagged(test_db: Path) -> None:
@@ -374,7 +391,7 @@ def test_FAILURE_database_locked_during_get_flagged(test_db: Path) -> None:
         url="https://example.com/lock",
     )
     content_id = storage.add_content(item)
-    storage.flag_interesting(content_id)
+    storage.update_content_status(content_id, user_feedback="up")
 
     # Mock get_flagged_items to simulate database lock
     original_get_flagged = storage.get_flagged_items
@@ -382,16 +399,16 @@ def test_FAILURE_database_locked_during_get_flagged(test_db: Path) -> None:
     def locked_get_flagged(*args, **kwargs):
         raise Exception("database is locked")
 
-    with mock.patch.object(
-        storage, "get_flagged_items", side_effect=locked_get_flagged
-    ):
+    with patch.object(storage, "get_flagged_items", side_effect=locked_get_flagged):
         # This should raise, not corrupt
         try:
             # Simulate what API endpoint does
             storage.get_flagged_items()
             # Should not reach here
-            assert False, "Should have raised database lock error"
+            raise AssertionError("Should have raised database lock error")
         except Exception as e:
+            if isinstance(e, AssertionError):
+                raise
             # Verify error is clear
             assert "locked" in str(e).lower()
 
@@ -401,20 +418,14 @@ def test_FAILURE_database_locked_during_get_flagged(test_db: Path) -> None:
 
 
 def test_FAILURE_malformed_context_md_graceful(
-    test_db: Path, full_config: dict
+    test_db: Path, full_config: "Config"
 ) -> None:
     """
     FAILURE: Malformed context.md with problematic patterns
     GRACEFUL: Must not crash, should proceed with empty existing_topics
     """
-    # Create analyzer
-    llm_config = {
-        "model": full_config.get("llm", {}).get("model", "gpt-4o-mini"),
-        "api_key": full_config.get("llm", {}).get("api_key"),
-        "api_base": full_config.get("llm", {}).get("api_base"),
-        "provider": full_config.get("llm", {}).get("provider", "openai"),
-    }
-    analyzer = ContextAnalyzer(llm_config)
+    # Create analyzer with llm-core service name (new API)
+    analyzer = ContextAnalyzer(full_config.llm_service)
 
     # Test various malformed context.md contents
     malformed_contexts = [

@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 
 from .config import Config
+from .context_auto_updater import run_context_update
 from .defaults import ensure_config
 from .evaluator import ContentEvaluator
 from .fetchers.file import FileFetcher
@@ -26,7 +27,6 @@ from .observability import get_logger as get_obs_logger
 from .orchestrator import DaemonOrchestrator
 from .storage import Storage
 from .summarizer import ContentSummarizer
-from .context_auto_updater import run_context_update
 
 # Load environment variables from ~/.config/prismis/.env
 config_home = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
@@ -59,22 +59,13 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
         youtube_fetcher = YouTubeFetcher(config=config)
         file_fetcher = FileFetcher(config=config, storage=storage)
 
-        # Create LLM config dict for summarizer and evaluator
-        llm_config = {
-            "provider": config.llm_provider,
-            "model": config.llm_model,
-            "api_key": config.llm_api_key,
-        }
-        # Add api_base if configured (for Ollama)
-        if config.llm_api_base:
-            llm_config["api_base"] = config.llm_api_base
         notification_config = {
             "high_priority_only": config.high_priority_only,
             "command": config.notification_command,
         }
 
-        summarizer = ContentSummarizer(llm_config)
-        evaluator = ContentEvaluator(llm_config)
+        summarizer = ContentSummarizer(config.llm_service)
+        evaluator = ContentEvaluator(config.llm_service)
         notifier = Notifier(notification_config)
 
         # Create orchestrator with all dependencies
@@ -159,7 +150,9 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             scheduler.add_job(
                 func=run_context_update_sync,
                 args=(config, storage),
-                trigger=IntervalTrigger(days=1),  # Check daily, actual update based on config interval
+                trigger=IntervalTrigger(
+                    days=1
+                ),  # Check daily, actual update based on config interval
                 id="context_auto_update",
                 name="Auto-update context.md from feedback",
                 replace_existing=True,
@@ -296,7 +289,7 @@ def run_context_update_sync(config: Config, storage: Storage) -> None:
     console.print(
         f"\n[blue]📝 Checking context auto-update at {datetime.now().strftime('%H:%M:%S')}[/blue]"
     )
-    
+
     run_context_update(config, storage)
 
 
@@ -313,23 +306,15 @@ def validate_llm_config(config: Config) -> None:
         SystemExit: If LLM configuration is invalid
     """
     console.print("🔌 Validating LLM configuration...")
-    from .llm_validator import validate_llm_config
-
-    test_config = {
-        "provider": config.llm_provider,
-        "model": config.llm_model,
-        "api_key": config.llm_api_key,
-    }
-    if config.llm_api_base:
-        test_config["api_base"] = config.llm_api_base
+    from .llm_validator import validate_llm_config as _validate_llm
 
     try:
         # Validate config and test connection
         console.print("🧪 Testing LLM connection...")
-        validate_llm_config(test_config)
+        _validate_llm(config.llm_service)
 
         console.print(
-            f"[green]✅ LLM connection successful: {config.llm_provider} / {config.llm_model}[/green]"
+            f"[green]✅ LLM service connection successful: {config.llm_service}[/green]"
         )
     except ValueError as e:
         console.print(f"[bold red]❌ LLM configuration error: {e}[/bold red]")
@@ -337,7 +322,7 @@ def validate_llm_config(config: Config) -> None:
     except Exception as e:
         console.print(f"[bold red]❌ LLM connection failed: {e}[/bold red]")
         console.print(
-            "[yellow]💡 Check your model name format and server availability[/yellow]"
+            "[yellow]💡 Check your service configuration in ~/.config/llm-core/services.toml[/yellow]"
         )
         sys.exit(1)
 
@@ -383,22 +368,13 @@ def main(
                 youtube_fetcher = YouTubeFetcher(config=config)
                 file_fetcher = FileFetcher(config=config, storage=storage)
 
-                # Create LLM config dict for summarizer and evaluator
-                llm_config = {
-                    "provider": config.llm_provider,
-                    "model": config.llm_model,
-                    "api_key": config.llm_api_key,
-                }
-                # Add api_base if configured (for Ollama)
-                if config.llm_api_base:
-                    llm_config["api_base"] = config.llm_api_base
                 notification_config = {
                     "high_priority_only": config.high_priority_only,
                     "command": config.notification_command,
                 }
 
-                summarizer = ContentSummarizer(llm_config)
-                evaluator = ContentEvaluator(llm_config)
+                summarizer = ContentSummarizer(config.llm_service)
+                evaluator = ContentEvaluator(config.llm_service)
                 notifier = Notifier(notification_config)
 
                 # Create and run orchestrator with all dependencies
@@ -430,6 +406,171 @@ def main(
 
             # Run the scheduler with already validated config
             asyncio.run(run_scheduler(config, test_mode=test_mode))
+
+
+@app.command()
+def migrate_config() -> None:
+    """Migrate existing Prismis config to use llm-core/apiconf stack."""
+    import re
+    import tomllib
+
+    config_home = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+    prismis_config_path = Path(config_home) / "prismis" / "config.toml"
+
+    # Step 1: Read existing prismis config
+    if not prismis_config_path.exists():
+        console.print(
+            f"[bold red]Config file not found: {prismis_config_path}[/bold red]"
+        )
+        sys.exit(1)
+
+    config_text = prismis_config_path.read_text()
+    with open(prismis_config_path, "rb") as f:
+        config_dict = tomllib.load(f)
+
+    llm = config_dict.get("llm", {})
+
+    # Check if already migrated
+    if "service" in llm and "provider" not in llm:
+        console.print("[green]Config already migrated. Nothing to do.[/green]")
+        return
+
+    # Check if old format
+    if "provider" not in llm:
+        console.print(
+            "[yellow]No [llm] provider field found. Cannot determine migration path.[/yellow]"
+        )
+        sys.exit(1)
+
+    old_provider = llm.get("provider", "openai")
+    old_api_key = llm.get("api_key", "")
+
+    console.print(f"Found old config format: provider={old_provider}")
+
+    # Step 2: Create ~/.config/llm-core/services.toml
+    llm_core_dir = Path(config_home) / "llm-core"
+    llm_core_dir.mkdir(parents=True, exist_ok=True)
+
+    services_path = llm_core_dir / "services.toml"
+    if services_path.exists():
+        console.print(f"[dim]Skipping {services_path} (already exists)[/dim]")
+    else:
+        services_content = """\
+default_service = "prismis-openai"
+
+[services.prismis-openai]
+adapter = "openai"
+key = "openai"
+base_url = "https://api.openai.com/v1"
+default_model = "gpt-4.1-mini"
+"""
+        services_path.write_text(services_content)
+        console.print(f"[green]Created {services_path}[/green]")
+
+    # Step 3: Resolve API key and write to apiconf
+    apiconf_dir = Path(config_home) / "apiconf"
+    apiconf_dir.mkdir(parents=True, exist_ok=True)
+    apiconf_path = apiconf_dir / "config.toml"
+
+    resolved_key = old_api_key
+    key_warning = None
+    if old_api_key.startswith("env:"):
+        env_var = old_api_key[4:]
+        resolved_key = os.environ.get(env_var, "")
+        if not resolved_key:
+            key_warning = f"Environment variable {env_var} not set. You will need to manually set [keys.openai] value in {apiconf_path}"
+            resolved_key = old_api_key  # Write the unexpanded string
+
+    if apiconf_path.exists():
+        # Check if [keys.openai] already exists
+        with open(apiconf_path, "rb") as f:
+            apiconf_dict = tomllib.load(f)
+
+        if "keys" in apiconf_dict and "openai" in apiconf_dict["keys"]:
+            console.print(
+                f"[dim]Skipping {apiconf_path} ([keys.openai] already exists)[/dim]"
+            )
+        else:
+            # Append [keys.openai] section
+            apiconf_text = apiconf_path.read_text()
+            if not apiconf_text.endswith("\n"):
+                apiconf_text += "\n"
+            apiconf_text += f'\n[keys.openai]\nvalue = "{resolved_key}"\n'
+            apiconf_path.write_text(apiconf_text)
+            console.print(f"[green]Added [keys.openai] to {apiconf_path}[/green]")
+    else:
+        apiconf_content = f"""\
+[keys.openai]
+value = "{resolved_key}"
+"""
+        apiconf_path.write_text(apiconf_content)
+        console.print(f"[green]Created {apiconf_path}[/green]")
+
+    if key_warning:
+        console.print(f"[yellow]Warning: {key_warning}[/yellow]")
+
+    # Step 4: Write pricing.toml if not exists
+    pricing_path = llm_core_dir / "pricing.toml"
+    if pricing_path.exists():
+        console.print(f"[dim]Skipping {pricing_path} (already exists)[/dim]")
+    else:
+        pricing_content = """\
+[models."gpt-4.1-mini"]
+input = 0.40
+output = 1.60
+
+[models."gpt-4.1"]
+input = 2.00
+output = 8.00
+
+[models."gpt-4o"]
+input = 2.50
+output = 10.00
+
+[models."gpt-4o-mini"]
+input = 0.15
+output = 0.60
+
+[models."gpt-5-mini"]
+input = 1.25
+output = 5.00
+
+[models."o3-mini"]
+input = 1.10
+output = 4.40
+
+[models."claude-sonnet-4-5"]
+input = 3.00
+output = 15.00
+
+[models."claude-haiku-4-5"]
+input = 0.80
+output = 4.00
+
+[models."claude-opus-4-5"]
+input = 15.00
+output = 75.00
+"""
+        pricing_path.write_text(pricing_content)
+        console.print(f"[green]Created {pricing_path}[/green]")
+
+    # Step 5: Update prismis config.toml [llm] section
+    # Use text-based replacement to preserve user's other sections
+    new_llm_section = '[llm]\nservice = "prismis-openai"'
+
+    # Match the [llm] section up to the next section header or end of file
+    pattern = r"\[llm\].*?(?=\n\[|\Z)"
+    new_config_text = re.sub(pattern, new_llm_section, config_text, flags=re.DOTALL)
+
+    # Write atomically via temp file
+    tmp_path = prismis_config_path.with_suffix(".toml.tmp")
+    tmp_path.write_text(new_config_text)
+    tmp_path.rename(prismis_config_path)
+    console.print(f"[green]Updated {prismis_config_path} [llm] section[/green]")
+
+    console.print(
+        "\n[bold green]Migration complete. Run 'prismis-daemon' to start.[/bold green]"
+    )
 
 
 if __name__ == "__main__":

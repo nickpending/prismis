@@ -3,17 +3,16 @@
 Uses lspeak for all TTS (system and ElevenLabs providers).
 """
 
-import subprocess
-from pathlib import Path
-from typing import Optional
-import shutil
 import logging
+import shutil
+import subprocess
 import time
+from pathlib import Path
 
-from litellm import completion
+from llm_core import complete
 
-from .reports import DailyReport
 from .config import Config
+from .reports import DailyReport
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +30,7 @@ class AudioScriptGenerator:
             config: Configuration instance for LLM access
         """
         self.config = config
+        self.service_name = config.llm_service
 
     def generate_script(self, report: DailyReport) -> str:
         """Transform DailyReport into conversational Jarvis briefing script.
@@ -90,16 +90,13 @@ Generate a conversational 2-5 minute audio briefing (300-750 words) from these H
 Generate the briefing script:"""
 
         try:
-            # Use existing LLM infrastructure
-            response = completion(
-                model=self.config.llm_model,
-                messages=[{"role": "user", "content": prompt}],
-                api_key=self.config.llm_api_key,
-                api_base=self.config.llm_api_base,
+            result = complete(
+                prompt=prompt,
+                service=self.service_name,
                 temperature=0.7,  # Higher creativity for personality
             )
 
-            script = response.choices[0].message.content.strip()
+            script = result.text.strip()
 
             # Clean up any remaining markdown artifacts
             script = script.replace("**", "")
@@ -120,7 +117,7 @@ class LspeakTTSEngine:
     def __init__(
         self,
         provider: str = "elevenlabs",
-        voice: Optional[str] = None,
+        voice: str | None = None,
     ):
         """Initialize lspeak TTS engine.
 
@@ -171,7 +168,7 @@ class LspeakTTSEngine:
         logger.info(f"Generating audio with lspeak (provider: {self.provider})")
 
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603
                 cmd,
                 check=True,
                 timeout=180,  # 3 minute timeout for API calls
@@ -194,8 +191,8 @@ class LspeakTTSEngine:
             logger.info(f"Audio generated: {output_path}")
             if result.stdout:
                 logger.debug(f"lspeak output: {result.stdout}")
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Audio generation timed out (>3 minutes)")
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError("Audio generation timed out (>3 minutes)") from e
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr or e.stdout or str(e)
 
@@ -249,7 +246,7 @@ def get_tts_engine(config: Config) -> LspeakTTSEngine:
 def generate_briefing(
     report: DailyReport,
     config: Config,
-    output_dir: Optional[Path] = None,
+    output_dir: Path | None = None,
 ) -> Path:
     """High-level function to generate complete audio briefing.
 

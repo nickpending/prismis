@@ -80,47 +80,46 @@ install: check-deps build install-binaries install-config ## Install everything 
 	@echo "========================================="
 
 .PHONY: install-binaries
-install-binaries: ## Install binaries to ~/.local/bin
-	@echo "Installing to $(INSTALL_DIR)..."
-	@mkdir -p $(INSTALL_DIR)
-	# Install Go TUI
-	@if [ -f tui/prismis ]; then \
-		cp tui/prismis $(INSTALL_DIR)/prismis; \
-		chmod +x $(INSTALL_DIR)/prismis; \
-		if [[ "$$(uname)" == "Darwin" ]]; then \
-			codesign --remove-signature $(INSTALL_DIR)/prismis 2>/dev/null; \
-			codesign -s - $(INSTALL_DIR)/prismis; \
-			echo "✓ Installed and signed prismis TUI"; \
-		else \
-			echo "✓ Installed prismis TUI"; \
-		fi; \
-	else \
-		echo "✗ TUI not built. Run 'make build-tui' first"; \
-		exit 1; \
-	fi
-	# Install Python daemon via uv tool (use --reinstall for proper Python version)
-	cd daemon && uv tool install . --python 3.13 --reinstall
-	@echo "✓ Installed prismis-daemon"
-	# Install Python CLI via uv tool
-	cd cli && uv tool install . --python 3.13 --reinstall
-	@echo "✓ Installed prismis-cli"
-	# Check PATH
+install-binaries: install-tui install-daemon install-cli ## Install all binaries
 	@if [[ ":$$PATH:" != *":$(INSTALL_DIR):"* ]]; then \
 		echo ""; \
 		echo "⚠️  $(INSTALL_DIR) is not in your PATH"; \
 		echo "Add to your shell profile: export PATH=\"\$$HOME/.local/bin:\$$PATH\""; \
 	fi
 
-.PHONY: install-cli-client
-install-cli-client: ## Install CLI only (for remote machines, no daemon deps)
-	@echo "Installing prismis-cli (client-only mode)..."
+.PHONY: install-daemon
+install-daemon: ## Install daemon only (no Go/TUI required)
+	@echo "Installing prismis-daemon..."
 	@if ! command -v uv >/dev/null 2>&1; then \
-		echo "⚠️  uv is not installed. Installing uv..."; \
-		curl -LsSf https://astral.sh/uv/install.sh | sh; \
-		export PATH="$$HOME/.cargo/bin:$$PATH"; \
+		echo "❌ uv is not installed. Install it first: https://docs.astral.sh/uv/"; \
+		exit 1; \
+	fi
+	@if ! uv python list 2>/dev/null | grep -q "cpython-3\.13"; then \
+		echo "⚠️  Python 3.13 not found. Installing..."; \
+		uv python install 3.13; \
+		echo "✓ Python 3.13 installed"; \
+	else \
+		echo "✓ Python 3.13 is available"; \
+	fi
+	cd daemon && uv tool install . --python 3.13 --reinstall
+	@echo "✓ Installed prismis-daemon"
+
+.PHONY: install-cli
+install-cli: ## Install CLI only (no Go/TUI required)
+	@echo "Installing prismis-cli..."
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "❌ uv is not installed. Install it first: https://docs.astral.sh/uv/"; \
+		exit 1; \
+	fi
+	@if ! uv python list 2>/dev/null | grep -q "cpython-3\.13"; then \
+		echo "⚠️  Python 3.13 not found. Installing..."; \
+		uv python install 3.13; \
+		echo "✓ Python 3.13 installed"; \
+	else \
+		echo "✓ Python 3.13 is available"; \
 	fi
 	cd cli && uv tool install . --python 3.13 --reinstall
-	@echo "✓ Installed prismis-cli (client mode)"
+	@echo "✓ Installed prismis-cli"
 	@echo ""
 	@echo "Usage: prismis-cli --remote http://server:8989 <command>"
 	@echo "Or configure [remote] section in ~/.config/prismis/config.toml"

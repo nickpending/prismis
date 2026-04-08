@@ -404,8 +404,8 @@ wheels = [
 
 [[package]]
 name = "llm-core"
-version = "0.2.0"
-source = { git = "https://github.com/nickpending/llm-core?subdirectory=python#4028266e12fd4e340185d761ddb8845c8e38196f" }
+version = "0.3.0"
+source = { git = "https://github.com/nickpending/llm-core?subdirectory=python#8d7df0696a76ba14c2ce27c34bfe114279320eec" }
 dependencies = [
     { name = "apiconf" },
     { name = "httpx" },

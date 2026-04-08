@@ -293,7 +293,7 @@ def run_context_update_sync(config: Config, storage: Storage) -> None:
     run_context_update(config, storage)
 
 
-app = typer.Typer()
+app = typer.Typer(invoke_without_command=True)
 
 
 def validate_llm_config(config: Config) -> None:
@@ -327,14 +327,14 @@ def validate_llm_config(config: Config) -> None:
         sys.exit(1)
 
 
-@app.command()
+@app.callback()
 def main(
     once: bool = typer.Option(False, "--once", help="Run once and exit"),
     test_mode: bool = typer.Option(
         False, "--test", help="Test mode with 5 second intervals"
     ),
 ) -> None:
-    """Main entry point for Prismis daemon."""
+    """Prismis content daemon."""
     # Acquire daemon lock first - fail fast if another instance running
     with acquire_daemon_lock():
         # Common setup for both modes

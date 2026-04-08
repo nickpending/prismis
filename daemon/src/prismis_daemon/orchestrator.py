@@ -6,24 +6,13 @@ from typing import Any
 
 from rich.console import Console
 
-try:
-    # When run as module
-    from .config import Config
-    from .embeddings import Embedder
-    from .evaluator import ContentEvaluator
-    from .notifier import Notifier
-    from .observability import log as obs_log
-    from .storage import Storage
-    from .summarizer import ContentSummarizer
-except ImportError:
-    # When imported directly in tests
-    from config import Config
-    from embeddings import Embedder
-    from evaluator import ContentEvaluator
-    from notifier import Notifier
-    from observability import log as obs_log
-    from storage import Storage
-    from summarizer import ContentSummarizer
+from .config import Config
+from .embeddings import Embedder
+from .evaluator import ContentEvaluator
+from .notifier import Notifier
+from .observability import log as obs_log
+from .storage import Storage
+from .summarizer import ContentSummarizer
 
 console = Console()
 logger = logging.getLogger(__name__)

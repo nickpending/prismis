@@ -9,21 +9,9 @@ from operator import itemgetter
 from pathlib import Path
 from typing import Any
 
-try:
-    from .database import get_db_connection
-    from .models import ContentItem
-    from .observability import log as obs_log
-except ImportError:
-    # Handle case where we're imported from outside the package
-    from database import get_db_connection
-    from models import ContentItem
-
-    try:
-        from observability import log as obs_log
-    except ImportError:
-        # Graceful degradation if observability not available
-        def obs_log(*args, **kwargs) -> None:
-            pass
+from .database import get_db_connection
+from .models import ContentItem
+from .observability import log as obs_log
 
 
 class Storage:

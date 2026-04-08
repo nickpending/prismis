@@ -9,16 +9,10 @@ from typing import Any
 
 import httpx
 
-try:
-    from ..config import Config
-    from ..models import ContentItem
-    from ..observability import log as obs_log
-    from ..storage import Storage
-except ImportError:
-    from config import Config
-    from models import ContentItem
-    from storage import Storage
-    # obs_log will be missing in standalone mode - that's OK
+from ..config import Config
+from ..models import ContentItem
+from ..observability import log as obs_log
+from ..storage import Storage
 
 logger = logging.getLogger(__name__)
 

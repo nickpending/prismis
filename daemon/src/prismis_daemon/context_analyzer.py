@@ -7,10 +7,7 @@ from typing import Any
 
 from llm_core import complete
 
-try:
-    from .observability import log as obs_log
-except ImportError:
-    from observability import log as obs_log
+from .observability import log as obs_log
 
 logger = logging.getLogger(__name__)
 

@@ -10,14 +10,9 @@ from typing import Any
 
 from llm_core import complete
 
-try:
-    from .config import Config
-    from .observability import log as obs_log
-    from .storage import Storage
-except ImportError:
-    from config import Config
-    from observability import log as obs_log
-    from storage import Storage
+from .config import Config
+from .observability import log as obs_log
+from .storage import Storage
 
 logger = logging.getLogger(__name__)
 

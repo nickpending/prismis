@@ -5,10 +5,7 @@ import time
 from datetime import datetime
 from enum import Enum
 
-try:
-    from .observability import log as obs_log
-except ImportError:
-    from observability import log as obs_log
+from .observability import log as obs_log
 
 logger = logging.getLogger(__name__)
 

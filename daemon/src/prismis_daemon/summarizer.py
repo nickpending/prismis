@@ -7,12 +7,8 @@ from typing import Any
 
 from llm_core import complete
 
-try:
-    from .circuit_breaker import get_circuit_breaker
-    from .observability import log as obs_log
-except ImportError:
-    from circuit_breaker import get_circuit_breaker
-    from observability import log as obs_log
+from .circuit_breaker import get_circuit_breaker
+from .observability import log as obs_log
 
 logger = logging.getLogger(__name__)
 

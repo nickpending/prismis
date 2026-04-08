@@ -404,8 +404,8 @@ wheels = [
 
 [[package]]
 name = "llm-core"
-version = "0.1.0"
-source = { git = "https://github.com/nickpending/llm-core?subdirectory=python#6c39b7e3adbb48b20b9d17b30a6036928d116f1f" }
+version = "0.2.0"
+source = { git = "https://github.com/nickpending/llm-core?subdirectory=python#4028266e12fd4e340185d761ddb8845c8e38196f" }
 dependencies = [
     { name = "apiconf" },
     { name = "httpx" },
@@ -810,7 +810,7 @@ wheels = [
 
 [[package]]
 name = "prismis-daemon"
-version = "0.1.3"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },

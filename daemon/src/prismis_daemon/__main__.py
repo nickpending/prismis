@@ -526,45 +526,18 @@ value = "{resolved_key}"
     if pricing_path.exists():
         console.print(f"[dim]Skipping {pricing_path} (already exists)[/dim]")
     else:
-        pricing_content = """\
-[models."gpt-4.1-mini"]
-input = 0.40
-output = 1.60
+        try:
+            from llm_core import update_pricing
 
-[models."gpt-4.1"]
-input = 2.00
-output = 8.00
-
-[models."gpt-4o"]
-input = 2.50
-output = 10.00
-
-[models."gpt-4o-mini"]
-input = 0.15
-output = 0.60
-
-[models."gpt-5-mini"]
-input = 1.25
-output = 5.00
-
-[models."o3-mini"]
-input = 1.10
-output = 4.40
-
-[models."claude-sonnet-4-5"]
-input = 3.00
-output = 15.00
-
-[models."claude-haiku-4-5"]
-input = 0.80
-output = 4.00
-
-[models."claude-opus-4-5"]
-input = 15.00
-output = 75.00
-"""
-        pricing_path.write_text(pricing_content)
-        console.print(f"[green]Created {pricing_path}[/green]")
+            count = update_pricing()
+            console.print(f"[green]Created {pricing_path} ({count} models)[/green]")
+        except Exception as e:
+            console.print(
+                f"[yellow]Warning: Could not fetch pricing data: {e}[/yellow]"
+            )
+            console.print(
+                "[yellow]Run 'python -c \"from llm_core import update_pricing; update_pricing()\"' later to populate pricing.[/yellow]"
+            )
 
     # Step 5: Update prismis config.toml [llm] section
     # Use text-based replacement to preserve user's other sections

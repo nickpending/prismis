@@ -42,4 +42,4 @@ dev = [
 "tests/**/*.py" = ["S101"]  # Allow assert statements in tests
 
 [tool.uv.sources]
-llm-core = { path = "/Users/rudy/development/projects/llm-core/python", editable = true }
+llm-core = { git = "https://github.com/nickpending/llm-core", subdirectory = "python" }

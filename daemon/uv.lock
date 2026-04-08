@@ -27,15 +27,7 @@ wheels = [
 [[package]]
 name = "apiconf"
 version = "0.2.0"
-source = { editable = "../../apiconf/python" }
-
-[package.metadata]
-requires-dist = [
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
-]
-provides-extras = ["dev"]
+source = { git = "https://github.com/nickpending/apiconf?subdirectory=python#6fd244a5041ac714cb21c48e41cf46b8b4fbba76" }
 
 [[package]]
 name = "apscheduler"
@@ -413,21 +405,11 @@ wheels = [
 [[package]]
 name = "llm-core"
 version = "0.1.0"
-source = { editable = "../../llm-core/python" }
+source = { git = "https://github.com/nickpending/llm-core?subdirectory=python#6c39b7e3adbb48b20b9d17b30a6036928d116f1f" }
 dependencies = [
     { name = "apiconf" },
     { name = "httpx" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "apiconf", editable = "../../apiconf/python" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "lxml"
@@ -861,7 +843,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.116.1" },
     { name = "feedparser" },
     { name = "httpx" },
-    { name = "llm-core", editable = "../../llm-core/python" },
+    { name = "llm-core", git = "https://github.com/nickpending/llm-core?subdirectory=python" },
     { name = "praw", specifier = ">=7.8.1" },
     { name = "pydantic" },
     { name = "python-dotenv" },

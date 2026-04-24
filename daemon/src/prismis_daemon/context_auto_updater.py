@@ -35,7 +35,7 @@ class ContextAutoUpdater:
         self.backup_dir = self.context_path.parent / "context_backups"
 
         # LLM settings from config
-        self.service_name = config.llm_service
+        self.service_name = config.llm_light_service
         self.temperature = 0.3
 
         logger.info(f"ContextAutoUpdater initialized with service: {self.service_name}")

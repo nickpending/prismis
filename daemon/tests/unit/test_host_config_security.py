@@ -7,7 +7,7 @@ import pytest
 
 from prismis_daemon.config import Config
 
-# Minimal valid new-format TOML (service= instead of provider=/model=/api_key=).
+# Minimal valid dual-service TOML (light_service= — task 1.1 format).
 # All mandatory sections present; missing any key raises ValueError.
 _BASE_TOML = """\
 [daemon]
@@ -19,7 +19,7 @@ max_items_file = 1
 max_days_lookback = 30
 
 [llm]
-service = "prismis-openai"
+light_service = "prismis-openai"
 
 [reddit]
 client_id = "test-id"

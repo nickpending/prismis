@@ -286,7 +286,7 @@ def test_INVARIANT_empty_flagged_returns_empty_suggestions(
     context_text = full_config.context
 
     # Create analyzer with llm-core service name (new API)
-    analyzer = ContextAnalyzer(full_config.llm_service)
+    analyzer = ContextAnalyzer(full_config.llm_light_service)
 
     # Mock _call_llm to verify it's never called
     with patch.object(
@@ -425,7 +425,7 @@ def test_FAILURE_malformed_context_md_graceful(
     GRACEFUL: Must not crash, should proceed with empty existing_topics
     """
     # Create analyzer with llm-core service name (new API)
-    analyzer = ContextAnalyzer(full_config.llm_service)
+    analyzer = ContextAnalyzer(full_config.llm_light_service)
 
     # Test various malformed context.md contents
     malformed_contexts = [

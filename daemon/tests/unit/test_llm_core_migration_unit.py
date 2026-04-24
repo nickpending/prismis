@@ -275,10 +275,11 @@ def test_SC15_migrate_config_creates_services_and_updates_config() -> None:
         assert pricing_path.exists(), "pricing.toml was not created"
         assert "gpt-4.1-mini" in pricing_path.read_text()
 
-        # Verify config.toml [llm] section was updated to service= format
+        # Verify config.toml [llm] section was updated to light_service= format (Fix 3:
+        # pre-llm-core path now converges to dual-service shape in a single run)
         updated_config = config_toml.read_text()
-        assert 'service = "prismis-openai"' in updated_config, (
-            "Config [llm] section was not updated to service= format"
+        assert 'light_service = "prismis-openai"' in updated_config, (
+            "Config [llm] section was not updated to light_service= format"
         )
         assert "provider" not in updated_config, (
             "Old 'provider' key still in config after migration"
@@ -315,22 +316,26 @@ def test_SC15_migrate_config_is_idempotent() -> None:
 
             migrate_config()
 
-        # Pre-existing services.toml must NOT be overwritten
-        assert services_path.read_text() == custom_services, (
-            "Existing services.toml was overwritten (idempotency violated)"
+        # Pre-existing services.toml content must be preserved (not overwritten).
+        # Fix 3 appends [services.prismis-openai-deep] if absent — this is correct
+        # behaviour, not an idempotency violation. Verify original content intact.
+        result_services = services_path.read_text()
+        assert custom_services.strip() in result_services, (
+            "Existing services.toml content was overwritten (idempotency violated)"
         )
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-# --- SC-16: __main__.py passes config.llm_service to consumers ---
+# --- SC-16: __main__.py passes config.llm_light_service to consumers ---
 
 
-def test_SC16_main_passes_llm_service_to_constructors() -> None:
+def test_SC16_main_passes_llm_light_service_to_constructors() -> None:
     """
-    SC-16: __main__.py must pass config.llm_service to ContentSummarizer and ContentEvaluator
-    BREAKS: Consumers initialized with wrong service name, silently use wrong LLM
+    SC-16: __main__.py must pass config.llm_light_service to ContentSummarizer and
+    ContentEvaluator (renamed from llm_service in task 1.1).
+    BREAKS: Consumers initialized with wrong service name, silently use wrong LLM.
     """
     main_path = (
         Path(__file__).parent.parent.parent / "src" / "prismis_daemon" / "__main__.py"
@@ -339,10 +344,10 @@ def test_SC16_main_passes_llm_service_to_constructors() -> None:
 
     source = main_path.read_text()
 
-    assert "ContentSummarizer(config.llm_service)" in source, (
-        "ContentSummarizer not constructed with config.llm_service"
+    assert "ContentSummarizer(config.llm_light_service)" in source, (
+        "ContentSummarizer not constructed with config.llm_light_service"
     )
 
-    assert "ContentEvaluator(config.llm_service)" in source, (
-        "ContentEvaluator not constructed with config.llm_service"
+    assert "ContentEvaluator(config.llm_light_service)" in source, (
+        "ContentEvaluator not constructed with config.llm_light_service"
     )

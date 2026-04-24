@@ -15,8 +15,12 @@ max_items_file = 1  # maximum items to fetch from file sources (1 = one entry pe
 max_days_lookback = 30  # ignore content older than this
 
 [llm]
-# Service name from ~/.config/llm-core/services.toml
-service = "prismis-openai"
+# Service name for light summarization (from ~/.config/llm-core/services.toml)
+light_service = "prismis-openai"
+# Optional: Deep extraction service for HIGH priority content. Leave unset to disable.
+# deep_service = "prismis-openai-deep"
+# Auto-extract threshold: "none" | "high" | "all"
+auto_extract = "none"
 
 [reddit]
 client_id = "env:REDDIT_CLIENT_ID"  # Reddit API client ID

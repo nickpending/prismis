@@ -1325,7 +1325,7 @@ async def analyze_context(
         context_text = config.context
 
         # Initialize context analyzer with llm-core service name
-        analyzer = ContextAnalyzer(config.llm_service)
+        analyzer = ContextAnalyzer(config.llm_light_service)
 
         # Analyze and get suggestions
         result = analyzer.analyze_flagged_items(flagged_items, context_text)

@@ -64,8 +64,8 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             "command": config.notification_command,
         }
 
-        summarizer = ContentSummarizer(config.llm_service)
-        evaluator = ContentEvaluator(config.llm_service)
+        summarizer = ContentSummarizer(config.llm_light_service)
+        evaluator = ContentEvaluator(config.llm_light_service)
         notifier = Notifier(notification_config)
 
         # Create orchestrator with all dependencies
@@ -306,16 +306,26 @@ def validate_llm_config(config: Config) -> None:
         SystemExit: If LLM configuration is invalid
     """
     console.print("🔌 Validating LLM configuration...")
-    from .llm_validator import validate_llm_config as _validate_llm
+    from .llm_validator import validate_llm_services as _validate_llm_services
 
     try:
-        # Validate config and test connection
-        console.print("🧪 Testing LLM connection...")
-        _validate_llm(config.llm_service)
-
-        console.print(
-            f"[green]✅ LLM service connection successful: {config.llm_service}[/green]"
+        console.print("🧪 Testing LLM service connections...")
+        result = _validate_llm_services(
+            config.llm_light_service, config.llm_deep_service
         )
+        console.print(
+            f"[green]✅ Light service: {config.llm_light_service} ({result['light']})[/green]"
+        )
+        if result["deep"] == "ok":
+            console.print(
+                f"[green]✅ Deep service: {config.llm_deep_service} ({result['deep']})[/green]"
+            )
+        elif result["deep"] == "unreachable":
+            console.print(
+                f"[yellow]⚠️  Deep service: {config.llm_deep_service} unreachable — deep extraction disabled[/yellow]"
+            )
+        else:
+            console.print("[dim]Deep service: not configured[/dim]")
     except ValueError as e:
         console.print(f"[bold red]❌ LLM configuration error: {e}[/bold red]")
         sys.exit(1)
@@ -329,12 +339,19 @@ def validate_llm_config(config: Config) -> None:
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     once: bool = typer.Option(False, "--once", help="Run once and exit"),
     test_mode: bool = typer.Option(
         False, "--test", help="Test mode with 5 second intervals"
     ),
 ) -> None:
     """Prismis content daemon."""
+    # Admin subcommands (e.g., migrate-config) must run on stale configs.
+    # Skip the daemon lock + config validation when a subcommand is dispatched;
+    # typer will invoke the subcommand next.
+    if ctx.invoked_subcommand is not None:
+        return
+
     # Acquire daemon lock first - fail fast if another instance running
     with acquire_daemon_lock():
         # Common setup for both modes
@@ -373,8 +390,8 @@ def main(
                     "command": config.notification_command,
                 }
 
-                summarizer = ContentSummarizer(config.llm_service)
-                evaluator = ContentEvaluator(config.llm_service)
+                summarizer = ContentSummarizer(config.llm_light_service)
+                evaluator = ContentEvaluator(config.llm_light_service)
                 notifier = Notifier(notification_config)
 
                 # Create and run orchestrator with all dependencies
@@ -430,12 +447,76 @@ def migrate_config() -> None:
 
     llm = config_dict.get("llm", {})
 
-    # Check if already migrated
-    if "service" in llm and "provider" not in llm:
-        console.print("[green]Config already migrated. Nothing to do.[/green]")
+    # Already fully migrated to dual-service format
+    if "light_service" in llm:
+        console.print(
+            "[green]Config already migrated to dual-service format. Nothing to do.[/green]"
+        )
         return
 
-    # Check if old format
+    # Post-llm-core install: has 'service' but not yet renamed to 'light_service'
+    if "service" in llm and "provider" not in llm:
+        # Rename `service` → `light_service` within [llm] block only.
+        # Extract [llm] section, substitute inside it, reassemble — mirrors the
+        # existing [llm]-section rewrite pattern further below.
+        llm_section_pattern = r"(\[llm\].*?)(?=\n\[|\Z)"
+        match = re.search(llm_section_pattern, config_text, flags=re.DOTALL)
+        if not match:
+            console.print(
+                "[bold red]Could not locate [llm] section in config.toml[/bold red]"
+            )
+            sys.exit(1)
+        llm_block = match.group(1)
+        new_llm_block = re.sub(
+            r"(?m)^service(\s*=)",
+            r"light_service\1",
+            llm_block,
+        )
+        new_config_text = (
+            config_text[: match.start(1)] + new_llm_block + config_text[match.end(1) :]
+        )
+
+        # Append [services.prismis-openai-deep] to services.toml (idempotent)
+        services_path = Path(config_home) / "llm-core" / "services.toml"
+        if services_path.exists():
+            services_text = services_path.read_text()
+            if "[services.prismis-openai-deep]" in services_text:
+                console.print(
+                    "[dim]Skipping prismis-openai-deep entry (already exists)[/dim]"
+                )
+            else:
+                if not services_text.endswith("\n"):
+                    services_text += "\n"
+                services_text += (
+                    "\n[services.prismis-openai-deep]\n"
+                    'adapter = "openai"\n'
+                    'key = "sable-openai"\n'
+                    'base_url = "https://api.openai.com/v1"\n'
+                    'default_model = "gpt-5-mini"\n'
+                )
+                services_path.write_text(services_text)
+                console.print(
+                    f"[green]Added [services.prismis-openai-deep] to {services_path}[/green]"
+                )
+        else:
+            console.print(
+                f"[yellow]services.toml not found at {services_path}. "
+                f"Run migrate-config from a fresh install first.[/yellow]"
+            )
+
+        # Atomic write for config.toml rename
+        tmp_path = prismis_config_path.with_suffix(".toml.tmp")
+        tmp_path.write_text(new_config_text)
+        tmp_path.rename(prismis_config_path)
+        console.print(
+            f"[green]Updated {prismis_config_path}: service → light_service[/green]"
+        )
+        console.print(
+            "\n[bold green]Migration complete. Run 'prismis-daemon' to start.[/bold green]"
+        )
+        return
+
+    # Pre-llm-core install: has 'provider' field (existing path below)
     if "provider" not in llm:
         console.print(
             "[yellow]No [llm] provider field found. Cannot determine migration path.[/yellow]"
@@ -539,9 +620,32 @@ value = "{resolved_key}"
                 "[yellow]Run 'python -c \"from llm_core import update_pricing; update_pricing()\"' later to populate pricing.[/yellow]"
             )
 
+    # Step 4b: Append [services.prismis-openai-deep] to services.toml (idempotent).
+    # Mirrors the post-llm-core branch's check-before-append pattern (lines ~479-505)
+    # so a single run of migrate-config on a pre-llm-core config converges to the
+    # full dual-service shape — no intermediate unloadable state between runs.
+    services_text = services_path.read_text()
+    if "[services.prismis-openai-deep]" in services_text:
+        console.print("[dim]Skipping prismis-openai-deep entry (already exists)[/dim]")
+    else:
+        if not services_text.endswith("\n"):
+            services_text += "\n"
+        services_text += (
+            "\n[services.prismis-openai-deep]\n"
+            'adapter = "openai"\n'
+            'key = "sable-openai"\n'
+            'base_url = "https://api.openai.com/v1"\n'
+            'default_model = "gpt-5-mini"\n'
+        )
+        services_path.write_text(services_text)
+        console.print(
+            f"[green]Added [services.prismis-openai-deep] to {services_path}[/green]"
+        )
+
     # Step 5: Update prismis config.toml [llm] section
-    # Use text-based replacement to preserve user's other sections
-    new_llm_section = f'[llm]\nservice = "{service_name}"'
+    # Converge to the dual-service shape in a single run: write light_service,
+    # not service, so Config.from_file() can load the result immediately.
+    new_llm_section = f'[llm]\nlight_service = "{service_name}"'
 
     # Match the [llm] section up to the next section header or end of file
     pattern = r"\[llm\].*?(?=\n\[|\Z)"

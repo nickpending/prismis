@@ -1,9 +1,65 @@
 """Integration tests for YouTubeFetcher with real YouTube API and yt-dlp."""
 
+import tempfile
+from pathlib import Path
+
 import pytest
+
+from prismis_daemon.config import Config
 from prismis_daemon.fetchers.youtube import YouTubeFetcher
 from prismis_daemon.models import ContentItem
-from prismis_daemon.config import Config
+
+# Minimal valid config TOML — light_service= format (task 1.1).
+# YouTubeFetcher only needs max_items and max_days_lookback; no real credentials required.
+_MINIMAL_TOML = """\
+[daemon]
+fetch_interval = 30
+max_items_rss = 25
+max_items_reddit = 50
+max_items_youtube = 10
+max_items_file = 1
+max_days_lookback = 30
+
+[llm]
+light_service = "prismis-openai"
+
+[reddit]
+client_id = "env:REDDIT_CLIENT_ID"
+client_secret = "env:REDDIT_CLIENT_SECRET"
+user_agent = "test-agent"
+max_comments = 5
+
+[notifications]
+high_priority_only = true
+command = "echo"
+
+[api]
+key = "test-api-key"
+
+[archival]
+enabled = false
+[archival.windows]
+high_read = 999
+medium_unread = 30
+medium_read = 14
+low_unread = 14
+low_read = 7
+
+[context]
+auto_update_enabled = false
+auto_update_interval_days = 30
+auto_update_min_votes = 5
+backup_count = 10
+"""
+
+
+def _make_config() -> Config:
+    """Load a minimal isolated Config from a temp TOML file."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_path = Path(tmpdir) / "config.toml"
+        config_path.write_text(_MINIMAL_TOML)
+        (Path(tmpdir) / "context.md").write_text("# context")
+        return Config.from_file(config_path)
 
 
 def test_fetch_youtube_with_real_api() -> None:
@@ -15,13 +71,7 @@ def test_fetch_youtube_with_real_api() -> None:
     - Extracts real transcripts from videos
     - Returns proper ContentItem objects with all fields
     """
-    # Load config - will use defaults if config file doesn't exist
-    try:
-        config = Config.from_file()
-    except Exception:
-        # Use defaults if config file missing
-        config = Config()
-
+    config = _make_config()
     fetcher = YouTubeFetcher(max_items=1, config=config)
 
     # Use a stable YouTube channel for testing - @LexClips posts frequently
@@ -185,7 +235,7 @@ def test_channel_url_normalization_integration() -> None:
             results.append((url, f"Error: {e}"))
 
     # Both formats should work (though may return different counts based on timing)
-    for url, result in results:
+    for _url, result in results:
         if isinstance(result, int):
             assert result >= 0  # Should not fail
         else:

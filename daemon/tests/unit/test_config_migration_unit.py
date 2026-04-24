@@ -1,4 +1,4 @@
-"""Unit tests for config.py migration detection and new llm_service field — Task 3.1."""
+"""Unit tests for config.py migration detection and llm_light_service field — Task 1.1."""
 
 import tempfile
 from pathlib import Path
@@ -7,7 +7,7 @@ import pytest
 
 from prismis_daemon.config import Config
 
-# Minimal valid config using the new [llm] service= format.
+# Minimal valid config using the new [llm] light_service= dual-service format.
 # All required sections must be present; missing any mandatory key raises ValueError.
 _NEW_FORMAT_TOML = """\
 [daemon]
@@ -19,7 +19,7 @@ max_items_file = 1
 max_days_lookback = 30
 
 [llm]
-service = "prismis-openai"
+light_service = "prismis-openai"
 
 [reddit]
 client_id = "test-id"
@@ -60,16 +60,16 @@ def _write_config(tmpdir: str, content: str, write_context: bool = True) -> Path
     return config_path
 
 
-def test_new_config_format_loads_llm_service_field() -> None:
+def test_new_config_format_loads_llm_light_service_field() -> None:
     """
-    INVARIANT: New config format sets llm_service correctly.
+    INVARIANT: New config format sets llm_light_service correctly.
     BREAKS: Daemon silently uses wrong service name for all LLM calls.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         config_path = _write_config(tmpdir, _NEW_FORMAT_TOML)
         config = Config.from_file(config_path)
 
-        assert config.llm_service == "prismis-openai"
+        assert config.llm_light_service == "prismis-openai"
 
 
 def test_new_config_format_has_no_old_llm_fields() -> None:
@@ -145,16 +145,17 @@ backup_count = 10
             Config.from_file(config_path)
 
 
-def test_missing_llm_service_key_raises_value_error() -> None:
+def test_missing_llm_light_service_key_raises_value_error() -> None:
     """
-    INVARIANT: Empty [llm] section (no service key) must fail with actionable error.
-    BREAKS: Config loads with llm_service=None, causing silent NoneType errors at runtime.
+    INVARIANT: Empty [llm] section (no light_service key) must fail with actionable error.
+    BREAKS: Config loads with llm_light_service=None, causing silent NoneType errors at runtime.
     """
     empty_llm_toml = _NEW_FORMAT_TOML.replace(
-        'service = "prismis-openai"', "# service field intentionally omitted"
+        'light_service = "prismis-openai"',
+        "# light_service field intentionally omitted",
     )
     with tempfile.TemporaryDirectory() as tmpdir:
         config_path = _write_config(tmpdir, empty_llm_toml)
 
-        with pytest.raises(ValueError, match="service"):
+        with pytest.raises(ValueError, match="migrate-config"):
             Config.from_file(config_path)

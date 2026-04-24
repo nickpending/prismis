@@ -65,7 +65,8 @@ class ContentUpdateRequest(BaseModel):
         None, description="Flag for context analysis"
     )
     user_feedback: Literal["up", "down"] | None = Field(
-        None, description="User feedback: 'up' for useful, 'down' for not useful, null to clear"
+        None,
+        description="User feedback: 'up' for useful, 'down' for not useful, null to clear",
     )
 
 

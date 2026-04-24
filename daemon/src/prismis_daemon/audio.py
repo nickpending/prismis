@@ -30,7 +30,7 @@ class AudioScriptGenerator:
             config: Configuration instance for LLM access
         """
         self.config = config
-        self.service_name = config.llm_service
+        self.service_name = config.llm_light_service
 
     def generate_script(self, report: DailyReport) -> str:
         """Transform DailyReport into conversational Jarvis briefing script.

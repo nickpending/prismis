@@ -1,6 +1,5 @@
 """Configuration loading from TOML and context.md files."""
 
-import logging
 import os
 import tomllib
 from dataclasses import dataclass
@@ -26,7 +25,7 @@ class Config:
     max_days_lookback: int
 
     # LLM settings
-    llm_service: str  # Service name from ~/.config/llm-core/services.toml
+    llm_light_service: str  # Service name from ~/.config/llm-core/services.toml
 
     # Reddit settings
     reddit_client_id: str
@@ -63,6 +62,10 @@ class Config:
     # Audio settings (uses lspeak for all TTS)
     audio_provider: str = "system"  # system (free, native TTS) or elevenlabs
     audio_voice: str | None = None  # Voice ID/name (provider-specific)
+
+    # Dual-service LLM extension (deep extraction)
+    llm_deep_service: str | None = None  # Optional deep service; None = disabled
+    auto_extract: str = "none"  # "none" | "high" | "all"
 
     def get_max_items(self, source_type: str) -> int:
         """Get max items limit for a specific source type.
@@ -218,16 +221,10 @@ class Config:
                 return os.environ.get(env_var, value)
             return value
 
-        # Detect old config format
-        if "provider" in llm and "service" not in llm:
+        # Detect outdated config format (anything without light_service)
+        if "light_service" not in llm:
             raise ValueError(
-                "Config format outdated: [llm] section uses 'provider'/'model'/'api_key' fields. "
-                "Run 'prismis-daemon migrate-config' to upgrade your config.toml to the new format."
-            )
-        if "provider" in llm and "service" in llm:
-            logging.getLogger(__name__).warning(
-                "Config [llm] section has both 'provider' and 'service' — "
-                "old 'provider' key is ignored. Remove it to silence this warning."
+                "Config [llm] section outdated — run 'prismis-daemon migrate-config' to upgrade."
             )
 
         # Handle environment variable expansion
@@ -247,7 +244,9 @@ class Config:
                 max_items_youtube=daemon["max_items_youtube"],
                 max_items_file=daemon["max_items_file"],
                 max_days_lookback=daemon["max_days_lookback"],
-                llm_service=llm["service"],
+                llm_light_service=llm["light_service"],
+                llm_deep_service=llm.get("deep_service"),
+                auto_extract=llm.get("auto_extract", "none"),
                 reddit_client_id=reddit_client_id,
                 reddit_client_secret=reddit_client_secret,
                 reddit_user_agent=reddit["user_agent"],

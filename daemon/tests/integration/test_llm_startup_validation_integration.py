@@ -1,4 +1,4 @@
-"""Integration tests for LLM startup validation with real services."""
+"""Integration tests for LLM startup validation — updated for dual-service (Task 1.1)."""
 
 import os
 import sys
@@ -19,7 +19,7 @@ _HEALTH_CHECK_MOCK = (
     "prismis_daemon.llm_validator.llm_core.health_check"  # claudex-guard: allow-mock
 )
 
-# Valid new-format config TOML template for tests
+# Valid dual-service config TOML — uses light_service= (task 1.1 format)
 VALID_CONFIG_TOML = """\
 [daemon]
 fetch_interval = 30
@@ -30,7 +30,7 @@ max_items_file = 5
 max_days_lookback = 30
 
 [llm]
-service = "prismis-openai"
+light_service = "prismis-openai"
 
 [reddit]
 client_id = "env:REDDIT_CLIENT_ID"
@@ -97,8 +97,8 @@ def _has_prismis_openai_service() -> bool:
 
 def test_INVARIANT_health_check_accuracy_with_real_api() -> None:
     """
-    INVARIANT: Health check success MUST correlate with analysis capability
-    BREAKS: Health check passes but analysis fails, breaking user trust
+    INVARIANT: Health check success MUST correlate with analysis capability.
+    BREAKS: Health check passes but analysis fails, breaking user trust.
     """
     # Skip if no real API key available
     api_key = os.environ.get("OPENAI_API_KEY", "")
@@ -126,15 +126,13 @@ def test_INVARIANT_health_check_accuracy_with_real_api() -> None:
 
 def test_FAILURE_network_timeout_handling() -> None:
     """
-    FAILURE: Network timeout during health check
-    GRACEFUL: System must fail with timeout guidance, not hang
+    FAILURE: Network timeout during health check.
+    GRACEFUL: System must fail with timeout guidance, not hang.
     """
     temp_dir, config_path = _create_config_dir()
 
     try:
         config = Config.from_file(config_path)
-
-        # Mock timeout scenario
 
         with patch(_HEALTH_CHECK_MOCK) as mock_health:
             mock_health.side_effect = TimeoutError("Connection timeout")
@@ -151,15 +149,14 @@ def test_FAILURE_network_timeout_handling() -> None:
 
 def test_FAILURE_provider_auth_failure_guidance() -> None:
     """
-    FAILURE: Provider-specific authentication failure
-    GRACEFUL: System must show provider-specific error guidance
+    FAILURE: Provider-specific authentication failure.
+    GRACEFUL: System must show provider-specific error guidance.
     """
     temp_dir, config_path = _create_config_dir()
 
     try:
         config = Config.from_file(config_path)
 
-        # Mock auth failure
         with patch(_HEALTH_CHECK_MOCK) as mock_health:
             mock_health.side_effect = Exception("Incorrect API key provided")
 
@@ -175,15 +172,14 @@ def test_FAILURE_provider_auth_failure_guidance() -> None:
 
 def test_FAILURE_model_unavailable_detection() -> None:
     """
-    FAILURE: Model exists during health check but becomes unavailable
-    GRACEFUL: System must detect model availability issues
+    FAILURE: Model exists during health check but becomes unavailable.
+    GRACEFUL: System must detect model availability issues.
     """
     temp_dir, config_path = _create_config_dir()
 
     try:
         config = Config.from_file(config_path)
 
-        # Mock model not found error
         with patch(_HEALTH_CHECK_MOCK) as mock_health:
             mock_health.side_effect = Exception(
                 "Model gpt-nonexistent-model does not exist"
@@ -201,8 +197,8 @@ def test_FAILURE_model_unavailable_detection() -> None:
 
 def test_CONFIDENCE_health_check_accuracy_threshold() -> None:
     """
-    CONFIDENCE: Health check accuracy must be >95% correlated with analysis success
-    THRESHOLD: Based on user trust requirements
+    CONFIDENCE: Health check accuracy must be >95% correlated with analysis success.
+    THRESHOLD: Based on user trust requirements.
     """
     # Skip if no real API key available
     api_key = os.environ.get("OPENAI_API_KEY", "")

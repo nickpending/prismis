@@ -894,7 +894,10 @@ async def semantic_search(
     q: str = Query(..., min_length=1, description="Search query"),
     limit: int = Query(20, le=50, ge=1, description="Maximum results to return"),
     min_score: float = Query(
-        0.0, ge=0.0, le=1.0, description="Minimum relevance score"
+        0.1,
+        ge=0.0,
+        le=1.0,
+        description="Minimum relevance score (default 0.1 filters near-zero noise; pass 0.0 to disable)",
     ),
     source: str | None = Query(
         None, description="Filter by source name (case-insensitive substring match)"

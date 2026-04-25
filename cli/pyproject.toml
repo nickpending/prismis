@@ -25,6 +25,11 @@ dev = [
     "prismis-daemon",
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S603", "S607"]
+"test_*.py" = ["S101", "S603", "S607"]
+"**/test_*.py" = ["S101", "S603", "S607"]
+
 [tool.uv]
 package = true
 

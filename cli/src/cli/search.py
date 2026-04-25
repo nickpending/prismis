@@ -23,6 +23,11 @@ def search(
     compact: bool = typer.Option(
         False, "--compact", help="Compact format (excludes content and analysis)"
     ),
+    min_score: float | None = typer.Option(
+        None,
+        "--min-score",
+        help="Minimum relevance score (0.0-1.0). Server default is 0.1; pass 0.0 to disable filtering.",
+    ),
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Search content using semantic similarity.
@@ -32,6 +37,7 @@ def search(
         limit: Maximum number of results to return (1-50)
         source: Filter results to sources containing this substring
         compact: Return compact format for LLM consumption
+        min_score: Minimum relevance score override (None uses server default)
         output_json: If True, output raw JSON instead of formatted table
     """
     try:
@@ -44,7 +50,13 @@ def search(
             raise typer.Exit(1)
 
         # Search content
-        results = client.search(query, limit=limit, compact=compact, source=source)
+        results = client.search(
+            query,
+            limit=limit,
+            compact=compact,
+            source=source,
+            min_score=min_score,
+        )
 
         if output_json:
             # JSON mode - output raw API response

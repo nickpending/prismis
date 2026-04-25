@@ -579,6 +579,7 @@ class APIClient:
         limit: int = 20,
         compact: bool = False,
         source: str | None = None,
+        min_score: float | None = None,
     ) -> list[dict[str, Any]]:
         """Search content using semantic similarity.
 
@@ -587,6 +588,7 @@ class APIClient:
             limit: Maximum number of results to return (1-50)
             compact: Return compact format (excludes content and analysis)
             source: Filter by source name (case-insensitive substring match)
+            min_score: Minimum relevance score override (None uses server default)
 
         Returns:
             List of content items with relevance scores
@@ -601,6 +603,8 @@ class APIClient:
                     params["compact"] = True
                 if source:
                     params["source"] = source
+                if min_score is not None:
+                    params["min_score"] = min_score
 
                 response = client.get(
                     f"{self.base_url}/api/search",

@@ -240,6 +240,18 @@ class Storage:
             if item.analysis:
                 analysis_json = json.dumps(item.analysis)
 
+            # Convert datetime bindings to ISO strings — Python 3.12 deprecated
+            # the default sqlite3 datetime adapter. Matches deep_extractor.py:156
+            # canonical UTC-ISO timestamp shape.
+            published_at_iso = (
+                item.published_at.isoformat() if item.published_at else None
+            )
+            fetched_at_iso = (
+                item.fetched_at.isoformat()
+                if item.fetched_at
+                else datetime.now(UTC).isoformat()
+            )
+
             conn.execute(
                 """
                 INSERT INTO content (
@@ -261,8 +273,8 @@ class Storage:
                     item.summary,
                     analysis_json,
                     item.priority,
-                    item.published_at,
-                    item.fetched_at or datetime.now(),
+                    published_at_iso,
+                    fetched_at_iso,
                     item.read,
                     item.favorited,
                     item.notes,
@@ -388,6 +400,18 @@ class Storage:
                 if item.analysis:
                     analysis_json = json.dumps(item.analysis)
 
+                # Convert datetime bindings to ISO strings — Python 3.12 deprecated
+                # the default sqlite3 datetime adapter. Matches deep_extractor.py:156
+                # canonical UTC-ISO timestamp shape.
+                published_at_iso = (
+                    item.published_at.isoformat() if item.published_at else None
+                )
+                fetched_at_iso = (
+                    item.fetched_at.isoformat()
+                    if item.fetched_at
+                    else datetime.now(UTC).isoformat()
+                )
+
                 self.conn.execute(
                     """
                     INSERT INTO content (
@@ -396,7 +420,7 @@ class Storage:
                         fetched_at, read, favorited, notes,
                         created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     """,
                     (
@@ -409,8 +433,8 @@ class Storage:
                         item.summary,
                         analysis_json,
                         item.priority,
-                        item.published_at,
-                        item.fetched_at or datetime.now(),
+                        published_at_iso,
+                        fetched_at_iso,
                         item.read,
                         item.favorited,
                         item.notes,
@@ -422,6 +446,35 @@ class Storage:
         except sqlite3.Error as e:
             self.conn.rollback()
             raise sqlite3.Error(f"Failed to create or update content: {e}") from e
+
+    def update_analysis(self, content_id: str, analysis: dict) -> bool:
+        """Patch the analysis JSON column for a content row.
+
+        Used by the on-demand extraction endpoint to store deep extraction
+        without rewriting other fields. Caller is responsible for merging
+        any new sub-keys into the analysis dict before passing it in.
+
+        Args:
+            content_id: UUID of the content row
+            analysis: Full analysis dict to persist (caller merges as needed)
+
+        Returns:
+            True if a row was updated, False if no row matched.
+
+        Raises:
+            sqlite3.Error: on write failure
+        """
+        try:
+            analysis_json = json.dumps(analysis)
+            cursor = self.conn.execute(
+                "UPDATE content SET analysis = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (analysis_json, content_id),
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            raise sqlite3.Error(f"Failed to update analysis: {e}") from e
 
     def get_existing_external_ids(self, source_id: str) -> set[str]:
         """Get all external_ids for a source to enable bulk deduplication filtering.

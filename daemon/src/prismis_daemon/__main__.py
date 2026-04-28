@@ -68,6 +68,13 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
         evaluator = ContentEvaluator(config.llm_light_service)
         notifier = Notifier(notification_config)
 
+        # Optional deep extractor — only when llm_deep_service is configured.
+        deep_extractor = None
+        if config.llm_deep_service:
+            from .deep_extractor import ContentDeepExtractor
+
+            deep_extractor = ContentDeepExtractor(config.llm_deep_service)
+
         # Create orchestrator with all dependencies
         orchestrator = DaemonOrchestrator(
             storage=storage,
@@ -80,6 +87,7 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             notifier=notifier,
             config=config,
             console=console,
+            deep_extractor=deep_extractor,
         )
 
         # Create scheduler
@@ -185,6 +193,10 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
         # Start API server
         console.print("[yellow]🌐 Starting API server on port 8989...[/yellow]")
         from .api import app
+
+        # Expose deep extractor to API endpoints (None when not configured;
+        # the endpoint returns 503 in that case).
+        app.state.deep_extractor = deep_extractor
 
         # Create API server config
         api_config = uvicorn.Config(
@@ -394,6 +406,13 @@ def main(
                 evaluator = ContentEvaluator(config.llm_light_service)
                 notifier = Notifier(notification_config)
 
+                # Optional deep extractor — only when llm_deep_service is configured.
+                deep_extractor = None
+                if config.llm_deep_service:
+                    from .deep_extractor import ContentDeepExtractor
+
+                    deep_extractor = ContentDeepExtractor(config.llm_deep_service)
+
                 # Create and run orchestrator with all dependencies
                 orchestrator = DaemonOrchestrator(
                     storage=storage,
@@ -406,6 +425,7 @@ def main(
                     notifier=notifier,
                     config=config,
                     console=console,
+                    deep_extractor=deep_extractor,
                 )
 
                 stats = orchestrator.run_once()

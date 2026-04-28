@@ -7,6 +7,7 @@ from typing import Any
 from rich.console import Console
 
 from .config import Config
+from .deep_extractor import ContentDeepExtractor
 from .embeddings import Embedder
 from .evaluator import ContentEvaluator
 from .notifier import Notifier
@@ -34,6 +35,7 @@ class DaemonOrchestrator:
         config: Config,
         console: Console | None = None,
         embedder: Embedder | None = None,
+        deep_extractor: ContentDeepExtractor | None = None,
     ):
         """Initialize orchestrator with dependencies.
 
@@ -49,6 +51,8 @@ class DaemonOrchestrator:
             config: Configuration object with all daemon settings
             console: Optional Rich console for output
             embedder: Optional Embedder instance for semantic search (created if not provided)
+            deep_extractor: Optional ContentDeepExtractor for deep synthesis on
+                HIGH-priority items. None disables deep extraction.
         """
         self.storage = storage
         self.rss_fetcher = rss_fetcher
@@ -61,6 +65,26 @@ class DaemonOrchestrator:
         self.config = config
         self.console = console or Console()
         self.embedder = embedder or Embedder()
+        self.deep_extractor = deep_extractor
+
+    @staticmethod
+    def _should_deep_extract(priority: str | None, auto_extract: str) -> bool:
+        """Decide whether to run deep extraction based on priority + config threshold.
+
+        Args:
+            priority: The item's evaluated priority ("high"|"medium"|"low"|None)
+            auto_extract: Threshold from config ("none"|"high"|"all")
+
+        Returns:
+            True if deep extraction should run for this item.
+        """
+        if not auto_extract or auto_extract == "none":
+            return False
+        if auto_extract == "all":
+            return priority in ("high", "medium", "low")
+        if auto_extract == "high":
+            return priority == "high"
+        return False
 
     def fetch_source_content(
         self,
@@ -189,7 +213,7 @@ class DaemonOrchestrator:
                                 embedding = self.embedder.generate_embedding(
                                     item.content
                                 )
-                                self.storage.store_embedding(content_id, embedding)
+                                self.storage.add_embedding(content_id, embedding)
                                 self.console.print(
                                     f"       🔗 Indexed for semantic search ({self.embedder.get_dimension()} dims)"
                                 )
@@ -275,6 +299,32 @@ class DaemonOrchestrator:
                         }
                     )
 
+                    # Step 3e-bis: Deep extraction gate.
+                    # Failure must NEVER raise into the pipeline (INV-002):
+                    # the except clause logs and continues with light summary only.
+                    if self.deep_extractor and self._should_deep_extract(
+                        priority, self.config.auto_extract
+                    ):
+                        try:
+                            extraction = self.deep_extractor.extract(
+                                content=item.content,
+                                title=item.title,
+                                url=item.url,
+                            )
+                            if extraction:
+                                merged_analysis["deep_extraction"] = extraction
+                                item_dict["analysis"] = merged_analysis
+                                self.console.print("       🧠 Deep extraction added")
+                        except Exception as e:
+                            logger.warning(
+                                f"Deep extraction failed for '{item.title}': {e}"
+                            )
+                            self.console.print(
+                                f"       ⚠️  Deep extraction failed: {e}",
+                                style="yellow",
+                            )
+                            # Do NOT re-raise — pipeline continues with light summary only (INV-002)
+
                     # Step 3e: Store with deduplication tracking
                     content_id, is_new = self.storage.create_or_update_content(
                         item_dict
@@ -282,8 +332,14 @@ class DaemonOrchestrator:
 
                     # Step 3f: Generate and store embedding for semantic search
                     try:
-                        # Use summary for embedding (more concise than full content)
+                        # Use summary + synthesis (when present) so search reflects
+                        # the richer deep-extraction text.
                         text_for_embedding = summary_result.summary or item.content
+                        synth = merged_analysis.get("deep_extraction", {}).get(
+                            "synthesis"
+                        )
+                        if synth:
+                            text_for_embedding = f"{text_for_embedding}\n\n{synth}"
                         embedding = self.embedder.generate_embedding(
                             text=text_for_embedding,
                             title=item.title,

@@ -18,6 +18,7 @@ from .api_errors import (
     APIError,
     NotFoundError,
     ServerError,
+    ServiceUnavailableError,
     ValidationError,
 )
 from .api_models import (
@@ -30,6 +31,7 @@ from .audio import AudioScriptGenerator, LspeakTTSEngine
 from .auth import verify_api_key
 from .config import Config
 from .context_analyzer import ContextAnalyzer
+from .deep_extractor import CircuitOpenError
 from .embeddings import Embedder
 from .observability import log as obs_log
 from .reports import ReportGenerator
@@ -1055,6 +1057,86 @@ async def get_entry_raw(
     except Exception as e:
         # For plain text endpoint, return simple error messages
         return PlainTextResponse(f"Error: {str(e)}", status_code=500)
+
+
+@app.post("/api/entries/{content_id}/extract", dependencies=[Depends(verify_api_key)])
+async def extract_entry(
+    content_id: str,
+    storage: Storage = Depends(get_storage),
+) -> dict:
+    """Run on-demand deep extraction for a content entry.
+
+    Idempotent: if `analysis.deep_extraction` is already populated, the existing
+    extraction is returned without an LLM call (INV-004).
+
+    Args:
+        content_id: UUID of the content entry
+        storage: Storage instance injected by FastAPI
+
+    Returns:
+        JSON with the extraction dict (synthesis, quotables, model, extracted_at).
+
+    Raises:
+        ServiceUnavailableError (503): Deep extraction not configured, or the
+            deep-service circuit breaker is open.
+        NotFoundError (404): Entry with given ID not found.
+        ServerError (500): Unexpected extractor failure.
+    """
+    extractor = getattr(app.state, "deep_extractor", None)
+    if extractor is None:
+        raise ServiceUnavailableError(
+            "Deep extraction not configured (set llm.deep_service in config.toml)"
+        )
+
+    entry = storage.get_content_by_id(content_id)
+    if not entry:
+        raise NotFoundError("Entry", content_id)
+
+    analysis = entry.get("analysis") or {}
+
+    # INV-004 — idempotency check FIRST, before any LLM call.
+    if "deep_extraction" in analysis:
+        return {
+            "success": True,
+            "message": "Existing extraction returned",
+            "data": {"deep_extraction": analysis["deep_extraction"]},
+        }
+
+    try:
+        extraction = extractor.extract(
+            content=entry.get("content") or "",
+            title=entry.get("title") or "",
+            url=entry.get("url") or "",
+        )
+    except CircuitOpenError as e:
+        # Circuit-open is a known unavailability, not an unexpected server bug.
+        # Routed by exception type (P15: matches the api_errors hierarchy used
+        # everywhere else in this file).
+        raise ServiceUnavailableError(f"Deep extraction unavailable: {e}") from e
+    except Exception as e:
+        raise ServerError(f"Deep extraction failed: {e}") from e
+
+    if not extraction:
+        raise ServerError("Deep extraction produced no output")
+
+    analysis["deep_extraction"] = extraction
+    storage.update_analysis(content_id, analysis)
+
+    # Regenerate embedding with combined text — best-effort.
+    # An embedding-regen failure must NOT fail the request.
+    try:
+        embedder = Embedder()
+        combined = f"{entry.get('summary') or ''}\n\n{extraction['synthesis']}"
+        emb = embedder.generate_embedding(text=combined, title=entry.get("title") or "")
+        storage.add_embedding(content_id, emb)
+    except Exception as e:
+        console.print(f"[yellow]Embedding regen failed for {content_id}: {e}[/yellow]")
+
+    return {
+        "success": True,
+        "message": "Deep extraction generated",
+        "data": {"deep_extraction": extraction},
+    }
 
 
 @app.get("/health")

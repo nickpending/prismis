@@ -48,3 +48,10 @@ class ServerError(APIError):
 
     def __init__(self, message: str):
         super().__init__(500, message)
+
+
+class ServiceUnavailableError(APIError):
+    """503 - Service temporarily unavailable (circuit open, service disabled)."""
+
+    def __init__(self, message: str):
+        super().__init__(503, message)

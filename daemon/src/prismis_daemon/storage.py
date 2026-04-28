@@ -1582,8 +1582,10 @@ class Storage:
                 # Make a copy to avoid modifying original dict
                 content = content_by_id[content_id].copy()
 
-                # Similarity score (cosine distance from vec_content, invert to similarity)
-                similarity = 1.0 - float(candidate["distance"])
+                # Convert L2 distance from vec_content to cosine similarity
+                # (embeddings are unit-normalized by all-MiniLM-L6-v2's Normalize layer,
+                # so cosine_sim = 1 - L2_dist^2 / 2 holds)
+                similarity = 1.0 - (float(candidate["distance"]) ** 2 / 2)
 
                 # Priority weight (minor boost for high-priority content)
                 priority_weights = {"high": 1.0, "medium": 0.5, "low": 0.0}

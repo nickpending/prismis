@@ -292,8 +292,15 @@ def test_extract_endpoint_returns_503_when_not_configured(test_db: Path) -> None
     BREAKS: Endpoint returns 500 (unhandled AttributeError) instead of the
     documented 503 "not configured" response; callers can't distinguish
     config-missing from server error.
+
+    Fix 3 reorder note: entry must exist and have NO deep_extraction so the
+    request reaches the extractor-None check. The old test used a fake ID
+    ("any-id") which hit the 404 path; after the Fix 3 reorder (entry lookup
+    runs before extractor check) that path returns 404, not 503.
     """
     storage = Storage(test_db)
+    # Seed an entry WITHOUT deep_extraction so we reach the extractor-None check.
+    content_id = _seed_entry(storage, analysis={"metrics": {"score": 80}})
     app.state.deep_extractor = None
 
     def override_get_storage() -> Generator[Storage]:
@@ -304,7 +311,7 @@ def test_extract_endpoint_returns_503_when_not_configured(test_db: Path) -> None
         client = TestClient(app)
 
         response = client.post(
-            "/api/entries/any-id/extract",
+            f"/api/entries/{content_id}/extract",
             headers={"X-API-Key": _API_KEY},
         )
 
@@ -315,3 +322,106 @@ def test_extract_endpoint_returns_503_when_not_configured(test_db: Path) -> None
         assert data["success"] is False
     finally:
         app.dependency_overrides.clear()
+        app.state.deep_extractor = None
+
+
+# ---------------------------------------------------------------------------
+# Fix 3: 503 carries structured data.reason sub-code
+# ---------------------------------------------------------------------------
+
+
+def test_503_not_configured_carries_reason_subcode(test_db: Path) -> None:
+    """
+    POST when extractor is None returns 503 with data.reason="not_configured".
+
+    BREAKS: TUI client branches on data.reason to show actionable messages.
+    If the 503 body carries data=null instead of data.reason="not_configured",
+    ExtractEntry() falls back to the generic "service not configured or circuit
+    open" message — the user can't tell what to fix.
+
+    Fix 3 (api_errors.py + api_error_handler): ServiceUnavailableError packs
+    reason into data; the exception handler forwards getattr(exc, "data", None)
+    into the response body.
+    """
+    storage = Storage(test_db)
+    app.state.deep_extractor = None
+
+    def override_get_storage() -> Generator[Storage]:
+        yield storage
+
+    app.dependency_overrides[get_storage] = override_get_storage
+    try:
+        # Seed an entry WITHOUT deep_extraction so we reach the extractor-None check.
+        content_id = _seed_entry(storage, analysis={"metrics": {"score": 80}})
+        client = TestClient(app)
+
+        response = client.post(
+            f"/api/entries/{content_id}/extract",
+            headers={"X-API-Key": _API_KEY},
+        )
+
+        assert response.status_code == 503, f"Expected 503, got {response.status_code}"
+        body = response.json()
+        assert body["success"] is False
+        assert body.get("data") is not None, (
+            "Fix 3: 503 body must carry structured data (not null) so client can branch"
+        )
+        assert body["data"].get("reason") == "not_configured", (
+            f"Fix 3: data.reason must be 'not_configured', got {body['data'].get('reason')!r}"
+        )
+    finally:
+        app.dependency_overrides.clear()
+        app.state.deep_extractor = None
+
+
+# ---------------------------------------------------------------------------
+# Fix 3 / INV-004: Cached return succeeds even when extractor is unconfigured
+# ---------------------------------------------------------------------------
+
+
+def test_inv004_cached_return_when_extractor_unconfigured(
+    storage_with_extracted_entry: tuple[Storage, str, dict],
+) -> None:
+    """
+    INV-004 + Fix 3 reorder: POST on an entry with existing deep_extraction must
+    return 200 with the cached result even when app.state.deep_extractor is None.
+
+    BREAKS (original ordering bug): The original extract_entry checked
+    extractor is None BEFORE the cached-return branch, so repeat POSTs on
+    already-extracted items returned 503 in unconfigured environments.
+    Fix 3 reordered the function: cached-return runs first, extractor-None
+    check runs only when a new extraction is actually needed.
+
+    This test would have caught that bug.
+    """
+    storage, content_id, existing_extraction = storage_with_extracted_entry
+
+    # Extractor is intentionally None — the cached path must not touch it.
+    app.state.deep_extractor = None
+
+    def override_get_storage() -> Generator[Storage]:
+        yield storage
+
+    app.dependency_overrides[get_storage] = override_get_storage
+    try:
+        client = TestClient(app)
+
+        response = client.post(
+            f"/api/entries/{content_id}/extract",
+            headers={"X-API-Key": _API_KEY},
+        )
+
+        assert response.status_code == 200, (
+            f"INV-004+Fix3: cached extraction must return 200 even when extractor "
+            f"is unconfigured, got {response.status_code}: {response.text}"
+        )
+        body = response.json()
+        assert body["success"] is True
+        returned = body["data"]["deep_extraction"]
+        assert returned["synthesis"] == existing_extraction["synthesis"], (
+            "INV-004: must return existing synthesis unchanged"
+        )
+        assert returned["model"] == existing_extraction["model"]
+    finally:
+        app.dependency_overrides.clear()
+        app.state.deep_extractor = None

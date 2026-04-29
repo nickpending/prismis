@@ -646,6 +646,59 @@
                 font-size: 12px;
             }
         }
+
+        /* Article detail side panel */
+        .detail-panel {
+            position: fixed;
+            top: 0; right: 0; bottom: 0;
+            width: min(720px, 100vw);
+            background: #1a1a1a;
+            border-left: 1px solid #333333;
+            z-index: 500;
+            overflow-y: auto;
+            padding: 24px;
+            box-shadow: -4px 0 24px rgba(0,0,0,0.5);
+        }
+        .detail-panel.hidden { display: none; }
+        .detail-close {
+            background: transparent; border: 1px solid #444444;
+            color: #888888; padding: 6px 12px; border-radius: 4px;
+            cursor: pointer; font-size: 13px; float: right;
+        }
+        .detail-close:hover { border-color: #00D9FF; color: #00D9FF; }
+        .detail-title {
+            font-size: 20px; font-weight: 600; color: #EEEEEE;
+            margin: 12px 0 8px; line-height: 1.4;
+        }
+        .detail-title a { color: #EEEEEE; text-decoration: none; }
+        .detail-title a:hover { color: #00D9FF; }
+        .detail-summary { font-size: 14px; color: #CCCCCC; line-height: 1.7; margin: 16px 0; white-space: pre-wrap; }
+        .detail-synthesis {
+            border-left: 3px solid #9F4DFF;
+            padding: 16px 20px;
+            background: rgba(159, 77, 255, 0.05);
+            margin: 20px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        .detail-synthesis h3 {
+            color: #9F4DFF; font-size: 13px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px;
+        }
+        .detail-synthesis p { font-size: 14px; color: #CCCCCC; line-height: 1.7; }
+        .notable-lines { margin-top: 16px; }
+        .notable-lines h4 {
+            color: #666666; font-size: 11px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;
+        }
+        .notable-lines blockquote {
+            border-left: 2px solid #444444; padding: 8px 12px;
+            margin: 8px 0; color: #999999; font-size: 13px; line-height: 1.6;
+        }
+        .detail-loading { color: #666666; font-size: 13px; padding: 20px 0; }
+        .detail-error {
+            color: #FF0066; font-size: 13px; padding: 12px;
+            background: rgba(255, 0, 102, 0.08); border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -707,6 +760,12 @@
         <div class="loading">Loading content...</div>
     </div>
 
+    <!-- Article detail side panel -->
+    <div id="detailPanel" class="detail-panel hidden">
+        <button class="detail-close" id="detailClose">✕ Close</button>
+        <div id="detailContent"></div>
+    </div>
+
     <script>
         class PrismisWebapp {
             constructor() {
@@ -722,6 +781,7 @@
                 this.maxRetryAttempts = 3;
                 this.isGeneratingAudio = false;
                 this.currentAudioFile = null;
+                this.detailOpen = false;
 
                 this.init();
             }
@@ -774,6 +834,9 @@
                     localStorage.setItem('prismis_sort', this.sortBy);
                     this.loadContent();
                 });
+
+                // Detail panel close button
+                document.getElementById('detailClose').addEventListener('click', () => this.closeDetail());
             }
 
             showApiKeyModal() {
@@ -1053,6 +1116,7 @@
                 // Add event listeners for mark-as-read buttons in Top 3
                 container.querySelectorAll('.mark-read-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
                         const itemId = e.target.dataset.itemId;
                         this.markAsRead(itemId, e.target);
                     });
@@ -1061,6 +1125,7 @@
                 // Add event listeners for vote buttons in Top 3
                 container.querySelectorAll('.vote-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
                         const itemId = e.target.dataset.itemId;
                         const vote = e.target.dataset.vote;
                         this.handleVote(itemId, vote, e.target);
@@ -1086,6 +1151,7 @@
                 // Add event listeners for mark-as-read buttons
                 container.querySelectorAll('.mark-read-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
                         const itemId = e.target.dataset.itemId;
                         this.markAsRead(itemId, e.target);
                     });
@@ -1094,6 +1160,7 @@
                 // Add event listeners for vote buttons
                 container.querySelectorAll('.vote-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
                         const itemId = e.target.dataset.itemId;
                         const vote = e.target.dataset.vote;
                         this.handleVote(itemId, vote, e.target);
@@ -1133,6 +1200,13 @@
                     duplicateBadge = `<span class="duplicate-badge" title="${this.escapeHtml(sourcesText)}">x${item.duplicate_count} sources</span>`;
                 }
 
+                // Click-target scoped to .item-summary only. The card itself is no
+                // longer clickable; the summary text is the panel-trigger region.
+                // Interactive elements (title <a>, vote buttons, mark-read button)
+                // live OUTSIDE the click target by structure, so bubble-up cannot
+                // reach openDetail. Picked over per-element stopPropagation patches
+                // (P16: root cause over symptom — narrows the click surface so
+                // INV-D3 no longer needs to apply to every future interactive child).
                 return `
                     <div class="content-item" data-priority="${item.priority}" data-item-id="${item.id}">
                         <div class="item-header">
@@ -1154,7 +1228,8 @@
                             ${duplicateBadge}
                             ${interestBadge}
                         </div>
-                        <div class="item-summary">
+                        <div class="item-summary" data-item-id="${item.id}"
+                             onclick="window.prismisApp.openDetail('${item.id}')" style="cursor:pointer">
                             ${this.escapeHtml(item.summary || 'No summary available')}
                         </div>
                     </div>
@@ -1450,6 +1525,66 @@
                 document.getElementById('errorContainer').innerHTML = '';
             }
 
+            async openDetail(itemId) {
+                const panel = document.getElementById('detailPanel');
+                const content = document.getElementById('detailContent');
+                panel.classList.remove('hidden');
+                this.detailOpen = true;
+                content.innerHTML = '<div class="detail-loading">Loading...</div>';
+
+                try {
+                    const response = await fetch(`/api/entries/${itemId}?include=content`, {
+                        headers: { 'X-API-Key': this.apiKey }
+                    });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    if (!data.success) throw new Error(data.message || 'Failed to load entry');
+
+                    const entry = data.data;
+                    const analysis = (typeof entry.analysis === 'object' && entry.analysis) ? entry.analysis : {};
+                    const de = analysis.deep_extraction;
+
+                    let synthesisHtml = '';
+                    if (de && de.synthesis) {
+                        const quotablesHtml = (Array.isArray(de.quotables) && de.quotables.length > 0)
+                            ? `<div class="notable-lines">
+                                  <h4>Notable Lines</h4>
+                                  ${de.quotables.map(q => `<blockquote>${this.escapeHtml(q)}</blockquote>`).join('')}
+                               </div>`
+                            : '';
+                        synthesisHtml = `
+                            <div class="detail-synthesis">
+                                <h3>Deep Synthesis</h3>
+                                <p>${this.escapeHtml(de.synthesis)}</p>
+                                ${quotablesHtml}
+                            </div>`;
+                    }
+
+                    const summary = analysis.reading_summary || entry.summary || '';
+
+                    content.innerHTML = `
+                        <span class="priority-badge badge-${entry.priority || 'none'}">
+                            ${(entry.priority || 'none').toUpperCase()}
+                        </span>
+                        <div class="detail-title">
+                            <a href="${this.escapeHtml(entry.url)}" target="_blank" rel="noopener noreferrer">
+                                ${this.escapeHtml(entry.title)}
+                            </a>
+                        </div>
+                        <div class="detail-summary">${this.escapeHtml(summary)}</div>
+                        ${synthesisHtml}
+                    `;
+                } catch (err) {
+                    content.innerHTML = `<div class="detail-error">Failed to load: ${this.escapeHtml(err.message)}</div>`;
+                }
+            }
+
+            closeDetail() {
+                document.getElementById('detailPanel').classList.add('hidden');
+                document.getElementById('detailContent').innerHTML = '';
+                this.detailOpen = false;
+            }
+
             escapeHtml(text) {
                 if (!text) return '';
                 const div = document.createElement('div');
@@ -1476,7 +1611,7 @@
 
         // Initialize the webapp when the page loads
         document.addEventListener('DOMContentLoaded', () => {
-            new PrismisWebapp();
+            window.prismisApp = new PrismisWebapp();
         });
     </script>
 </body>

@@ -340,6 +340,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMessage = "Generating audio briefing..."
 		return m, operations.GenerateAudioBriefing()
 
+	case commands.ExtractMsg:
+		// Trigger on-demand deep extraction for the current article
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			m.statusMessage = "Extracting..."
+			return m, operations.ExtractContent(item.ID)
+		}
+
 	case commands.ExportSourcesMsg:
 		// Export sources to clipboard
 		return m, operations.ExportSources()
@@ -1020,6 +1028,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Clear status message after delay (success or error)
 		cmds = append(cmds, clearStatusAfterDelay(5*time.Second))
+
+	case operations.ExtractOperationMsg:
+		// Handle deep extraction result. Locate the item by ID (not cursor index)
+		// so a cursor move during the LLM call doesn't patch the wrong item.
+		if msg.Success && msg.DeepExtraction != nil {
+			for i, item := range m.items {
+				if item.ID == msg.ContentID {
+					var analysis map[string]interface{}
+					if err := json.Unmarshal([]byte(item.Analysis), &analysis); err != nil {
+						analysis = make(map[string]interface{})
+					}
+					analysis["deep_extraction"] = msg.DeepExtraction
+					if updated, err := json.Marshal(analysis); err == nil {
+						m.items[i].Analysis = string(updated)
+					}
+					break
+				}
+			}
+			m.statusMessage = "Deep synthesis ready"
+			m.updateReaderContent()
+			cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
+		} else {
+			m.statusMessage = fmt.Sprintf("Extraction failed: %v", msg.Error)
+			cmds = append(cmds, clearStatusAfterDelay(5*time.Second))
+		}
 
 	case operations.FabricOperationMsg:
 		// Handle Fabric operation results

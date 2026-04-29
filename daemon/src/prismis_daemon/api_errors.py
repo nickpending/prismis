@@ -8,17 +8,23 @@ class APIError(HTTPException):
 
     All errors will be formatted as:
     {"success": false, "message": "error message", "data": null}
+
+    Subclasses may attach a structured `data` payload (e.g. a `reason` code) for
+    cases where a single status code covers multiple distinguishable conditions
+    that clients need to branch on (see ServiceUnavailableError).
     """
 
-    def __init__(self, status_code: int, message: str):
+    def __init__(self, status_code: int, message: str, data: dict | None = None):
         """Create an API error.
 
         Args:
             status_code: HTTP status code
             message: Error message to display
+            data: Optional structured payload for client-side branching.
         """
         super().__init__(status_code=status_code, detail=message)
         self.message = message
+        self.data = data
 
 
 # Convenience error classes for common cases
@@ -51,7 +57,15 @@ class ServerError(APIError):
 
 
 class ServiceUnavailableError(APIError):
-    """503 - Service temporarily unavailable (circuit open, service disabled)."""
+    """503 - Service temporarily unavailable (circuit open, service disabled).
 
-    def __init__(self, message: str):
-        super().__init__(503, message)
+    The optional `reason` argument is a stable, machine-parseable code so clients
+    can distinguish conditions that share the same 503 status but require
+    different user-facing messages (e.g. `"not_configured"` vs `"circuit_open"`).
+    Surfaced in the response body's `data.reason` field.
+    """
+
+    def __init__(self, message: str, reason: str | None = None):
+        data = {"reason": reason} if reason is not None else None
+        super().__init__(503, message, data=data)
+        self.reason = reason

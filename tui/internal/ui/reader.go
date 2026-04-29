@@ -8,10 +8,19 @@ import (
 
 // ContentMetadata represents the metadata extracted from analysis JSON
 type ContentMetadata struct {
-	Entities []string `json:"entities"`
-	Quotes   []string `json:"quotes"`
-	Tools    []string `json:"tools"`
-	URLs     []string `json:"urls"`
+	Entities       []string `json:"entities"`
+	Quotes         []string `json:"quotes"`
+	Tools          []string `json:"tools"`
+	URLs           []string `json:"urls"`
+	DeepExtraction *DeepExtraction
+}
+
+// DeepExtraction represents second-tier LLM synthesis for HIGH-priority items
+type DeepExtraction struct {
+	Synthesis   string   `json:"synthesis"`
+	Quotables   []string `json:"quotables"`
+	Model       string   `json:"model"`
+	ExtractedAt string   `json:"extracted_at"`
 }
 
 // parseMetadata extracts metadata from the Analysis JSON field
@@ -63,7 +72,47 @@ func parseMetadata(analysisJSON string) ContentMetadata {
 		}
 	}
 
+	// Extract deep_extraction (HIGH-priority synthesis from second-tier LLM call)
+	// Round-trip through json.Marshal/Unmarshal to convert map[string]interface{} into typed struct.
+	if deRaw, ok := analysis["deep_extraction"]; ok && deRaw != nil {
+		if deBytes, err := json.Marshal(deRaw); err == nil {
+			var de DeepExtraction
+			if err := json.Unmarshal(deBytes, &de); err == nil && de.Synthesis != "" {
+				metadata.DeepExtraction = &de
+			}
+		}
+	}
+
 	return metadata
+}
+
+// appendDeepExtractionSection appends a "Deep Synthesis" section to the markdown content
+// when deep_extraction is present. Returns content unchanged when de is nil.
+// The section uses standard ## headers and > block-quotes so renderSimpleMarkdown applies
+// the same cyan-header / gray-quote styling already used for other sections.
+func appendDeepExtractionSection(content string, de *DeepExtraction) string {
+	if de == nil {
+		return content
+	}
+
+	var b strings.Builder
+	b.WriteString(content)
+	b.WriteString("\n\n## Deep Synthesis\n\n")
+	b.WriteString(de.Synthesis)
+
+	if len(de.Quotables) > 0 {
+		b.WriteString("\n\n### Notable Lines\n\n")
+		for i, q := range de.Quotables {
+			b.WriteString(fmt.Sprintf("> %s", q))
+			if i < len(de.Quotables)-1 {
+				b.WriteString("\n\n")
+			} else {
+				b.WriteString("\n")
+			}
+		}
+	}
+
+	return b.String()
 }
 
 // injectQuotesIntoSummary inserts quotes section right before "## Takeaways"
@@ -162,6 +211,9 @@ func (m *Model) updateReaderContent() {
 	} else {
 		contentToShow = "No content available for this article."
 	}
+
+	// Append deep synthesis section (HIGH-priority items only) before title-strip and metadata sections
+	contentToShow = appendDeepExtractionSection(contentToShow, metadata.DeepExtraction)
 
 	// Strip the title if it's the first line of markdown (to avoid double titles)
 	lines := strings.Split(contentToShow, "\n")

@@ -52,6 +52,9 @@ func NewRegistry() *Registry {
 	// Audio briefing generation
 	r.Register("audio", cmdAudio)
 
+	// On-demand deep extraction for current article
+	r.Register("extract", cmdExtract)
+
 	// Export commands
 	r.Register("export", cmdExport)
 
@@ -360,6 +363,13 @@ func cmdAudio(args []string) tea.Cmd {
 	}
 }
 
+// cmdExtract triggers on-demand deep extraction for the current article
+func cmdExtract(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return ExtractMsg{}
+	}
+}
+
 // cmdExport handles export commands (currently only sources)
 func cmdExport(args []string) tea.Cmd {
 	return func() tea.Msg {
@@ -516,6 +526,9 @@ type CopyMsg struct {
 
 // AudioMsg signals to generate an audio briefing
 type AudioMsg struct{}
+
+// ExtractMsg signals to trigger on-demand deep extraction for the current article
+type ExtractMsg struct{}
 
 // FabricMsg signals to execute a Fabric pattern
 type FabricMsg struct {

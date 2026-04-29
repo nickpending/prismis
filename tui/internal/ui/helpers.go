@@ -64,8 +64,18 @@ func renderSimpleMarkdown(content string, width int) string {
 
 		trimmed := strings.TrimSpace(line)
 
-		// Handle headers (## Header -> ▸ Header in cyan)
-		if strings.HasPrefix(trimmed, "## ") {
+		// Handle level-3 sub-headers (### Sub -> cyan, no prefix, not bold).
+		// Visually less prominent than ## (no ▸, not bold) but still color-distinct
+		// from body paragraphs.
+		if strings.HasPrefix(trimmed, "### ") {
+			subHeaderText := strings.TrimPrefix(trimmed, "### ")
+			styled := lipgloss.NewStyle().
+				Foreground(theme.Cyan).
+				Render(subHeaderText)
+			result = append(result, styled)
+			result = append(result, "") // Add space after sub-header
+		} else if strings.HasPrefix(trimmed, "## ") {
+			// Handle headers (## Header -> ▸ Header in cyan)
 			headerText := strings.TrimPrefix(trimmed, "## ")
 
 			// Special handling for Overview - put content in a box

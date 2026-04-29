@@ -125,11 +125,18 @@ async def log_requests(request: Request, call_next) -> Response:
 async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
     """Handle our custom APIError exceptions with consistent format.
 
-    Formats all errors as: {"success": false, "message": "...", "data": null}
+    Formats errors as: {"success": false, "message": "...", "data": null|<dict>}.
+    When the raising error attaches structured `data` (e.g. ServiceUnavailableError
+    with a `reason` code), it is preserved so clients can branch on it without
+    parsing the human-readable message.
     """
     return JSONResponse(
         status_code=exc.status_code,
-        content={"success": False, "message": exc.message, "data": None},
+        content={
+            "success": False,
+            "message": exc.message,
+            "data": getattr(exc, "data", None),
+        },
     )
 
 
@@ -1077,30 +1084,39 @@ async def extract_entry(
         JSON with the extraction dict (synthesis, quotables, model, extracted_at).
 
     Raises:
-        ServiceUnavailableError (503): Deep extraction not configured, or the
-            deep-service circuit breaker is open.
+        ServiceUnavailableError (503): Deep extraction not configured
+            (reason=`not_configured`) or the deep-service circuit breaker is
+            open (reason=`circuit_open`).
         NotFoundError (404): Entry with given ID not found.
         ServerError (500): Unexpected extractor failure.
     """
-    extractor = getattr(app.state, "deep_extractor", None)
-    if extractor is None:
-        raise ServiceUnavailableError(
-            "Deep extraction not configured (set llm.deep_service in config.toml)"
-        )
-
+    # Order matters: fetch + cached return BEFORE the extractor-None check, so
+    # cached idempotent reads succeed even when llm.deep_service is unconfigured.
+    # Cached reads don't need the extractor — they only read analysis JSON.
+    # P16 (root cause over symptom): the original ordering made INV-004
+    # idempotency unobservable in unconfigured environments — clients couldn't
+    # tell "your repeat call hit the cache" from "deep service is missing".
     entry = storage.get_content_by_id(content_id)
     if not entry:
         raise NotFoundError("Entry", content_id)
 
     analysis = entry.get("analysis") or {}
 
-    # INV-004 — idempotency check FIRST, before any LLM call.
+    # INV-004 — idempotent return when extraction already exists. Runs before
+    # the extractor-availability check because no LLM call is needed.
     if "deep_extraction" in analysis:
         return {
             "success": True,
             "message": "Existing extraction returned",
             "data": {"deep_extraction": analysis["deep_extraction"]},
         }
+
+    extractor = getattr(app.state, "deep_extractor", None)
+    if extractor is None:
+        raise ServiceUnavailableError(
+            "Deep extraction not configured (set llm.deep_service in config.toml)",
+            reason="not_configured",
+        )
 
     try:
         extraction = extractor.extract(
@@ -1112,7 +1128,9 @@ async def extract_entry(
         # Circuit-open is a known unavailability, not an unexpected server bug.
         # Routed by exception type (P15: matches the api_errors hierarchy used
         # everywhere else in this file).
-        raise ServiceUnavailableError(f"Deep extraction unavailable: {e}") from e
+        raise ServiceUnavailableError(
+            f"Deep extraction unavailable: {e}", reason="circuit_open"
+        ) from e
     except Exception as e:
         raise ServerError(f"Deep extraction failed: {e}") from e
 

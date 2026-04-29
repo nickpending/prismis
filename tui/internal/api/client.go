@@ -831,6 +831,72 @@ func (c *APIClient) GenerateAudioBriefing() (*AudioBriefingResponse, error) {
 	return &audioResp, nil
 }
 
+// ExtractEntry triggers on-demand deep extraction for a content entry.
+// Returns the data field from the API response, which contains the
+// deep_extraction object on success (idempotent: repeat calls return cached result).
+func (c *APIClient) ExtractEntry(contentID string) (map[string]interface{}, error) {
+	req, err := http.NewRequest("POST", c.baseURL+"/api/entries/"+contentID+"/extract", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("X-API-Key", c.apiKey)
+
+	// Deep extraction can take 10-30 seconds (LLM call); use a longer timeout.
+	client := &http.Client{Timeout: 60 * time.Second}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode == 403 {
+		return nil, fmt.Errorf("authentication failed: invalid API key")
+	}
+	if resp.StatusCode == 404 {
+		return nil, fmt.Errorf("entry not found")
+	}
+	if resp.StatusCode == 503 {
+		// Distinguish 503 sub-codes via data.reason so the user gets an actionable
+		// message. Daemon attaches reason="not_configured" or reason="circuit_open"
+		// (see api_errors.py ServiceUnavailableError). Falls back to the generic
+		// message when the daemon predates this contract or the field is missing.
+		var apiResp APIResponse
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			if reason, ok := apiResp.Data["reason"].(string); ok {
+				switch reason {
+				case "not_configured":
+					return nil, fmt.Errorf("deep extraction not configured (set llm.deep_service in config.toml)")
+				case "circuit_open":
+					return nil, fmt.Errorf("deep extraction service unavailable, try again shortly")
+				}
+			}
+		}
+		return nil, fmt.Errorf("deep extraction unavailable (service not configured or circuit open)")
+	}
+	if resp.StatusCode >= 400 {
+		var apiResp APIResponse
+		if err := json.Unmarshal(body, &apiResp); err == nil {
+			return nil, fmt.Errorf("API error: %s", apiResp.Message)
+		}
+		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
+	}
+
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+	}
+	return apiResp.Data, nil
+}
+
 // TopicSuggestion represents a suggested topic for context.md
 type TopicSuggestion struct {
 	Topic         string  `json:"topic"`

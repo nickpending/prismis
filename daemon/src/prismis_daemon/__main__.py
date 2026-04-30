@@ -516,7 +516,7 @@ def migrate_config() -> None:
                 )
                 services_path.write_text(services_text)
                 console.print(
-                    f"[green]Added [services.prismis-openai-deep] to {services_path}[/green]"
+                    f"[green]Added \\[services.prismis-openai-deep] to {services_path}[/green]"
                 )
         else:
             console.print(

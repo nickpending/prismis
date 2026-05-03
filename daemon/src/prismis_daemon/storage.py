@@ -2128,26 +2128,26 @@ class Storage:
             sqlite3.Error: If database operation fails
         """
         try:
-            # Build time filter
-            time_filter = ""
+            time_params: list[str] = []
             if since_days:
-                time_filter = (
-                    f"AND c.updated_at >= datetime('now', '-{since_days} days')"
-                )
+                time_params.append(f"-{since_days} days")
 
             # Overall totals
-            totals_cursor = self.conn.execute(f"""
+            totals_query = """
                 SELECT
                     SUM(CASE WHEN user_feedback = 'up' THEN 1 ELSE 0 END) as upvotes,
                     SUM(CASE WHEN user_feedback = 'down' THEN 1 ELSE 0 END) as downvotes,
                     COUNT(CASE WHEN user_feedback IS NOT NULL THEN 1 END) as total_votes
                 FROM content c
-                WHERE user_feedback IS NOT NULL {time_filter}
-            """)
+                WHERE user_feedback IS NOT NULL
+            """
+            if since_days:
+                totals_query += " AND c.updated_at >= datetime('now', ?)"
+            totals_cursor = self.conn.execute(totals_query, time_params)
             totals_row = totals_cursor.fetchone()
 
             # Per-source breakdown
-            source_cursor = self.conn.execute(f"""
+            source_query = """
                 SELECT
                     s.name,
                     s.id,
@@ -2156,11 +2156,16 @@ class Storage:
                     COUNT(CASE WHEN c.user_feedback IS NOT NULL THEN 1 END) as total
                 FROM content c
                 JOIN sources s ON c.source_id = s.id
-                WHERE c.user_feedback IS NOT NULL {time_filter}
+                WHERE c.user_feedback IS NOT NULL
+            """
+            if since_days:
+                source_query += " AND c.updated_at >= datetime('now', ?)"
+            source_query += """
                 GROUP BY s.id, s.name
                 HAVING total > 0
                 ORDER BY total DESC
-            """)
+            """
+            source_cursor = self.conn.execute(source_query, time_params)
 
             by_source = []
             for row in source_cursor.fetchall():
@@ -2180,12 +2185,15 @@ class Storage:
                 )
 
             # Extract topics from upvoted content (from analysis.matched_interests)
-            upvoted_cursor = self.conn.execute(f"""
+            upvoted_query = """
                 SELECT c.analysis, c.title
                 FROM content c
-                WHERE c.user_feedback = 'up' {time_filter}
-                AND c.analysis IS NOT NULL
-            """)
+                WHERE c.user_feedback = 'up'
+            """
+            if since_days:
+                upvoted_query += " AND c.updated_at >= datetime('now', ?)"
+            upvoted_query += " AND c.analysis IS NOT NULL"
+            upvoted_cursor = self.conn.execute(upvoted_query, time_params)
 
             topics_upvoted: dict[str, int] = {}
             for row in upvoted_cursor.fetchall():
@@ -2201,12 +2209,15 @@ class Storage:
                     pass
 
             # Extract topics from downvoted content
-            downvoted_cursor = self.conn.execute(f"""
+            downvoted_query = """
                 SELECT c.analysis, c.title
                 FROM content c
-                WHERE c.user_feedback = 'down' {time_filter}
-                AND c.analysis IS NOT NULL
-            """)
+                WHERE c.user_feedback = 'down'
+            """
+            if since_days:
+                downvoted_query += " AND c.updated_at >= datetime('now', ?)"
+            downvoted_query += " AND c.analysis IS NOT NULL"
+            downvoted_cursor = self.conn.execute(downvoted_query, time_params)
 
             topics_downvoted: dict[str, int] = {}
             for row in downvoted_cursor.fetchall():

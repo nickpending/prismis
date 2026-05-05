@@ -41,5 +41,13 @@ dev = [
 "src/prismis_daemon/api.py" = ["B008"]  # FastAPI Depends() in argument defaults
 "tests/**/*.py" = ["S101"]  # Allow assert statements in tests
 
+# Git dependencies are pinned to specific commits validated at iteration boundaries.
+# `uv tool install --reinstall` (used by `make install-daemon`) bypasses the lockfile
+# for git sources, so source-level `rev=` pins are required, not optional — without
+# them the resolver silently advances to the remote HEAD on every reinstall.
+#
+# To bump a pinned dep: update `rev=` to the new commit, run `uv lock` from this
+# directory, and commit pyproject.toml + uv.lock together with a message naming
+# the new rev (INV-DEP-3). This makes the bump deliberate and visible in git log.
 [tool.uv.sources]
-llm-core = { git = "https://github.com/nickpending/llm-core", subdirectory = "python" }
+llm-core = { git = "https://github.com/nickpending/llm-core", subdirectory = "python", rev = "2eb4429" }

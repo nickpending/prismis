@@ -404,8 +404,8 @@ wheels = [
 
 [[package]]
 name = "llm-core"
-version = "0.3.0"
-source = { git = "https://github.com/nickpending/llm-core?subdirectory=python#8d7df0696a76ba14c2ce27c34bfe114279320eec" }
+version = "0.3.1"
+source = { git = "https://github.com/nickpending/llm-core?subdirectory=python&rev=2eb4429#2eb4429bb0c7619dcbe1159ccd4720d4f4294f2a" }
 dependencies = [
     { name = "apiconf" },
     { name = "httpx" },
@@ -843,7 +843,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.116.1" },
     { name = "feedparser" },
     { name = "httpx" },
-    { name = "llm-core", git = "https://github.com/nickpending/llm-core?subdirectory=python" },
+    { name = "llm-core", git = "https://github.com/nickpending/llm-core?subdirectory=python&rev=2eb4429" },
     { name = "praw", specifier = ">=7.8.1" },
     { name = "pydantic" },
     { name = "python-dotenv" },

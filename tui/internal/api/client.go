@@ -94,12 +94,16 @@ type ContentItem struct {
 	SourceName          string          `json:"source_name"`
 }
 
-// apiTime wraps time.Time to handle API's space-separated ISO8601 format
+// apiTime wraps time.Time to handle the API's RFC3339 wire format
+// (2006-01-02T15:04:05Z07:00). The wire contract is documented in
+// architecture/boundaries.md "API ↔ Consumers (datetime wire format)".
 type apiTime struct {
 	time.Time
 }
 
-// UnmarshalJSON parses API timestamps in "2025-11-05 17:42:11.630705+00:00" format
+// UnmarshalJSON parses API timestamps as RFC3339. The daemon's Pydantic
+// json_encoders normalize every datetime field on the response side; consumers
+// parse with the matching layout — no fallback list.
 func (t *apiTime) UnmarshalJSON(b []byte) error {
 	s := string(b)
 
@@ -115,25 +119,12 @@ func (t *apiTime) UnmarshalJSON(b []byte) error {
 	}
 	s = s[1 : len(s)-1]
 
-	// Try formats in order: with timezone, with microseconds no tz, without both
-	formats := []string{
-		"2006-01-02 15:04:05.999999-07:00", // With microseconds and timezone
-		"2006-01-02 15:04:05-07:00",        // With timezone, no microseconds
-		"2006-01-02 15:04:05.999999",       // With microseconds, no timezone (fetched_at)
-		"2006-01-02 15:04:05",              // No microseconds, no timezone
+	parsed, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return fmt.Errorf("failed to parse time %q: %w", s, err)
 	}
-
-	var parsed time.Time
-	var err error
-	for _, format := range formats {
-		parsed, err = time.Parse(format, s)
-		if err == nil {
-			t.Time = parsed
-			return nil
-		}
-	}
-
-	return fmt.Errorf("failed to parse time %q: %w", s, err)
+	t.Time = parsed
+	return nil
 }
 
 // EntriesResponse represents the response from GET /api/entries

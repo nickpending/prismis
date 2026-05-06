@@ -1302,7 +1302,7 @@ async def generate_audio_briefing(
 
         # Set up output path
         import os
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         # Use ~/.local/share/prismis/audio for output
         audio_dir = (
@@ -1330,7 +1330,7 @@ async def generate_audio_briefing(
                 "file_path": str(output_path),
                 "filename": filename,
                 "duration_estimate": "2-5 minutes",
-                "generated_at": datetime.now().isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
                 "provider": config.audio_provider,
                 "high_priority_count": len(report.high_priority),
             },

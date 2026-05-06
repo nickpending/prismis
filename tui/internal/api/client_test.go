@@ -386,3 +386,114 @@ func TestNetworkTimeoutRecovery(t *testing.T) {
 func containsString(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
+
+// ---------------------------------------------------------------------------
+// INV-API-TS-2: apiTime.UnmarshalJSON must use exactly one layout (RFC3339).
+// Parse failures must fail loud — no fallback layouts.
+// ---------------------------------------------------------------------------
+
+// TestAPITimeUnmarshalJSON_RFC3339Accepted verifies that valid RFC3339 strings
+// (the wire contract) parse successfully. Covers the happy-path shapes that the
+// daemon's _rfc3339() helper can produce: offset+00:00, Z suffix, fractional seconds.
+func TestAPITimeUnmarshalJSON_RFC3339Accepted(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string // JSON-encoded (with quotes)
+	}{
+		{"with offset", `"2026-05-05T23:22:34+00:00"`},
+		{"with Z suffix", `"2026-04-30T15:49:40Z"`},
+		{"with fractional seconds and offset", `"2026-05-05T23:22:34.289113+00:00"`},
+		{"with fractional seconds and Z", `"2026-05-05T23:14:53.680336Z"`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var at apiTime
+			if err := json.Unmarshal([]byte(tc.input), &at); err != nil {
+				t.Errorf("RFC3339 string %s must parse without error; got: %v", tc.input, err)
+			}
+			if at.Time.IsZero() {
+				t.Errorf("Parsed time must not be zero for input %s", tc.input)
+			}
+		})
+	}
+}
+
+// TestAPITimeUnmarshalJSON_SpaceSeparatorRejected verifies that the pre-fix
+// space-separator formats are now rejected. Before task 2.7, the parser had a
+// 4-layout fallback list that silently accepted these. The collapsed single-layout
+// parser must fail loud on any non-RFC3339 input — that is what INV-API-TS-2 requires.
+func TestAPITimeUnmarshalJSON_SpaceSeparatorRejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string // JSON-encoded (with quotes)
+	}{
+		{"space-sep naive", `"2026-01-06 02:14:05.692944"`},
+		{"space-sep with offset", `"2025-11-24 00:00:00+00:00"`},
+		{"space-sep with UTC label", `"2026-05-05 23:14:53.680336"`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var at apiTime
+			if err := json.Unmarshal([]byte(tc.input), &at); err == nil {
+				t.Errorf(
+					"Space-separator string %s must be rejected by the RFC3339-only parser; got nil error",
+					tc.input,
+				)
+			}
+		})
+	}
+}
+
+// TestAPITimeUnmarshalJSON_NullHandled verifies that a JSON null value produces
+// a zero time.Time without error — matching the existing null branch in the code.
+func TestAPITimeUnmarshalJSON_NullHandled(t *testing.T) {
+	var at apiTime
+	if err := json.Unmarshal([]byte("null"), &at); err != nil {
+		t.Errorf("null must unmarshal without error; got: %v", err)
+	}
+	if !at.Time.IsZero() {
+		t.Errorf("null must produce zero time; got: %v", at.Time)
+	}
+}
+
+// TestAPITimeUnmarshalJSON_SingleParseCall_SC26 is a structural invariant test
+// for SC-26 / INV-API-TS-2: the source file must contain exactly one time.Parse
+// call (the RFC3339 layout) and must not contain any space-separator format string.
+// This catches any regression that re-adds a fallback layout list.
+func TestAPITimeUnmarshalJSON_SingleParseCall_SC26(t *testing.T) {
+	// Read the source file from the same directory as this test.
+	// client_test.go is package api, alongside client.go.
+	src, err := os.ReadFile("client.go")
+	if err != nil {
+		t.Fatalf("Failed to read client.go: %v", err)
+	}
+	content := string(src)
+
+	// Exactly one time.Parse call
+	parseCount := strings.Count(content, "time.Parse(")
+	if parseCount != 1 {
+		t.Errorf(
+			"SC-26 violation: expected exactly 1 time.Parse call in client.go, found %d. "+
+				"INV-API-TS-2 requires a single RFC3339 layout with no fallback list.",
+			parseCount,
+		)
+	}
+
+	// RFC3339 layout present
+	if !strings.Contains(content, "time.RFC3339") {
+		t.Errorf(
+			"SC-26 violation: client.go must reference time.RFC3339 as the parser layout. " +
+				"INV-API-TS-2 requires the RFC3339 contract to be explicit.",
+		)
+	}
+
+	// No space-separator format strings (the pre-fix fallback layouts)
+	if strings.Contains(content, "2006-01-02 15:04:05") {
+		t.Errorf(
+			"SC-26 violation: client.go must not contain any space-separator format string. " +
+				"The pre-fix fallback list has been re-introduced.",
+		)
+	}
+}

@@ -6,6 +6,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, validator
 
 
+def _rfc3339(v: datetime | None) -> str | None:
+    # Storage emits both naive UTC strings (CURRENT_TIMESTAMP rows) and tz-aware
+    # UTC datetimes (datetime.now(UTC).isoformat() call sites). RFC3339 requires
+    # an explicit offset; append "Z" only when the value is naive so tz-aware
+    # values don't get a malformed double offset like "+00:00Z".
+    if v is None:
+        return None
+    return v.isoformat() if v.tzinfo else v.isoformat() + "Z"
+
+
 class SourceRequest(BaseModel):
     """Request model for adding a content source."""
 
@@ -44,9 +54,7 @@ class SourceResponse(BaseModel):
     error_count: int = Field(0, description="Number of consecutive errors")
     last_error: str | None = Field(None, description="Last error message")
 
-    model_config = {
-        "json_encoders": {datetime: lambda v: v.isoformat() + "Z" if v else None}
-    }
+    model_config = {"json_encoders": {datetime: _rfc3339}}
 
 
 class SourceListResponse(BaseModel):
@@ -81,3 +89,5 @@ class AudioBriefingResponse(BaseModel):
     generated_at: datetime = Field(..., description="Generation timestamp")
     provider: str = Field(..., description="TTS provider used")
     high_priority_count: int = Field(..., description="Number of HIGH priority items")
+
+    model_config = {"json_encoders": {datetime: _rfc3339}}

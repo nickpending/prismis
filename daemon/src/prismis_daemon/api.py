@@ -23,6 +23,9 @@ from .api_errors import (
 )
 from .api_models import (
     APIResponse,
+    ContentItemModel,
+    ContentResponse,
+    ContentResponseData,
     ContentUpdateRequest,
     SourceRequest,
     SourceResponse,
@@ -872,14 +875,17 @@ async def get_content(
                 for item in content_items
             ]
 
-        # Format response consistently with other endpoints
-        return {
-            "success": True,
-            "message": f"Retrieved {len(content_items)} content items",
-            "data": {
-                "items": content_items,
-                "total": len(content_items),
-                "filters_applied": {
+        # INV-API-TS-4: route through Pydantic model so @field_serializer fires
+        # on every datetime field. mode="json" produces a dict whose datetime
+        # fields are already RFC3339 strings — FastAPI then JSON-encodes the dict
+        # without re-touching the serialized values.
+        return ContentResponse(
+            success=True,
+            message=f"Retrieved {len(content_items)} content items",
+            data=ContentResponseData(
+                items=[ContentItemModel(**item) for item in content_items],
+                total=len(content_items),
+                filters_applied={
                     "priority": priority,
                     "unread_only": unread_only,
                     "include_archived": include_archived,
@@ -891,8 +897,8 @@ async def get_content(
                     "source": source,
                     "compact": compact,
                 },
-            },
-        }
+            ),
+        ).model_dump(mode="json")
 
     except Exception as e:
         raise ServerError(f"Failed to get content: {str(e)}") from e
@@ -962,21 +968,22 @@ async def semantic_search(
                 for item in results
             ]
 
-        return {
-            "success": True,
-            "message": f"Found {len(results)} results for '{q}'",
-            "data": {
-                "items": results,
-                "total": len(results),
-                "query": q,
-                "filters_applied": {
+        # INV-API-TS-4: same Pydantic-routed path as /api/entries.
+        return ContentResponse(
+            success=True,
+            message=f"Found {len(results)} results for '{q}'",
+            data=ContentResponseData(
+                items=[ContentItemModel(**item) for item in results],
+                total=len(results),
+                query=q,
+                filters_applied={
                     "limit": limit,
                     "min_score": min_score,
                     "source": source,
                     "compact": compact,
                 },
-            },
-        }
+            ),
+        ).model_dump(mode="json")
 
     except Exception as e:
         raise ServerError(f"Failed to search content: {str(e)}") from e

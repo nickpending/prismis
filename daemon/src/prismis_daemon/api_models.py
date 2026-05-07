@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_serializer, validator
 
 
 def _rfc3339(v: datetime | None) -> str | None:
@@ -54,7 +54,9 @@ class SourceResponse(BaseModel):
     error_count: int = Field(0, description="Number of consecutive errors")
     last_error: str | None = Field(None, description="Last error message")
 
-    model_config = {"json_encoders": {datetime: _rfc3339}}
+    @field_serializer("last_fetched")
+    def _serialize_last_fetched(self, v: datetime | None) -> str | None:
+        return _rfc3339(v)
 
 
 class SourceListResponse(BaseModel):
@@ -90,4 +92,74 @@ class AudioBriefingResponse(BaseModel):
     provider: str = Field(..., description="TTS provider used")
     high_priority_count: int = Field(..., description="Number of HIGH priority items")
 
-    model_config = {"json_encoders": {datetime: _rfc3339}}
+    @field_serializer("generated_at")
+    def _serialize_generated_at(self, v: datetime) -> str | None:
+        return _rfc3339(v)
+
+
+class ContentItemModel(BaseModel):
+    """Per-item response model for content endpoints.
+
+    INV-API-TS-1: every datetime field serializes through `_rfc3339` via
+    `@field_serializer` decorators so consumers see RFC3339 with explicit
+    timezone offsets (naive storage rows get a `Z` suffix; tz-aware values
+    keep their `+HH:MM`).
+    """
+
+    id: str
+    source_id: str | None = None
+    source_name: str | None = None
+    source_type: str | None = None
+    external_id: str | None = None
+    title: str
+    url: str
+    content: str | None = None
+    summary: str | None = None
+    analysis: dict[str, Any] | None = None
+    priority: str | None = None
+    published_at: datetime | None = None
+    fetched_at: datetime | None = None
+    read: bool = False
+    favorited: bool = False
+    interesting_override: bool = False
+    user_feedback: str | None = None
+    notes: str | None = None
+    archived_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    # Search-only fields (None for non-search paths)
+    relevance_score: float | None = None
+    # Deduplication fields (None when dedup not applied)
+    duplicate_count: int | None = None
+    duplicate_sources: list[str] | None = None
+
+    @field_serializer("published_at", "fetched_at", "archived_at")
+    def _serialize_published_fetched_archived(self, v: datetime | None) -> str | None:
+        return _rfc3339(v)
+
+    @field_serializer("created_at", "updated_at")
+    def _serialize_created_updated(self, v: datetime | None) -> str | None:
+        return _rfc3339(v)
+
+
+class ContentResponseData(BaseModel):
+    """Data envelope for content list responses."""
+
+    items: list[ContentItemModel]
+    total: int
+    query: str | None = None  # Only set by /api/search
+    filters_applied: dict[str, Any] = Field(default_factory=dict)
+
+
+class ContentResponse(BaseModel):
+    """Response model for /api/entries and /api/search.
+
+    INV-API-TS-4: every API list/detail endpoint that returns content data
+    flows through this model (or a sibling model that applies `_rfc3339`
+    via `@field_serializer`). No raw-dict pass-through on response paths
+    that emit datetime fields.
+    """
+
+    success: bool
+    message: str
+    data: ContentResponseData

@@ -3,13 +3,13 @@
 import logging
 import re
 import time
-from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import praw
 
-from ..models import ContentItem
 from ..config import Config
+from ..models import ContentItem
 from ..observability import log as obs_log
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class RedditFetcher:
             logger.error(f"Failed to initialize Reddit client: {e}")
             self.reddit = None
 
-    def fetch_content(self, source: Dict[str, Any]) -> List[ContentItem]:
+    def fetch_content(self, source: dict[str, Any]) -> list[ContentItem]:
         """Fetch hot posts from a subreddit.
 
         Args:
@@ -84,7 +84,7 @@ class RedditFetcher:
             subreddit = self.reddit.subreddit(subreddit_name)
 
             # Calculate cutoff date from config
-            cutoff_date = datetime.now(timezone.utc) - timedelta(
+            cutoff_date = datetime.now(UTC) - timedelta(
                 days=self.config.max_days_lookback
             )
             logger.debug(
@@ -112,7 +112,7 @@ class RedditFetcher:
                 if hasattr(submission, "created_utc"):
                     try:
                         post_date = datetime.fromtimestamp(
-                            submission.created_utc, tz=timezone.utc
+                            submission.created_utc, tz=UTC
                         )
                     except Exception as e:
                         logger.debug(f"Could not parse post date: {e}")
@@ -237,7 +237,7 @@ class RedditFetcher:
 
         return False
 
-    def _fetch_comments(self, submission) -> List[Dict[str, str]]:
+    def _fetch_comments(self, submission) -> list[dict[str, str]]:
         """Fetch top comments from a Reddit submission.
 
         Args:
@@ -290,7 +290,7 @@ class RedditFetcher:
 
         return comments
 
-    def _extract_metrics(self, submission) -> Dict[str, Any]:
+    def _extract_metrics(self, submission) -> dict[str, Any]:
         """Extract Reddit-specific metrics from a post.
 
         Args:
@@ -364,9 +364,7 @@ class RedditFetcher:
         published_at = None
         if hasattr(submission, "created_utc"):
             try:
-                published_at = datetime.fromtimestamp(
-                    submission.created_utc, tz=timezone.utc
-                )
+                published_at = datetime.fromtimestamp(submission.created_utc, tz=UTC)
             except Exception as e:
                 logger.debug(f"Could not parse date for {external_id}: {e}")
 
@@ -381,7 +379,7 @@ class RedditFetcher:
             url=url,
             content=content,
             published_at=published_at,
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(UTC),
             analysis={"metrics": metrics},  # Store Reddit metrics here
         )
 

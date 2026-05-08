@@ -4,7 +4,7 @@ import fcntl
 import json
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +38,7 @@ class ObservabilityLogger:
         today = datetime.now().strftime("%Y-%m-%d")
         log_file = self.base_dir / f"{today}_events.jsonl"
 
-        entry = {"ts": datetime.utcnow().isoformat() + "Z", "event": event, **metadata}
+        entry = {"ts": datetime.now(UTC).isoformat(), "event": event, **metadata}
 
         # Retry wrapper for lock failures (3 attempts with exponential backoff)
         for attempt in range(3):

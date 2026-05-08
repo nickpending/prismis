@@ -1,9 +1,9 @@
 """Unit tests for RSSFetcher logic functions."""
 
-from datetime import datetime
 import time
+from datetime import UTC, datetime
 
-from fetchers.rss import RSSFetcher
+from prismis_daemon.fetchers.rss import RSSFetcher
 
 
 def test_get_external_id_with_entry_id() -> None:
@@ -81,7 +81,7 @@ def test_parse_published_date_from_published_parsed() -> None:
     entry = Entry()
     parsed_date = fetcher._parse_published_date(entry)
 
-    assert parsed_date == datetime(2024, 1, 15, 10, 30, 0)
+    assert parsed_date == datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
 
 
 def test_parse_published_date_fallback_to_updated() -> None:
@@ -98,7 +98,7 @@ def test_parse_published_date_fallback_to_updated() -> None:
     entry = Entry()
     parsed_date = fetcher._parse_published_date(entry)
 
-    assert parsed_date == datetime(2024, 1, 16, 14, 45, 0)
+    assert parsed_date == datetime(2024, 1, 16, 14, 45, 0, tzinfo=UTC)
 
 
 def test_parse_published_date_returns_none_when_no_dates() -> None:

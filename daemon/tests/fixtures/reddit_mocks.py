@@ -1,7 +1,6 @@
 """Mock factory functions for PRAW submission objects in tests."""
 
 from unittest.mock import Mock  # claudex-guard: allow-mock
-from typing import Optional, Dict, Any
 
 
 def create_base_submission_mock(**overrides) -> Mock:
@@ -36,13 +35,13 @@ def create_base_submission_mock(**overrides) -> Mock:
     # Create mock subreddit object
     if "subreddit" not in overrides:
         subreddit_mock = Mock()  # claudex-guard: allow-mock
-        subreddit_mock.__str__ = lambda: "python"
+        subreddit_mock.__str__ = lambda self: "python"
         submission.subreddit = subreddit_mock
 
     # Create mock author object
     if "author" not in overrides:
         author_mock = Mock()  # claudex-guard: allow-mock
-        author_mock.__str__ = lambda: "test_user"
+        author_mock.__str__ = lambda self: "test_user"
         submission.author = author_mock
 
     return submission

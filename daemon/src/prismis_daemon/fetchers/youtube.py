@@ -6,12 +6,12 @@ import shutil
 import subprocess
 import tempfile
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any
 
-from ..models import ContentItem
 from ..config import Config
+from ..models import ContentItem
 from ..observability import log as obs_log
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class YouTubeFetcher:
 
         logger.info(f"YouTube fetcher initialized with yt-dlp at {self.yt_dlp_path}")
 
-    def fetch_content(self, source: Dict[str, Any]) -> List[ContentItem]:
+    def fetch_content(self, source: dict[str, Any]) -> list[ContentItem]:
         """Fetch videos with transcripts from a YouTube channel.
 
         Args:
@@ -156,7 +156,7 @@ class YouTubeFetcher:
         # Already a proper URL, just return it
         return url
 
-    def _discover_channel_videos(self, channel_url: str) -> List[Dict[str, Any]]:
+    def _discover_channel_videos(self, channel_url: str) -> list[dict[str, Any]]:
         """Discover recent videos from a YouTube channel.
 
         Args:
@@ -184,7 +184,7 @@ class YouTubeFetcher:
         # Add date filter using break-match-filters like legacy
         if self.config.max_days_lookback > 0:
             date_after = (
-                datetime.now() - timedelta(days=self.config.max_days_lookback)
+                datetime.now(UTC) - timedelta(days=self.config.max_days_lookback)
             ).strftime("%Y%m%d")
             cmd.extend(["--break-match-filters", f"upload_date>={date_after}"])
 
@@ -264,8 +264,8 @@ class YouTubeFetcher:
             raise Exception("YouTube channel discovery timed out")
 
     def _process_video(
-        self, video: Dict[str, Any], source_id: str
-    ) -> Optional[ContentItem]:
+        self, video: dict[str, Any], source_id: str
+    ) -> ContentItem | None:
         """Process a video to extract transcript and create ContentItem.
 
         Args:
@@ -290,7 +290,7 @@ class YouTubeFetcher:
         # Convert to ContentItem
         return self._to_content_item(video, transcript, source_id)
 
-    def _extract_transcript(self, video_url: str) -> Optional[str]:
+    def _extract_transcript(self, video_url: str) -> str | None:
         """Extract transcript from a YouTube video using yt-dlp.
 
         Args:
@@ -353,7 +353,7 @@ class YouTubeFetcher:
                         transcript_file = subtitle_files[0]
                         logger.debug(f"Found transcript file: {transcript_file.name}")
 
-                        with open(transcript_file, "r", encoding="utf-8") as f:
+                        with open(transcript_file, encoding="utf-8") as f:
                             raw_transcript = f.read()
 
                         # Parse VTT/SRT to plain text
@@ -421,8 +421,8 @@ class YouTubeFetcher:
         return " ".join(text_lines)
 
     def _handle_missing_transcript(
-        self, video: Dict[str, Any], source_id: str
-    ) -> Optional[ContentItem]:
+        self, video: dict[str, Any], source_id: str
+    ) -> ContentItem | None:
         """Handle videos that don't have transcripts available.
 
         Args:
@@ -447,14 +447,14 @@ class YouTubeFetcher:
             url=video["url"],
             content=f"Video title: {video['title']}\n\nNo transcript available for this video.",
             published_at=self._parse_upload_date(video.get("upload_date")),
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(UTC),
             priority="low",  # Mark as low priority since no transcript
             notes="No transcript available",
             analysis={"metrics": metrics},
         )
 
     def _to_content_item(
-        self, video: Dict[str, Any], transcript: str, source_id: str
+        self, video: dict[str, Any], transcript: str, source_id: str
     ) -> ContentItem:
         """Convert video data and transcript to ContentItem.
 
@@ -483,11 +483,11 @@ class YouTubeFetcher:
             url=video["url"],
             content=transcript,
             published_at=published_at,
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(UTC),
             analysis={"metrics": metrics},
         )
 
-    def _parse_upload_date(self, date_str: Optional[str]) -> Optional[datetime]:
+    def _parse_upload_date(self, date_str: str | None) -> datetime | None:
         """Parse YouTube's upload date format (YYYYMMDD).
 
         Args:
@@ -502,7 +502,7 @@ class YouTubeFetcher:
         try:
             # Parse date and make it timezone-aware (UTC)
             parsed_date = datetime.strptime(date_str, "%Y%m%d")
-            return parsed_date.replace(tzinfo=timezone.utc)
+            return parsed_date.replace(tzinfo=UTC)
         except ValueError:
             logger.debug(f"Could not parse date: {date_str}")
             return None

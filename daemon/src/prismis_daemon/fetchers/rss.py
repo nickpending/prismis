@@ -3,15 +3,14 @@
 import hashlib
 import logging
 import time
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from datetime import UTC, datetime, timedelta
 
 import feedparser
 import httpx
 from trafilatura import extract, fetch_url
 
-from ..models import ContentItem
 from ..config import Config
+from ..models import ContentItem
 from ..observability import log as obs_log
 
 logger = logging.getLogger(__name__)
@@ -41,7 +40,7 @@ class RSSFetcher:
         self.timeout = timeout
         self.client = httpx.Client(timeout=timeout, follow_redirects=True)
 
-    def fetch_content(self, source: dict) -> List[ContentItem]:
+    def fetch_content(self, source: dict) -> list[ContentItem]:
         """Fetch RSS feed and extract full content for each item.
 
         Args:
@@ -72,7 +71,7 @@ class RSSFetcher:
                 )
 
             # Calculate cutoff date from config
-            cutoff_date = datetime.now(timezone.utc) - timedelta(
+            cutoff_date = datetime.now(UTC) - timedelta(
                 days=self.config.max_days_lookback
             )
             logger.debug(
@@ -117,7 +116,7 @@ class RSSFetcher:
                     content = self._extract_full_content(url, entry)
 
                     # Create ContentItem (use fetched_at if no published_at)
-                    fetched_at = datetime.utcnow()
+                    fetched_at = datetime.now(UTC)
                     item = ContentItem(
                         source_id=source_id,
                         external_id=external_id,
@@ -197,10 +196,10 @@ class RSSFetcher:
             return hashlib.sha256(entry["link"].encode()).hexdigest()[:16]
 
         # Last resort: hash the title
-        title = entry.get("title", str(datetime.utcnow()))
+        title = entry.get("title", str(datetime.now(UTC)))
         return hashlib.sha256(title.encode()).hexdigest()[:16]
 
-    def _parse_published_date(self, entry: dict) -> Optional[datetime]:
+    def _parse_published_date(self, entry: dict) -> datetime | None:
         """Parse published date from feed entry.
 
         Args:
@@ -213,7 +212,7 @@ class RSSFetcher:
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             try:
                 # Convert time tuple to timezone-aware datetime
-                return datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+                return datetime(*entry.published_parsed[:6], tzinfo=UTC)
             except Exception as e:
                 logger.debug(f"Could not parse published date: {e}")
 
@@ -221,7 +220,7 @@ class RSSFetcher:
         if hasattr(entry, "updated_parsed") and entry.updated_parsed:
             try:
                 # Convert time tuple to timezone-aware datetime
-                return datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
+                return datetime(*entry.updated_parsed[:6], tzinfo=UTC)
             except Exception as e:
                 logger.debug(f"Could not parse updated date: {e}")
 

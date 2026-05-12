@@ -155,6 +155,125 @@ def test_audio_briefing_response_tz_aware_generated_at_is_rfc3339() -> None:
 
 
 # ---------------------------------------------------------------------------
+# T5b: AudioBriefingResponse.model_dump(mode="json") — endpoint code path —
+#      generates RFC3339 generated_at with explicit offset (SC-35b, INV-API-TS-1)
+# ---------------------------------------------------------------------------
+
+
+def test_audio_briefing_response_model_dump_json_mode_rfc3339() -> None:
+    """SC-35b / INV-API-TS-1: model_dump(mode='json') emits RFC3339 generated_at.
+
+    This exercises the EXACT call path used by the audio endpoint after task 2.10:
+        AudioBriefingResponse(...).model_dump(mode="json")
+    T5 covers model_dump_json() (str output). This covers model_dump(mode="json")
+    (dict output, values already serialized) — the two paths share the same
+    @field_serializer but test both consumer forms.
+    """
+    aware_ts = datetime(2026, 5, 11, 20, 25, 0, 373657, tzinfo=UTC)
+    briefing = AudioBriefingResponse(
+        file_path="/var/prismis/audio/briefing-2026-05-11.mp3",
+        filename="briefing-2026-05-11.mp3",
+        duration_estimate="2-5 minutes",
+        generated_at=aware_ts,
+        provider="openai",
+        high_priority_count=0,
+    )
+
+    data = briefing.model_dump(mode="json")
+
+    generated_at = data["generated_at"]
+    assert isinstance(generated_at, str), (
+        f"model_dump(mode='json') generated_at must be str, got {type(generated_at)}"
+    )
+    assert_rfc3339(generated_at)
+    assert not generated_at.endswith("+00:00Z"), (
+        f"Double-offset bug on model_dump(mode='json') path: {generated_at!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# T5c: AudioBriefingResponse.model_dump(mode="json") field set — SC-36
+#      envelope data contains exactly 6 expected fields, no extra, no missing
+# ---------------------------------------------------------------------------
+
+
+def test_audio_briefing_response_model_dump_field_set() -> None:
+    """SC-36: model_dump(mode='json') produces exactly the 6 expected data fields.
+
+    INV-API-TS-4 requires structural enforcement via the model. This test verifies
+    the serialized dict shape matches the contract so no field is silently dropped
+    or added when the endpoint returns data.
+    """
+    aware_ts = datetime(2026, 5, 11, 20, 25, 0, tzinfo=UTC)
+    briefing = AudioBriefingResponse(
+        file_path="/var/prismis/audio/briefing.mp3",
+        filename="briefing.mp3",
+        duration_estimate="2-5 minutes",
+        generated_at=aware_ts,
+        provider="openai",
+        high_priority_count=3,
+    )
+
+    data = briefing.model_dump(mode="json")
+
+    expected_keys = {
+        "file_path",
+        "filename",
+        "duration_estimate",
+        "generated_at",
+        "provider",
+        "high_priority_count",
+    }
+    assert set(data.keys()) == expected_keys, (
+        f"SC-36 field set mismatch. Expected {sorted(expected_keys)}, "
+        f"got {sorted(data.keys())}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# T5d: AudioBriefingResponse.model_dump(mode="json") with duration_estimate=None
+#      Tester-discovered: builder labeled this LOW and noted "always set" in the
+#      endpoint, but the model declares Optional — a future omission would produce
+#      null on wire. Test confirms null is present-but-null (not a missing key),
+#      so SC-36 field-set invariant holds even for the null case.
+# ---------------------------------------------------------------------------
+
+
+def test_audio_briefing_response_model_dump_none_duration_estimate() -> None:
+    """Tester-discovered: duration_estimate=None serializes as null (key present).
+
+    The task file labels this LOW risk ("always set" in the endpoint). But
+    AudioBriefingResponse.duration_estimate is Optional (str | None = Field(None)).
+    If a future change omits duration_estimate, model_dump(mode='json') emits
+    'duration_estimate': null — the key is present with a null value, not absent.
+    This confirms SC-36 (all 6 keys present) holds even for the null path, and
+    that the null value reaches the consumer as JSON null, not a missing field.
+    """
+    aware_ts = datetime(2026, 5, 11, 20, 25, 0, tzinfo=UTC)
+    briefing = AudioBriefingResponse(
+        file_path="/var/prismis/audio/briefing.mp3",
+        filename="briefing.mp3",
+        duration_estimate=None,
+        generated_at=aware_ts,
+        provider="openai",
+        high_priority_count=3,
+    )
+
+    data = briefing.model_dump(mode="json")
+
+    # Key must be present (SC-36), value must be null (not missing)
+    assert "duration_estimate" in data, (
+        "duration_estimate key must be present in model_dump output even when None "
+        "(SC-36: all 6 fields must be present)"
+    )
+    assert data["duration_estimate"] is None, (
+        f"duration_estimate=None must serialize as null, got: {data['duration_estimate']!r}"
+    )
+    # generated_at must still be RFC3339 (INV-API-TS-1 holds regardless of other fields)
+    assert_rfc3339(data["generated_at"])
+
+
+# ---------------------------------------------------------------------------
 # T6: storage raw-dict path returns naive ISO for legacy rows
 #
 # What this test proves: storage.get_content_by_priority() returns the ISO

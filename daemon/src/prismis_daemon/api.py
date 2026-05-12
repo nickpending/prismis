@@ -23,6 +23,7 @@ from .api_errors import (
 )
 from .api_models import (
     APIResponse,
+    AudioBriefingResponse,
     ContentItemModel,
     ContentResponse,
     ContentResponseData,
@@ -1333,14 +1334,14 @@ async def generate_audio_briefing(
         return {
             "success": True,
             "message": f"Audio briefing generated: {filename}",
-            "data": {
-                "file_path": str(output_path),
-                "filename": filename,
-                "duration_estimate": "2-5 minutes",
-                "generated_at": datetime.now(UTC).isoformat(),
-                "provider": config.audio_provider,
-                "high_priority_count": len(report.high_priority),
-            },
+            "data": AudioBriefingResponse(
+                file_path=str(output_path),
+                filename=filename,
+                duration_estimate="2-5 minutes",
+                generated_at=datetime.now(UTC),
+                provider=config.audio_provider,
+                high_priority_count=len(report.high_priority),
+            ).model_dump(mode="json"),
         }
 
     except ValidationError:

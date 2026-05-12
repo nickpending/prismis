@@ -19,8 +19,6 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-
 from prismis_daemon.api_models import (
     ContentItemModel,
 )
@@ -247,16 +245,6 @@ def test_boundaries_md_documents_inv_api_ts4() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "INV-API-TS-4 gap: AudioBriefingResponse is not imported in api.py — "
-        "the audio endpoint bypasses Pydantic and returns a raw dict. "
-        "Fix: import AudioBriefingResponse in api.py and return "
-        "AudioBriefingResponse(...).model_dump(mode='json') from generate_audio_briefing(). "
-        "Remove this decorator after the fix lands."
-    ),
-)
 def test_audio_briefing_endpoint_uses_pydantic_model() -> None:
     """DEFECT PROOF (INV-API-TS-4 gap): AudioBriefingResponse not imported/used in api.py.
 

@@ -93,7 +93,7 @@ class AudioBriefingResponse(BaseModel):
     high_priority_count: int = Field(..., description="Number of HIGH priority items")
 
     @field_serializer("generated_at")
-    def _serialize_generated_at(self, v: datetime) -> str | None:
+    def _serialize_generated_at(self, v: datetime) -> str:
         return _rfc3339(v)
 
 

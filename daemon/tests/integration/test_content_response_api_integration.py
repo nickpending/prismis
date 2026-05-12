@@ -290,15 +290,6 @@ def test_entries_envelope_shape_preserved(entries_client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "INV-API-TS-4 gap: /api/entries/{id} returns raw dict from storage, "
-        "not ContentItemModel — fetched_at naive string leaks through. "
-        "Fix: route get_entry_summary() through ContentItemModel(**entry).model_dump(mode='json'). "
-        "Remove this decorator after the fix lands."
-    ),
-)
 def test_entry_detail_fetched_at_wire_format_is_rfc3339(
     entries_client: TestClient,
     storage_with_naive_fetched_at: Storage,
@@ -341,3 +332,127 @@ def test_entry_detail_fetched_at_wire_format_is_rfc3339(
             "Route get_entry_summary() through ContentItemModel to fix."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# T-K: SC-39 — detail endpoint envelope shape, lightweight branch (no content)
+# ---------------------------------------------------------------------------
+
+
+def test_entry_detail_envelope_shape_lightweight(
+    entries_client: TestClient,
+    storage_with_naive_fetched_at: Storage,
+) -> None:
+    """SC-39a / INV-API-TS-4: /api/entries/{id} default branch excludes 'content' field.
+
+    ContentItemModel.model_dump(mode='json', exclude={'content'}) must omit the
+    'content' key entirely from the response data dict — not null it.  Lightweight
+    consumers (TUI list view, web card render) must not receive potentially large
+    content bodies when they did not request them.
+
+    Also verifies: envelope shape (success/message/data), RFC3339 datetimes,
+    required non-content fields present.
+    """
+    conn = storage_with_naive_fetched_at.conn
+    cursor = conn.execute(
+        "SELECT id FROM content WHERE external_id = ?", ("wire-test-001",)
+    )
+    row = cursor.fetchone()
+    assert row is not None, "Seeded item not found in storage"
+    content_id = row["id"]
+
+    # Default request — no ?include=content
+    response = entries_client.get(
+        f"/api/entries/{content_id}",
+        headers={"X-API-Key": API_KEY},
+    )
+
+    assert response.status_code == 200, f"Unexpected status: {response.text}"
+    data = response.json()
+
+    # Envelope shape preserved
+    assert "success" in data, "Envelope must have 'success'"
+    assert "message" in data, "Envelope must have 'message'"
+    assert "data" in data, "Envelope must have 'data'"
+    assert data["success"] is True
+
+    entry = data["data"]
+
+    # SC-39: lightweight branch MUST NOT include 'content' key
+    assert "content" not in entry, (
+        "INV-API-TS-4: lightweight detail response must exclude 'content' field. "
+        f"Got keys: {list(entry.keys())}"
+    )
+
+    # Required fields present
+    assert "id" in entry, "data must have 'id'"
+    assert "title" in entry, "data must have 'title'"
+    assert "url" in entry, "data must have 'url'"
+
+    # Datetime fields RFC3339 (or null)
+    fetched_at = entry.get("fetched_at")
+    if fetched_at is not None:
+        assert_rfc3339(fetched_at)
+
+
+# ---------------------------------------------------------------------------
+# T-L: SC-39 — detail endpoint full branch (?include=content) includes content
+# ---------------------------------------------------------------------------
+
+
+def test_entry_detail_envelope_shape_full(
+    entries_client: TestClient,
+    storage_with_naive_fetched_at: Storage,
+) -> None:
+    """SC-39b / INV-API-TS-4: /api/entries/{id}?include=content full branch includes content.
+
+    ContentItemModel.model_dump(mode='json') (no exclude) must include the 'content'
+    key in the response data dict. Full-entry consumers (TUI detail pane, web expanded
+    view) depend on this field being present when explicitly requested.
+
+    Also verifies: envelope shape, RFC3339 datetimes, content has a string value.
+    """
+    conn = storage_with_naive_fetched_at.conn
+    cursor = conn.execute(
+        "SELECT id FROM content WHERE external_id = ?", ("wire-test-001",)
+    )
+    row = cursor.fetchone()
+    assert row is not None, "Seeded item not found in storage"
+    content_id = row["id"]
+
+    # Full request — include content body
+    response = entries_client.get(
+        f"/api/entries/{content_id}?include=content",
+        headers={"X-API-Key": API_KEY},
+    )
+
+    assert response.status_code == 200, f"Unexpected status: {response.text}"
+    data = response.json()
+
+    # Envelope shape preserved
+    assert "success" in data, "Envelope must have 'success'"
+    assert "message" in data, "Envelope must have 'message'"
+    assert "data" in data, "Envelope must have 'data'"
+    assert data["success"] is True
+
+    entry = data["data"]
+
+    # SC-39: full branch MUST include 'content' key with a string value
+    assert "content" in entry, (
+        "INV-API-TS-4: full detail response (?include=content) must include 'content' field. "
+        f"Got keys: {list(entry.keys())}"
+    )
+    assert isinstance(entry["content"], str), (
+        f"content field must be a string, got {type(entry['content'])}"
+    )
+    assert len(entry["content"]) > 0, "content field must be non-empty for seeded item"
+
+    # Required fields present
+    assert "id" in entry, "data must have 'id'"
+    assert "title" in entry, "data must have 'title'"
+    assert "url" in entry, "data must have 'url'"
+
+    # Datetime fields RFC3339 (or null)
+    fetched_at = entry.get("fetched_at")
+    if fetched_at is not None:
+        assert_rfc3339(fetched_at)

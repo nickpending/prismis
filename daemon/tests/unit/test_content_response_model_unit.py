@@ -230,32 +230,26 @@ def test_boundaries_md_documents_inv_api_ts4() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DEFECT PROOF: AudioBriefingResponse not used by the audio endpoint (INV-API-TS-4)
+# REGRESSION GUARD: AudioBriefingResponse imported and used by the audio endpoint
 #
-# Discovered during independent api.py review: api.py's import list does NOT
-# include AudioBriefingResponse (grep confirmed: it is absent from the
-# `from .api_models import (...)` block). The audio briefing endpoint
-# (generate_audio_briefing) returns a raw dict literal — it never constructs
-# AudioBriefingResponse. INV-API-TS-4 requires every endpoint that returns
-# content data to flow through a Pydantic response model.
-#
-# This test MUST FAIL today (proving the structural gap) and MUST PASS after
-# api.py imports and uses AudioBriefingResponse in the audio endpoint.
+# Task 2.10 fixed the INV-API-TS-4 gap: api.py now imports AudioBriefingResponse
+# and the audio briefing endpoint (generate_audio_briefing) constructs it instead
+# of returning a raw dict literal. This test guards against regression — if
+# AudioBriefingResponse is ever removed from api.py's imports, or the audio
+# endpoint reverts to a raw-dict return, this test will catch it.
 # It is a structural (static-analysis) test: no API call needed.
 # ---------------------------------------------------------------------------
 
 
 def test_audio_briefing_endpoint_uses_pydantic_model() -> None:
-    """DEFECT PROOF (INV-API-TS-4 gap): AudioBriefingResponse not imported/used in api.py.
+    """INV-API-TS-4 regression guard: AudioBriefingResponse imported and used in api.py.
 
     AudioBriefingResponse exists in api_models.py and was migrated to @field_serializer
-    in task 2.8. But api.py never imports it — the audio endpoint returns a raw dict
-    literal with 'generated_at': datetime.now(UTC).isoformat().
+    in task 2.8. Task 2.10 fixed the structural gap by importing AudioBriefingResponse
+    in api.py and routing generate_audio_briefing() through it.
 
-    Wire is RFC3339-correct by coincidence (datetime.now(UTC).isoformat() → +00:00),
-    not by contract. INV-API-TS-4 requires structural enforcement.
-
-    This test FAILS today and PASSES after the fix.
+    Wire is now RFC3339-correct by contract (via @field_serializer on generated_at),
+    not by coincidence. INV-API-TS-4 is structurally enforced on the audio endpoint.
     """
     api_py_path = (
         Path(__file__).parent.parent.parent / "src" / "prismis_daemon" / "api.py"
@@ -266,9 +260,8 @@ def test_audio_briefing_endpoint_uses_pydantic_model() -> None:
 
     # AudioBriefingResponse must appear in the import block from api_models
     assert "AudioBriefingResponse" in content, (
-        "DEFECT (INV-API-TS-4): AudioBriefingResponse is not imported in api.py. "
-        "The audio endpoint bypasses Pydantic — generated_at on the wire is "
-        "RFC3339-correct by accident, not by contract. "
-        "Fix: add AudioBriefingResponse to the api_models import and route "
-        "generate_audio_briefing() through it."
+        "REGRESSION (INV-API-TS-4): AudioBriefingResponse is no longer imported in api.py. "
+        "Task 2.10 added this import to enforce RFC3339 datetime serialization on the audio "
+        "endpoint via @field_serializer — reverting it breaks the structural guarantee. "
+        "Restore the AudioBriefingResponse import and its use in generate_audio_briefing()."
     )

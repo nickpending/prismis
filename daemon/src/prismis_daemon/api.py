@@ -1019,13 +1019,13 @@ async def get_entry_summary(
         if not entry:
             raise NotFoundError("Entry", content_id)
 
-        # Include content field if requested, otherwise filter it out
+        # INV-API-TS-4: route through ContentItemModel so @field_serializer emits RFC3339 datetimes
         if include == "content":
-            # Return full entry
-            entry_data = entry
+            entry_data = ContentItemModel(**entry).model_dump(mode="json")
         else:
-            # Remove content field for lightweight response
-            entry_data = {k: v for k, v in entry.items() if k != "content"}
+            entry_data = ContentItemModel(**entry).model_dump(
+                mode="json", exclude={"content"}
+            )
 
         return {
             "success": True,

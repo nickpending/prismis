@@ -52,29 +52,33 @@ def _seed_upvote(storage: Storage, src_id: str, external_id: str) -> str:
     return content_id
 
 
-_CONTENT_TIMESTAMP_TRIGGER_DDL = """
-CREATE TRIGGER update_content_timestamp
-AFTER UPDATE ON content
-BEGIN
-    UPDATE content SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END
-"""
-
-
 def _backdate(storage: Storage, content_id: str, days_ago: int) -> None:
     """Move updated_at backward by days_ago days.
 
     The update_content_timestamp trigger resets updated_at = CURRENT_TIMESTAMP
     on every UPDATE, so we must drop it, apply the backdate, then restore it.
     This is a test-side concern — no production code is modified.
+
+    Reads the live trigger DDL from sqlite_master before dropping, so the
+    recreated trigger always matches whatever schema.sql installed — no
+    hardcoded copy that can drift.
     """
     conn = storage.conn
+    cursor = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='update_content_timestamp'"
+    )
+    row = cursor.fetchone()
+    assert row is not None, (
+        "update_content_timestamp trigger not found in sqlite_master — "
+        "was init_db() called before this helper?"
+    )
+    trigger_ddl = row[0]
     conn.execute("DROP TRIGGER IF EXISTS update_content_timestamp")
     conn.execute(
         "UPDATE content SET updated_at = datetime('now', ?) WHERE id = ?",
         (f"-{days_ago} days", content_id),
     )
-    conn.execute(_CONTENT_TIMESTAMP_TRIGGER_DDL)
+    conn.execute(trigger_ddl)
     conn.commit()
 
 

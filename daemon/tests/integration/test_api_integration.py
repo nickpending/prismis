@@ -1,14 +1,14 @@
 """Integration tests for REST API - protecting invariants and handling failures."""
 
-import asyncio
-import pytest
-from pathlib import Path
 import time
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
+
 from prismis_daemon.api import app
-from prismis_daemon.storage import Storage
 from prismis_daemon.models import ContentItem
+from prismis_daemon.storage import Storage
 
 
 @pytest.fixture
@@ -95,12 +95,22 @@ def test_url_normalization(api_client: TestClient, test_db: Path) -> None:
         assert source["url"] == expected_url, "Database should store normalized URL"
 
 
-def test_source_validation_blocks_invalid(
+def test_source_type_validation_blocks_invalid(
     api_client: TestClient, test_db: Path
 ) -> None:
     """
-    INVARIANT: Invalid sources never enter database
-    BREAKS: Fetchers crash on invalid sources
+    INVARIANT: Sources with invalid type-URL combinations never enter database.
+    BREAKS: Fetchers crash on sources that don't match their declared type.
+
+    These cases are rejected by source-type validators in api.py (the
+    _validate_source_url() logic at api.py:217+), NOT by
+    SourceRequest.validate_url. If SourceRequest.validate_url were deleted
+    entirely, all five cases below would still return 422 for type-mismatch
+    reasons.
+
+    The empty/whitespace URL behavioral invariant (SourceRequest.validate_url's
+    strip + non-empty check) is covered in:
+        tests/unit/test_source_request_validator_unit.py
     """
     invalid_sources = [
         # These should all be rejected

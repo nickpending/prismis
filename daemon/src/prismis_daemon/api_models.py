@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_serializer, validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 
 def _rfc3339(v: datetime | None) -> str | None:
@@ -25,7 +25,7 @@ class SourceRequest(BaseModel):
     )
     name: str | None = Field(None, description="Optional custom name for the source")
 
-    @validator("url")
+    @field_validator("url", mode="before")
     def validate_url(cls, v: str) -> str:
         """Basic URL validation and cleanup."""
         v = v.strip()

@@ -369,11 +369,27 @@ def test_boundaries_md_documents_rfc3339_contract() -> None:
     """INV-API-TS-3: boundaries.md must document the API <-> Consumers datetime contract.
 
     This is a structural file-content test — no runtime behavior, pure doc invariant.
+
+    boundaries.md lives in the operator's obsidian vault, outside the project clone.
+    The path is derived from Path.home() to avoid hardcoding an absolute filesystem
+    root (P15: follow the conftest.py pattern of pytest.skip for unavailable deps).
+    Tests skip gracefully on machines where the vault is absent; they run — and
+    protect INV-API-TS-3 — where the vault is present.
     """
-    boundaries_path = Path(
-        "/Users/rudy/obsidian/projects/prismis/architecture/boundaries.md"
+    boundaries_path = (
+        Path.home()
+        / "obsidian"
+        / "projects"
+        / "prismis"
+        / "architecture"
+        / "boundaries.md"
     )
-    assert boundaries_path.exists(), f"boundaries.md not found at {boundaries_path}"
+    if not boundaries_path.exists():
+        pytest.skip(
+            f"boundaries.md not found at {boundaries_path} — "
+            "obsidian vault not present on this machine. "
+            "INV-API-TS-3 check skipped."
+        )
 
     content = boundaries_path.read_text(encoding="utf-8")
 

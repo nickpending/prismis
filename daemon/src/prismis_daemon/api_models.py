@@ -1,11 +1,17 @@
 """Pydantic models for REST API requests and responses."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, overload
 
 from pydantic import BaseModel, Field, field_serializer, field_validator
 
 
+@overload
+def _rfc3339(v: datetime) -> str: ...
+@overload
+def _rfc3339(v: None) -> None: ...
+@overload
+def _rfc3339(v: datetime | None) -> str | None: ...
 def _rfc3339(v: datetime | None) -> str | None:
     # Storage emits both naive UTC strings (CURRENT_TIMESTAMP rows) and tz-aware
     # UTC datetimes (datetime.now(UTC).isoformat() call sites). RFC3339 requires

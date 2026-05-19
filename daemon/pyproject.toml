@@ -33,6 +33,7 @@ packages = ["src/prismis_daemon"]
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.409",
     "pytest",
     "pytest-asyncio",
 ]
@@ -40,6 +41,13 @@ dev = [
 [tool.ruff.lint.per-file-ignores]
 "src/prismis_daemon/api.py" = ["B008"]  # FastAPI Depends() in argument defaults
 "tests/**/*.py" = ["S101"]  # Allow assert statements in tests
+
+[tool.pyright]
+include = ["src/prismis_daemon"]
+exclude = ["**/__pycache__", "**/.venv", "**/node_modules"]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
+reportMissingImports = "warning"
 
 # Git dependencies are pinned to specific commits validated at iteration boundaries.
 # `uv tool install --reinstall` (used by `make install-daemon`) bypasses the lockfile

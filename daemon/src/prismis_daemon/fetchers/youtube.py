@@ -1,5 +1,6 @@
 """YouTube content fetcher using yt-dlp."""
 
+import json
 import logging
 import re
 import shutil
@@ -165,16 +166,17 @@ class YouTubeFetcher:
         Returns:
             List of video metadata dicts
         """
-        # Build yt-dlp command for discovery WITH FULL METADATA
-        # Using --print with specific format (much faster than --print-json)
-        # MUST use --simulate with --print together for metadata without download
+        # Build yt-dlp command for discovery WITH FULL METADATA.
+        # Field-projection JSON template (%(.{...})j) emits one small JSON dict per video
+        # — robust to titles containing '|' (which broke pipe-delimited parsing and
+        # silently dropped affected videos) while keeping payload tiny (~210B/video).
         cmd = [
             self.yt_dlp_path,
             "--simulate",  # Get metadata without downloading
             "--playlist-end",
             str(self.max_items),  # Limit videos
             "--print",
-            "%(id)s|%(title)s|%(duration)s|%(upload_date)s|%(view_count)s|%(webpage_url)s",
+            "%(.{id,title,duration,upload_date,view_count,webpage_url})j",
             "--socket-timeout",
             "120",  # Increase timeout for reliability
             "--retries",
@@ -221,36 +223,30 @@ class YouTubeFetcher:
                     raise Exception(f"yt-dlp failed: {result.stderr}")
 
             videos = []
+            # Date filtering is handled upstream by --break-match-filters; no per-line check needed.
             for line in result.stdout.strip().split("\n"):
                 if line:
                     try:
-                        # Parse pipe-delimited format: id|title|duration|upload_date|view_count|url
-                        parts = line.split("|")
-                        if len(parts) >= 6:
-                            video_id, title, duration, upload_date, view_count, url = (
-                                parts[:6]
-                            )
-
-                            # Date filtering handled by break-match-filters now
-
-                            videos.append(
-                                {
-                                    "id": video_id,
-                                    "title": title,
-                                    "url": url
-                                    if url.startswith("http")
-                                    else f"https://www.youtube.com/watch?v={video_id}",
-                                    "duration": int(duration)
-                                    if duration and duration != "NA"
-                                    else None,
-                                    "upload_date": upload_date
-                                    if upload_date != "NA"
-                                    else None,
-                                    "view_count": int(view_count)
-                                    if view_count and view_count != "NA"
-                                    else None,
-                                }
-                            )
+                        data = json.loads(line)
+                        video_id = data["id"]
+                        url = (
+                            data.get("webpage_url")
+                            or f"https://www.youtube.com/watch?v={video_id}"
+                        )
+                        videos.append(
+                            {
+                                "id": video_id,
+                                "title": data["title"],
+                                "url": url,
+                                "duration": int(data["duration"])
+                                if data.get("duration") is not None
+                                else None,
+                                "upload_date": data.get("upload_date"),
+                                "view_count": int(data["view_count"])
+                                if data.get("view_count") is not None
+                                else None,
+                            }
+                        )
                     except Exception as e:
                         logger.warning(
                             f"Failed to parse video metadata: {line}, error: {e}"

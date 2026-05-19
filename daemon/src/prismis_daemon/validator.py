@@ -1,11 +1,10 @@
 """Source validation module for verifying sources before adding to database."""
 
 import re
-from typing import Tuple, Optional
 from urllib.parse import urlparse
 
-import httpx
 import feedparser
+import httpx
 
 
 class SourceValidator:
@@ -22,7 +21,7 @@ class SourceValidator:
 
     def validate_source(
         self, url: str, source_type: str
-    ) -> Tuple[bool, Optional[str], Optional[dict]]:
+    ) -> tuple[bool, str | None, dict | None]:
         """Validate a source URL based on its type.
 
         Args:
@@ -49,7 +48,7 @@ class SourceValidator:
         except Exception as e:
             return False, f"Validation failed: {str(e)}", None
 
-    def _validate_rss(self, url: str) -> Tuple[bool, Optional[str], Optional[dict]]:
+    def _validate_rss(self, url: str) -> tuple[bool, str | None, dict | None]:
         """Validate an RSS/Atom feed URL.
 
         Fetches the feed and checks if it's valid XML with entries.
@@ -106,7 +105,7 @@ class SourceValidator:
         except Exception as e:
             return False, f"RSS validation error: {str(e)}", None
 
-    def _validate_reddit(self, url: str) -> Tuple[bool, Optional[str], Optional[dict]]:
+    def _validate_reddit(self, url: str) -> tuple[bool, str | None, dict | None]:
         """Validate a Reddit subreddit URL.
 
         Checks if the subreddit exists via Reddit's JSON API.
@@ -194,7 +193,7 @@ class SourceValidator:
         except Exception as e:
             return False, f"Reddit validation error: {str(e)}", None
 
-    def _validate_youtube(self, url: str) -> Tuple[bool, Optional[str], Optional[dict]]:
+    def _validate_youtube(self, url: str) -> tuple[bool, str | None, dict | None]:
         """Validate a YouTube channel/user URL.
 
         Only validates URL format to avoid YouTube API quota consumption.
@@ -212,7 +211,7 @@ class SourceValidator:
                 # Format: youtube://channel_id or youtube://@handle
                 channel_part = url.replace("youtube://", "").strip("/")
                 if channel_part.startswith("@") or channel_part.startswith("UC"):
-                    return True, None, None, None
+                    return True, None, None
                 else:
                     return False, "Invalid YouTube channel ID or handle", None
 
@@ -253,7 +252,7 @@ class SourceValidator:
         except Exception as e:
             return False, f"YouTube validation error: {str(e)}", None
 
-    def _validate_file(self, url: str) -> Tuple[bool, Optional[str], Optional[dict]]:
+    def _validate_file(self, url: str) -> tuple[bool, str | None, dict | None]:
         """Validate a file URL for text/markdown content.
 
         Checks if URL ends with supported file extensions (.md, .txt).

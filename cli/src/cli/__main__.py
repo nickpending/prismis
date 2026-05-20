@@ -23,6 +23,7 @@ from cli import (  # noqa: E402
     archive,
     embeddings,
     export,
+    extract,
     get,
     list,
     prune,
@@ -66,6 +67,9 @@ app.add_typer(analyze.app, name="analyze", help="Content analysis and repair")
 app.command(name="get", help="Retrieve content entries")(get.get)
 app.command(name="list", help="List content entries")(list.list)
 app.command(name="export", help="Export content to JSON/CSV")(export.export)
+app.command(name="extract", help="Backfill deep extractions for existing content")(
+    extract.extract
+)
 app.command(name="search", help="Search content semantically")(search.search)
 app.command(name="statistics", help="Display system-wide statistics")(
     statistics.statistics

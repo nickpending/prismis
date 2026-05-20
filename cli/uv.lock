@@ -457,8 +457,8 @@ wheels = [
 
 [[package]]
 name = "llm-core"
-version = "0.1.0"
-source = { git = "https://github.com/nickpending/llm-core?subdirectory=python#6c39b7e3adbb48b20b9d17b30a6036928d116f1f" }
+version = "0.3.1"
+source = { git = "https://github.com/nickpending/llm-core?subdirectory=python&rev=2eb4429#2eb4429bb0c7619dcbe1159ccd4720d4f4294f2a" }
 dependencies = [
     { name = "apiconf" },
     { name = "httpx" },
@@ -930,7 +930,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.116.1" },
     { name = "feedparser" },
     { name = "httpx" },
-    { name = "llm-core", git = "https://github.com/nickpending/llm-core?subdirectory=python" },
+    { name = "llm-core", git = "https://github.com/nickpending/llm-core?subdirectory=python&rev=2eb4429" },
     { name = "praw", specifier = ">=7.8.1" },
     { name = "pydantic" },
     { name = "python-dotenv" },
@@ -944,6 +944,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "pyright", specifier = ">=1.1.409" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]

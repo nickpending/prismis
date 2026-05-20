@@ -1,11 +1,11 @@
 """API client for CLI to communicate with daemon."""
 
 import os
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import httpx
-import tomllib
 
 from cli.remote import get_remote_key, get_remote_url, is_remote_mode
 
@@ -698,6 +698,52 @@ class APIClient:
                     raise RuntimeError(data.get("message", "Unknown error"))
 
                 return data.get("data", {}).get("sources", [])
+
+            except httpx.RequestError as e:
+                raise RuntimeError(f"Network error: {e}") from e
+            except Exception as e:
+                if isinstance(e, RuntimeError):
+                    raise
+                raise RuntimeError(f"Unexpected error: {e}") from e
+
+    def extract_entry(self, entry_id: str) -> dict[str, Any]:
+        """Trigger deep extraction for a content entry.
+
+        Calls POST /api/entries/{id}/extract. Idempotent (server-side check):
+        items with existing analysis.deep_extraction are returned without
+        another LLM call.
+
+        Uses a local 120s timeout override because LLM extraction may exceed
+        the 30s class-level default for large documents on slow services.
+
+        Args:
+            entry_id: UUID of the content entry to extract
+
+        Returns:
+            Dict containing the analysis envelope (includes deep_extraction key)
+
+        Raises:
+            RuntimeError: If API request fails
+        """
+        with httpx.Client(timeout=httpx.Timeout(120.0)) as client:
+            try:
+                response = client.post(
+                    f"{self.base_url}/api/entries/{entry_id}/extract",
+                    headers={"X-API-Key": self.api_key},
+                )
+
+                data = response.json()
+
+                if response.status_code >= 400:
+                    error_msg = data.get(
+                        "message", f"API error: {response.status_code}"
+                    )
+                    raise RuntimeError(error_msg)
+
+                if not data.get("success"):
+                    raise RuntimeError(data.get("message", "Unknown error"))
+
+                return data.get("data", {})
 
             except httpx.RequestError as e:
                 raise RuntimeError(f"Network error: {e}") from e

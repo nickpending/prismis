@@ -682,5 +682,77 @@ value = "{resolved_key}"
     )
 
 
+@app.command()
+def verify() -> None:
+    """Run post-deployment smoke check: config, services, sources.
+
+    Read-only checks. Safe to run against a production daemon.
+    Exits 0 on all pass, 1 on any failure. Deep service 'not configured' is info.
+    """
+    import llm_core
+
+    failures = 0
+
+    # 1. Config
+    try:
+        config = Config.from_file()  # also runs validate()
+        console.print("[green]✓ config valid[/green]")
+    except Exception as e:
+        console.print(f"[red]✗ config: {e}[/red]")
+        sys.exit(1)  # can't continue without config
+
+    # 2. Light service
+    try:
+        llm_core.health_check(service=config.llm_light_service)
+        console.print(
+            f"[green]✓ light service reachable ({config.llm_light_service})[/green]"
+        )
+    except Exception as e:
+        console.print(
+            f"[red]✗ light service unreachable ({config.llm_light_service}): {e}[/red]"
+        )
+        failures += 1
+
+    # 3. Deep service
+    if config.llm_deep_service is None:
+        console.print("[yellow]○ deep service: not configured[/yellow]")
+    else:
+        try:
+            llm_core.health_check(service=config.llm_deep_service)
+            console.print(
+                f"[green]✓ deep service reachable ({config.llm_deep_service})[/green]"
+            )
+        except Exception as e:
+            console.print(
+                f"[red]✗ deep service unreachable ({config.llm_deep_service}): {e}[/red]"
+            )
+            failures += 1
+
+    # 4. Active sources
+    try:
+        storage = Storage()
+        sources = storage.get_active_sources()
+        if sources:
+            console.print(f"[green]✓ {len(sources)} active source(s)[/green]")
+        else:
+            console.print(
+                "[red]✗ no active sources (add with 'prismis-cli source add <url>')[/red]"
+            )
+            failures += 1
+    except Exception as e:
+        console.print(f"[red]✗ sources check failed: {e}[/red]")
+        failures += 1
+
+    # Roll-up
+    if failures == 0:
+        console.print("\n[bold green]verify: PASS[/bold green]")
+        sys.exit(0)
+    else:
+        console.print(
+            f"\n[bold red]verify: FAIL ({failures} check(s) failed)[/bold red]"
+        )
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     app()

@@ -1,5 +1,6 @@
 """REST API server for Prismis daemon."""
 
+import asyncio
 import os
 import re
 import time
@@ -43,6 +44,25 @@ from .storage import Storage
 from .validator import SourceValidator
 
 console = Console()
+
+# Per-content_id lock registry for POST /api/entries/{id}/extract.
+# Follows the module-level keyed-registry pattern from circuit_breaker.py:175-182.
+# INV-EXTRACT-RACE-1: at most one in-flight extractor.extract() per content_id.
+_extract_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_extract_lock(content_id: str) -> asyncio.Lock:
+    """Return the per-content_id asyncio.Lock for the extract critical section.
+
+    Lazily creates the lock on first call. The extract_entry handler holds
+    this lock across the idempotency check, LLM call, and write-back to
+    prevent concurrent first-extract POSTs from double-billing
+    (INV-EXTRACT-RACE-1).
+    """
+    if content_id not in _extract_locks:
+        _extract_locks[content_id] = asyncio.Lock()
+    return _extract_locks[content_id]
+
 
 app = FastAPI(
     title="Prismis API",
@@ -1105,65 +1125,79 @@ async def extract_entry(
     # P16 (root cause over symptom): the original ordering made INV-004
     # idempotency unobservable in unconfigured environments — clients couldn't
     # tell "your repeat call hit the cache" from "deep service is missing".
-    entry = storage.get_content_by_id(content_id)
-    if not entry:
-        raise NotFoundError("Entry", content_id)
+    # Lock serializes the check-call-write sequence per content_id so two
+    # concurrent first-extract POSTs do not both invoke the LLM
+    # (INV-EXTRACT-RACE-1). The second caller waits, then re-reads the now-
+    # populated analysis and returns via the cached path (INV-004 preserved).
+    async with _get_extract_lock(content_id):
+        entry = storage.get_content_by_id(content_id)
+        if not entry:
+            raise NotFoundError("Entry", content_id)
 
-    analysis = entry.get("analysis") or {}
+        analysis = entry.get("analysis") or {}
 
-    # INV-004 — idempotent return when extraction already exists. Runs before
-    # the extractor-availability check because no LLM call is needed.
-    if "deep_extraction" in analysis:
+        # INV-004 — idempotent return when extraction already exists. Runs before
+        # the extractor-availability check because no LLM call is needed.
+        if "deep_extraction" in analysis:
+            return {
+                "success": True,
+                "message": "Existing extraction returned",
+                "data": {"deep_extraction": analysis["deep_extraction"]},
+            }
+
+        extractor = getattr(app.state, "deep_extractor", None)
+        if extractor is None:
+            raise ServiceUnavailableError(
+                "Deep extraction not configured (set llm.deep_service in config.toml)",
+                reason="not_configured",
+            )
+
+        try:
+            extraction = extractor.extract(
+                content=entry.get("content") or "",
+                title=entry.get("title") or "",
+                url=entry.get("url") or "",
+            )
+        except CircuitOpenError as e:
+            # Circuit-open is a known unavailability, not an unexpected server bug.
+            # Routed by exception type (P15: matches the api_errors hierarchy used
+            # everywhere else in this file).
+            raise ServiceUnavailableError(
+                f"Deep extraction unavailable: {e}", reason="circuit_open"
+            ) from e
+        except Exception as e:
+            raise ServerError(f"Deep extraction failed: {e}") from e
+
+        if not extraction:
+            raise ServerError("Deep extraction produced no output")
+
+        analysis["deep_extraction"] = extraction
+        storage.update_analysis(content_id, analysis)
+        # Pop the lock entry now that write-back is complete. Done while still
+        # holding the lock so queued waiters re-create a fresh lock on their
+        # next acquire and immediately hit the cached-return path above.
+        # Bounds registry size to in-flight content_ids only.
+        _extract_locks.pop(content_id, None)
+
+        # Regenerate embedding with combined text — best-effort.
+        # An embedding-regen failure must NOT fail the request.
+        try:
+            embedder = Embedder()
+            combined = f"{entry.get('summary') or ''}\n\n{extraction['synthesis']}"
+            emb = embedder.generate_embedding(
+                text=combined, title=entry.get("title") or ""
+            )
+            storage.add_embedding(content_id, emb)
+        except Exception as e:
+            console.print(
+                f"[yellow]Embedding regen failed for {content_id}: {e}[/yellow]"
+            )
+
         return {
             "success": True,
-            "message": "Existing extraction returned",
-            "data": {"deep_extraction": analysis["deep_extraction"]},
+            "message": "Deep extraction generated",
+            "data": {"deep_extraction": extraction},
         }
-
-    extractor = getattr(app.state, "deep_extractor", None)
-    if extractor is None:
-        raise ServiceUnavailableError(
-            "Deep extraction not configured (set llm.deep_service in config.toml)",
-            reason="not_configured",
-        )
-
-    try:
-        extraction = extractor.extract(
-            content=entry.get("content") or "",
-            title=entry.get("title") or "",
-            url=entry.get("url") or "",
-        )
-    except CircuitOpenError as e:
-        # Circuit-open is a known unavailability, not an unexpected server bug.
-        # Routed by exception type (P15: matches the api_errors hierarchy used
-        # everywhere else in this file).
-        raise ServiceUnavailableError(
-            f"Deep extraction unavailable: {e}", reason="circuit_open"
-        ) from e
-    except Exception as e:
-        raise ServerError(f"Deep extraction failed: {e}") from e
-
-    if not extraction:
-        raise ServerError("Deep extraction produced no output")
-
-    analysis["deep_extraction"] = extraction
-    storage.update_analysis(content_id, analysis)
-
-    # Regenerate embedding with combined text — best-effort.
-    # An embedding-regen failure must NOT fail the request.
-    try:
-        embedder = Embedder()
-        combined = f"{entry.get('summary') or ''}\n\n{extraction['synthesis']}"
-        emb = embedder.generate_embedding(text=combined, title=entry.get("title") or "")
-        storage.add_embedding(content_id, emb)
-    except Exception as e:
-        console.print(f"[yellow]Embedding regen failed for {content_id}: {e}[/yellow]")
-
-    return {
-        "success": True,
-        "message": "Deep extraction generated",
-        "data": {"deep_extraction": extraction},
-    }
 
 
 @app.get("/health")

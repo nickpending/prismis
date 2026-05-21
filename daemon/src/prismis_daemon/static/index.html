@@ -1555,7 +1555,7 @@
                         synthesisHtml = `
                             <div class="detail-synthesis">
                                 <h3>Deep Synthesis</h3>
-                                <p>${this.escapeHtml(de.synthesis)}</p>
+                                <div class="synthesis-body">${this.renderSimpleMarkdown(de.synthesis)}</div>
                                 ${quotablesHtml}
                             </div>`;
                     }
@@ -1590,6 +1590,23 @@
                 const div = document.createElement('div');
                 div.textContent = text;
                 return div.innerHTML;
+            }
+
+            // Lightweight Markdown pass for the deep_extraction.synthesis field.
+            // Escape first (XSS), then transform a small set of inline markers the
+            // task 1.2 prompt emits: `### Header` line-starts and `**bold**` spans.
+            // No external library; mirrors the labeled-sections pattern the TUI
+            // renderSimpleMarkdown produces in cyan.
+            renderSimpleMarkdown(text) {
+                if (!text) return '';
+                let html = this.escapeHtml(text);
+                // ### headers at start of line (multiline-aware) → <h4>
+                html = html.replace(/^###\s+(.+)$/gm, '<h4>$1</h4>');
+                // **bold** → <strong>bold</strong> (non-greedy, no line breaks)
+                html = html.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+                // Preserve paragraph breaks: double newline → </p><p>, single → <br>
+                html = '<p>' + html.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
+                return html;
             }
 
             timeAgo(date) {

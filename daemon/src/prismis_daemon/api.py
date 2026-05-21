@@ -931,7 +931,8 @@ async def semantic_search(
     Args:
         q: Search query text
         limit: Maximum number of results (1-50, default: 20)
-        min_score: Minimum relevance score filter (0.0-1.0, default: 0.0)
+        min_score: Minimum relevance score filter (0.0-1.0, default: 0.1
+            filters near-zero noise; pass 0.0 to disable)
         source: Filter results to sources containing this substring (case-insensitive)
         compact: Return compact format for LLM consumption
         storage: Storage instance injected by FastAPI

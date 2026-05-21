@@ -258,7 +258,7 @@ class Config:
                     "host", "127.0.0.1"
                 ),  # Default to localhost for security
                 context=context_content,
-                audio_provider=audio.get("provider", "macos"),
+                audio_provider=audio.get("provider", "system"),
                 audio_voice=audio.get("voice"),
                 archival_enabled=archival["enabled"],
                 archival_high_read=archival["windows"]["high_read"],

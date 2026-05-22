@@ -30,6 +30,7 @@ Think of it as having a research assistant who reads everything and only interru
 
 - 🚀 **Instant TUI** - Launches in <100ms with gorgeous Bubbletea interface
 - 🧠 **AI-Powered Priority** - LLM analyzes content against YOUR interests (HIGH/MEDIUM/LOW)
+- 🔬 **Deep Extraction** - Two-tier LLM synthesis on HIGH-priority items: Counterintuitive findings, buried ledes, "so what" actions, quotable lines
 - 👍 **Preference Learning** - Upvote/downvote content to train AI prioritization over time
 - 🔍 **Semantic Search** - Local embeddings enable vector similarity search across all content
 - 🤖 **Context Assistant** - LLM analyzes flagged items to suggest context.md improvements with gap analysis
@@ -48,6 +49,12 @@ Think of it as having a research assistant who reads everything and only interru
 ```bash
 # Install everything (macOS/Linux)
 make install
+
+# Upgrading from an older install? Bring config to current shape:
+prismis-daemon migrate-config
+
+# Smoke-check that everything is wired up (config + LLM services + sources)
+prismis-daemon verify
 
 # Set your API keys
 edit ~/.config/prismis/.env  # Add your OPENAI_API_KEY
@@ -190,6 +197,10 @@ prismis-cli source remove 3
 # Semantic search across all content
 prismis-cli search "local-first database innovations"
 
+# Backfill deep-extraction synthesis on HIGH-priority items
+prismis-cli extract --priority high --limit 3   # Process 3 items
+prismis-cli extract --priority high --limit 100 # Larger batch
+
 # Retry failed LLM analysis
 prismis-cli analyze repair
 
@@ -270,9 +281,17 @@ prismis-daemon
 
 # Stop the daemon
 make stop
+
+# Post-deploy smoke check (config valid, LLM services reachable, ≥1 source)
+prismis-daemon verify
+
+# Idempotent config migration (after upgrading from older Prismis)
+prismis-daemon migrate-config
 ```
 
 **Note**: You can run the daemon however you prefer - in a tmux session, as a background process, or with any process manager you're comfortable with. It's just a regular Python program.
+
+`prismis-daemon verify` is read-only and safe to run against a production daemon. It checks four things and exits 0 on all-pass / 1 on any failure: config validity, light LLM service reachable, deep LLM service reachable (or "not configured"), at least one active source.
 
 ## 🏗️ Architecture
 
@@ -326,38 +345,46 @@ Prismis follows XDG standards:
 
 ## 🚀 Advanced Features
 
-### Multiple LLM Providers
+### LLM Configuration (Dual-Service)
 
-Prismis supports OpenAI, Anthropic, Groq, and Ollama:
+Prismis routes LLM calls through two services so routine work and deep synthesis can use different models. Provider routing is handled by `llm-core` via `~/.config/llm-core/services.toml`; the daemon only references service names.
 
 ```toml
 # ~/.config/prismis/config.toml
-
-# OpenAI (default)
 [llm]
-provider = "openai"
-model = "gpt-4o-mini"
-api_key = "env:OPENAI_API_KEY"  # References ~/.config/prismis/.env
-
-# Anthropic Claude
-[llm]
-provider = "anthropic"
-model = "claude-3-haiku-20240307"
-api_key = "env:ANTHROPIC_API_KEY"
-
-# Groq (fast inference)
-[llm]
-provider = "groq"
-model = "mixtral-8x7b-32768"
-api_key = "env:GROQ_API_KEY"
-
-# Ollama (local models)
-[llm]
-provider = "ollama"
-model = "llama2"
-api_base = "http://localhost:11434"
-# No API key needed for local Ollama
+light_service = "prismis-openai"        # required — used for priority/summary/context analysis
+deep_service  = "prismis-openai-deep"   # optional — second-tier synthesis on HIGH items
+auto_extract  = "high"                  # "high" | "medium" | "none" — gate for auto deep extraction
 ```
+
+The light service handles every routine call (fetch-cycle priority, summarization, context analyzer). The deep service runs the second-tier synthesis prompt that produces the Counterintuitive / Buried lede / So what / Pushback sections plus quotables. When `deep_service` is unset, the daemon runs in light-only mode (graceful degradation — deep extraction failures never block storage).
+
+Service definitions live in `~/.config/llm-core/services.toml`, where you map service names to providers, models, and API keys. Examples:
+
+```toml
+# ~/.config/llm-core/services.toml
+[services.prismis-openai]
+provider = "openai"
+model    = "gpt-4o-mini"
+key      = "openai"
+
+[services.prismis-openai-deep]
+provider = "openai"
+model    = "gpt-5-mini"        # reasoning-class model recommended for deep synthesis
+key      = "openai"
+
+[services.prismis-anthropic]
+provider = "anthropic"
+model    = "claude-3-haiku-20240307"
+key      = "anthropic"
+
+[services.prismis-ollama]
+provider = "ollama"
+model    = "llama2"
+base_url = "http://localhost:11434"
+```
+
+API keys are resolved by `apiconf` from `~/.config/apiconf/config.toml`; `key = "openai"` references the entry named `openai` there. Run `prismis-daemon migrate-config` once after upgrading from a pre-iter-12 install — it idempotently rewrites the config to dual-service shape and adds the `[services.prismis-openai-deep]` stub.
 
 **Reddit API** (optional - improves reliability):
 ```bash
@@ -533,7 +560,7 @@ Some areas we'd love help with:
 
 Built with amazing tools:
 - [Bubbletea](https://github.com/charmbracelet/bubbletea) - Delightful TUI framework
-- [LiteLLM](https://github.com/BerriAI/litellm) - Universal LLM interface
+- [llm-core](https://github.com/nickpending/llm-core) - Single-turn LLM abstraction with service-based routing
 - [uv](https://github.com/astral-sh/uv) - Blazing fast Python package manager
 
 ---

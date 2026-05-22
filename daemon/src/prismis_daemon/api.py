@@ -1153,7 +1153,8 @@ async def extract_entry(
             )
 
         try:
-            extraction = extractor.extract(
+            extraction = await asyncio.to_thread(
+                extractor.extract,
                 content=entry.get("content") or "",
                 title=entry.get("title") or "",
                 url=entry.get("url") or "",

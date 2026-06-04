@@ -86,12 +86,11 @@ func parseMetadata(analysisJSON string) ContentMetadata {
 	return metadata
 }
 
-// appendDeepExtractionSection appends a "Deep Synthesis" section to the markdown content
-// when deep_extraction is present. Returns content unchanged when de is nil.
-// The section uses standard ## headers and > block-quotes so renderSimpleMarkdown applies
-// the same cyan-header / gray-quote styling already used for other sections.
-func appendDeepExtractionSection(content string, de *DeepExtraction) string {
-	if de == nil {
+// appendSynthesisSection appends only the "Deep Synthesis" prose. Quotables are no
+// longer emitted here — they're folded into the single unified Quotes section so the
+// reader doesn't show two separate quote blocks. Returns content unchanged when no synthesis.
+func appendSynthesisSection(content string, de *DeepExtraction) string {
+	if de == nil || de.Synthesis == "" {
 		return content
 	}
 
@@ -99,45 +98,54 @@ func appendDeepExtractionSection(content string, de *DeepExtraction) string {
 	b.WriteString(content)
 	b.WriteString("\n\n## Deep Synthesis\n\n")
 	b.WriteString(de.Synthesis)
-
-	if len(de.Quotables) > 0 {
-		b.WriteString("\n\n### Notable Lines\n\n")
-		for i, q := range de.Quotables {
-			b.WriteString(fmt.Sprintf("> %s", q))
-			if i < len(de.Quotables)-1 {
-				b.WriteString("\n\n")
-			} else {
-				b.WriteString("\n")
-			}
-		}
-	}
-
 	return b.String()
 }
 
-// injectQuotesIntoSummary inserts quotes section right before "## Takeaways"
-func injectQuotesIntoSummary(readingSummary string, quotes []string) string {
-	if len(quotes) == 0 {
-		return readingSummary
+// combineQuotes merges light article quotes with deep-extraction quotables into one
+// deduplicated list (light first, order preserved). Dedup is by trimmed text so a line
+// surfaced by both the light and deep passes appears once.
+func combineQuotes(light []string, de *DeepExtraction) []string {
+	all := append([]string{}, light...)
+	if de != nil {
+		all = append(all, de.Quotables...)
 	}
 
-	// Replace "## Takeaways" with quotes section + "## Takeaways"
-	quotesSection := "\n## Key Quotes\n\n"
-	for i, quote := range quotes {
-		quotesSection += fmt.Sprintf("> %s", quote)
-		// Add blank line between quotes (but not after the last one)
-		if i < len(quotes)-1 {
-			quotesSection += "\n\n"
-		} else {
-			quotesSection += "\n"
+	seen := make(map[string]bool)
+	var out []string
+	for _, q := range all {
+		k := strings.TrimSpace(q)
+		if k == "" || seen[k] {
+			continue
 		}
+		seen[k] = true
+		out = append(out, k)
 	}
-	quotesSection += "\n## Takeaways"
-
-	return strings.Replace(readingSummary, "## Takeaways", quotesSection, 1)
+	return out
 }
 
-// renderMetadata formats metadata as markdown for proper styling (quotes now injected into reading summary)
+// appendQuotesSection appends a single "Quotes" section. Why one section: light quotes
+// and deep quotables are the same thing to the reader; two headers ("Key Quotes" +
+// "Notable Lines") read as jarring duplication.
+func appendQuotesSection(content string, quotes []string) string {
+	if len(quotes) == 0 {
+		return content
+	}
+
+	var b strings.Builder
+	b.WriteString(content)
+	b.WriteString("\n\n## Quotes\n\n")
+	for i, q := range quotes {
+		b.WriteString(fmt.Sprintf("> %s", q))
+		if i < len(quotes)-1 {
+			b.WriteString("\n\n")
+		} else {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// renderMetadata formats metadata as markdown for proper styling
 func renderMetadata(metadata ContentMetadata, width int) string {
 	// Only show tools and URLs - quotes are now injected into the reading summary
 	if len(metadata.Tools) == 0 && len(metadata.URLs) == 0 {
@@ -200,8 +208,7 @@ func (m *Model) updateReaderContent() {
 	readingSummary := extractReadingSummary(item.Analysis)
 
 	if readingSummary != "" {
-		// Inject quotes into reading summary after Key Points section
-		contentToShow = injectQuotesIntoSummary(readingSummary, metadata.Quotes)
+		contentToShow = readingSummary
 	} else if item.Content != "" {
 		// Use the full article content
 		contentToShow = item.Content
@@ -212,8 +219,9 @@ func (m *Model) updateReaderContent() {
 		contentToShow = "No content available for this article."
 	}
 
-	// Append deep synthesis section (HIGH-priority items only) before title-strip and metadata sections
-	contentToShow = appendDeepExtractionSection(contentToShow, metadata.DeepExtraction)
+	// Deep synthesis prose, then a single unified Quotes section (light + deep, deduped)
+	contentToShow = appendSynthesisSection(contentToShow, metadata.DeepExtraction)
+	contentToShow = appendQuotesSection(contentToShow, combineQuotes(metadata.Quotes, metadata.DeepExtraction))
 
 	// Strip the title if it's the first line of markdown (to avoid double titles)
 	lines := strings.Split(contentToShow, "\n")

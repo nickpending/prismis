@@ -685,12 +685,12 @@
             text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px;
         }
         .detail-synthesis p { font-size: 14px; color: #CCCCCC; line-height: 1.7; }
-        .notable-lines { margin-top: 16px; }
-        .notable-lines h4 {
-            color: #666666; font-size: 11px; font-weight: 600;
-            text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;
+        .detail-quotes { margin: 20px 0; }
+        .detail-quotes h3 {
+            color: #9F4DFF; font-size: 13px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px;
         }
-        .notable-lines blockquote {
+        .detail-quotes blockquote {
             border-left: 2px solid #444444; padding: 8px 12px;
             margin: 8px 0; color: #999999; font-size: 13px; line-height: 1.6;
         }
@@ -1546,17 +1546,29 @@
 
                     let synthesisHtml = '';
                     if (de && de.synthesis) {
-                        const quotablesHtml = (Array.isArray(de.quotables) && de.quotables.length > 0)
-                            ? `<div class="notable-lines">
-                                  <h4>Notable Lines</h4>
-                                  ${de.quotables.map(q => `<blockquote>${this.escapeHtml(q)}</blockquote>`).join('')}
-                               </div>`
-                            : '';
                         synthesisHtml = `
                             <div class="detail-synthesis">
                                 <h3>Deep Synthesis</h3>
                                 <div class="synthesis-body">${this.renderSimpleMarkdown(de.synthesis)}</div>
-                                ${quotablesHtml}
+                            </div>`;
+                    }
+
+                    // Unified Quotes: light article quotes + deep quotables, deduped into one section.
+                    // Two separate "Key Quotes" / "Notable Lines" blocks read as jarring duplication.
+                    const lightQuotes = Array.isArray(analysis.quotes) ? analysis.quotes : [];
+                    const deepQuotes = (de && Array.isArray(de.quotables)) ? de.quotables : [];
+                    const seenQuotes = new Set();
+                    const allQuotes = [];
+                    for (const q of [...lightQuotes, ...deepQuotes]) {
+                        const k = (q || '').trim();
+                        if (k && !seenQuotes.has(k)) { seenQuotes.add(k); allQuotes.push(k); }
+                    }
+                    let quotesHtml = '';
+                    if (allQuotes.length > 0) {
+                        quotesHtml = `
+                            <div class="detail-quotes">
+                                <h3>Quotes</h3>
+                                ${allQuotes.map(q => `<blockquote>${this.escapeHtml(q)}</blockquote>`).join('')}
                             </div>`;
                     }
 
@@ -1573,6 +1585,7 @@
                         </div>
                         <div class="detail-summary">${this.escapeHtml(summary)}</div>
                         ${synthesisHtml}
+                        ${quotesHtml}
                     `;
                 } catch (err) {
                     content.innerHTML = `<div class="detail-error">Failed to load: ${this.escapeHtml(err.message)}</div>`;

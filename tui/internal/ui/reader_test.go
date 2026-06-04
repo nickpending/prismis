@@ -102,7 +102,7 @@ func TestParseMetadata_DeepExtraction(t *testing.T) {
 }
 
 // TestParseMetadata_DeepExtractionAbsent verifies DeepExtraction is nil when the key is absent.
-// INV-D1 nil guard: appendDeepExtractionSection must receive nil and omit the section entirely —
+// INV-D1 nil guard: appendSynthesisSection must receive nil and omit the section entirely —
 // an empty synthesis string would produce an empty "## Deep Synthesis" header in the reader.
 func TestParseMetadata_DeepExtractionAbsent(t *testing.T) {
 	analysisJSON := `{"entities": ["Go"], "quotes": ["some quote"]}`
@@ -114,10 +114,10 @@ func TestParseMetadata_DeepExtractionAbsent(t *testing.T) {
 	}
 }
 
-// TestAppendDeepExtractionSection verifies the markdown output shape.
-// BREAKS: if the ## / ### headers or > block-quote format changes, renderSimpleMarkdown
-// won't apply cyan/gray styling, so the deep synthesis section loses visual distinction (SC-6).
-func TestAppendDeepExtractionSection(t *testing.T) {
+// TestAppendSynthesisSection verifies the synthesis prose renders WITHOUT quotables —
+// quotables now live in the unified Quotes section, not under Deep Synthesis.
+// BREAKS: if Notable Lines reappear here, the reader shows two quote blocks again.
+func TestAppendSynthesisSection(t *testing.T) {
 	de := &DeepExtraction{
 		Synthesis: "Dense synthesis paragraph.",
 		Quotables: []string{"First quotable.", "Second quotable."},
@@ -125,7 +125,7 @@ func TestAppendDeepExtractionSection(t *testing.T) {
 	}
 	base := "Base content."
 
-	result := appendDeepExtractionSection(base, de)
+	result := appendSynthesisSection(base, de)
 
 	if !strings.Contains(result, "Base content.") {
 		t.Error("Base content must be preserved")
@@ -136,43 +136,58 @@ func TestAppendDeepExtractionSection(t *testing.T) {
 	if !strings.Contains(result, "Dense synthesis paragraph.") {
 		t.Error("Must contain synthesis text")
 	}
-	if !strings.Contains(result, "### Notable Lines") {
-		t.Error("Must contain '### Notable Lines' sub-header when quotables present")
+	if strings.Contains(result, "Notable Lines") {
+		t.Error("Synthesis section must NOT render Notable Lines; quotes are unified separately")
 	}
-	if !strings.Contains(result, "> First quotable.") {
-		t.Error("Must render quotables as '> ' block quotes")
-	}
-	if !strings.Contains(result, "> Second quotable.") {
-		t.Error("Must render second quotable as '> ' block quote")
+	if strings.Contains(result, "First quotable.") {
+		t.Error("Synthesis section must NOT include quotables")
 	}
 }
 
-// TestAppendDeepExtractionSection_NilGuard verifies nil DeepExtraction returns content unchanged.
-// BREAKS: if nil check is absent, every reader open panics with a nil-dereference on non-extracted items.
-func TestAppendDeepExtractionSection_NilGuard(t *testing.T) {
+// TestAppendSynthesisSection_NilGuard verifies nil or empty-synthesis returns content unchanged.
+// BREAKS: if the guard is absent, non-extracted items panic or render an empty header.
+func TestAppendSynthesisSection_NilGuard(t *testing.T) {
 	base := "Existing article content."
-	result := appendDeepExtractionSection(base, nil)
-	if result != base {
+	if result := appendSynthesisSection(base, nil); result != base {
 		t.Errorf("Nil guard: expected content unchanged, got %q", result)
 	}
+	empty := &DeepExtraction{Synthesis: "", Quotables: []string{"x"}}
+	if result := appendSynthesisSection(base, empty); result != base {
+		t.Errorf("Empty synthesis: expected content unchanged, got %q", result)
+	}
 }
 
-// TestAppendDeepExtractionSection_EmptyQuotables verifies synthesis renders without Notable Lines
-// when quotables slice is empty — edge case from task spec.
-func TestAppendDeepExtractionSection_EmptyQuotables(t *testing.T) {
+// TestUnifiedQuotes verifies light quotes + deep quotables merge into ONE deduped "## Quotes"
+// section. BREAKS: the old separate "Key Quotes" / "Notable Lines" headers returning.
+func TestUnifiedQuotes(t *testing.T) {
 	de := &DeepExtraction{
-		Synthesis: "Only synthesis, no quotes.",
-		Quotables: []string{},
-		Model:     "gpt-5-mini",
+		Synthesis: "S.",
+		Quotables: []string{"Deep line.", "Shared quote."},
+	}
+	light := []string{"Light quote.", "Shared quote."}
+
+	quotes := combineQuotes(light, de)
+
+	// Dedup keeps light-first order; "Shared quote." appears once.
+	if len(quotes) != 3 {
+		t.Fatalf("expected 3 deduped quotes, got %d: %v", len(quotes), quotes)
+	}
+	if quotes[0] != "Light quote." || quotes[1] != "Shared quote." || quotes[2] != "Deep line." {
+		t.Errorf("unexpected order/dedup: %v", quotes)
 	}
 
-	result := appendDeepExtractionSection("Base.", de)
-
-	if !strings.Contains(result, "## Deep Synthesis") {
-		t.Error("Must contain Deep Synthesis header")
+	result := appendQuotesSection("Base.", quotes)
+	if !strings.Contains(result, "## Quotes") {
+		t.Error("Must render a single '## Quotes' header")
 	}
-	if strings.Contains(result, "### Notable Lines") {
-		t.Error("Must NOT render Notable Lines header when quotables is empty")
+	if strings.Contains(result, "Key Quotes") || strings.Contains(result, "Notable Lines") {
+		t.Error("Must NOT render the old separate 'Key Quotes' / 'Notable Lines' headers")
+	}
+	if !strings.Contains(result, "> Light quote.") || !strings.Contains(result, "> Deep line.") {
+		t.Error("Must render combined quotes as '> ' block quotes")
+	}
+	if appendQuotesSection("Base.", nil) != "Base." {
+		t.Error("Empty quotes must leave content unchanged")
 	}
 }
 

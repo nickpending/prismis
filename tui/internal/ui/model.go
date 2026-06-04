@@ -474,8 +474,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "summary":
 				fallthrough
 			default:
-				// Copy AI reading summary (default)
-				contentToCopy = extractReadingSummary(item.Analysis)
+				// Copy reading summary + deep synthesis prose (no quotes — keeps the
+				// clipboard payload clean; mirrors the reader minus the Quotes section)
+				metadata := parseMetadata(item.Analysis)
+				summary := extractReadingSummary(item.Analysis)
+				contentToCopy = strings.TrimSpace(appendSynthesisSection(summary, metadata.DeepExtraction))
 				description = "Summary"
 			}
 

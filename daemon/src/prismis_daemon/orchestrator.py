@@ -68,16 +68,26 @@ class DaemonOrchestrator:
         self.deep_extractor = deep_extractor
 
     @staticmethod
-    def _should_deep_extract(priority: str | None, auto_extract: str) -> bool:
+    def _should_deep_extract(
+        priority: str | None,
+        auto_extract: str,
+        source_type: str | None = None,
+        exclude: list[str] | None = None,
+    ) -> bool:
         """Decide whether to run deep extraction based on priority + config threshold.
 
         Args:
             priority: The item's evaluated priority ("high"|"medium"|"low"|None)
             auto_extract: Threshold from config ("none"|"high"|"all")
+            source_type: The item's source type ("rss"|"reddit"|"youtube"|"file")
+            exclude: Source types to skip regardless of priority (config-driven)
 
         Returns:
             True if deep extraction should run for this item.
         """
+        # Excluded sources skip deep extraction regardless of priority (low signal-to-noise)
+        if exclude and source_type in exclude:
+            return False
         if not auto_extract or auto_extract == "none":
             return False
         if auto_extract == "all":
@@ -303,7 +313,10 @@ class DaemonOrchestrator:
                     # Failure must NEVER raise into the pipeline (INV-002):
                     # the except clause logs and continues with light summary only.
                     if self.deep_extractor and self._should_deep_extract(
-                        priority, self.config.auto_extract
+                        priority,
+                        self.config.auto_extract,
+                        source_type,
+                        self.config.deep_extract_exclude,
                     ):
                         try:
                             extraction = self.deep_extractor.extract(

@@ -86,6 +86,7 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
 
     class _FakeConfig:
         auto_extract = "high"
+        deep_extract_exclude: list[str] = []
         context = "AI, machine learning"
         llm_light_service = "prismis-openai"
         llm_deep_service = "prismis-openai-deep"
@@ -255,6 +256,7 @@ def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
 
     class _FakeConfig:
         auto_extract = "high"
+        deep_extract_exclude: list[str] = []
         context = "AI, machine learning"
         llm_light_service = "prismis-openai"
         llm_deep_service = "prismis-openai-deep"

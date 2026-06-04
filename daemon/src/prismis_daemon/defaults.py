@@ -21,6 +21,8 @@ light_service = "prismis-openai"
 # deep_service = "prismis-openai-deep"
 # Auto-extract threshold: "none" | "high" | "all"
 auto_extract = "none"
+# Source types to skip for deep extraction (low signal-to-noise)
+deep_extract_exclude = ["reddit"]
 
 [reddit]
 client_id = "env:REDDIT_CLIENT_ID"  # Reddit API client ID
@@ -51,8 +53,8 @@ provider = "system"  # system (free, uses macOS/Linux native TTS) | elevenlabs (
 # Automatic archival of old content
 enabled = true
 [archival.windows]
-# Days to keep content by priority/read status (null = never archive)
-high_read = null  # Never archive HIGH priority even if read
+# Days to keep content by priority/read status (omit key = never archive)
+# high_read =   # omitted -> never archive HIGH priority even if read
 medium_unread = 30
 medium_read = 14
 low_unread = 14

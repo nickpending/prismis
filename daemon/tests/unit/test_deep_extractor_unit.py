@@ -122,6 +122,39 @@ def test_should_deep_extract_none_priority_skips() -> None:
     assert DaemonOrchestrator._should_deep_extract(None, "all") is False
 
 
+def test_should_deep_extract_excluded_source_skips_despite_high() -> None:
+    """
+    Excluded source type -> skip even at high priority + auto_extract="all".
+    BREAKS: low-quality sources (reddit) burn deep-extraction budget anyway.
+    """
+    assert (
+        DaemonOrchestrator._should_deep_extract("high", "all", "reddit", ["reddit"])
+        is False
+    )
+    assert (
+        DaemonOrchestrator._should_deep_extract("high", "high", "reddit", ["reddit"])
+        is False
+    )
+
+
+def test_should_deep_extract_non_excluded_source_unaffected() -> None:
+    """Non-excluded source -> normal priority gating still applies."""
+    assert (
+        DaemonOrchestrator._should_deep_extract("high", "high", "rss", ["reddit"])
+        is True
+    )
+    assert (
+        DaemonOrchestrator._should_deep_extract("medium", "high", "rss", ["reddit"])
+        is False
+    )
+
+
+def test_should_deep_extract_empty_exclude_is_current_behavior() -> None:
+    """Empty/omitted exclude list -> unchanged gating (backward compatible)."""
+    assert DaemonOrchestrator._should_deep_extract("high", "high", "reddit", []) is True
+    assert DaemonOrchestrator._should_deep_extract("high", "high", "reddit") is True
+
+
 # ---------------------------------------------------------------------------
 # INV-001: ContentDeepExtractor calls get_circuit_breaker("prismis-openai-deep")
 # ---------------------------------------------------------------------------

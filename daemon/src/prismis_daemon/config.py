@@ -2,7 +2,7 @@
 
 import os
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .defaults import DEFAULT_CONTEXT_MD
@@ -66,6 +66,9 @@ class Config:
     # Dual-service LLM extension (deep extraction)
     llm_deep_service: str | None = None  # Optional deep service; None = disabled
     auto_extract: str = "none"  # "none" | "high" | "all"
+    deep_extract_exclude: list[str] = field(
+        default_factory=list
+    )  # source types to skip for deep extraction (e.g. ["reddit"])
 
     def get_max_items(self, source_type: str) -> int:
         """Get max items limit for a specific source type.
@@ -247,6 +250,7 @@ class Config:
                 llm_light_service=llm["light_service"],
                 llm_deep_service=llm.get("deep_service"),
                 auto_extract=llm.get("auto_extract", "none"),
+                deep_extract_exclude=llm.get("deep_extract_exclude", []),
                 reddit_client_id=reddit_client_id,
                 reddit_client_secret=reddit_client_secret,
                 reddit_user_agent=reddit["user_agent"],
@@ -261,7 +265,7 @@ class Config:
                 audio_provider=audio.get("provider", "system"),
                 audio_voice=audio.get("voice"),
                 archival_enabled=archival["enabled"],
-                archival_high_read=archival["windows"]["high_read"],
+                archival_high_read=archival["windows"].get("high_read"),
                 archival_medium_unread=archival["windows"]["medium_unread"],
                 archival_medium_read=archival["windows"]["medium_read"],
                 archival_low_unread=archival["windows"]["low_unread"],

@@ -33,4 +33,3 @@ reconciled_at: 730e0bd8f4aa65a095e7f8839113c3a87f60cc1a
 - Components: /Users/rudy/development/projects/prismis/docs/architecture/components.md
 - Decisions: /Users/rudy/development/projects/prismis/docs/architecture/decisions.md
 - Contracts: /Users/rudy/development/projects/prismis/docs/architecture/boundaries.md
-- Orientation: /Users/rudy/development/projects/prismis/docs/architecture/briefing.md

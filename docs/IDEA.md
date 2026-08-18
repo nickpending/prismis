@@ -1,0 +1,928 @@
+---
+type: project
+domain: technical
+status: active
+started: 2025-10-01
+---
+# Prismis - Core Idea
+
+*Evolved from exploration: 2025-01-16-prismis-local*
+
+**IMPORTANT**: This document contains both project vision AND technical reference from legacy system analysis. No need to re-explain proven patterns - they're documented here.
+
+## The Problem
+
+**What specific problem does this solve?**
+
+Current Prismis is over-engineered for personal use - PostgreSQL server requirement, Docker complexity, Auth0 authentication, multi-user architecture, subscription tiers, hosting overhead. Even as the creator, it has too much friction to use daily. Need something that runs locally with zero ops, integrates with existing terminal tools (fabric, yt-dlp, terminal-notifier), has a sexy TUI for daily consumption, and works offline with complete data ownership.
+
+The deeper problem: Prismis should be a data layer for AI assistants, not just human consumption. Your content intelligence is trapped - when you want to ask "what did that article say about Rust?" or have automation trigger based on content patterns, there's no way to query it programmatically.
+
+**Who has this problem?**
+
+Me, and developers like me who:
+- Track 10-30 sources (RSS, Reddit, YouTube) generating maybe 100-200 items/day
+- Currently use Prismis legacy but find it too heavy for personal use
+- Want content prioritized by AI (HIGH/MEDIUM/LOW) based on personal context
+- Need instant TUI access (Go binary starts <100ms) not web app loading
+- Want to feed processed content to AI assistants and automation
+- Value local-first: reading habits never leave the machine
+
+**How do they solve it today?**
+
+Current Prismis legacy system is **fucking excellent** - sophisticated React UI with priority badges, Auth0, PostgreSQL, comprehensive feature set. The ingestion pipeline is proven (feedparser for RSS, PRAW for Reddit, yt-dlp for YouTube) and LLM prioritization works well (using gpt-4o-mini). But it's WEB, and web is done for this use case. Too much deployment friction (Docker, PostgreSQL, Auth0 setup) kills daily usage. The critical missing piece: AI agents can't query your curated content stream.
+
+## The Solution
+
+**Core Value Proposition**
+
+Prismis isn't primarily for human consumption anymore - it's a structured data source for your AI assistants and automation tools. A local daemon continuously ingests and analyzes content, makes it queryable by AI agents, and happens to have a sexy TUI for when you want to check in.
+
+**The Critical Realization**
+
+```
+Old Model:
+  Internet → Prismis → You (reading in TUI)
+
+New Model:
+  Internet → Prismis → AI Assistants → Actions
+                    ↘ You (occasionally via TUI)
+```
+
+Prismis becomes your automated research department. It's constantly reading, analyzing, and structuring information that your other tools can query and act upon. You might never open the TUI, but your system is smarter because Prismis is running.
+
+**Key Differentiators**
+
+- **AI Intelligence Layer**: Content becomes queryable structured data for agents
+- **Zero-ops local deployment**: SQLite instead of PostgreSQL, no Docker required
+- **Sexy TUI when you need it**: Bubbletea interface for human consumption
+- **Privacy-first**: Your interests and reading habits never leave your machine
+- **Ecosystem integration**: Works with Lore, Flux, Momentum, Prose
+- **Clean rewrite**: Reference legacy for features, not spaghetti code
+
+## System Flow (Proven from Legacy)
+
+1. **Content Fetching (Every 30 min)**
+   - RSS: feedparser with 30s timeout, extract full content via MarkItDown/Trafilatura
+   - Reddit: PRAW with auth or fallback to public JSON API
+   - YouTube: yt-dlp for transcripts, parse VTT files, clean timestamps
+
+2. **LLM Analysis Pipeline**
+   - Load user's `~/.config/prismis/context.md` (High/Medium/Low Priority Topics, Not Interested)
+   - Send content + context to LLM (LiteLLM abstraction)
+   - Get back: 2-3 sentence summary + priority assignment + key topics
+   - Batch calls to reduce API costs, retry with exponential backoff
+
+3. **SQLite Storage with WAL**
+   - Enable WAL mode: `PRAGMA journal_mode=WAL`
+   - Set busy timeout: `PRAGMA busy_timeout=5000`
+   - Dedupe via content_hash, store with full text + summary + analysis JSON
+   - Indexes on priority, read status, published date for fast queries
+
+4. **Desktop Notifications**
+   - Configurable priority threshold (default: HIGH only)
+   - Use terminal-notifier (Mac): "3 new HIGH priority items"
+   - Click notification → launches TUI directly to HIGH view
+   - Respect quiet hours if configured
+
+5. **TUI Interface (Bubbletea)**
+   - Launch: `prismis` → TUI starts in <100ms
+   - Views: HIGH (1), MEDIUM (2), LOW (3), ALL (a), UNREAD (u)
+   - Navigation: j/k move, Enter read, m mark read, f favorite, / search
+   - Content disappears when marked read (ephemeral by design)
+
+6. **AI Agent Integration Examples**
+   - Morning briefing generated by AI using overnight Prismis data
+   - Code assistant that knows about latest framework updates
+   - Writing assistant with access to recent research
+   - Task system (Flux) auto-captures action items from content
+   - Knowledge base (Lore) self-updates from curated sources
+   - "Based on today's content, what should I focus on?" → actionable answer
+
+## User Experience Vision
+
+**Primary User Journey**
+
+```
+Morning:
+  $ prismis                    # TUI launches instantly
+  → "● 3 HIGH  ○ 8 MED  ○ 15 LOW  📊 23 unread"
+  → j/k through HIGH items, Enter to read full
+  → m marks read (item disappears)
+  → q when done (5-10 min session)
+
+Throughout Day:
+  → Desktop notification: "2 new HIGH priority items"
+  → Click → TUI opens directly to new content
+  → Quick consume, back to work
+
+Evening:
+  $ prismis dossier           # Generate daily summary
+  → Key insights, patterns, trending topics
+  → Adjust context.md based on what mattered
+```
+
+**Core User Workflows**
+
+- **Source Management CLI**:
+  ```bash
+  prismis source add https://simonwillison.net/atom/everything/
+  prismis source add reddit://rust
+  prismis source add youtube://UC9-y-6csu5WGm29I7JiwpnA
+  prismis source list         # Shows: ID, URL, Type, Active, Last Fetch, Errors
+  prismis source remove 1
+  prismis source pause 2      # Temporarily disable
+  prismis source resume 2     # Re-enable source
+  ```
+
+- **Context Definition** (`~/.config/prismis/context.md`):
+  ```markdown
+  ## High Priority Topics
+  - AI/LLM breakthroughs, especially local models
+  - Rust systems programming, performance, WASM
+  - SQLite innovations, extensions, DuckDB
+  
+  ## Medium Priority Topics  
+  - React/Next.js updates
+  - Python tooling (uv, ruff)
+  - Database design patterns
+  
+  ## Low Priority Topics
+  - General programming tutorials
+  - Cloud provider news
+  
+  ## Not Interested
+  - Crypto, blockchain, web3
+  - Gaming news
+  - Politics
+  ```
+
+- **TUI Keyboard Commands**:
+  ```
+  Navigation: j/k (up/down), g/G (top/bottom), Enter (open)
+  Actions: m (mark read), f (favorite), n (note), r (refresh)
+  Views: 1/2/3 (priority), a (all), u (unread), d (dossier)
+  Meta: / (search), : (command), ? (help), q (quit)
+  ```
+
+**Success Criteria**
+
+- TUI feels instant and responsive (<100ms launch)
+- Actually use it daily (not abandoned like legacy web UI)
+- HIGH priority items are actually important (>80% relevance)
+- AI agents can query the data (when we build that)
+- System becomes part of daily information workflow
+
+## MVP Definition
+
+**What is the absolute minimum viable version?**
+
+A Python daemon that fetches RSS/Reddit/YouTube/Papers, analyzes with LLM for priority, stores in SQLite, sends Mac notifications for HIGH priority, and provides a beautiful Go TUI for consumption. Plus manual content ingestion and pipe-to-Fabric integration for deeper analysis.
+
+**MVP Scope**
+
+Core Features from Legacy to Keep:
+- **Plugin-based content fetching** - Standardized ContentItem format across sources
+- **Repository pattern for storage** - All DB access in storage.py, no scattered SQL
+- **LLM analysis pipeline** - Personal context drives priority assignment
+- **CLI source management** - Add/remove/list sources with proper error handling
+- **Progress indicators** - Rich library for long operations
+
+Core Features to Simplify:
+- **Single user** - No UUID relationships, no auth
+- **SQLite not PostgreSQL** - With WAL mode for concurrency
+- **No email digests** - TUI replaces email delivery
+- **No multi-profile** - One context.md per user
+- **Direct file config** - TOML files, not complex Pydantic settings
+- **All source types in MVP** - RSS, Reddit, YouTube, Papers, Manual ingestion
+- **Full article extraction in MVP** - MarkItDown/Trafilatura, we're getting it anyway
+- **Papers support** - Arxiv RSS feeds, PDF ingestion for academic content
+- **Manual ingestion** - Add one-off articles/PDFs via CLI
+- **Pipe to Fabric** - Export content for deeper analysis with Fabric patterns
+- **Link extraction** - Extract and store links found in content for manual review
+
+**MVP Constraints**
+
+DO:
+- Use repository pattern - all SQL in storage.py
+- Parameterized queries only - no string concatenation
+- Content deduplication via external_id
+- **Retry logic for SQLite locks** - Python writes retry, Go reads fail fast
+- **WAL mode with proper pragmas** - Required for concurrent access
+- Personal context MUST have 4 sections (High/Medium/Low/Not Interested)
+- Use gpt-4o-mini for analysis (proven in legacy)
+- 30s timeout on all external fetches
+- Progress bars for operations >2 seconds (Rich library)
+- Track source errors, deactivate after 5 consecutive failures
+
+DON'T:
+- Don't add ORM complexity (SQLAlchemy)
+- Don't build health monitoring yet
+- Don't add repair systems
+- Don't implement migrations
+- Don't add delivery tracking
+- Don't build user management
+- Don't add API rate limiting (rely on library defaults)
+- **Don't make code bloated, inefficient, or inelegant** - Keep it clean and fast
+
+**Post-MVP Evolution**
+
+- **Iteration 2**: Enhanced paper support (PDF processing, citation tracking), full Fabric integration
+- **Iteration 3**: MCP server for AI agents, API server for remote access
+- **Future**: Recursive link following, web UI, mobile apps, DuckDB analytics layer
+
+## Extended Features
+
+### Manual Content Ingestion
+
+**Purpose**: Add one-off articles, papers, or content that isn't from regular sources.
+
+```bash
+# Add any URL
+prismis-cli ingest https://example.com/great-article
+
+# Add local PDF
+prismis-cli ingest ~/Downloads/research-paper.pdf
+
+# Add text content
+prismis-cli ingest --text "Important content from clipboard"
+```
+
+**Implementation**:
+- New source type: "manual"
+- Full LLM analysis pipeline (same as RSS)
+- Shows in TUI with "manual" tag
+- Perfect for one-off discoveries
+
+### Papers as First-Class Content
+
+**Purpose**: Academic papers deserve special treatment - they're different from blog posts.
+
+```bash
+# Add arxiv RSS feeds (works today)
+prismis-cli source add https://arxiv.org/rss/cs.AI
+
+# Add specific papers (future)
+prismis-cli paper add https://arxiv.org/pdf/2401.12345.pdf
+prismis-cli paper add ~/research/important-paper.pdf
+```
+
+**Features**:
+- Separate "Papers" view in TUI (press 'p')
+- PDF storage and full-text extraction
+- Citation and author tracking
+- Different analysis prompts for academic content
+
+### Pipe-to-Fabric Integration
+
+**Purpose**: Use Prismis as the data layer, Fabric as the analysis layer.
+
+```bash
+# Morning briefing
+prismis get --high --today | fabric --pattern create_morning_brief
+
+# Deep analysis of specific content
+prismis search "rust performance" | fabric --pattern extract_insights
+prismis show <content-id> | fabric --pattern summarize_technical
+
+# Export for custom processing
+prismis get --papers --unread | jq '.[] | .title'
+```
+
+**Commands to Add**:
+- `prismis get [--high/--medium/--low] [--today/--week]` - Get content by filters
+- `prismis search <query>` - Full-text search
+- `prismis show <id>` - Get specific content
+- `prismis stream` - Real-time feed (future)
+
+**Output Format**: JSON by default, markdown optional
+
+### Link Extraction
+
+**Purpose**: Capture interesting links mentioned in content for manual review.
+
+**Implementation**:
+- Extract URLs from fetched content during analysis
+- Store in database with parent content reference
+- Show in TUI: "This article mentioned 3 links"
+- Manual review: `prismis links <content-id>` to see extracted links
+- Easy ingestion: `prismis ingest <extracted-link>`
+
+**Not Implemented**: Automatic fetching of extracted links (that's for way later)
+
+### Enhanced TUI Views
+
+**Current**: HIGH (1) | MEDIUM (2) | LOW (3) | ALL (a)
+**Enhanced**: HIGH (1) | MEDIUM (2) | LOW (3) | ALL (a) | PAPERS (p) | MANUAL (m)
+
+**Benefit**: Different content types have different consumption patterns:
+- Papers: Read deeply, save for reference
+- Manual: One-offs you specifically added
+- RSS: Scan quickly for important updates
+
+## Future Vision (Cool Ideas to Save)
+
+### Advanced Features (Iteration 3+)
+
+**Recursive Link Following**:
+- Article mentions paper → automatically fetch paper
+- Reddit post links blog → fetch and analyze blog
+- Depth limits and smart filtering to avoid spam
+
+**MCP Server for AI Agents**:
+```python
+# Claude/other AI can query your content intelligence
+"What are today's important tech developments?"
+"Find all content about Rust performance from this month"
+"Extract action items from this week's reading"
+```
+
+**Advanced Paper Features**:
+- Citation tracking ("when papers cite this paper, alert me")
+- Author following ("new papers by Andrej Karpathy")
+- Conference proceeding feeds
+- Automatic PDF download and OCR
+
+**Smart Automation**:
+- Auto-create tasks from HIGH priority content
+- Export summaries to Obsidian daily notes
+- Webhook triggers on important content
+- RSS feed of YOUR prioritized content
+
+**Alternative Interfaces**:
+- Web UI for desktop browsing
+- iPhone app for mobile reading
+- Email digest generation
+- Slack/Discord bot integration
+
+### Technical Evolution
+
+**Analytics Layer (DuckDB)**:
+- Reading pattern analysis
+- Source quality scoring
+- Topic trend detection
+- Personal knowledge gap identification
+
+**AI Enhancement**:
+- Better context understanding over time
+- Automatic context.md updates based on reading patterns
+- Multi-model analysis (different models for different content types)
+- Local LLM support for privacy
+
+**Integration Ecosystem**:
+- Direct Lore integration (content → knowledge base)
+- Flux task creation from content
+- Prose writing assistant with content context
+- Fabric pattern library specifically for Prismis content
+
+These future features maintain the core philosophy: **Prismis as your automated research department** that feeds intelligence to both humans and AI agents.
+
+## Features Status
+
+**Status Legend:**
+
+- 📋 **Planned** - Feature defined and ready for iteration planning
+- 🔄 **In Progress** - Feature currently being developed (iteration-N)
+- ✅ **Built** - Feature completed and shipped
+
+**Iteration 7 - In Progress (2025-10-01):**
+
+- 🔄 Content-aware summarization (different depths per content type/length) - iteration-7
+- 🔄 Multi-channel report delivery (Email/Webhook/File Sync/RSS) - iteration-7
+- 🔄 Enhanced HTML report formatting (visual hierarchy, Top 3 Must-Reads) - iteration-7
+- 🔄 Local webapp for LAN access (iPad/phone viewing) - iteration-7
+- 🔄 Audio conversion pipeline (text-to-speech reports) - iteration-7
+- 🔄 Export sources command (clipboard export) - iteration-7
+
+**Current Features:**
+
+- 📋 RSS feed ingestion with full content extraction (MarkItDown/Trafilatura)
+- 📋 Reddit source support with PRAW/JSON fallback
+- 📋 YouTube transcript extraction via yt-dlp
+- 📋 LLM content analysis and prioritization
+- 📋 SQLite storage with WAL mode for concurrency
+- 📋 Go TUI with Bubbletea/Lipgloss (<100ms launch)
+- 📋 Desktop notifications with configurable priority threshold
+- 📋 Personal context in Markdown
+- 📋 Source management CLI
+- 📋 Daily dossier generation
+
+## Technical Approach
+
+**Architecture Decision**
+
+- [x] **Single Tool/Application** - Integrated solution, focused functionality
+
+**Why this approach?**
+
+Single tool keeps it simple for v1 - one daemon, one TUI, one database. Future iterations will add API/MCP as separate processes, but core remains integrated for simplicity and performance.
+
+**Dependencies & Prerequisites**
+
+- Python 3.11+ with uv package manager
+- Go 1.21+ for TUI binary
+- SQLite3 (pre-installed on Mac/Linux)
+- LLM API keys (OpenAI or Anthropic)
+- Reddit API credentials (optional, falls back to public)
+- terminal-notifier (Mac) or notify-send (Linux)
+- Optional: fabric for advanced analysis patterns (future)
+
+**Integration Requirements**
+
+- LiteLLM for LLM provider abstraction
+- yt-dlp for YouTube transcript extraction
+- feedparser for RSS consumption
+- PRAW for Reddit API access
+- Bubbletea ecosystem for TUI
+
+**Data Requirements**
+
+- **Sources configuration** - TOML format with URL, type, status
+- **Personal context.md** - REQUIRED sections:
+  - High Priority Topics
+  - Medium Priority Topics  
+  - Low Priority Topics
+  - Not Interested
+- **Config.toml** - Daemon settings, schedules, API keys
+- Content items with full text + LLM summaries + analysis JSON
+- User content state (read, favorite, notes) - ephemeral by design
+- Priority assignments with relevance scores
+- Source error tracking for auto-deactivation
+
+**Key Technical Constraints**
+
+- **SQLite Concurrency** - MUST use WAL mode with retry logic for locks
+- **Source Error Handling** - Deactivate sources after 5 consecutive failures
+- LLM API costs (batch wisely)
+- Reddit rate limits (30 req/min)
+- YouTube transcript availability
+
+## Technical Architecture (Proven Patterns from Legacy)
+
+**Data Design (Proven Schema)**
+
+```sql
+-- Single-user schema with proper indexes
+CREATE TABLE sources (
+    id INTEGER PRIMARY KEY,
+    url TEXT UNIQUE NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('rss', 'reddit', 'youtube')),
+    name TEXT,
+    category TEXT,
+    last_fetched TIMESTAMP,
+    active BOOLEAN DEFAULT true,
+    error_count INTEGER DEFAULT 0,
+    last_error TEXT
+);
+
+CREATE TABLE content (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER REFERENCES sources(id),
+    external_id TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT NOT NULL,
+    content TEXT,           -- Full content/transcript
+    summary TEXT,            -- LLM-generated 2-3 sentences
+    analysis JSON,           -- {priority: 'high', topics: [...], score: 0.92}
+    priority TEXT CHECK(priority IN ('high', 'medium', 'low')),
+    published TIMESTAMP,
+    indexed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    read BOOLEAN DEFAULT false,
+    favorited BOOLEAN DEFAULT false,
+    notes TEXT
+);
+
+CREATE INDEX idx_content_priority ON content(priority);
+CREATE INDEX idx_content_read ON content(read);
+CREATE INDEX idx_content_published ON content(published DESC);
+CREATE INDEX idx_content_source ON content(source_id);
+```
+
+**Component Architecture (Detailed Structure)**
+
+```
+prismis-local/
+├── daemon/                   # Python 3.11+ with uv
+│   ├── main.py              # APScheduler, runs every 30 min
+│   ├── fetcher.py           # Base plugin class, parallel fetching
+│   ├── plugins/
+│   │   ├── rss.py           # feedparser + MarkItDown for full text
+│   │   ├── reddit.py        # PRAW with auth, JSON fallback
+│   │   └── youtube.py       # yt-dlp for transcripts
+│   ├── analyzer.py          # LiteLLM, batch processing, retry logic
+│   ├── storage.py           # SQLite with WAL, retry on lock
+│   ├── notifier.py          # terminal-notifier/notify-send
+│   └── config.py            # Pydantic settings from TOML/env
+│
+├── tui/                     # Go 1.21+ single binary
+│   ├── main.go              # Bubbletea app initialization
+│   ├── ui/
+│   │   ├── feed.go          # List view with priority grouping
+│   │   ├── reader.go        # Full content reader with markdown
+│   │   ├── search.go        # Fuzzy search with highlighting
+│   │   ├── dossier.go       # Daily summary generator
+│   │   └── styles.go        # Lipgloss theming
+│   └── db/
+│       └── queries.go       # Read-only SQLite with retry
+│
+└── cli/                     # Python CLI for management
+    └── source.py            # Add/remove/list sources
+
+~/.config/prismis/           # User data directory
+├── prismis.db               # SQLite database (WAL mode)
+├── context.md               # Personal interests markdown
+├── config.toml              # Daemon settings
+└── logs/                    # Rotation logs for debugging
+```
+
+**Integration Points (Planned)**
+
+Phase 4 - Dual Server Architecture:
+```
+                    SQLite Database
+                          ↑
+                    Python Daemon
+                          ↓
+        ┌─────────────────┼─────────────────┐
+        ↓                 ↓                 ↓
+    MCP Server      REST/GraphQL       Direct Read
+  (localhost:8990)  (localhost:8989)    (Go TUI)
+        ↓                 ↓                 
+  AI Assistants     Web/Mobile UIs     
+```
+
+**Tool/Technology Stack (Proven Choices)**
+
+**Python Dependencies (daemon):**
+```python
+# SQLite with repository pattern - no raw SQL scattered around
+sqlite3          # Built-in, WAL mode, retry logic in storage.py
+litellm          # OpenAI/Anthropic/Ollama abstraction  
+httpx            # Async HTTP with connection pooling
+feedparser       # RSS/Atom parsing
+praw             # Reddit API with rate limiting
+typer            # Modern CLI (better than click)
+apscheduler      # Cron-like scheduling
+pydantic         # Config validation
+markitdown       # Full article extraction
+yt-dlp           # YouTube transcript extraction
+```
+
+Key Implementation Details:
+- **Repository pattern in storage.py** - All DB access centralized, no SQL strings scattered
+- **WAL mode with retry** - Handle concurrent daemon/TUI access
+- **Parameterized queries only** - Never string concatenation
+- **Connection management** - Proper lifecycle, context managers
+
+**Go Dependencies (TUI):**
+```go
+github.com/charmbracelet/bubbletea   // TUI framework
+github.com/charmbracelet/lipgloss    // Styling  
+github.com/charmbracelet/bubbles     // Components (viewport, list)
+github.com/mattn/go-sqlite3          // SQLite driver with retry
+github.com/spf13/viper               // Config loading
+github.com/sahilm/fuzzy              // Search
+```
+
+## Implementation Strategy (Proven Approach)
+
+**Iteration Priorities (Proven Patterns)**
+
+**Phase 1: Core Foundation (Week 1)**
+
+Key Design Decisions from Legacy:
+- **ContentItem standardization** - All sources produce same format
+- **Plugin architecture** - Even if just RSS first, structure for extensibility  
+- **Repository pattern** - Proven approach from legacy for clean separation
+- **External ID deduplication** - Prevent duplicate content across fetches
+
+```python
+daemon/
+├── plugins/
+│   └── rss.py          # RSSPlugin class, returns List[ContentItem]
+├── analyzer.py         # LiteLLM with gpt-4o-mini
+├── storage.py          # Repository pattern - ALL database access
+├── models.py           # ContentItem dataclass
+└── main.py             # Orchestration with Rich progress
+
+# ContentItem structure (standardized format):
+class ContentItem:
+    external_id: str    # Unique ID from source
+    title: str
+    url: str
+    content: str        # Feed content (not full article yet)
+    published: datetime
+    source_id: int
+    # Additional fields as needed
+
+# Plugin pattern (for extensibility):
+class RSSPlugin:
+    def fetch_content(self, source_url: str) -> List[ContentItem]:
+        # 30s timeout
+        # Returns standardized ContentItem list
+        # Handle errors gracefully
+
+# Storage repository pattern:
+class Storage:
+    def __init__(self, db_path):
+        # Setup WAL mode, pragmas
+    
+    def add_content(self, content_dict):
+        # Deduplication via external_id
+        # Retry on lock
+        
+    def get_unread_by_priority(self, priority):
+        # Parameterized queries
+        # Return dicts not objects
+```
+
+**Phase 2: Sexy TUI (Week 2)**
+
+Design Requirements from Exploration:
+- **Launch speed** - Must feel instant (<100ms)
+- **Keyboard-first** - Everything accessible without mouse
+- **Ephemeral content** - Items disappear when marked read
+- **Priority grouping** - HIGH/MEDIUM/LOW visual separation
+- **Beautiful defaults** - Must look good out of the box
+
+```go
+tui/
+├── main.go         // Bubbletea app entry
+├── ui/
+│   ├── feed.go     // List view with priority sections
+│   ├── reader.go   // Full content viewport
+│   ├── styles.go   // Lipgloss theme (Charm.sh sexy)
+│   └── keys.go     // Keyboard mapping
+└── db/
+    └── queries.go  // Read-only SQLite access
+
+// Key bindings (vim-like):
+- j/k: navigate items
+- Enter: read full content
+- m: mark read (item disappears)
+- 1/2/3: jump to HIGH/MED/LOW
+- /: search
+- q: quit
+```
+
+**Phase 3: Complete Workflow (Week 3)**
+- Add Reddit (PRAW) and YouTube (yt-dlp) sources
+- Desktop notifications with terminal-notifier
+- **Dossier feature**: Daily summary generation with:
+  - Key insights from the day
+  - Topic trend analysis  
+  - Pattern recognition
+  - Export to markdown
+- Search with fuzzy matching
+- Personal context.md support
+- Error resilience:
+  - LLM failures: exponential backoff, queue for retry
+  - Source failures: Mark inactive after 5 errors
+  - Cost limiting: Switch to cheaper model if over budget
+
+**Phase 4: API & Intelligence Layer**
+- MCP server for AI queries
+- REST API for alternative UIs
+- DuckDB analytics layer
+- Export to Obsidian markdown
+
+**Deployment/Operations (Self-Contained)**
+
+```bash
+# Phase 1: Simple install script
+./install.sh
+# - Copies prismis (Go binary) to /usr/local/bin
+# - Copies prismis-daemon (Python) to /usr/local/bin
+# - Creates ~/.config/prismis/ with default config
+# - Sets up launchd (Mac) or systemd (Linux) for auto-start
+
+# Future: Homebrew formula (cleaner for Mac users)
+brew tap prismis/tap
+brew install prismis
+brew services start prismis  # Manages daemon automatically
+
+# What gets installed:
+/usr/local/bin/
+├── prismis          # Go TUI binary
+└── prismis-daemon   # Python daemon
+
+~/.config/prismis/
+├── config.toml      # Daemon configuration
+├── context.md       # Personal interests
+├── sources.toml     # Source list
+└── prismis.db       # SQLite database
+```
+
+**Data Flow (Proven Pipeline)**
+
+```
+Every 30 minutes:
+RSS/Reddit/YouTube → Fetcher (parallel)
+                         ↓
+                  Content + context.md
+                         ↓
+                  LLM Analysis (batch)
+                         ↓
+                  SQLite (WAL mode)
+                    ↓         ↓
+            Notifications    TUI
+            (if HIGH)    (on demand)
+                              ↓
+                    Future: API/MCP
+                              ↓
+                        AI Agents
+```
+
+**Decision Logic (Validated from Legacy)**
+
+LLM Prompt Structure:
+```
+Content: [article text]
+User Context: [context.md sections]
+
+Analyze and return JSON:
+{
+  "summary": "2-3 sentences",
+  "priority": "high|medium|low",
+  "topics": ["rust", "sqlite"],
+  "relevance_score": 0.85
+}
+```
+
+Priority Assignment:
+- Score >0.8 + matches HIGH topics → HIGH
+- Score >0.5 + matches MEDIUM topics → MEDIUM  
+- Score >0.3 + not in NOT INTERESTED → LOW
+- Otherwise → Skip
+
+**Automation/Orchestration (Proven Patterns)**
+
+```python
+# Daemon scheduling
+scheduler = AsyncIOScheduler()
+scheduler.add_job(fetch_all_sources, 'interval', minutes=30)
+scheduler.add_job(cleanup_old_content, 'cron', hour=2)
+scheduler.add_job(generate_daily_dossier, 'cron', hour=20)
+
+# Concurrency handling
+async def fetch_all_sources():
+    tasks = [fetch_rss(), fetch_reddit(), fetch_youtube()]
+    await asyncio.gather(*tasks)
+
+# SQLite locking strategy
+def write_with_retry(query, params, retries=3):
+    for i in range(retries):
+        try:
+            conn.execute(query, params)
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e):
+                time.sleep(0.1 * (i + 1))
+```
+
+## Learning and Evolution
+
+**Key Learnings**
+
+- Evolved from exploration: 2025-01-16-prismis-local
+- Legacy system is sophisticated and proven - React UI, Auth0, PostgreSQL all work well
+- But web UI has too much friction for daily personal use
+- LLM models from legacy that worked: gpt-4o-mini for analysis
+- PostgreSQL overkill for personal use - SQLite with WAL sufficient
+- **The breakthrough**: Prismis as AI data layer, not human reader
+- **Core principle**: Keep code clean, elegant, fast - avoid bloat at all costs
+
+**Evolution Notes**
+
+- Shifted from "RSS reader replacement" to "automated research department"
+- TUI becomes ONE consumer of data, not THE consumer
+- Each tool in ecosystem does ONE thing well:
+  - Prismis: Structure external content into queryable intelligence
+  - Lore: Index personal knowledge
+  - Flux: Manage tasks/ideas
+  - Momentum: Drive development
+  - Prose: Assist writing
+- Notification strategy: Instant desktop alerts for HIGH priority only
+
+## Open Questions
+
+**User/Market Questions**
+
+- Should we support Ollama for fully local LLM?
+- Add export to Markdown for Obsidian integration?
+- Include podcast RSS with transcript generation?
+
+**Technical Questions**
+
+- Best LLM model for cost/quality balance?
+- How to handle YouTube videos without transcripts?
+- Optimal batch size for LLM calls?
+- MCP server embedded in daemon or separate process?
+
+**Operational Questions**
+
+- Homebrew formula complexity vs install script?
+- How to handle LLM API key management securely?
+- Backup strategy for SQLite database?
+
+## Success Metrics
+
+**Primary Metrics**
+
+- Daily active usage (actually launched and used)
+- Time from launch to first content interaction (<2 seconds)
+- Percentage of HIGH priority items actually read (>80%)
+- API queries from AI agents (once implemented)
+
+**Learning Metrics**
+
+- Context.md refinements per week (shows engagement)
+- Source additions/removals (indicates value)
+- Read/unread ratio by priority level
+
+## Risks and Assumptions
+
+**Key Assumptions**
+
+- SQLite can handle concurrent daemon writes and TUI reads
+- LLM costs reasonable for personal use (<$10/month)
+- Users willing to define context.md for personalization
+- Go TUI performance acceptable over SSH
+
+**Primary Risks**
+
+- SQLite locking issues under heavy load
+- LLM API costs if analyzing too much content
+- YouTube transcript availability varies
+- Mac-specific features limit initial audience
+
+**Mitigation Strategies**
+
+- WAL mode and retry logic for SQLite
+- Batch LLM calls and cache summaries
+- Fallback to title/description if no transcript
+- Abstract notification system for cross-platform
+
+---
+
+## Legacy System Reference (Never Re-explain This)
+
+**Proven Technical Patterns:**
+- Repository pattern with storage.py centralizing all DB access
+- Plugin architecture for extensible content sources
+- SQLite WAL mode with retry logic for concurrent access
+- LiteLLM abstraction for provider flexibility
+- ContentItem standardization across all sources
+- External ID deduplication to prevent duplicate content
+- Priority-based LLM analysis with personal context
+- Parameterized queries only (never string concatenation)
+- Error tracking with source auto-deactivation after 5 failures
+- Progress indicators for operations >2 seconds
+- Batch LLM processing to reduce API costs
+
+**Validated Technology Choices:**
+- gpt-4o-mini for content analysis (cost/quality proven)
+- feedparser for RSS with 30s timeout
+- PRAW for Reddit with JSON fallback
+- yt-dlp for YouTube transcript extraction
+- MarkItDown/Trafilatura for full article content
+- Bubbletea for instant-launch TUI (<100ms)
+- terminal-notifier/notify-send for desktop alerts
+- APScheduler for daemon scheduling (every 30 min)
+- Rich library for beautiful CLI progress indicators
+
+**Database Schema Decisions:**
+- Single-user schema (no UUID complexity)
+- WAL mode with busy_timeout=5000
+- Proper indexes on priority, read status, published date
+- JSON column for analysis results
+- Error tracking columns for source reliability
+- External ID for cross-source deduplication
+
+**LLM Analysis Pipeline:**
+- Personal context.md with 4 required sections
+- Batch processing to reduce API costs
+- Exponential backoff retry logic
+- Priority scoring: >0.8 HIGH, >0.5 MEDIUM, >0.3 LOW
+- 2-3 sentence summaries with topic extraction
+- Cost limiting with model fallback strategies
+
+**SQLite Concurrency Strategy:**
+- Python daemon: Write with retry logic
+- Go TUI: Read with fail-fast approach
+- WAL mode enables concurrent read/write
+- Connection management with proper lifecycle
+- Context managers for transaction safety
+
+**Error Handling Patterns:**
+- Source errors: Track count, deactivate after 5 failures
+- LLM failures: Queue for retry with exponential backoff
+- SQLite locks: Retry with increasing delays
+- Network timeouts: 30s limit on all external fetches
+- Graceful degradation when services unavailable
+
+These patterns are PROVEN and should not be re-debated or re-explained during implementation.
+
+---
+
+This document evolved from the 2025-01-16-prismis-local exploration and legacy system analysis. It captures both the vision of a local-first content intelligence tool and the technical approach validated through examining the proven legacy patterns. The focus is on reducing friction while creating a powerful data layer for AI agents - making Prismis not just a content reader but the foundation for an intelligent information ecosystem.

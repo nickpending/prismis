@@ -4,8 +4,8 @@ subtype: decisions
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-06-12"
-last_change: "baseline refresh — added two decisions reconciled from recent commits: source-type exclusion from deep extraction (1e39916, deep_extract_exclude) and TUI/web quote unification (54eadb4, single deduped Quotes section)"
+updated: "2026-08-23"
+last_change: "refresh (f100142) — repointed the deep-extraction exploration citation from the retired obsidian path to its new in-repo canonical location, docs/explorations/deep-extraction-two-tier-summarization.md"
 tags: [architecture, decisions]
 ---
 
@@ -183,7 +183,7 @@ Rationale: empty consumer set closes CONCERN[2] without code change. INV-OBS-1 h
 
 **Choice:** Standalone class in `deep_extractor.py`. Instantiated in `__main__.py` (both `run_scheduler` and `--once` paths), injected into the orchestrator constructor as `deep_extractor: ContentDeepExtractor | None`, and into `app.state.deep_extractor` for the API endpoint. Single responsibility — extraction logic separate from pipeline coordination.
 
-**Why:** P15 (existing patterns when they fit) — `summarizer.py` and `evaluator.py` are exactly this shape, so the pattern is already in the codebase twice. Testable in isolation. Shareable between pipeline and API without coupling them. The exploration spec (`obsidian/reference/technical/explorations/prismis/deep-extraction-two-tier-summarization.md`) explicitly closed the post-storage async alternative ("design decision, not post-storage patch"), so B1 (don't guess) drove the rejection of background-queue extraction. Per task 1.2 plan.
+**Why:** P15 (existing patterns when they fit) — `summarizer.py` and `evaluator.py` are exactly this shape, so the pattern is already in the codebase twice. Testable in isolation. Shareable between pipeline and API without coupling them. The exploration spec (`docs/explorations/deep-extraction-two-tier-summarization.md`) explicitly closed the post-storage async alternative ("design decision, not post-storage patch"), so B1 (don't guess) drove the rejection of background-queue extraction. Per task 1.2 plan.
 
 ## Source-internal-only skepticism in deep extraction synthesis
 

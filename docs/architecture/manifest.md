@@ -1,15 +1,15 @@
 ---
 type: manifest
 project: prismis
-generated: "2026-06-12"
+generated: "2026-08-23"
 source: /Users/rudy/development/projects/prismis/docs/architecture
-reconciled_at: 730e0bd8f4aa65a095e7f8839113c3a87f60cc1a
+reconciled_at: f100142af295bcccdab5369cd543d25a69c26843
 ---
 
 ## Components
 
 - **Daemon** — Python daemon: fetch, LLM summarize/evaluate/deep-extract, SQLite storage, REST API.
-- **Fetchers** — Source adapters: RSS, Reddit, YouTube, file ingestion.
+- **Fetchers** — Source adapters: RSS, Reddit, YouTube, static-URL change monitoring (SHA256 diff, source type "file").
 - **Summarizer** — LLM content summarization with structured insights.
 - **Evaluator** — LLM content prioritization against user interests.
 - **Deep Extractor** — Second-tier LLM synthesis for HIGH items; `deep_extract_exclude` skips low-signal sources.

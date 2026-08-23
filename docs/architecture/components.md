@@ -4,8 +4,8 @@ subtype: components
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-06-12"
-last_change: "baseline refresh (migrated obsidian→repo) — reconciled drift from commits 1e39916 (deep_extract_exclude source-type gate on Deep Extractor) + 54eadb4 (TUI/web quote unification: single deduped Quotes section); registered 4 previously-undocumented components (Embeddings, Notifier, Observability, Source Validator)"
+updated: "2026-08-23"
+last_change: "refresh (f100142) — adopted docs/explorations/EXPLORATION-2025-10-31-url-monitoring-design.md surfaced that Fetchers' file.py is static-URL change monitoring (SHA256 diff), not local file ingestion; Purpose/Key files corrected"
 tags: [architecture, components]
 ---
 
@@ -22,8 +22,8 @@ Registry of all system components. Each entry links to a detail doc when the com
 
 ## Fetchers
 
-**Purpose:** Content source adapters — RSS, Reddit, YouTube, file-based ingestion.
-**Key files:** `daemon/src/prismis_daemon/fetchers/` — rss.py, reddit.py, youtube.py, file.py
+**Purpose:** Content source adapters — RSS, Reddit, YouTube, and static-URL change monitoring (source type `"file"` — despite the name, fetches a remote URL and diffs it, not local filesystem ingestion).
+**Key files:** `daemon/src/prismis_daemon/fetchers/` — rss.py, reddit.py, youtube.py, file.py (`FileFetcher`: GETs a URL, SHA256-hashes content, compares against the previous entry's stored `analysis.content_hash`; on change, emits a new entry with a unified diff and `external_id = sha256(url + content_hash)[:16]` so each change becomes a new content item, preserving history — see `docs/explorations/EXPLORATION-2025-10-31-url-monitoring-design.md`)
 **Connections:** Called by orchestrator.py during fetch cycles. Each returns normalized content items to storage. **INV-FETCH-1 (task 2.9):** all fetcher datetime emissions are tz-aware via `datetime.now(UTC)`; no `datetime.utcnow()` anywhere under `daemon/src/prismis_daemon/fetchers/`. Producer-side complement to the storage ISO-string convention and the API RFC3339 wire contract — closes the wire end-to-end at the producer layer.
 
 ## Summarizer

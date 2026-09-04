@@ -384,6 +384,34 @@ verify: PASS
 The sealed baseline was 84 failures — matching neither 113 nor 153, as the plan predicted. The
 suite's count had been a property of the developer's `$HOME`, not of this repo.
 
+### Known ambient input the seal does NOT cover: the HuggingFace model cache
+
+Recorded 2026-09-04, before the SC-8/SC-9 evidence below, because it qualifies both.
+
+`huggingface_hub` computes `HF_HOME` **at import** from `os.getenv("XDG_CACHE_HOME", ...)` (the
+`HF_HOME` assignment in `huggingface_hub/constants.py`). That import happens during pytest
+collection — `api.py` does `from .embeddings import Embedder`, and `embeddings.py` does
+`from sentence_transformers import SentenceTransformer` — so it runs before the autouse seal
+exists. Measured: after importing the module, setting `XDG_CACHE_HOME` leaves
+`huggingface_hub.constants.HF_HOME` pointing at `/Users/rudy/.cache/huggingface` (16G on this
+machine). `Embedder()` is then constructed per request inside `api.py`'s search and
+similar-content handlers, so `/api/search` tests resolve `all-MiniLM-L6-v2` from that real cache.
+
+**Neither SC-8 nor SC-9 can see it.** SC-8 varies only `XDG_CONFIG_HOME`. SC-9's `env -i` run
+strips `HOME`, which *would* redirect the cache — but a pass there is equally consistent with a
+silent ~90MB download, and the criterion cannot tell those apart.
+
+Not sealed to a per-run temp dir: that forces a fresh download on every local run. Instead the
+model is made an **explicitly provisioned input**, the same move `ci.yml` already makes for
+staticcheck — `.github/workflows/ci.yml` caches `~/.cache/huggingface` keyed on the model
+identity, so a cache miss is the only path that reaches the network and an upstream outage cannot
+turn the gate red for reasons unrelated to the code.
+
+**So the claim below is scoped, not absolute:** the suite is independent of the ambient *config*
+and data directories. The embedding model is a separate ambient input, covered by the CI cache
+rather than by the seal, and on a developer machine it still comes from the real
+`~/.cache/huggingface`.
+
 ### SC-8 — the suite is independent of the ambient config
 
 Measured, same tree, two hostile environments:
@@ -544,14 +572,29 @@ developer's real database) and `test_config_loading_with_all_files_present` kept
 
 ### Skips — every one names a precondition and a handle
 
-No test is skipped to dodge a failure. 27 skips, all resource preconditions:
+No test is skipped to dodge a failure. **28 skips**, all resource preconditions. Every row below
+was re-derived from a single run's `-rs` output on 2026-09-04, and the rows sum to the skip count
+pytest reports:
 
 | count | gate | why |
 |---|---|---|
+| 8 | `OPENAI_API_KEY` | 6 pre-existing `skipif` marks plus 2 inline `pytest.skip`s in `test_llm_startup_validation_integration.py` |
 | 7 | `PRISMIS_LIVE_NETWORK_TESTS` | blocked on **gh #59**, not on credentials |
+| 7 | `PRISMIS_LIVE_LLM_TESTS` | needs a live llm-core service (gh #60) |
 | 5 | `REDDIT_CLIENT_ID` | PRAW returns 401 without OAuth credentials (gh #60) |
-| 6 | `PRISMIS_LIVE_LLM_TESTS` | needs a live llm-core service (gh #60) |
-| 8 | `OPENAI_API_KEY` | pre-existing marks the plan required to survive |
+| 1 | `shutil.which("terminal-notifier")` | macOS-only binary, absent on the CI runner **and on the operator's machine** (gh #60) |
+| **28** | | **= pytest's reported skip count** |
+
+Separately, pytest reports **1 xfailed** — `test_rfc3339_helper_unit.py`, the documented xfail two
+other files assert must remain. An earlier revision listed it as a fifth row of this table, which
+was wrong twice: an xfail is not a skip and pytest counts them separately, and that row sat about
+forty lines below the other four with intervening prose, so the table did not read as a table at
+all. It is out of the skip count now.
+
+An earlier revision's rows summed to 26 against a stated 27. The cause was re-gating
+`test_complete_analysis_pipeline` out of the `OPENAI_API_KEY` row without adding it to the
+`PRISMIS_LIVE_LLM_TESTS` row — patching the row known to be wrong instead of re-deriving all of
+them. Hence the whole-table re-derivation above.
 
 **Correction (2026-09-04): the ninth was mine, not pre-existing.** `plan.md:58-61` names eight
 pre-existing marks; this table reported nine and labelled them all pre-existing. The extra was a
@@ -622,8 +665,23 @@ Two members across the whole package:
 
 | site | disposition |
 |---|---|
-| `__main__.py:32-36` — `.env` load | **fixed** — moved to the entry point |
-| `api.py:1558-1565` — `/audio` mount gated on `XDG_DATA_HOME` existing at import | **fixed** — mounted unconditionally with `check_dir=False` |
+| `prismis_daemon.__main__` — the `.env` load | **fixed** — moved into `_load_ambient_env()`, called from the Typer callback |
+| `prismis_daemon.api` — `/audio` mount gated on `XDG_DATA_HOME` existing at import | **fixed** — mounted unconditionally with `check_dir=False` |
+| `cli.__main__` — a byte-identical `.env` load | **fixed 2026-09-04** — see below |
+
+**The first sweep was scoped to the wrong thing.** It walked `daemon/src/prismis_daemon` only,
+but the defect shape is "an entry-point module loads `$XDG_CONFIG_HOME/prismis/.env` at import",
+which is not package-specific. `cli/src/cli/__main__.py` carried the same code verbatim, inert only
+because its one importer (`test_extract_command_unit.py`) imports it inside a test body, after the
+seal — a module-scope import would have restored the leak. Fixed by mirroring the daemon's
+`_load_ambient_env()` rather than inventing a second pattern, and proved the same way: with a
+`.env` planted on the XDG path, importing `cli.__main__` leaves the variable unset and calling the
+helper sets it.
+
+Re-swept across **both** `daemon/src/prismis_daemon` and `cli/src/cli`: one module-scope
+environment read remains, the `/audio` directory above, which no longer branches the route table.
+`api.py`'s `static_dir` was examined and is **not** a member — it is `Path(__file__)`-relative and
+`static/index.html` is tracked, so the branch is true in every clone including CI.
 
 The second made the app's *route table* a property of the developer's disk: `/audio` was a live
 route on a machine with the directory and an unknown path elsewhere, and 13 test modules import
@@ -656,38 +714,89 @@ The other ten:
 
 - DELETED tui/internal/db/queries_integration_test.go::TestGetContentByPriorityRealDB — SUPERSEDED: compiled by no gate, guard checked a path the code does not use; same function covered by queries_test.go::TestGetContentByPriority under the gate
 
-### Unresolved — one daemon test failed once and has not reproduced
+### Second adversarial round — 2026-09-04
 
-During the 2026-09-04 fix pass a full daemon run reported `1 failed, 343 passed` where every other
-run reports `344 passed`. The failing node id was not captured, and it has not recurred since.
+**`add`'s name derivation was uncovered, and two tests pinned inputs production never passes.**
+`add` rebinds `url` from `detect_and_normalize_source_url` before calling `extract_name_from_url`,
+so the name always comes from the NORMALIZED url. Measured: `source add reddit://rust` names the
+source **`r/rust`**, not `rust` — yet `test_url_extraction.py` pinned
+`extract_name_from_url("reddit://rust") == "rust"`, a raw form no user path produces, in a file
+whose docstring presented itself as the CLI/daemon naming contract. Now covers the composition
+`add` actually performs; the raw-form assertions are marked as the standalone contract they are.
+The plan's Constitution Check row that called all of `add`'s remainder glue is corrected — the name
+derivation is logic.
 
-Searched for it, without success:
-- 4 further full-suite runs — `344 passed, 27 skipped, 1 xfailed` every time.
-- 12 consecutive runs of the timing- and concurrency-sensitive subset
-  (`test_extract_endpoint_race`, `test_api_connection_cleanup`, `test_connection_lifecycle`,
-  `test_favorites_cascade`, `test_host_binding_integration`, `test_daemon_integration`) — all clean.
-- Ruled out test-order dependence: `pytest-randomly` is not installed
-  (`ModuleNotFoundError: No module named 'pytest_randomly'`), so collection order is fixed and the
-  `-p no:randomly` flag used in some runs was a no-op. The runs are directly comparable.
+**A docstring I wrote asserted an invariant nothing checks.** It claimed the CLI and daemon "must
+agree" on normalization. Measured directly against both functions, they do not:
 
-So it is an intermittent, not an order effect, and it is **not** explained. It is recorded rather
-than dismissed: one failure in five runs of a suite that gates every push is worth knowing about,
-and calling it noise on this evidence would be a guess.
+| input | CLI | daemon | agree |
+|---|---|---|---|
+| `youtube://PLabc123` | `/channel/PLabc123` | `/@PLabc123` | no |
+| `reddit://rust/` | `.../r/rust/` | `.../r/rust` | no |
+| ` reddit://rust` | not detected as reddit at all | `.../r/rust` | no |
+| `youtube://UCabc` | `/channel/UCabc` | `/channel/UCabc` | yes |
 
-**No separate detector is needed.** CI now runs this suite on every push and keeps a run history,
-which is a better instrument than re-running locally — if the flake is real it will surface there
-with a node id attached, and if it never recurs the history says that too.
+The daemon strips whitespace and trailing slashes and matches only a `UC` prefix; the CLI strips
+neither and also matches `PL`. Docstring restated to describe what is true, and all three
+divergences pinned by test so either side moving becomes a failure rather than a silent fork.
+Which side is right is a product decision — **gh #65** — so neither normalization was changed.
 
-- **gh #59** (bug) — **Reddit source validation is broken in production.** `SourceValidator._validate_reddit` (`validator.py:144-158`) probes `reddit.com/r/<name>/about.json` unauthenticated and maps
-  403 → "is private". Reddit now 403s **every** unauthenticated request to that endpoint and returns
-  an HTML block page. Probed 2026-09-03: r/python, r/rust, r/programming, r/askreddit all 403, with
-  and without the validator's own User-Agent. **Adding any Reddit source fails today**, telling the
-  user their public subreddit is private. `RedditFetcher` already authenticates via PRAW and works —
-  only the validator takes the unauthenticated path. Not fixed here: switching it is a runtime
-  behavior change in the add-source path, outside this work order's scope.
-- **gh #60** (enhancement) — restore the live-resource integration tests with recorded fixtures
-  (VCR-style cassettes / canned LLM responses) so those paths execute deterministically in CI.
+**A test in the 344 passed having executed nothing.**
+`test_notifier_integration.py::test_notifier_calls_terminal_notifier_subprocess` caught every
+exception, assigned a bool in both branches, then asserted `isinstance(success, bool)` — true
+either way. `terminal-notifier` is absent on the operator's Mac as well as the CI runner, so it had
+never verified a notification fires, anywhere. Now gated on `shutil.which("terminal-notifier")`
+with a stated reason and a handle, and the body asserts for real when the binary is present.
+Converting a tautological pass into an honest skip is not the SC-12 prohibition — SC-12 forbids
+skipping a test that *fails*, and this one passed.
 
+**Three citations were wrong on arrival.** Two in `test_source_list_remove_unit.py` pointed at
+pre-extraction line numbers; one named `api.py:227` for a function defined at 229. All three now
+name the **symbol** rather than a line range — `find_source_by_id` moved from 108 to 117 during
+this same round, which is exactly how a line number goes stale. Swept every new comment and
+docstring in the round rather than fixing only the three: the remaining citations
+(`constitution.md:42-43` and `:130-132`, `api_client.py:44`, `remote.py:24`, and four `verify.sh`
+references in `ci.yml`) were each re-opened and land on their quoted text. Now a standing rule in
+`CLAUDE.md`.
+
+**CI actions were floating.** `ci.yml` argued that a floating version "makes the gate's result
+depend on when it ran rather than on the code" and then used mutable `@v6`/`@v5` tags for
+`setup-uv` and `setup-go` — a write surface into CI on a public repo, and a `setup-uv` bump can
+change resolution under `uv sync --frozen`. All four actions are SHA-pinned with a trailing version
+comment, each SHA resolved from the GitHub API at edit time rather than written from memory. This
+lands before the first push, so the run that closes SC-6b judges the final file.
+
+**A dead fixture.** `cli/tests/conftest.py`'s `cli_runner` had no consumer after the Bucket E
+deletions; the plan directed such fixtures be deleted rather than left dead. Removed with its
+now-unused `CliRunner` import.
+
+### RESOLVED — the "intermittent" was a live third-party dependency (gh #64)
+
+Identified and fixed 2026-09-04. It was never random.
+
+`test_date_filtering_integration.py::test_network_timeout_graceful` fetched
+`https://httpstat.us/200?sleep=5000` with a one-second fetcher timeout and asserted the request
+would raise. That made the outcome a property of a third party's current behaviour: when
+httpstat.us is slow the assertion holds, and when it answers promptly the test fails with
+
+```
+Failed: DID NOT RAISE <class 'Exception'>
+```
+
+Which is what it now does — httpstat.us returns an immediate HTML page, so the fetcher parses it
+(`mismatched tag` from feedparser) and never times out. Reproduced 3/3, not intermittently.
+
+**Two earlier sightings were the same test, and I mis-measured twice.** Both runs used `-rs`, which
+prints only the skip summary, so the failing node id never reached the output and I recorded an
+"unexplained intermittent" instead of a name. A run hunting a failure must use `-ra` or
+`--tb=line`; `-rs` cannot report one. Recorded in the round notes above.
+
+**Fixed at the cause, not gated.** A `slow_feed_url` fixture serves from `127.0.0.1` on an
+ephemeral port and sleeps past the deadline, so the timeout is produced by the test rather than
+observed from the network. This is the same repair already made to the Go suite's
+`TestNetworkTimeoutRecovery`, which had the identical shape — a timeout assertion pointed at a live
+host. The invariant is unchanged and now actually exercised: daemon **343 passed, 0 failed**, with
+no network dependency in the path.
 ### CI
 
 **SC-6 is NOT fully met, and was previously recorded as though it were.** Its first two clauses

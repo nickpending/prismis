@@ -26,7 +26,15 @@ def test_extract_name_from_rss_feeds() -> None:
 
 
 def test_extract_name_from_reddit_urls() -> None:
-    """Test name extraction from Reddit URLs."""
+    """Test name extraction from Reddit URLs.
+
+    STANDALONE CONTRACT ONLY. The `reddit://` cases below are inputs `source add` never
+    passes: `add` normalizes the URL before naming it, so a user typing
+    `reddit://rust` gets the name "r/rust", not "rust". The name a user actually
+    receives is pinned in test_source_command_unit.py's
+    test_name_derived_for_a_source_the_user_adds. These assert only that the function
+    handles a raw protocol URL without crashing, for callers that pass one.
+    """
     # reddit:// scheme - returns just the subreddit name after stripping prefix
     assert extract_name_from_url("reddit://rust") == "rust"
     assert extract_name_from_url("reddit://programming") == "programming"
@@ -47,10 +55,15 @@ def test_extract_name_from_reddit_urls() -> None:
 def test_extract_name_from_youtube_urls() -> None:
     """Test name extraction from YouTube URLs.
 
-    The CLI's proposed name must match what the daemon API produces
-    (daemon/src/prismis_daemon/api.py:294-303) — the API names the source server-side, so
-    a CLI that proposed a differently-formatted name would fork the two. source.py:47
-    states this ("matching API behavior"). Neither side emits a "YouTube: " prefix.
+    The CLI's proposed name must match what the daemon API produces in its own
+    `extract_name_from_url` (daemon/src/prismis_daemon/api.py) — the API names the source
+    server-side, so a CLI proposing a differently-formatted name would fork the two.
+    `source.py`'s comment "matching API behavior" states the intent. Neither side emits a
+    "YouTube: " prefix.
+
+    STANDALONE CONTRACT for the `youtube://` cases: as with the reddit ones above, `add`
+    normalizes before naming, so these raw forms are not what production passes. They
+    happen to produce the same name either way, which is why this went unnoticed.
     """
     # youtube:// scheme
     assert extract_name_from_url("youtube://@mkbhd") == "@mkbhd"

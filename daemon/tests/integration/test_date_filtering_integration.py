@@ -1,10 +1,41 @@
 """Integration tests for date filtering with real feeds."""
 
+import http.server
+import threading
+import time
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from prismis_daemon.fetchers.rss import RSSFetcher
 from conftest import make_config
+
+
+@pytest.fixture
+def slow_feed_url() -> Iterator[str]:
+    """A local feed URL that never answers before the caller's deadline.
+
+    Timeout behaviour must not depend on a third party staying slow. This serves from
+    127.0.0.1 on an ephemeral port and sleeps well past the one-second fetcher timeout
+    the test configures, so the timeout is produced by this test rather than observed.
+    """
+
+    class SlowHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # BaseHTTPRequestHandler dispatches on this name
+            time.sleep(5)
+
+        def log_message(self, *args: object) -> None:
+            pass  # keep pytest output clean
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), SlowHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/feed.xml"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_date_filtering_prevents_old_content() -> None:
@@ -67,18 +98,23 @@ def test_date_filtering_prevents_old_content() -> None:
             raise
 
 
-def test_network_timeout_graceful() -> None:
+def test_network_timeout_graceful(slow_feed_url: str) -> None:
     """
     FAILURE MODE: Network timeout during fetch
     GRACEFUL: System continues, logs error, doesn't crash
+
+    Served by a local socket that holds the request open past the fetcher's deadline.
+    This previously pointed at https://httpstat.us/200?sleep=5000 and asserted that the
+    request would time out — which made the outcome a property of a third party's current
+    behaviour rather than of this code. httpstat.us now answers immediately with an HTML
+    page, so no timeout occurred and `pytest.raises` failed with DID NOT RAISE.
     """
     # Use config with very short timeout to force failure
     config = make_config(max_days_lookback=7)
     rss_fetcher = RSSFetcher(config=config, timeout=1)  # 1 second timeout
 
-    # Use a slow/non-existent feed
     test_source = {
-        "url": "https://httpstat.us/200?sleep=5000",  # Takes 5 seconds, will timeout
+        "url": slow_feed_url,
         "id": "test-timeout-source",
     }
 

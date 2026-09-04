@@ -1,9 +1,18 @@
 """Integration tests for Notifier with real terminal-notifier subprocess calls."""
 
+import shutil
 import subprocess
+
+import pytest
+
 from prismis_daemon.notifier import Notifier
 
 
+@pytest.mark.skipif(
+    shutil.which("terminal-notifier") is None,
+    reason="Requires the terminal-notifier binary on PATH (macOS-only, absent on the CI "
+    "runner). Tracked: gh #60.",
+)
 def test_notifier_calls_terminal_notifier_subprocess() -> None:
     """Test that Notifier makes real subprocess calls to terminal-notifier.
 
@@ -26,25 +35,12 @@ def test_notifier_calls_terminal_notifier_subprocess() -> None:
         }
     ]
 
-    # This should trigger a real Mac notification
-    # If terminal-notifier is installed, notification will appear
-    try:
-        notifier.notify_new_content(high_priority_items)
-        # If we get here without exception, subprocess call succeeded
-        success = True
-    except Exception as e:
-        # If terminal-notifier not installed or fails, that's expected in CI
-        if "terminal-notifier" in str(e) or "No such file" in str(e):
-            success = (
-                False  # Expected failure in CI/environments without terminal-notifier
-            )
-        else:
-            raise  # Unexpected error
-
-    # In local development with terminal-notifier, success should be True
-    # In CI without terminal-notifier, success may be False
-    # Either is acceptable for this integration test
-    assert isinstance(success, bool)
+    # The binary is present (the skipif above guarantees it), so this must succeed.
+    # It previously caught every exception, set a bool in both branches, and asserted
+    # `isinstance(success, bool)` — true either way. That is a pass having executed
+    # nothing, which the constitution names as a failure whatever the exit code, and it
+    # was the state on every machine: terminal-notifier is absent here too.
+    notifier.notify_new_content(high_priority_items)
 
 
 def test_notifier_handles_terminal_notifier_failure() -> None:

@@ -3,7 +3,6 @@
 import tempfile
 from pathlib import Path
 import pytest
-from typer.testing import CliRunner
 
 
 from prismis_daemon.database import init_db
@@ -48,8 +47,3 @@ def test_db() -> Path:
 
     shutil.rmtree(temp_dir, ignore_errors=True)
 
-
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    """Create a Typer CLI test runner."""
-    return CliRunner()

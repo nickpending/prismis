@@ -14,7 +14,7 @@ network, which a CI-run gate rules out.
 
 import pytest
 
-from cli.source import detect_and_normalize_source_url
+from cli.source import detect_and_normalize_source_url, extract_name_from_url
 
 
 @pytest.mark.parametrize(
@@ -67,4 +67,68 @@ def test_reddit_url_trailing_slash_is_stripped() -> None:
     assert detect_and_normalize_source_url("https://reddit.com/r/rust/") == (
         "reddit",
         "https://reddit.com/r/rust",
+    )
+
+
+# ---------------------------------------------------------------------------
+# The name a user actually gets from `source add`
+#
+# `add` rebinds url from detect_and_normalize_source_url BEFORE calling
+# extract_name_from_url, so production only ever derives a name from the NORMALIZED
+# url. Testing the two halves separately missed that: test_url_extraction.py pins
+# extract_name_from_url("reddit://rust") == "rust", but no user ever sees that name —
+# `prismis-cli source add reddit://rust` names the source "r/rust".
+# ---------------------------------------------------------------------------
+
+
+def _name_add_would_derive(raw_url: str) -> str:
+    """Reproduce `add`'s derivation: normalize first, then name."""
+    _, normalized = detect_and_normalize_source_url(raw_url)
+    return extract_name_from_url(normalized)
+
+
+@pytest.mark.parametrize(
+    ("raw_url", "expected_name"),
+    [
+        # NOT "rust" — normalization runs first and turns this into a reddit.com URL.
+        ("reddit://rust", "r/rust"),
+        ("youtube://@mkbhd", "@mkbhd"),
+        ("https://simonwillison.net/atom/everything/", "Simonwillison"),
+    ],
+)
+def test_name_derived_for_a_source_the_user_adds(
+    raw_url: str, expected_name: str
+) -> None:
+    assert _name_add_would_derive(raw_url) == expected_name
+
+
+# ---------------------------------------------------------------------------
+# Divergence from the daemon's normalize_source_url (gh #65)
+#
+# Pinned so that either side changing shows up as a failing test rather than as two
+# components silently disagreeing about the same URL.
+# ---------------------------------------------------------------------------
+
+
+def test_pl_prefix_is_treated_as_a_channel_id() -> None:
+    """CLI produces /channel/PL...; the daemon matches only UC and produces /@PL...."""
+    assert detect_and_normalize_source_url("youtube://PLabc123") == (
+        "youtube",
+        "https://www.youtube.com/channel/PLabc123",
+    )
+
+
+def test_protocol_url_trailing_slash_is_not_stripped() -> None:
+    """The daemon strips it; this function does not, so the slash survives."""
+    assert detect_and_normalize_source_url("reddit://rust/") == (
+        "reddit",
+        "https://www.reddit.com/r/rust/",
+    )
+
+
+def test_leading_whitespace_defeats_scheme_detection() -> None:
+    """The daemon strips first and still sees reddit://; this function does not."""
+    assert detect_and_normalize_source_url(" reddit://rust") == (
+        "rss",
+        " reddit://rust",
     )

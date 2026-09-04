@@ -13,7 +13,7 @@ from cli.source import find_source_by_id, format_source_row
 
 
 # ---------------------------------------------------------------------------
-# remove: find-by-id (source.py:221-228)
+# remove: the find_source_by_id helper in cli/src/cli/source.py
 #
 # INVARIANT: removal only ever targets a source that exists.
 # BREAKS: `remove` is destructive and cascades to all content from the source. A lookup
@@ -54,7 +54,7 @@ def test_find_source_by_id_does_not_match_on_substring() -> None:
 
 
 # ---------------------------------------------------------------------------
-# list: row formatting (source.py:192-194 truncation, and the column derivations)
+# list: the format_source_row helper in cli/src/cli/source.py — truncation and columns
 # ---------------------------------------------------------------------------
 
 

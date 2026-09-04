@@ -62,10 +62,19 @@ def extract_name_from_url(url: str) -> str:
 def detect_and_normalize_source_url(url: str) -> tuple[str, str]:
     """Derive a source's type from its URL and expand protocol URLs to real ones.
 
-    The daemon does the same expansion server-side in `normalize_source_url`
-    (daemon/src/prismis_daemon/api.py:227), but it is told the type; the CLI has to
-    derive it. Both must agree, or a source is fetched by the wrong fetcher and never
-    yields content.
+    The daemon normalizes independently in `normalize_source_url`
+    (daemon/src/prismis_daemon/api.py), which is told the type rather than deriving it.
+    The two do NOT agree on every input, and nothing checks that they do — measured
+    divergences, pinned by the tests below so either side moving becomes visible:
+
+    - `youtube://PL...` — this function treats a `PL` prefix as a channel/playlist id and
+      produces `/channel/PL...`; the daemon matches only `UC` and falls through to
+      `/@PL...`.
+    - trailing slashes and leading whitespace — the daemon strips both; this function
+      strips neither, so `reddit://rust/` keeps its slash and ` reddit://rust` is not even
+      recognised as a reddit URL.
+
+    Filed as gh #65; which side is right is a product decision, so neither is changed here.
 
     Args:
         url: The source URL as the user typed it, possibly a `reddit://` or

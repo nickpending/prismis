@@ -23,13 +23,14 @@ from fastapi.testclient import TestClient
 from prismis_daemon.api import app, get_storage
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
+from conftest import TEST_API_KEY
 
 # RFC3339 pattern: T separator, explicit offset (Z or ±HH:MM), optional fractional seconds.
 RFC3339_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
 )
 
-API_KEY = "prismis-api-4d5e"
+API_KEY = TEST_API_KEY
 
 
 def assert_rfc3339(value: str) -> None:

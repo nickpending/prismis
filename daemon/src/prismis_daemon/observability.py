@@ -6,7 +6,6 @@ import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 
 class ObservabilityLogger:
@@ -25,7 +24,7 @@ class ObservabilityLogger:
         self.base_dir = base_dir
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
-    def log(self, event: str, **metadata: Any) -> None:
+    def log(self, event: str, **metadata: object) -> None:
         """Log an event with metadata to daily JSONL file.
 
         Thread-safe and process-safe via fcntl file locking.
@@ -119,7 +118,7 @@ def get_logger() -> ObservabilityLogger:
     return _logger
 
 
-def log(event: str, **metadata: Any) -> None:
+def log(event: str, **metadata: object) -> None:
     """Convenience function to log events using global logger.
 
     Usage:

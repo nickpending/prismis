@@ -161,7 +161,7 @@ def test_api_models_zero_json_encoders_and_field_serializers_present() -> None:
         "Task 2.8 must have migrated all models to @field_serializer."
     )
 
-    # field_serializer is imported
+    # field_serializer is imported  # noqa: ERA001 - prose, not code
     assert "field_serializer" in content, (
         "api_models.py must import 'field_serializer' from pydantic (V2 native mechanism)"
     )
@@ -204,9 +204,10 @@ def test_boundaries_md_documents_inv_api_ts4() -> None:
     'Every API list/detail endpoint that returns content data MUST flow through a
     Pydantic response model.' This test verifies the contract is documented.
     """
-    boundaries_path = Path(
-        "/Users/rudy/obsidian/projects/prismis/architecture/boundaries.md"
-    )
+    # The in-repo copy, not a path inside one developer's vault: a test that reads
+    # outside the repo cannot pass anywhere else, CI included.
+    boundaries_path = Path(__file__).parents[2] / ".." / "docs" / "architecture" / "boundaries.md"
+    boundaries_path = boundaries_path.resolve()
     assert boundaries_path.exists(), f"boundaries.md not found at {boundaries_path}"
 
     content = boundaries_path.read_text(encoding="utf-8")

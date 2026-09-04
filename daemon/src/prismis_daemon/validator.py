@@ -57,7 +57,7 @@ class SourceValidator:
             url: The RSS/Atom feed URL
 
         Returns:
-            Tuple of (is_valid, error_message)
+            Tuple of (is_valid, error_message, metadata)
         """
         try:
             # Fetch the feed with timeout
@@ -114,7 +114,7 @@ class SourceValidator:
             url: The Reddit URL (supports reddit.com/r/NAME and reddit://NAME formats)
 
         Returns:
-            Tuple of (is_valid, error_message)
+            Tuple of (is_valid, error_message, metadata)
         """
         try:
             # Extract subreddit name from various URL formats
@@ -203,7 +203,7 @@ class SourceValidator:
             url: The YouTube URL
 
         Returns:
-            Tuple of (is_valid, error_message)
+            Tuple of (is_valid, error_message, metadata)
         """
         try:
             # Handle youtube:// protocol

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from prismis_daemon.fetchers.rss import RSSFetcher
-from prismis_daemon.config import Config
+from conftest import make_config
 
 
 def test_date_filtering_prevents_old_content() -> None:
@@ -13,7 +13,7 @@ def test_date_filtering_prevents_old_content() -> None:
     BREAKS: Could cost hundreds in API charges if violated
     """
     # Create config with short lookback for testing
-    config = Config(max_days_lookback=7, max_items=10)
+    config = make_config(max_days_lookback=7, max_items_rss=10)
     rss_fetcher = RSSFetcher(config=config)
 
     # Calculate expected cutoff
@@ -73,7 +73,7 @@ def test_network_timeout_graceful() -> None:
     GRACEFUL: System continues, logs error, doesn't crash
     """
     # Use config with very short timeout to force failure
-    config = Config(max_days_lookback=7)
+    config = make_config(max_days_lookback=7)
     rss_fetcher = RSSFetcher(config=config, timeout=1)  # 1 second timeout
 
     # Use a slow/non-existent feed

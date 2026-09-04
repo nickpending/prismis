@@ -7,6 +7,7 @@ from prismis_daemon.fetchers.rss import RSSFetcher
 from prismis_daemon.fetchers.reddit import RedditFetcher
 from prismis_daemon.fetchers.youtube import YouTubeFetcher
 from prismis_daemon.config import Config
+from conftest import make_config
 
 
 def test_all_fetchers_timezone_aware() -> None:
@@ -66,7 +67,7 @@ def test_consistent_cutoff_across_fetchers() -> None:
     INVARIANT: All fetchers use identical cutoff calculation
     BREAKS: Inconsistent filtering across sources confuses users
     """
-    config = Config(max_days_lookback=7)
+    config = make_config(max_days_lookback=7)
 
     # Test the calculation is consistent by ensuring all use timezone.utc
     rss_fetcher = RSSFetcher(config=config)
@@ -86,20 +87,20 @@ def test_config_validates_max_days_lookback() -> None:
     BREAKS: Could disable all filtering if config corruption allows bad values
     """
     # Test negative value raises error
-    with pytest.raises(ValueError, match="max_days_lookback must be at least 1"):
-        config = Config(max_days_lookback=-1)
+    with pytest.raises(ValueError, match="max_days_lookback must be between 1 and 365 days"):
+        config = make_config(max_days_lookback=-1)
         config.validate()
 
     # Test zero value raises error
-    with pytest.raises(ValueError, match="max_days_lookback must be at least 1"):
-        config = Config(max_days_lookback=0)
+    with pytest.raises(ValueError, match="max_days_lookback must be between 1 and 365 days"):
+        config = make_config(max_days_lookback=0)
         config.validate()
 
     # Test valid values pass
-    config = Config(max_days_lookback=1)
+    config = make_config(max_days_lookback=1)
     config.validate()  # Should not raise
 
-    config = Config(max_days_lookback=365)
+    config = make_config(max_days_lookback=365)
     config.validate()  # Should not raise
 
 

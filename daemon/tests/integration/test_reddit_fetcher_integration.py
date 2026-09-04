@@ -1,11 +1,18 @@
 """Integration tests for RedditFetcher with real Reddit API."""
 
+import os
+
 import pytest
 from prismis_daemon.fetchers.reddit import RedditFetcher
 from prismis_daemon.models import ContentItem
 from prismis_daemon.config import Config
 
 
+@pytest.mark.skipif(
+    not os.environ.get("REDDIT_CLIENT_ID"),
+    reason="Requires Reddit OAuth credentials (REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET); "
+    "PRAW returns 401 without them. Tracked: gh #60",
+)
 def test_fetch_reddit_with_real_api() -> None:
     """Test complete Reddit fetching workflow with real API.
 
@@ -63,6 +70,11 @@ def test_fetch_reddit_with_real_api() -> None:
         assert len(external_ids) == len(set(external_ids))
 
 
+@pytest.mark.skipif(
+    not os.environ.get("REDDIT_CLIENT_ID"),
+    reason="Requires Reddit OAuth credentials (REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET); "
+    "PRAW returns 401 without them. Tracked: gh #60",
+)
 def test_fetch_reddit_handles_invalid_subreddit() -> None:
     """Test fetcher handles invalid subreddit gracefully."""
     config = Config.from_file()
@@ -81,6 +93,11 @@ def test_fetch_reddit_handles_invalid_subreddit() -> None:
     assert "Failed to fetch Reddit content" in str(exc_info.value)
 
 
+@pytest.mark.skipif(
+    not os.environ.get("REDDIT_CLIENT_ID"),
+    reason="Requires Reddit OAuth credentials (REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET); "
+    "PRAW returns 401 without them. Tracked: gh #60",
+)
 def test_fetch_reddit_respects_max_items() -> None:
     """Test fetcher respects max_items configuration."""
     config = Config.from_file()
@@ -92,6 +109,11 @@ def test_fetch_reddit_respects_max_items() -> None:
     assert len(items) <= 1
 
 
+@pytest.mark.skipif(
+    not os.environ.get("REDDIT_CLIENT_ID"),
+    reason="Requires Reddit OAuth credentials (REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET); "
+    "PRAW returns 401 without them. Tracked: gh #60",
+)
 def test_fetch_reddit_filters_image_posts() -> None:
     """Test that image posts are filtered out."""
     config = Config.from_file()
@@ -113,6 +135,11 @@ def test_fetch_reddit_filters_image_posts() -> None:
                 )
 
 
+@pytest.mark.skipif(
+    not os.environ.get("REDDIT_CLIENT_ID"),
+    reason="Requires Reddit OAuth credentials (REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET); "
+    "PRAW returns 401 without them. Tracked: gh #60",
+)
 def test_fetch_reddit_handles_various_url_formats() -> None:
     """Test that various Reddit URL formats are parsed correctly."""
     config = Config.from_file()

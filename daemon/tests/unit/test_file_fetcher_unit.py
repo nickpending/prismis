@@ -1,9 +1,11 @@
 """Unit tests for FileFetcher pure functions."""
 
+from pathlib import Path
+
 from prismis_daemon.fetchers.file import FileFetcher
 
 
-def test_generate_external_id_consistent() -> None:
+def test_generate_external_id_consistent(test_db: Path) -> None:
     """Test external ID generation is consistent for same inputs."""
     fetcher = FileFetcher()
 
@@ -18,7 +20,7 @@ def test_generate_external_id_consistent() -> None:
     assert len(id1) == 16  # Truncated SHA256
 
 
-def test_generate_external_id_unique_for_different_content() -> None:
+def test_generate_external_id_unique_for_different_content(test_db: Path) -> None:
     """Test external ID changes when content hash changes."""
     fetcher = FileFetcher()
 
@@ -31,7 +33,7 @@ def test_generate_external_id_unique_for_different_content() -> None:
     assert id1 != id2
 
 
-def test_generate_external_id_unique_for_different_urls() -> None:
+def test_generate_external_id_unique_for_different_urls(test_db: Path) -> None:
     """Test external ID changes when URL changes."""
     fetcher = FileFetcher()
 
@@ -44,7 +46,7 @@ def test_generate_external_id_unique_for_different_urls() -> None:
     assert id1 != id2
 
 
-def test_generate_diff_basic() -> None:
+def test_generate_diff_basic(test_db: Path) -> None:
     """Test unified diff generation for simple content changes."""
     fetcher = FileFetcher()
 
@@ -61,7 +63,7 @@ def test_generate_diff_basic() -> None:
     assert "+Line 2 modified" in diff
 
 
-def test_generate_diff_addition() -> None:
+def test_generate_diff_addition(test_db: Path) -> None:
     """Test diff generation when lines are added."""
     fetcher = FileFetcher()
 
@@ -74,7 +76,7 @@ def test_generate_diff_addition() -> None:
     assert "+Line 3 is new" in diff
 
 
-def test_generate_diff_deletion() -> None:
+def test_generate_diff_deletion(test_db: Path) -> None:
     """Test diff generation when lines are removed."""
     fetcher = FileFetcher()
 
@@ -87,7 +89,7 @@ def test_generate_diff_deletion() -> None:
     assert "-Line 2" in diff
 
 
-def test_calculate_diff_stats_additions() -> None:
+def test_calculate_diff_stats_additions(test_db: Path) -> None:
     """Test diff stats calculation for added lines."""
     fetcher = FileFetcher()
 
@@ -101,7 +103,7 @@ def test_calculate_diff_stats_additions() -> None:
     assert stats["changed_lines"] == 2
 
 
-def test_calculate_diff_stats_deletions() -> None:
+def test_calculate_diff_stats_deletions(test_db: Path) -> None:
     """Test diff stats calculation for removed lines."""
     fetcher = FileFetcher()
 
@@ -115,7 +117,7 @@ def test_calculate_diff_stats_deletions() -> None:
     assert stats["changed_lines"] == 2
 
 
-def test_calculate_diff_stats_mixed_changes() -> None:
+def test_calculate_diff_stats_mixed_changes(test_db: Path) -> None:
     """Test diff stats calculation for mixed additions and removals."""
     fetcher = FileFetcher()
 

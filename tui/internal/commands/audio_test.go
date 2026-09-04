@@ -48,10 +48,10 @@ func TestAudioMsg_IsMessageType(t *testing.T) {
 	// INVARIANT: AudioMsg must be valid tea.Msg for Bubbletea
 	// BREAKS: Runtime panic if not proper message type
 
+	// The assignment is the assertion: it does not compile unless AudioMsg
+	// satisfies tea.Msg. Round-trip it back to confirm the concrete type.
 	var msg tea.Msg = AudioMsg{}
-
-	// If this compiles and doesn't panic, AudioMsg is valid
-	if msg == nil {
-		t.Error("AudioMsg should not be nil")
+	if _, ok := msg.(AudioMsg); !ok {
+		t.Errorf("tea.Msg holding AudioMsg did not type-assert back to AudioMsg")
 	}
 }

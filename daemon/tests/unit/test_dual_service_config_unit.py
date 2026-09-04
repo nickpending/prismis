@@ -21,7 +21,7 @@ import pytest
 # migrate_config() uses os.getenv("XDG_CONFIG_HOME") at call-time — isolate via env.
 # Import the function directly; XDG override via monkeypatch.setenv.
 from prismis_daemon.__main__ import (
-    migrate_config,  # noqa: E402 (post-import is intentional)
+    migrate_config,
 )
 from prismis_daemon.config import Config
 from prismis_daemon.llm_validator import validate_llm_services

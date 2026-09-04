@@ -188,6 +188,16 @@ func TestModelUpdate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// These keybindings dispatch on view and focusedPane (model.go:586-597,
+			// 660-672). InitialModel starts at list/content (model.go:124,140); the
+			// table omits them, so apply that starting state unless a case overrides it.
+			if tt.initialModel.view == "" {
+				tt.initialModel.view = "list"
+			}
+			if tt.initialModel.focusedPane == "" {
+				tt.initialModel.focusedPane = "content"
+			}
+
 			updatedModel, cmd := tt.initialModel.Update(tt.msg)
 			m := updatedModel.(Model)
 
@@ -266,7 +276,7 @@ func TestModelView(t *testing.T) {
 				loading:  true,
 				priority: "high",
 			},
-			contains: []string{"Loading high priority items", "Press 'q' to quit"},
+			contains: []string{"Loading content..."},
 		},
 		{
 			name: "Error state",
@@ -274,7 +284,7 @@ func TestModelView(t *testing.T) {
 				loading: false,
 				err:     fmt.Errorf("Database error"),
 			},
-			contains: []string{"Error:", "Press 'q' to quit"},
+			contains: []string{"Error:", "Database error"},
 		},
 		{
 			name: "Empty items",
@@ -283,7 +293,7 @@ func TestModelView(t *testing.T) {
 				priority: "high",
 				items:    []db.ContentItem{},
 			},
-			contains: []string{"No high priority items found", "1 - High priority", "Press q to quit"},
+			contains: []string{"No unread items", "Press 'a' to add sources"},
 		},
 		{
 			name: "Items with cursor",
@@ -298,12 +308,12 @@ func TestModelView(t *testing.T) {
 				},
 			},
 			contains: []string{
-				"Prismis TUI",
-				"ALL (3 items)",
-				"HIGH  First Item",
-				"▸  MED  Second Item",
-				"LOW  Third Item",
-				"Commands:",
+				"PRISMIS",
+				"3 items",
+				"First Item",
+				// cursor marker sits on the second row
+				"▸ ●  2. Second Item",
+				"Third Item",
 			},
 		},
 	}

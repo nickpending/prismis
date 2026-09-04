@@ -2,15 +2,33 @@
 
 import tempfile
 from pathlib import Path
-import sys
 import pytest
 from typer.testing import CliRunner
 
-# Add daemon src to path for storage/database imports
-daemon_src = Path(__file__).parent.parent.parent / "daemon" / "src"
-sys.path.insert(0, str(daemon_src))
 
-from prismis_daemon.database import init_db  # noqa: E402
+from prismis_daemon.database import init_db
+
+
+@pytest.fixture(autouse=True)
+def isolated_xdg_env(tmp_path_factory, monkeypatch) -> Path:
+    """Seal the CLI suite from the developer's XDG directories.
+
+    api_client.py:44 and remote.py:24 both read XDG_CONFIG_HOME first and only fall back
+    to Path.home(), so patching Path.home() alone misses the primary lookup path.
+    """
+    root = tmp_path_factory.mktemp("xdg")
+    home = root / "home"
+    cfg_home = root / "config"
+    data_home = root / "data"
+    for d in (home, cfg_home, data_home):
+        d.mkdir(parents=True, exist_ok=True)
+    (cfg_home / "prismis").mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+
+    return cfg_home / "prismis"
 
 
 @pytest.fixture
@@ -35,23 +53,3 @@ def test_db() -> Path:
 def cli_runner() -> CliRunner:
     """Create a Typer CLI test runner."""
     return CliRunner()
-
-
-@pytest.fixture
-def mock_home_dir(test_db: Path, monkeypatch) -> Path:
-    """Mock the home directory to use test database."""
-    # Create a temporary config directory structure
-    temp_home = test_db.parent / "home"
-    temp_home.mkdir(exist_ok=True)
-    config_dir = temp_home / ".config" / "prismis"
-    config_dir.mkdir(parents=True, exist_ok=True)
-
-    # Move test database to expected location
-    import shutil
-
-    shutil.move(str(test_db), str(config_dir / "prismis.db"))
-
-    # Patch Path.home() to return our temp home
-    monkeypatch.setattr(Path, "home", lambda: temp_home)
-
-    return config_dir / "prismis.db"

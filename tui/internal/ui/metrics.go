@@ -130,18 +130,6 @@ func extractYouTubeMetrics(analysis string) youTubeMetrics {
 	return metrics
 }
 
-// formatDuration formats seconds into HH:MM:SS or MM:SS
-func formatDuration(seconds int) string {
-	hours := seconds / 3600
-	minutes := (seconds % 3600) / 60
-	secs := seconds % 60
-
-	if hours > 0 {
-		return fmt.Sprintf("%d:%02d:%02d", hours, minutes, secs)
-	}
-	return fmt.Sprintf("%d:%02d", minutes, secs)
-}
-
 // formatDurationMinutes formats seconds (as int or float) into minutes only
 func formatDurationMinutes(seconds interface{}) string {
 	var totalSeconds int

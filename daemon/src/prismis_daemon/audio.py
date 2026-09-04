@@ -168,7 +168,7 @@ class LspeakTTSEngine:
         logger.info(f"Generating audio with lspeak (provider: {self.provider})")
 
         try:
-            result = subprocess.run(  # noqa: S603
+            result = subprocess.run(
                 cmd,
                 check=True,
                 timeout=180,  # 3 minute timeout for API calls

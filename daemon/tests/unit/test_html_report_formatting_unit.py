@@ -262,7 +262,7 @@ def test_top_3_ranking_with_corrupt_data() -> None:
     try:
         top_3 = report.top_3_must_reads
     except Exception as e:
-        assert False, f"Top 3 algorithm crashed with corrupt data: {e}"
+        raise AssertionError(f"Top 3 algorithm crashed with corrupt data: {e}") from e
 
     # Verify it returns valid results
     assert isinstance(top_3, list), "Top 3 must return a list"

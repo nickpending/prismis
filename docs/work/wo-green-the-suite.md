@@ -2,11 +2,11 @@
 id: wo-green-the-suite
 type: fix
 project: prismis
-status: active
+status: complete
 complexity: 7
 created: 2026-09-03
 updated: 2026-09-03
-plan_ref: null
+plan_ref: docs/work/green-the-suite/plan.md
 ---
 
 ## What
@@ -338,7 +338,14 @@ are recorded so the decision is made against them rather than against an assumpt
 
 ## Approach
 
-[Empty — filled after planning]
+Sequenced so each step's measurement is valid: declare the toolchain (nothing can be counted
+before ruff and cli pyright exist), seal the test environment (no failure count is readable while
+it is a property of `$HOME`), re-measure to get the real baseline, then work the buckets, then
+prove the fresh-environment case, then land CI on an already-green tree.
+
+The real sealed baseline was **84 failures** — neither the 113 measured against an empty config nor
+the 153 measured against the developer's own. Every fix below was chosen against that number, not
+against either pre-seal figure.
 
 ## Verification
 
@@ -350,4 +357,270 @@ That is the whole verification. It is the gate this work exists to turn green.
 
 ## Outputs
 
-[Empty — filled on completion]
+### Gate
+
+`./.specify/verify.sh` → `verify: PASS`, exit 0, no `VERIFY_UNCOVERED:` line.
+
+```
+VERIFY_COVERED: ruff(cli),pyright(cli),pytest(cli),ruff(daemon),pyright(daemon),pytest(daemon),gofmt(tui),go vet(tui),staticcheck(tui),go test(tui)
+verify: PASS
+```
+
+### Measurements
+
+| | before | after |
+|---|---|---|
+| daemon pytest | 113 failed / 240 passed (empty config) · 153 failed / 200 passed (developer's config) | **344 passed, 0 failed**, 27 skipped, 1 xfailed |
+| daemon ruff | not runnable (`ruff` undeclared); 76 findings once declared | **0** |
+| daemon pyright | 18 errors | **0** |
+| cli pytest | 17 failed / 19 passed | **27 passed, 0 failed** |
+| cli ruff | not runnable; 13 findings once declared | **0** |
+| cli pyright | no typechecker configured | **0 errors** |
+| tui go test | `internal/ui` FAIL | **all packages ok** |
+| tui staticcheck | 18 findings | **0** |
+
+The sealed baseline was 84 failures — matching neither 113 nor 153, as the plan predicted. The
+suite's count had been a property of the developer's `$HOME`, not of this repo.
+
+### SC-8 — the suite is independent of the ambient config
+
+Measured, same tree, two hostile environments:
+
+| `$XDG_CONFIG_HOME` | rc | counts |
+|---|---|---|
+| `[remote]`-only config, no `[llm]` | 0 | 344 passed, 27 skipped |
+| empty dir, no prismis config at all | 0 | 344 passed, 27 skipped |
+
+Identical, and zero occurrences of "Config file not found". Before this work the same two
+environments produced 153 and 113 failures respectively — a 40-test swing on home-directory
+contents alone.
+
+### SC-9 — green locally implies green in CI
+
+Caught a real CI blocker that the local gate could not see. Under `env -i` with a fresh `HOME`,
+`go test(tui)` failed:
+
+```
+--- FAIL: TestConnectionPool
+    connection_test.go:11: failed to set WAL mode: unable to open database file: no such file or directory
+--- FAIL: TestPoolSingletonStress
+    pool_stress_test.go:72: Had 50 errors during stress test
+```
+
+Both call `db.GetDB()` without overriding the `dbPathFunc` seam, so they open whatever database
+sits at the developer's real `XDG_DATA_HOME`. That file exists on exactly one machine. **CI has no
+prismis database, so both would have failed on the workflow's first run** — the outcome SC-6 defers
+CI specifically to avoid.
+
+This is the same class the Python seal closed — "the test process reads the developer's `$HOME`" —
+which I had swept in `daemon/tests` and `cli/tests` but not in `tui/`. Sweeping it properly found
+four members:
+
+| site | disposition |
+|---|---|
+| `internal/db/connection_test.go::TestConnectionPool` | **fixed** — overrides `dbPathFunc` to a temp DB |
+| `internal/db/pool_stress_test.go::TestPoolSingletonStress` | **fixed** — same |
+| `internal/db/queries_integration_test.go` | already guarded: skips when the real DB is absent |
+| `internal/api/client_test.go:272` | safe: builds a path string, never touches the filesystem |
+
+The fix reuses the package's own existing pattern rather than inventing one — `resetDBForTest`,
+`createTestDB` and the `dbPathFunc` override are already used 41 times in `queries_test.go`.
+
+**SC-9's recipe as written is confounded on a mise-managed machine, and the confound is not in the
+repo.** `env -i ... HOME=$fresh` strips mise's tool config (`$HOME/.config/mise/config.toml`), so
+every mise shim on PATH breaks:
+
+```
+mise ERROR staticcheck is not a valid shim. This likely means you uninstalled a tool
+and the shim does not point to anything.
+```
+
+`staticcheck` then exits 1 having analyzed nothing, and the gate reports `FAILED: staticcheck(tui)`
+for a reason that has no analogue in CI — CI has no mise, and gets a real binary from
+`go install`. Running the check faithfully means provisioning staticcheck the way the workflow
+does (`GOBIN=$tmp go install honnef.co/go/tools/cmd/staticcheck@v0.8.1`) and putting it on PATH
+ahead of the shim. That build reports `staticcheck 2026.2.1 (0.8.1)` — identical to the local
+version — which is the evidence the CI pin is the right one.
+
+Anyone re-running SC-9 on this machine must do the same, or they will chase a phantom.
+
+Run faithfully, it passes:
+
+```
+fresh-env rc=0
+VERIFY_COVERED: ruff(cli),pyright(cli),pytest(cli),ruff(daemon),pyright(daemon),pytest(daemon),gofmt(tui),go vet(tui),staticcheck(tui),go test(tui)
+verify: PASS
+COVERED lines identical
+SC-9: PASS
+```
+
+A stripped environment with a fresh `HOME` produces the same verdict and the same covered-check
+set as a normal local run.
+
+### Root causes fixed (not per-test patches)
+
+- **Environment seal** (`daemon/tests/conftest.py`) — one autouse fixture setting `HOME` and all
+  four XDG vars to fresh temp dirs and materializing a valid config from the production template
+  (`defaults.DEFAULT_CONFIG_TOML`). Reaches the subprocess at `test_daemon_integration.py`, which no
+  in-process patch can. `Config.from_file` is NOT patched, so INV-003's negative test still raises
+  on a genuinely outdated config. Same seal added to `cli/tests/conftest.py`.
+- **Committed secret removed** — 31 occurrences of the operator's live API key across 10 daemon test
+  files now resolve from one `TEST_API_KEY` constant in the sealed conftest. Zero occurrences remain
+  in the tree. **Removing it from the tree does not remove it from history**: `git log -S` finds it
+  in 9 commits on `origin/main`, earliest `e2ffa94` (2025-09-09). Rotation is the operator's call.
+- **`yt-dlp` was undeclared** — `fetchers/youtube.py:39-42` hard-requires the binary and raises
+  without it, but no pyproject declared it. A fresh install had a YouTube fetcher that could not
+  run. Declaring it fixed 19 tests and the packaging gap.
+- **`pytest.ini` was inert** — the header was `[tool:pytest]`, the `setup.cfg` section name, so
+  `testpaths`, `python_classes`, `addopts` and the rest had never taken effect. Corrected to
+  `[pytest]`, `python_paths` (a dead plugin option) → core pytest's `pythonpath`, and `-v` dropped
+  from `addopts` so the caller owns verbosity.
+- **`sys.path` hacks retired** — with `pythonpath` declared, the manual `sys.path.insert` in
+  `daemon/tests/conftest.py` is redundant: collection is **372 tests both with and without it**, so
+  it was deleted. Same for five `cli/tests` modules, which also closed their E402s at the cause.
+- **Two skip fallbacks deleted** — `conftest.py`'s `except Exception: pytest.skip("Config file not
+  found...")` pair was hiding an `AttributeError` that fired on *every* machine (`llm_config` called
+  `.get` on a `Config` dataclass). A gate that passes having executed nothing.
+
+### Genuine defects fixed
+
+- `__main__.py:212` **RUF006** — `asyncio.create_task(api_server.serve())` held no reference. The
+  event loop keeps only a weak one, so **the API server task could be garbage-collected mid-flight**.
+  Bound as `api_task` and awaited under a bounded timeout during shutdown, which also replaces a
+  blind `sleep(0.5)` with waiting on the actual task.
+- `test_config_integration.py:132,191` **F821** — undefined `load_config` / `config_path`; closed
+  with the file's rewrite.
+- `database.py:130` — the inner sqlite-vec fallback handler reported the *outer* exception and
+  discarded its own. Now chained.
+- `embeddings.py:64` — declared `-> int` while returning `int | None`. Now raises rather than
+  silently returning `None` as a dimension.
+- `rss.py:97-98` — feed `title`/`link` passed to `ContentItem` unchecked; coerced at the boundary.
+
+### Deleted tests (SC-12)
+
+Categories: `SUPERSEDED` (behavior replaced by a deliberate change), `BEHAVIOR-GONE` (the guarded
+behavior no longer exists), `UNRECOVERABLE` (intent not recoverable).
+
+`cli/tests/integration/test_source_commands.py` and `test_source_validation.py` deleted wholesale:
+they patch `cli.source.SourceValidator` and `cli.source.VALIDATOR_AVAILABLE` — `rg 'VALIDATOR_AVAILABLE|SourceValidator' cli/src` returns nothing. The CLI no longer validates locally or writes
+SQLite; it adds through `APIClient.add_source` (`source.py:115`) and the daemon owns validation.
+They also hit the live network, which Principle IV rules out for a CI-run gate. **Coverage re-homed**
+in `cli/tests/unit/test_source_command_unit.py` (7 cases over the URL → `source_type` mapping).
+
+- DELETED cli/tests/integration/test_source_commands.py::test_add_rss_source — SUPERSEDED: local-validation CLI replaced by APIClient.add_source; type detection re-homed in test_source_command_unit.py
+- DELETED cli/tests/integration/test_source_commands.py::test_add_reddit_source — SUPERSEDED: same; reddit:// mapping re-homed in test_source_command_unit.py
+- DELETED cli/tests/integration/test_source_commands.py::test_add_youtube_source — SUPERSEDED: same; youtube:// mapping re-homed in test_source_command_unit.py
+- DELETED cli/tests/integration/test_source_commands.py::test_add_source_with_custom_name — SUPERSEDED: same; name pass-through is now an APIClient argument
+- DELETED cli/tests/integration/test_source_commands.py::test_list_sources_empty — SUPERSEDED: read SQLite directly; listing is now a daemon API call
+- DELETED cli/tests/integration/test_source_commands.py::test_list_sources_with_data — SUPERSEDED: same
+- DELETED cli/tests/integration/test_source_commands.py::test_remove_source — SUPERSEDED: same
+- DELETED cli/tests/integration/test_source_commands.py::test_remove_nonexistent_source — SUPERSEDED: same
+- DELETED cli/tests/integration/test_source_commands.py::test_pause_source — SUPERSEDED: same
+- DELETED cli/tests/integration/test_source_commands.py::test_resume_source — SUPERSEDED: same
+- DELETED cli/tests/integration/test_source_commands.py::test_source_type_detection — SUPERSEDED: re-homed verbatim as test_source_command_unit.py::test_source_type_detected_from_url
+- DELETED cli/tests/integration/test_source_commands.py::test_duplicate_source_handling — SUPERSEDED: duplicate rejection moved server-side to the daemon API
+- DELETED cli/tests/integration/test_source_validation.py::test_invalid_source_not_added_when_validator_rejects — BEHAVIOR-GONE: the CLI does not validate; cli.source.SourceValidator does not exist
+- DELETED cli/tests/integration/test_source_validation.py::test_validation_error_message_shown_to_user — BEHAVIOR-GONE: same
+- DELETED cli/tests/integration/test_source_validation.py::test_source_type_detection_for_validation — SUPERSEDED: re-homed in test_source_command_unit.py
+- DELETED cli/tests/integration/test_source_validation.py::test_validator_unavailable_warning — BEHAVIOR-GONE: patches cli.source.VALIDATOR_AVAILABLE, which does not exist
+- DELETED daemon/tests/integration/test_config_integration.py::test_complete_config_workflow_with_real_files — SUPERSEDED: asserts max_items/llm_provider/llm_model/llm_api_key, absent post-rename (decisions.md:223); the ensure_config → from_file workflow is re-homed as test_ensure_config_produces_a_loadable_config
+- DELETED daemon/tests/integration/test_config_integration.py::test_config_loading_with_custom_user_modifications — SUPERSEDED: subscripts load_config() as a dict; Config is a dataclass
+- DELETED daemon/tests/integration/test_config_integration.py::test_config_integration_with_partially_missing_files — BEHAVIOR-GONE: partial-config fallback replaced by a hard raise (config.py:188-198)
+- DELETED daemon/tests/integration/test_config_integration.py::test_config_from_file_with_max_items — SUPERSEDED: max_items / max_items_per_feed split into four per-type fields; bound coverage re-homed in test_config_unit.py::test_config_max_items_validation
+- DELETED daemon/tests/integration/test_config_integration.py::test_config_from_file_uses_defaults_when_max_items_missing — BEHAVIOR-GONE: defaults-on-missing-key removed; required fields now raise
+- DELETED daemon/tests/unit/test_config_unit.py::test_config_loading_with_missing_files_uses_defaults — BEHAVIOR-GONE: renamed to test_config_loading_with_missing_file_raises; fallback replaced by FileNotFoundError (config.py:188-192)
+- DELETED daemon/tests/unit/test_config_unit.py::test_config_loading_with_malformed_toml_uses_defaults — BEHAVIOR-GONE: renamed to test_config_loading_with_malformed_toml_raises; parse errors now raise (config.py:196-198)
+- DELETED daemon/tests/unit/test_summarizer_unit.py::test_summarizer_initialization_with_config — SUPERSEDED: ContentSummarizer takes an llm-core service name (summarizer.py:39-46), not a config dict; replaced by test_summarizer_initialization_with_service_name
+- DELETED daemon/tests/unit/test_summarizer_unit.py::test_summarizer_initialization_with_defaults — SUPERSEDED: same; model selection is llm-core's, not prismis's
+- DELETED daemon/tests/unit/test_summarizer_unit.py::test_summarizer_handles_env_api_key — BEHAVIOR-GONE: `env:` API-key expansion moved into llm-core's services.toml; the summarizer never sees a key
+- DELETED daemon/tests/unit/test_evaluator_unit.py::test_evaluator_initialization_with_config — SUPERSEDED: ContentEvaluator takes a service name (evaluator.py:40-47); replaced by test_evaluator_initialization_with_service_name
+- DELETED daemon/tests/unit/test_evaluator_unit.py::test_evaluator_initialization_with_defaults — SUPERSEDED: same
+
+Ten further `-def test_` lines in the diff are signature changes, not deletions — the nine
+`test_file_fetcher_unit.py` cases gained the `test_db` fixture (they had been silently using the
+developer's real database) and `test_config_loading_with_all_files_present` kept its name.
+
+### Skips — every one names a precondition and a handle
+
+No test is skipped to dodge a failure. 27 skips, all resource preconditions:
+
+| count | gate | why |
+|---|---|---|
+| 7 | `PRISMIS_LIVE_NETWORK_TESTS` | blocked on **gh #59**, not on credentials |
+| 5 | `REDDIT_CLIENT_ID` | PRAW returns 401 without OAuth credentials (gh #60) |
+| 6 | `PRISMIS_LIVE_LLM_TESTS` | needs a live llm-core service (gh #60) |
+| 9 | `OPENAI_API_KEY` | pre-existing marks the plan required to survive |
+
+`test_rfc3339_helper_unit.py::test_boundaries_md_documents_rfc3339_contract` no longer skips: it
+read `~/obsidian/projects/prismis/architecture/boundaries.md`, outside the clone, so it skipped on
+every machine but one — including CI, where the invariant it names was therefore unguarded.
+Repointed at the in-repo `docs/architecture/boundaries.md`, which satisfies all three of its
+assertions. Sweep: `rg '/Users/rudy|obsidian|Path.home\(\)' daemon/tests cli/tests` now returns only
+a legitimate XDG fallback — the "test reads a path outside the repo" class is closed.
+| 1 | documented `xfail` | `test_rfc3339_helper_unit.py`, required by two other files |
+
+Previously these passed only because an import-time `load_dotenv` of
+`$XDG_CONFIG_HOME/prismis/.env` injected the operator's keys. That load is deleted: it ran before any
+fixture could isolate it, so local runs silently exercised paths CI never could.
+
+### Issues filed
+
+- **gh #59** (bug) — **Reddit source validation is broken in production.** `SourceValidator._validate_reddit` (`validator.py:144-158`) probes `reddit.com/r/<name>/about.json` unauthenticated and maps
+  403 → "is private". Reddit now 403s **every** unauthenticated request to that endpoint and returns
+  an HTML block page. Probed 2026-09-03: r/python, r/rust, r/programming, r/askreddit all 403, with
+  and without the validator's own User-Agent. **Adding any Reddit source fails today**, telling the
+  user their public subreddit is private. `RedditFetcher` already authenticates via PRAW and works —
+  only the validator takes the unauthenticated path. Not fixed here: switching it is a runtime
+  behavior change in the add-source path, outside this work order's scope.
+- **gh #60** (enhancement) — restore the live-resource integration tests with recorded fixtures
+  (VCR-style cassettes / canned LLM responses) so those paths execute deterministically in CI.
+
+### CI
+
+`.github/workflows/ci.yml` (new). One `verify` job on `ubuntu-latest` running
+`bash .specify/verify.sh` — the same script, no reimplementation. Its install step walks the same
+`find` discovery the gate does (same exclusions), so a unit added later is gated with no list to
+maintain. `staticcheck` is installed explicitly because `verify.sh:73` branches on
+`command -v staticcheck` and would otherwise gate on strictly less than a local run while still
+reporting PASS.
+
+**Deviation from the plan:** it is pinned to `@v0.8.1`, not `@latest` as the plan specified. A
+floating version makes the gate's verdict depend on *when* it ran rather than on the code — the
+same ambient dependence this whole work order exists to remove, and it would falsify SC-9's claim
+that green locally implies green in CI (local pins 0.8.1 via mise). Bumping it becomes a
+deliberate, reviewable change. One job rather than one per language: `verify.sh` runs every unit in a single
+invocation, so uv, Python and Go must all be present. Both lockfiles were regenerated for the new
+dependencies and `uv sync --frozen` verified against them.
+
+`Makefile:275` — `make test` now delegates to the gate. It previously ran pytest in daemon and cli
+and skipped lint, typecheck and staticcheck entirely, so it reported green on a tree the gate
+rejects.
+
+### Lint configuration
+
+Select, both units: `E4,E7,E9,F,B,ASYNC,BLE,ERA,RUF006,RUF012,RUF013,RUF100,ANN401,PGH,S110,S112`.
+
+- `BLE001` (74 findings) stays selected and carries a `per-file-ignores` entry pointing at
+  **gh #58** — visible and scheduled, not silently off.
+- The pre-existing `S101` ignores (daemon and cli) were **deleted**: `S101` is not in the select, so
+  they referenced a disabled rule and were inert. `B008` stays and is now live under `B`.
+- `cli/src/cli/report.py` carries a `B008` entry: `typer.Option()` in argument defaults is a
+  required idiom, the same case as daemon's existing FastAPI `Depends()` entry.
+- Five `ERA001` findings are prose comments the heuristic misreads as code; each carries an inline
+  `# noqa: ERA001` naming why, rather than disabling the rule.
+- `daemon/scripts/` is excluded from ruff — `model_playtest.py` is the operator's uncommitted work.
+
+### Not done / operator's call
+
+- **The exposed API key is still in git history.** 9 commits on `origin/main`, earliest 2025-09-09.
+  Rotation is a decision against the operator's own threat model, not mine to make.
+- **Six untracked local files still contain the key on disk.** Sweeping the whole working tree
+  (not just the test files the plan enumerated) found the key in `.workflow/archives/iteration-8,9/`
+  and `.sable/archive/iteration-11,12/` logs, plus two `daemon/.ruff_cache/` entries. All
+  **untracked** — `git ls-files` confirms **0 tracked files** contain it — so nothing new is
+  committed, but they are on the operator's disk.
+- **gh #59's validator fix** — a runtime behavior change, deliberately not made here.
+- **Live-LLM paths no longer run locally by default.** They previously ran because the deleted
+  `.env` load injected the operator's key, making real paid API calls on every `make test`. Export
+  `OPENAI_API_KEY` / `PRISMIS_LIVE_LLM_TESTS=1` to run them. This is local converging on CI, which is
+  the intended direction.

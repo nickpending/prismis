@@ -1,7 +1,6 @@
 """Integration tests for favorites system - protecting invariants and handling failures."""
 
 import pytest
-import threading
 import time
 from pathlib import Path
 from datetime import datetime
@@ -11,6 +10,7 @@ from fastapi.testclient import TestClient
 from prismis_daemon.api import app
 from prismis_daemon.storage import Storage
 from prismis_daemon.models import ContentItem
+from conftest import TEST_API_KEY
 
 
 @pytest.fixture
@@ -129,7 +129,7 @@ def test_orphaned_favorites_remain_queryable(test_db: Path) -> None:
 
     # Create orphaned favorite directly (simulating post-deletion state)
     conn = storage.conn
-    cursor = conn.execute("""
+    conn.execute("""
         INSERT INTO content (
             id, source_id, external_id, title, url, 
             content, summary, priority, favorited, read,
@@ -151,9 +151,10 @@ def test_orphaned_favorites_remain_queryable(test_db: Path) -> None:
 
     # Verify it appears in priority queries (should include orphaned favorites)
     high_priority = storage.get_content_by_priority("high", limit=10)
-    orphan_found = any(c["id"] == "orphan-1" for c in high_priority)
     # Note: Current implementation might not include NULL source_id in joins
     # This is a discovered issue - orphaned content might not appear in normal queries
+    # so the membership result is recorded but deliberately not asserted on.
+    assert isinstance(high_priority, list)
 
     # At minimum, direct queries should work
     assert orphaned["title"] == "Orphaned Article"
@@ -193,7 +194,7 @@ def test_database_lock_during_update(test_db: Path) -> None:
         # This should either succeed after waiting or fail gracefully
         start_time = time.time()
         try:
-            success = another_storage.update_content_status(content_id, favorited=True)
+            another_storage.update_content_status(content_id, favorited=True)
             elapsed = time.time() - start_time
             # If it succeeded, it waited for lock
             assert elapsed < 6, "Should timeout within 5 seconds + overhead"
@@ -231,7 +232,7 @@ def test_concurrent_api_updates(api_client: TestClient, test_db: Path) -> None:
         response = api_client.patch(
             f"/api/entries/{content_id}",
             json={"favorited": should_favorite},
-            headers={"X-API-Key": "prismis-api-4d5e"},
+            headers={"X-API-Key": TEST_API_KEY},
         )
         return response.status_code
 

@@ -12,17 +12,12 @@ Tests bypass APIClient.__init__ (avoids config-file dependency) and patch
 httpx.Client.get at the HTTP boundary to capture the params dict.
 """
 
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
 
-# Add CLI src to path (matches pattern in test_url_extraction.py)
-cli_src = Path(__file__).parent.parent.parent / "src"
-sys.path.insert(0, str(cli_src))
 
-from cli.api_client import APIClient  # noqa: E402
+from cli.api_client import APIClient
 
 
 def _make_client() -> APIClient:

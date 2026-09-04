@@ -1,5 +1,6 @@
 """Integration tests for REST API - protecting invariants and handling failures."""
 
+import os
 import time
 from pathlib import Path
 
@@ -9,11 +10,12 @@ from fastapi.testclient import TestClient
 from prismis_daemon.api import app
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
+from conftest import TEST_API_KEY
 
 
 @pytest.fixture
-def api_client() -> TestClient:
-    """Create test client for API."""
+def api_client(test_db) -> TestClient:
+    """Create test client for API, against an initialized test database."""
     return TestClient(app)
 
 
@@ -47,17 +49,23 @@ def test_api_auth_required(api_client: TestClient) -> None:
     assert response.status_code == 403
 
     # Test with valid API key
-    response = api_client.get("/api/sources", headers={"X-API-Key": "prismis-api-4d5e"})
+    response = api_client.get("/api/sources", headers={"X-API-Key": TEST_API_KEY})
     assert response.status_code == 200
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Hits live third-party endpoints, and Reddit now 403s every unauthenticated "
+    "about.json request so validation fails for any subreddit (gh #59). "
+    "Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
+)
 def test_url_normalization(api_client: TestClient, test_db: Path) -> None:
     """
     INVARIANT: Special protocol URLs must be normalized to real URLs
     BREAKS: Fetchers expect real URLs, not protocol URLs
     """
     test_cases = [
-        # (input_url, type, expected_normalized)
+        # (input_url, type, expected_normalized)  # noqa: ERA001 - prose, not code
         ("reddit://rust", "reddit", "https://www.reddit.com/r/rust"),
         ("reddit://python", "reddit", "https://www.reddit.com/r/python"),
         (
@@ -78,7 +86,7 @@ def test_url_normalization(api_client: TestClient, test_db: Path) -> None:
         response = api_client.post(
             "/api/sources",
             json={"url": input_url, "type": source_type},
-            headers={"X-API-Key": "prismis-api-4d5e"},
+            headers={"X-API-Key": TEST_API_KEY},
         )
 
         # API should return normalized URL
@@ -131,7 +139,7 @@ def test_source_type_validation_blocks_invalid(
         response = api_client.post(
             "/api/sources",
             json={"url": url, "type": source_type},
-            headers={"X-API-Key": "prismis-api-4d5e"},
+            headers={"X-API-Key": TEST_API_KEY},
         )
 
         # Should reject with 422 validation error
@@ -156,7 +164,7 @@ def test_cascade_delete(api_client: TestClient, test_db: Path) -> None:
     response = api_client.post(
         "/api/sources",
         json={"url": "https://simonwillison.net/atom/everything/", "type": "rss"},
-        headers={"X-API-Key": "prismis-api-4d5e"},
+        headers={"X-API-Key": TEST_API_KEY},
     )
     assert response.status_code == 200
     source_id = response.json()["data"]["id"]
@@ -188,7 +196,7 @@ def test_cascade_delete(api_client: TestClient, test_db: Path) -> None:
 
     # Delete the source via API
     response = api_client.delete(
-        f"/api/sources/{source_id}", headers={"X-API-Key": "prismis-api-4d5e"}
+        f"/api/sources/{source_id}", headers={"X-API-Key": TEST_API_KEY}
     )
     assert response.status_code == 200
 
@@ -237,7 +245,7 @@ def test_concurrent_source_adds(api_client: TestClient, test_db: Path) -> None:
                 "type": "rss",
                 "name": f"Feed {i}",
             },
-            headers={"X-API-Key": "prismis-api-4d5e"},
+            headers={"X-API-Key": TEST_API_KEY},
         )
         if response.status_code == 200:
             successful_adds += 1
@@ -264,7 +272,7 @@ def test_validation_timeout(api_client: TestClient) -> None:
             "url": "http://192.0.2.1/feed.xml",  # Non-routable IP (TEST-NET-1)
             "type": "rss",
         },
-        headers={"X-API-Key": "prismis-api-4d5e"},
+        headers={"X-API-Key": TEST_API_KEY},
     )
 
     elapsed = time.time() - start_time
@@ -296,7 +304,7 @@ def test_api_performance(api_client: TestClient, test_db: Path) -> None:
 
     # Test GET performance (20 sources)
     start = time.time()
-    response = api_client.get("/api/sources", headers={"X-API-Key": "prismis-api-4d5e"})
+    response = api_client.get("/api/sources", headers={"X-API-Key": TEST_API_KEY})
     elapsed = time.time() - start
     assert response.status_code == 200
     operations.append(("GET", elapsed))
@@ -306,7 +314,7 @@ def test_api_performance(api_client: TestClient, test_db: Path) -> None:
     response = api_client.post(
         "/api/sources",
         json={"url": "https://simonwillison.net/atom/everything/", "type": "rss"},
-        headers={"X-API-Key": "prismis-api-4d5e"},
+        headers={"X-API-Key": TEST_API_KEY},
     )
     elapsed = time.time() - start
     assert response.status_code == 200
@@ -316,7 +324,7 @@ def test_api_performance(api_client: TestClient, test_db: Path) -> None:
     # Test DELETE performance
     start = time.time()
     response = api_client.delete(
-        f"/api/sources/{source_id}", headers={"X-API-Key": "prismis-api-4d5e"}
+        f"/api/sources/{source_id}", headers={"X-API-Key": TEST_API_KEY}
     )
     elapsed = time.time() - start
     assert response.status_code == 200

@@ -370,26 +370,14 @@ def test_boundaries_md_documents_rfc3339_contract() -> None:
 
     This is a structural file-content test — no runtime behavior, pure doc invariant.
 
-    boundaries.md lives in the operator's obsidian vault, outside the project clone.
-    The path is derived from Path.home() to avoid hardcoding an absolute filesystem
-    root (P15: follow the conftest.py pattern of pytest.skip for unavailable deps).
-    Tests skip gracefully on machines where the vault is absent; they run — and
-    protect INV-API-TS-3 — where the vault is present.
+    Reads the in-repo copy. A test pointed outside the clone can only ever run on one
+    machine, and it was skipping everywhere else — including CI — so the invariant it
+    names was unguarded exactly where the gate runs.
     """
     boundaries_path = (
-        Path.home()
-        / "obsidian"
-        / "projects"
-        / "prismis"
-        / "architecture"
-        / "boundaries.md"
-    )
-    if not boundaries_path.exists():
-        pytest.skip(
-            f"boundaries.md not found at {boundaries_path} — "
-            "obsidian vault not present on this machine. "
-            "INV-API-TS-3 check skipped."
-        )
+        Path(__file__).parents[3] / "docs" / "architecture" / "boundaries.md"
+    ).resolve()
+    assert boundaries_path.exists(), f"boundaries.md not found at {boundaries_path}"
 
     content = boundaries_path.read_text(encoding="utf-8")
 

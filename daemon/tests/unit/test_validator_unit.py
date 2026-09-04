@@ -20,7 +20,7 @@ def test_timeout_configuration() -> None:
 
 def test_tuple_return_contract() -> None:
     """
-    INVARIANT: All validation methods return (bool, Optional[str]) tuple
+    INVARIANT: All validation methods return (bool, Optional[str], Optional[dict]) tuple
     BREAKS: CLI crashes if return type is wrong
     """
     validator = SourceValidator()
@@ -28,10 +28,13 @@ def test_tuple_return_contract() -> None:
     # Test main validate_source method with unknown type
     result = validator.validate_source("http://example.com", "unknown")
     assert isinstance(result, tuple), "Must return tuple"
-    assert len(result) == 2, "Must return 2-element tuple"
+    assert len(result) == 3, "Must return 3-element tuple"
     assert isinstance(result[0], bool), "First element must be bool"
     assert result[1] is None or isinstance(result[1], str), (
         "Second element must be None or str"
+    )
+    assert result[2] is None or isinstance(result[2], dict), (
+        "Third element must be None or dict"
     )
 
     # Verify the unknown type is handled correctly
@@ -48,7 +51,7 @@ def test_tuple_return_contract() -> None:
     for url, source_type in test_cases:
         result = validator.validate_source(url, source_type)
         assert isinstance(result, tuple), f"{source_type} must return tuple"
-        assert len(result) == 2, f"{source_type} must return 2-element tuple"
+        assert len(result) == 3, f"{source_type} must return 3-element tuple"
         assert isinstance(result[0], bool), f"{source_type} first element must be bool"
         assert result[1] is None or isinstance(result[1], str), (
             f"{source_type} second element must be None or str"

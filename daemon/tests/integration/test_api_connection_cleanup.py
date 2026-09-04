@@ -46,7 +46,7 @@ async def test_storage_cleanup_after_request(test_db: Path) -> None:
             # Make multiple requests
             with TestClient(app) as client:
                 # Health check doesn't need auth
-                for i in range(5):
+                for _ in range(5):
                     response = client.get("/health")
                     assert response.status_code == 200
 

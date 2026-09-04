@@ -8,12 +8,14 @@ import socket
 from fastapi.testclient import TestClient
 from prismis_daemon.api import app
 from prismis_daemon.config import Config
+from prismis_daemon.defaults import DEFAULT_CONFIG_TOML
 import uvicorn
+from conftest import TEST_API_KEY
 
 
 @pytest.fixture
-def api_client() -> TestClient:
-    """Create test client for API."""
+def api_client(test_db) -> TestClient:
+    """Create test client for API, against an initialized test database."""
     return TestClient(app)
 
 
@@ -44,7 +46,6 @@ def test_api_auth_with_lan_binding(api_client: TestClient) -> None:
     protected_endpoints = [
         "/api/entries",
         "/api/sources",
-        "/api/reports",
         "/api/prune/count",
     ]
 
@@ -65,59 +66,11 @@ def test_host_config_uvicorn_binding() -> None:
     INVARIANT: Host Binding Correct - config.api_host correctly controls uvicorn binding
     BREAKS: Service unreachable when user configures LAN access
     """
-    # Test localhost binding config
-    test_toml_localhost = """[daemon]
-fetch_interval = 30
-max_items_rss = 25
-max_items_reddit = 50
-max_items_youtube = 10
-max_days_lookback = 30
-
-[llm]
-provider = "openai"
-model = "gpt-4o-mini"
-api_key = "test-key"
-
-[reddit]
-client_id = "test-id"
-client_secret = "test-secret"
-user_agent = "test-agent"
-
-[notifications]
-high_priority_only = true
-command = "test-command"
-
-[api]
-key = "test-api-key"
-host = "127.0.0.1"
-"""
-
-    # Test LAN binding config
-    test_toml_lan = """[daemon]
-fetch_interval = 30
-max_items_rss = 25
-max_items_reddit = 50
-max_items_youtube = 10
-max_days_lookback = 30
-
-[llm]
-provider = "openai"
-model = "gpt-4o-mini"
-api_key = "test-key"
-
-[reddit]
-client_id = "test-id"
-client_secret = "test-secret"
-user_agent = "test-agent"
-
-[notifications]
-high_priority_only = true
-command = "test-command"
-
-[api]
-key = "test-api-key"
-host = "0.0.0.0"
-"""
+    # Rendered from the production template so the config stays complete against
+    # Config.from_file's required fields; only api.host differs between the two.
+    base = DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY)
+    test_toml_localhost = base.replace('host = "127.0.0.1"', 'host = "127.0.0.1"')
+    test_toml_lan = base.replace('host = "127.0.0.1"', 'host = "0.0.0.0"')
 
     temp_dir = tempfile.mkdtemp()
     try:

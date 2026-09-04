@@ -92,7 +92,7 @@ func TestViewStateStringBuilder(t *testing.T) {
 	}
 
 	result := buildViewStateString(m)
-	expected := "View: UNREAD | Sort: NEWEST | Filter: RSS | Hidden: 5"
+	expected := "Priority: PRIORITIZED | View: UNREAD | Sort: NEWEST | Filter: RSS | Hidden: 5"
 	if result != expected {
 		t.Errorf("Expected '%s', got '%s'", expected, result)
 	}
@@ -104,7 +104,7 @@ func TestViewStateStringBuilder(t *testing.T) {
 	m.showUnprioritized = true // Hidden count shouldn't show
 
 	result = buildViewStateString(m)
-	expected = "View: ALL | Sort: OLDEST | Filter: ALL"
+	expected = "Priority: PRIORITIZED | View: ALL | Sort: OLDEST | Filter: ALL"
 	if result != expected {
 		t.Errorf("Expected '%s', got '%s'", expected, result)
 	}

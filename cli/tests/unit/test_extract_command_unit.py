@@ -12,19 +12,14 @@ bypassing the full __main__.py app (avoids config-file and service dependencies)
 APIClient is patched at the cli.extract module boundary to control responses.
 """
 
-import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import typer
 
-# Add CLI src to path (matches pattern in test_api_client_search_params.py)
-cli_src = Path(__file__).parent.parent.parent / "src"
-sys.path.insert(0, str(cli_src))
 
-from typer.testing import CliRunner  # noqa: E402
+from typer.testing import CliRunner
 
-from cli.extract import extract  # noqa: E402
+from cli.extract import extract
 
 # Wrap the plain function in a local Typer app for test invocation.
 # CliRunner.invoke() requires a Typer app, not a raw function.
@@ -326,7 +321,7 @@ def test_extract_command_registered_in_main() -> None:
     Verifies the registration line `app.command(name="extract", ...)(extract.extract)`
     is present and the command name is discoverable from the app.
     """
-    from cli.__main__ import app  # noqa: E402
+    from cli.__main__ import app
 
     command_names = [cmd.name for cmd in app.registered_commands]
     assert "extract" in command_names, (

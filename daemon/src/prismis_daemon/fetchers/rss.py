@@ -23,7 +23,7 @@ class RSSFetcher:
     extracts full article content, and returns standardized ContentItem objects.
     """
 
-    def __init__(self, max_items: int = None, config: Config = None, timeout: int = 30):
+    def __init__(self, max_items: int | None = None, config: Config | None = None, timeout: int = 30):
         """Initialize the RSS fetcher.
 
         Args:
@@ -94,8 +94,8 @@ class RSSFetcher:
                 try:
                     # Extract basic metadata
                     external_id = self._get_external_id(entry)
-                    title = entry.get("title", "Untitled")
-                    url = entry.get("link", "")
+                    title = str(entry.get("title", "Untitled"))
+                    url = str(entry.get("link", ""))
 
                     if not url:
                         logger.warning(f"Skipping entry without URL: {title}")
@@ -199,28 +199,32 @@ class RSSFetcher:
         title = entry.get("title", str(datetime.now(UTC)))
         return hashlib.sha256(title.encode()).hexdigest()[:16]
 
-    def _parse_published_date(self, entry: dict) -> datetime | None:
+    def _parse_published_date(self, entry: object) -> datetime | None:
         """Parse published date from feed entry.
 
         Args:
-            entry: Feed entry dict from feedparser
+            entry: Feed entry from feedparser, read by attribute (FeedParserDict
+                exposes both attribute and mapping access; only attributes are used
+                here so plain objects work too)
 
         Returns:
             Parsed datetime or None if not available
         """
         # feedparser provides parsed time tuple - convert to timezone-aware datetime
-        if hasattr(entry, "published_parsed") and entry.published_parsed:
+        published_parsed = getattr(entry, "published_parsed", None)
+        if published_parsed:
             try:
                 # Convert time tuple to timezone-aware datetime
-                return datetime(*entry.published_parsed[:6], tzinfo=UTC)
+                return datetime(*published_parsed[:6], tzinfo=UTC)
             except Exception as e:
                 logger.debug(f"Could not parse published date: {e}")
 
         # Try updated date as fallback
-        if hasattr(entry, "updated_parsed") and entry.updated_parsed:
+        updated_parsed = getattr(entry, "updated_parsed", None)
+        if updated_parsed:
             try:
                 # Convert time tuple to timezone-aware datetime
-                return datetime(*entry.updated_parsed[:6], tzinfo=UTC)
+                return datetime(*updated_parsed[:6], tzinfo=UTC)
             except Exception as e:
                 logger.debug(f"Could not parse updated date: {e}")
 

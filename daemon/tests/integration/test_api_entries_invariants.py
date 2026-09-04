@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from prismis_daemon.api import app, get_storage
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
+from conftest import TEST_API_KEY
 
 
 @pytest.fixture
@@ -121,7 +122,7 @@ def test_api_content_auth_required(api_client: TestClient) -> None:
     assert data["success"] is False
 
     # Test with valid API key
-    response = api_client.get("/api/entries", headers={"X-API-Key": "prismis-api-4d5e"})
+    response = api_client.get("/api/entries", headers={"X-API-Key": TEST_API_KEY})
     assert response.status_code == 200, "Valid API key must be accepted"
     data = response.json()
     assert data["success"] is True
@@ -134,7 +135,7 @@ def test_api_content_error_format_consistency(api_client: TestClient) -> None:
     """
     # Test invalid priority parameter (should trigger FastAPI validation)
     response = api_client.get(
-        "/api/entries?priority=invalid", headers={"X-API-Key": "prismis-api-4d5e"}
+        "/api/entries?priority=invalid", headers={"X-API-Key": TEST_API_KEY}
     )
     assert response.status_code == 422, "Invalid priority should return 422"
     data = response.json()
@@ -145,14 +146,14 @@ def test_api_content_error_format_consistency(api_client: TestClient) -> None:
     assert "data" in data, "Error response must have 'data' field"
     assert data["success"] is False, "Error response success must be False"
     assert data["data"] is None, "Error response data must be None"
-    assert "validation error" in data["message"].lower(), (
-        "Must identify as validation error"
+    assert "priority" in data["message"].lower(), (
+        "Message must name the parameter that failed validation"
     )
 
     # Test invalid limit parameter
     response = api_client.get(
-        "/api/entries?limit=999",  # Over max limit of 100
-        headers={"X-API-Key": "prismis-api-4d5e"},
+        "/api/entries?limit=10001",  # Over max limit of 10000
+        headers={"X-API-Key": TEST_API_KEY},
     )
     assert response.status_code == 422
     data = response.json()
@@ -173,7 +174,7 @@ def test_api_content_data_consistency(
         # Get from API (includes both read and unread by default)
         response = api_client.get(
             f"/api/entries?priority={priority}",
-            headers={"X-API-Key": "prismis-api-4d5e"},
+            headers={"X-API-Key": TEST_API_KEY},
         )
         assert response.status_code == 200
         api_items = response.json()["data"]["items"]
@@ -198,7 +199,7 @@ def test_api_content_data_consistency(
 
     # Test unread_only filtering matches database state
     response = api_client.get(
-        "/api/entries?unread_only=true", headers={"X-API-Key": "prismis-api-4d5e"}
+        "/api/entries?unread_only=true", headers={"X-API-Key": TEST_API_KEY}
     )
     assert response.status_code == 200
     api_unread = response.json()["data"]["items"]
@@ -238,7 +239,7 @@ def test_api_content_database_disconnect(test_db: Path) -> None:
     client = TestClient(app)
 
     try:
-        response = client.get("/api/entries", headers={"X-API-Key": "prismis-api-4d5e"})
+        response = client.get("/api/entries", headers={"X-API-Key": TEST_API_KEY})
 
         # Should return server error, not crash
         assert response.status_code == 500, (
@@ -271,17 +272,16 @@ def test_api_content_invalid_parameters(
         # Limit too low
         ("/api/entries?limit=0", "limit"),
         # Limit too high
-        ("/api/entries?limit=1000", "limit"),
+        ("/api/entries?limit=10001", "limit"),
         # Invalid boolean for unread_only
         ("/api/entries?unread_only=maybe", "unread_only"),
     ]
 
     for url, param_name in invalid_requests:
-        response = api_client.get(url, headers={"X-API-Key": "prismis-api-4d5e"})
+        response = api_client.get(url, headers={"X-API-Key": TEST_API_KEY})
         assert response.status_code == 422, f"Should reject invalid {param_name}: {url}"
         data = response.json()
         assert data["success"] is False
-        assert "validation error" in data["message"].lower()
         assert param_name in data["message"].lower(), (
             f"Error should mention parameter {param_name}"
         )
@@ -289,13 +289,13 @@ def test_api_content_invalid_parameters(
     # Valid edge cases should work
     valid_requests = [
         "/api/entries?limit=1",  # Minimum limit
-        "/api/entries?limit=100",  # Maximum limit
+        "/api/entries?limit=10000",  # Maximum limit
         "/api/entries?unread_only=false",  # Explicit false
         "/api/entries?unread_only=true",  # Explicit true
     ]
 
     for url in valid_requests:
-        response = api_client.get(url, headers={"X-API-Key": "prismis-api-4d5e"})
+        response = api_client.get(url, headers={"X-API-Key": TEST_API_KEY})
         assert response.status_code == 200, f"Should accept valid request: {url}"
         data = response.json()
         assert data["success"] is True

@@ -3,7 +3,6 @@
 import typer
 from rich.console import Console
 from pathlib import Path
-from typing import Optional
 from .api_client import APIClient
 
 app = typer.Typer()
@@ -13,7 +12,7 @@ console = Console()
 @app.command()
 def generate(
     period: str = typer.Argument("24h", help="Time period (e.g., '24h', '7d', '30d')"),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "--output", "-o", help="Save report to file"
     ),
 ) -> None:
@@ -45,12 +44,12 @@ def generate(
 
     except RuntimeError as e:
         console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
 def daily(
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "--output", "-o", help="Save report to file"
     ),
 ) -> None:
@@ -64,7 +63,7 @@ def daily(
 
 @app.command()
 def weekly(
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "--output", "-o", help="Save report to file"
     ),
 ) -> None:
@@ -78,7 +77,7 @@ def weekly(
 
 @app.command()
 def monthly(
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "--output", "-o", help="Save report to file"
     ),
 ) -> None:

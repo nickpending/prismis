@@ -100,7 +100,7 @@ def test_sc17_no_fstring_sql_interpolation_of_since_days() -> None:
     )
     source = storage_path.read_text()
 
-    # Pattern: execute(f"...{since_days}...") or f"""...{since_days}...""" in execute
+    # Pattern: execute(f"...{since_days}...") or f"""...{since_days}...""" in execute  # noqa: ERA001 - prose, not code
     fstring_with_since_days = re.compile(
         r'execute\s*\(\s*f["\'].*?\{since_days\}.*?["\']', re.DOTALL
     )

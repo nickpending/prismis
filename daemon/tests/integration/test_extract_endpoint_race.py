@@ -56,8 +56,9 @@ from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.deep_extractor import CircuitOpenError
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
+from conftest import TEST_API_KEY
 
-_API_KEY = "prismis-api-4d5e"
+_API_KEY = TEST_API_KEY
 
 
 # ---------------------------------------------------------------------------

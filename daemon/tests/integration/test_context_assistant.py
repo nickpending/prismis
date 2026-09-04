@@ -15,6 +15,7 @@ from prismis_daemon.config import Config
 from prismis_daemon.context_analyzer import ContextAnalyzer
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
+from conftest import TEST_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +257,7 @@ def test_INVARIANT_flagged_items_unchanged_after_suggest(
 
     # Make API call (will fail without OpenAI key, but that's OK for this test)
     try:
-        api_client.post("/api/context", headers={"X-API-Key": "prismis-api-4d5e"})
+        api_client.post("/api/context", headers={"X-API-Key": TEST_API_KEY})
         # Response might be 422 (no flagged items if wrong DB) or 500 (LLM error)
         # We don't care - we're testing database integrity
     except Exception as exc:

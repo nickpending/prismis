@@ -36,6 +36,6 @@ async def verify_api_key(api_key: Optional[str] = Security(api_key_header)) -> s
 
     except Exception as e:
         # If config loading fails, provide helpful error
-        raise ServerError(f"Failed to load API configuration: {str(e)}")
+        raise ServerError(f"Failed to load API configuration: {str(e)}") from e
 
     raise AuthenticationError("Invalid API key")

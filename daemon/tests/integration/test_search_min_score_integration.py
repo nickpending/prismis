@@ -28,12 +28,13 @@ from fastapi.testclient import TestClient
 
 from prismis_daemon.api import app, get_storage
 from prismis_daemon.storage import Storage
+from conftest import TEST_API_KEY
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-API_KEY = "prismis-api-4d5e"  # Matches ~/.config/prismis/config.toml
+API_KEY = TEST_API_KEY
 
 
 # ---------------------------------------------------------------------------

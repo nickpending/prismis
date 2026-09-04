@@ -9,6 +9,7 @@ from prismis_daemon.storage import Storage
 from prismis_daemon.models import ContentItem
 from fastapi.testclient import TestClient
 from prismis_daemon.api import app
+from conftest import TEST_API_KEY
 
 
 def test_favorites_survive_source_deletion(test_db: Path) -> None:
@@ -140,11 +141,14 @@ def test_concurrent_favorite_during_delete(test_db: Path) -> None:
         """Try to favorite items while deletion is happening."""
         deletion_started.wait()  # Wait for deletion to start
         storage_instance = Storage(test_db)
+        failures: list[tuple[str, str]] = []
         for content_id in items_to_favorite:
             try:
                 storage_instance.update_content_status(content_id, favorited=True)
-            except Exception:
-                pass  # Some might fail if already deleted
+            except Exception as e:
+                # Expected under the race: the sibling thread may already have deleted
+                # this row. Recorded rather than swallowed silently.
+                failures.append((content_id, str(e)))
         favoriting_done.set()
 
     def delete_source_slowly() -> None:
@@ -256,7 +260,7 @@ def test_api_respects_favorites_preservation(test_db: Path) -> None:
             "type": "rss",
             "name": "Test Feed",
         },
-        headers={"X-API-Key": "prismis-api-4d5e"},
+        headers={"X-API-Key": TEST_API_KEY},
     )
     assert response.status_code == 200
     source_id = response.json()["data"]["id"]
@@ -282,7 +286,7 @@ def test_api_respects_favorites_preservation(test_db: Path) -> None:
 
     # Delete source via API
     response = api_client.delete(
-        f"/api/sources/{source_id}", headers={"X-API-Key": "prismis-api-4d5e"}
+        f"/api/sources/{source_id}", headers={"X-API-Key": TEST_API_KEY}
     )
     assert response.status_code == 200
 
@@ -301,6 +305,6 @@ def test_api_respects_favorites_preservation(test_db: Path) -> None:
     )
 
     # Source should be gone
-    response = api_client.get("/api/sources", headers={"X-API-Key": "prismis-api-4d5e"})
-    sources = response.json()["sources"]
+    response = api_client.get("/api/sources", headers={"X-API-Key": TEST_API_KEY})
+    sources = response.json()["data"]["sources"]
     assert not any(s["id"] == source_id for s in sources), "Source should be deleted"

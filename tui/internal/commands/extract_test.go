@@ -38,8 +38,10 @@ func TestExtractCommand_IgnoresArguments(t *testing.T) {
 // TestExtractMsg_IsMessageType verifies ExtractMsg satisfies tea.Msg interface.
 // BREAKS: Runtime panic if ExtractMsg is not a valid tea.Msg.
 func TestExtractMsg_IsMessageType(t *testing.T) {
+	// The assignment is the assertion: it does not compile unless ExtractMsg
+	// satisfies tea.Msg. Round-trip it back to confirm the concrete type.
 	var msg tea.Msg = ExtractMsg{}
-	if msg == nil {
-		t.Error("ExtractMsg should not be nil as tea.Msg")
+	if _, ok := msg.(ExtractMsg); !ok {
+		t.Errorf("tea.Msg holding ExtractMsg did not type-assert back to ExtractMsg")
 	}
 }

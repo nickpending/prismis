@@ -272,13 +272,11 @@ dev-cli: ## Run CLI in development mode
 	cd cli && uv run python -m cli
 
 .PHONY: test
-test: ## Run all tests
-	@echo "Running daemon tests..."
-	cd daemon && uv run pytest tests/ -v
-	@echo "Running TUI tests..."
-	cd tui && go test ./...
-	@echo "Running CLI tests..."
-	cd cli && uv run pytest tests/ -v
+test: ## Run the full verification gate (the same script CI runs)
+# Delegates rather than re-listing the units: this target used to run pytest in daemon and
+# cli and skip lint, typecheck and staticcheck entirely, so it reported green on a tree the
+# gate rejects. One definition of "tested", three callers — developer, make, CI.
+	bash .specify/verify.sh
 
 .PHONY: clean
 clean: ## Clean build artifacts

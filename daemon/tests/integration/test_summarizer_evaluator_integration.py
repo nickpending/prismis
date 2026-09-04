@@ -219,6 +219,10 @@ def test_evaluator_with_real_llm_low_priority() -> None:
     assert result.reasoning is not None
 
 
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY"),
+    reason="Requires OPENAI_API_KEY environment variable",
+)
 def test_complete_analysis_pipeline(llm_config, full_config) -> None:
     """Test complete pipeline: summarization followed by evaluation.
 
@@ -248,7 +252,7 @@ def test_complete_analysis_pipeline(llm_config, full_config) -> None:
     """
 
     # Use actual context from config
-    context = full_config["context"]
+    context = full_config.context
 
     # Step 1: Summarize and extract insights
     summary_result = summarizer.summarize_with_analysis(

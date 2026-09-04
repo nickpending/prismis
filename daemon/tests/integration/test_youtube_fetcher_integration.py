@@ -8,6 +8,7 @@ import pytest
 from prismis_daemon.config import Config
 from prismis_daemon.fetchers.youtube import YouTubeFetcher
 from prismis_daemon.models import ContentItem
+from conftest import make_config
 
 # Minimal valid config TOML — light_service= format (task 1.1).
 # YouTubeFetcher only needs max_items and max_days_lookback; no real credentials required.
@@ -118,7 +119,7 @@ def test_fetch_youtube_with_real_api() -> None:
 
 def test_fetch_youtube_handles_invalid_channel() -> None:
     """Test fetcher handles invalid YouTube channel gracefully."""
-    config = Config()
+    config = make_config()
     fetcher = YouTubeFetcher(config=config)
 
     # Try to fetch from non-existent channel
@@ -137,7 +138,7 @@ def test_fetch_youtube_handles_invalid_channel() -> None:
 
 def test_fetch_youtube_respects_max_items() -> None:
     """Test fetcher respects max_items configuration."""
-    config = Config()
+    config = make_config()
     fetcher = YouTubeFetcher(max_items=1, config=config)
 
     source = {"url": "@LexClips", "id": "test-id"}
@@ -149,7 +150,7 @@ def test_fetch_youtube_respects_max_items() -> None:
 def test_fetch_youtube_respects_date_range() -> None:
     """Test fetcher only gets videos from configured date range."""
     # Use very short date range to limit results
-    config = Config()
+    config = make_config()
     config.max_days_lookback = 1  # Only videos from yesterday
 
     fetcher = YouTubeFetcher(max_items=10, config=config)
@@ -165,7 +166,7 @@ def test_fetch_youtube_respects_date_range() -> None:
 
 def test_fetch_youtube_handles_various_url_formats() -> None:
     """Test that various YouTube channel URL formats work correctly."""
-    config = Config()
+    config = make_config()
     fetcher = YouTubeFetcher(max_items=1, config=config)
 
     # Test different URL formats that should all work
@@ -188,7 +189,7 @@ def test_fetch_youtube_handles_various_url_formats() -> None:
 
 def test_extract_transcript_from_specific_video() -> None:
     """Test transcript extraction from a specific video with known transcript."""
-    config = Config()
+    config = make_config()
     fetcher = YouTubeFetcher(config=config)
 
     # Use a known video that should have transcripts
@@ -219,7 +220,7 @@ def test_extract_transcript_from_specific_video() -> None:
 
 def test_channel_url_normalization_integration() -> None:
     """Test that URL normalization works in complete fetching workflow."""
-    config = Config()
+    config = make_config()
     fetcher = YouTubeFetcher(max_items=1, config=config)
 
     # Test that different URL formats for same channel work
@@ -246,12 +247,12 @@ def test_channel_url_normalization_integration() -> None:
 def test_youtube_fetcher_date_filtering() -> None:
     """Test that date filtering works correctly in video discovery."""
     # Create fetcher with very restrictive date range
-    config = Config()
+    config = make_config()
     config.max_days_lookback = 1  # Only videos from last day
     fetcher_recent = YouTubeFetcher(max_items=1, config=config)
 
     # Create fetcher with longer date range
-    config_long = Config()
+    config_long = make_config()
     config_long.max_days_lookback = 30  # Videos from last 30 days
     fetcher_long = YouTubeFetcher(max_items=1, config=config_long)
 

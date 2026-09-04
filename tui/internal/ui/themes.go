@@ -302,9 +302,7 @@ func InterpolateColor(startColor, endColor string, position float64) string {
 // parseHexColor parses a hex color string into RGB values
 func parseHexColor(hexColor string) (int, int, int, error) {
 	// Remove # prefix if present
-	if strings.HasPrefix(hexColor, "#") {
-		hexColor = hexColor[1:]
-	}
+	hexColor = strings.TrimPrefix(hexColor, "#")
 
 	// Must be 6 characters for RGB
 	if len(hexColor) != 6 {

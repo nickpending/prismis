@@ -1,13 +1,8 @@
 """Unit tests for URL extraction and parsing logic."""
 
-import sys
-from pathlib import Path
 
-# Add CLI src to path
-cli_src = Path(__file__).parent.parent.parent / "src"
-sys.path.insert(0, str(cli_src))
 
-from cli.source import extract_name_from_url  # noqa: E402
+from cli.source import extract_name_from_url
 
 
 def test_extract_name_from_rss_feeds() -> None:
@@ -50,26 +45,32 @@ def test_extract_name_from_reddit_urls() -> None:
 
 
 def test_extract_name_from_youtube_urls() -> None:
-    """Test name extraction from YouTube URLs."""
+    """Test name extraction from YouTube URLs.
+
+    The CLI's proposed name must match what the daemon API produces
+    (daemon/src/prismis_daemon/api.py:294-303) — the API names the source server-side, so
+    a CLI that proposed a differently-formatted name would fork the two. source.py:47
+    states this ("matching API behavior"). Neither side emits a "YouTube: " prefix.
+    """
     # youtube:// scheme
     assert extract_name_from_url("youtube://@mkbhd") == "@mkbhd"
     assert extract_name_from_url("youtube://@TwoMinutePapers") == "@TwoMinutePapers"
 
     # YouTube URLs with @ handles
-    assert extract_name_from_url("https://youtube.com/@mkbhd") == "YouTube: @mkbhd"
+    assert extract_name_from_url("https://youtube.com/@mkbhd") == "@mkbhd"
     assert (
         extract_name_from_url("https://www.youtube.com/@veritasium")
-        == "YouTube: @veritasium"
+        == "@veritasium"
     )
 
     # YouTube channel URLs
     assert (
         extract_name_from_url("https://youtube.com/channel/UC9-y-6csu5WGm29I7JiwpnA")
-        == "YouTube Channel: UC9-y-6csu5WGm29I7Ji"
+        == "UC9-y-6csu5WGm29I7Ji"
     )
     assert (
         extract_name_from_url("https://youtube.com/channel/UCHnyfMqiRRG1u-2MsSQLbXA")
-        == "YouTube Channel: UCHnyfMqiRRG1u-2MsSQ"
+        == "UCHnyfMqiRRG1u-2MsSQ"
     )
 
     # Short youtube.com URLs

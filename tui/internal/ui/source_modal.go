@@ -13,42 +13,13 @@ import (
 	"github.com/nickpending/prismis/internal/ui/operations"
 )
 
-// detectSourceType detects the type of source from the URL
-func detectSourceType(url string) string {
-	// Check for special protocols
-	if strings.HasPrefix(url, "reddit://") {
-		return "reddit"
-	}
-	if strings.HasPrefix(url, "youtube://") {
-		return "youtube"
-	}
-
-	// Check for known domains
-	if strings.Contains(url, "reddit.com") {
-		return "reddit"
-	}
-	if strings.Contains(url, "youtube.com") || strings.Contains(url, "youtu.be") {
-		return "youtube"
-	}
-
-	// Check for file extensions
-	lowerURL := strings.ToLower(url)
-	if strings.HasSuffix(lowerURL, ".md") || strings.HasSuffix(lowerURL, ".txt") {
-		return "file"
-	}
-
-	// Default to RSS
-	return "rss"
-}
-
 // SourceModal represents the source management modal
 type SourceModal struct {
-	Modal      // Embed base modal
-	sources    []db.Source
-	cursor     int
-	mode       string // "list", "add", "edit", "confirm_remove"
-	editBuffer string // Deprecated - not used anymore
-	errorMsg   string
+	Modal    // Embed base modal
+	sources  []db.Source
+	cursor   int
+	mode     string // "list", "add", "edit", "confirm_remove"
+	errorMsg string
 
 	// Form fields for add/edit modes - now using textinput.Model
 	urlInput       textinput.Model // URL input field
@@ -716,17 +687,6 @@ func (m SourceModal) renderListContentOnly() string {
 				selector = lipgloss.NewStyle().Foreground(theme.Cyan).Render("▸ ")
 			}
 
-			// Format source name (left-aligned)
-			nameStr := source.Name
-			if i == m.cursor {
-				nameStr = lipgloss.NewStyle().
-					Foreground(theme.White).
-					Bold(true).
-					Render(nameStr)
-			} else {
-				nameStr = theme.TextStyle().Render(nameStr)
-			}
-
 			// Format source type (right-aligned)
 			typeStr := strings.ToUpper(source.Type)
 			if i == m.cursor {
@@ -754,6 +714,7 @@ func (m SourceModal) renderListContentOnly() string {
 			}
 
 			// Apply styling to the truncated name
+			var nameStr string
 			if i == m.cursor {
 				nameStr = lipgloss.NewStyle().Foreground(theme.White).Bold(true).Render(displayName)
 			} else {

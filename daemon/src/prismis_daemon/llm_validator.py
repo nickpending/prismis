@@ -36,7 +36,7 @@ def validate_llm_services(light_service: str, deep_service: str | None) -> dict:
     llm_core.health_check(service=light_service)
     result = {"light": "ok"}
 
-    # Deep: non-fatal
+    # Deep: non-fatal  # noqa: ERA001 - prose, not code
     if deep_service is None:
         result["deep"] = "not_configured"
         return result

@@ -1,6 +1,5 @@
 """Unit tests for YouTubeFetcher logic functions."""
 
-from datetime import datetime
 
 from prismis_daemon.fetchers.youtube import YouTubeFetcher
 from prismis_daemon.models import ContentItem

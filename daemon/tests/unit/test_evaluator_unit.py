@@ -2,32 +2,22 @@
 
 from prismis_daemon.evaluator import ContentEvaluator, PriorityLevel
 
-
-def test_evaluator_initialization_with_config() -> None:
-    """Test ContentEvaluator initializes with provided config."""
-    config = {
-        "model": "gpt-4o",
-    }
-
-    evaluator = ContentEvaluator(config)
-
-    assert evaluator.model == "gpt-4o"
-    assert evaluator.config == config
+# ContentEvaluator takes an llm-core service name (evaluator.py:40-47); model choice and
+# credentials are resolved by llm-core from services.toml, not from a config dict here.
+SERVICE = "prismis-openai"
 
 
-def test_evaluator_initialization_with_defaults() -> None:
-    """Test ContentEvaluator uses default model when minimal config provided."""
-    config = {"model": "gpt-4.1-mini"}
-    evaluator = ContentEvaluator(config)
+def test_evaluator_initialization_with_service_name() -> None:
+    """Test ContentEvaluator records the service it was constructed with."""
+    evaluator = ContentEvaluator(SERVICE)
 
-    assert evaluator.model == "gpt-4.1-mini"
-    assert evaluator.config == {"model": "gpt-4.1-mini"}
+    assert evaluator.service_name == SERVICE
+    assert evaluator.temperature == 0.3
 
 
 def test_parse_evaluation_response_with_valid_data() -> None:
     """Test parsing valid JSON response into ContentEvaluation."""
-    config = {"model": "gpt-4.1-mini"}
-    evaluator = ContentEvaluator(config)
+    evaluator = ContentEvaluator(SERVICE)
 
     response = {
         "priority": "high",
@@ -44,11 +34,11 @@ def test_parse_evaluation_response_with_valid_data() -> None:
 
 def test_parse_evaluation_response_normalizes_priority() -> None:
     """Test parsing normalizes priority values to lowercase."""
-    evaluator = ContentEvaluator({"model": "gpt-4.1-mini"})
+    evaluator = ContentEvaluator(SERVICE)
 
     response = {
         "priority": "MEDIUM",  # Uppercase
-        "matched_interests": [],
+        "matched_interests": ["AI"],
     }
 
     result = evaluator._parse_evaluation_response(response)
@@ -58,7 +48,7 @@ def test_parse_evaluation_response_normalizes_priority() -> None:
 
 def test_parse_evaluation_response_handles_invalid_priority() -> None:
     """Test parsing handles invalid priority with default."""
-    evaluator = ContentEvaluator({"model": "gpt-4.1-mini"})
+    evaluator = ContentEvaluator(SERVICE)
 
     response = {
         "priority": "CRITICAL",  # Invalid value
@@ -72,8 +62,12 @@ def test_parse_evaluation_response_handles_invalid_priority() -> None:
 
 
 def test_parse_evaluation_response_handles_missing_fields() -> None:
-    """Test parsing handles missing optional fields."""
-    evaluator = ContentEvaluator({"model": "gpt-4.1-mini"})
+    """Test parsing handles missing optional fields.
+
+    A response with no matched_interests carries no priority: the evaluator maps it to
+    None rather than inventing MEDIUM, so unmatched content stays unranked.
+    """
+    evaluator = ContentEvaluator(SERVICE)
 
     response = {
         "priority": "medium",
@@ -82,14 +76,14 @@ def test_parse_evaluation_response_handles_missing_fields() -> None:
 
     result = evaluator._parse_evaluation_response(response)
 
-    assert result.priority == PriorityLevel.MEDIUM
+    assert result.priority is None
     assert result.matched_interests == []
     assert result.reasoning is None
 
 
 def test_parse_evaluation_response_validates_matched_interests() -> None:
     """Test parsing validates matched_interests is a list."""
-    evaluator = ContentEvaluator({"model": "gpt-4.1-mini"})
+    evaluator = ContentEvaluator(SERVICE)
 
     # Test with non-list value
     response = {
@@ -105,7 +99,7 @@ def test_parse_evaluation_response_validates_matched_interests() -> None:
 
 def test_build_evaluation_prompt_includes_all_parts() -> None:
     """Test evaluation prompt includes content, context, and instructions."""
-    evaluator = ContentEvaluator({"model": "gpt-4.1-mini"})
+    evaluator = ContentEvaluator(SERVICE)
 
     content = "This is AI content"
     title = "AI Article"
@@ -129,7 +123,7 @@ def test_build_evaluation_prompt_includes_all_parts() -> None:
 
 def test_system_prompt_has_priority_guidelines() -> None:
     """Test system prompt includes priority evaluation guidelines."""
-    evaluator = ContentEvaluator({"model": "gpt-4.1-mini"})
+    evaluator = ContentEvaluator(SERVICE)
 
     messages = evaluator._build_evaluation_prompt("", "", "", "")
     system_prompt = messages[0]["content"]

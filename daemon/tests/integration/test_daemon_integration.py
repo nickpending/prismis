@@ -1,14 +1,21 @@
 """Integration tests for main daemon orchestration."""
 
+import pytest
 import subprocess
 import os
 import sys
+from pathlib import Path
 
 
 from prismis_daemon.storage import Storage
 from prismis_daemon.defaults import ensure_config
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
+    reason="Requires a live llm-core service (services.toml + provider key); "
+    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
+)
 def test_daemon_orchestration_with_test_database(test_db) -> None:
     """Test daemon orchestration with real services and test database.
 
@@ -19,9 +26,10 @@ def test_daemon_orchestration_with_test_database(test_db) -> None:
     - Verifies it works end-to-end
     """
     from prismis_daemon.orchestrator import DaemonOrchestrator
-    from fetchers.rss import RSSFetcher
-    from fetchers.reddit import RedditFetcher
-    from fetchers.youtube import YouTubeFetcher
+    from prismis_daemon.fetchers.rss import RSSFetcher
+    from prismis_daemon.fetchers.reddit import RedditFetcher
+    from prismis_daemon.fetchers.youtube import YouTubeFetcher
+    from prismis_daemon.fetchers.file import FileFetcher
     from prismis_daemon.summarizer import ContentSummarizer
     from prismis_daemon.evaluator import ContentEvaluator
     from prismis_daemon.notifier import Notifier
@@ -32,19 +40,17 @@ def test_daemon_orchestration_with_test_database(test_db) -> None:
     # Ensure config exists
     ensure_config()
     config_obj = Config.from_file()
-    config = {"llm": {"model": config_obj.llm_model, "api_key": config_obj.llm_api_key}}
-
-    # Limit to 1 item for testing (faster)
-    config["daemon"] = {"max_items_per_feed": 1}
 
     # Create real services configured for testing
     storage = Storage(test_db)
     rss_fetcher = RSSFetcher(max_items=1)  # Only fetch 1 item for fast testing
     reddit_fetcher = RedditFetcher(max_items=1)
     youtube_fetcher = YouTubeFetcher(max_items=1)
-    summarizer = ContentSummarizer(config["llm"])
-    evaluator = ContentEvaluator(config["llm"])
-    notifier = Notifier(config.get("notifications", {}))
+    file_fetcher = FileFetcher()
+    summarizer = ContentSummarizer(config_obj.llm_light_service)
+    evaluator = ContentEvaluator(config_obj.llm_light_service)
+    notifier = Notifier({"high_priority_only": config_obj.high_priority_only,
+                        "command": config_obj.notification_command})
 
     # Capture console output
     output = StringIO()
@@ -59,10 +65,11 @@ def test_daemon_orchestration_with_test_database(test_db) -> None:
         rss_fetcher=rss_fetcher,
         reddit_fetcher=reddit_fetcher,
         youtube_fetcher=youtube_fetcher,
+        file_fetcher=file_fetcher,
         summarizer=summarizer,
         evaluator=evaluator,
         notifier=notifier,
-        config={"context": config.get("context", "")},
+        config=config_obj,
         console=test_console,
     )
 
@@ -97,10 +104,10 @@ def test_daemon_help_command() -> None:
     """Test daemon shows help correctly."""
 
     result = subprocess.run(
-        [sys.executable, "-m", "src", "--help"],
+        [sys.executable, "-m", "prismis_daemon", "--help"],
         capture_output=True,
         text=True,
-        cwd="/Users/rudy/development/projects/prismis/daemon",
+        cwd=str(Path(__file__).parent.parent.parent),
         env={**os.environ, "PYTHONPATH": "src"},
         timeout=10,
     )
@@ -175,9 +182,10 @@ def test_scheduler_runs_jobs_at_intervals(test_db) -> None:
     import time
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from prismis_daemon.orchestrator import DaemonOrchestrator
-    from fetchers.rss import RSSFetcher
-    from fetchers.reddit import RedditFetcher
-    from fetchers.youtube import YouTubeFetcher
+    from prismis_daemon.fetchers.rss import RSSFetcher
+    from prismis_daemon.fetchers.reddit import RedditFetcher
+    from prismis_daemon.fetchers.youtube import YouTubeFetcher
+    from prismis_daemon.fetchers.file import FileFetcher
     from prismis_daemon.summarizer import ContentSummarizer
     from prismis_daemon.evaluator import ContentEvaluator
     from prismis_daemon.notifier import Notifier
@@ -188,13 +196,16 @@ def test_scheduler_runs_jobs_at_intervals(test_db) -> None:
     # Ensure config exists
     ensure_config()
     config_obj = Config.from_file()
-    config = {"llm": {"model": config_obj.llm_model, "api_key": config_obj.llm_api_key}}
 
     # Create real services with test database
     storage = Storage(test_db)
-    fetcher = RSSFetcher()
-    summarizer = ContentSummarizer(config["llm"])
-    evaluator = ContentEvaluator(config["llm"])
+    rss_fetcher = RSSFetcher()
+    reddit_fetcher = RedditFetcher()
+    youtube_fetcher = YouTubeFetcher()
+    file_fetcher = FileFetcher()
+    summarizer = ContentSummarizer(config_obj.llm_light_service)
+    evaluator = ContentEvaluator(config_obj.llm_light_service)
+    notifier = Notifier()
 
     # Track execution times
     execution_times = []
@@ -213,10 +224,14 @@ def test_scheduler_runs_jobs_at_intervals(test_db) -> None:
     # Create test orchestrator
     orchestrator = TestOrchestrator(
         storage=storage,
-        fetcher=fetcher,
+        rss_fetcher=rss_fetcher,
+        reddit_fetcher=reddit_fetcher,
+        youtube_fetcher=youtube_fetcher,
+        file_fetcher=file_fetcher,
         summarizer=summarizer,
         evaluator=evaluator,
-        config=config,
+        notifier=notifier,
+        config=config_obj,
         console=test_console,
     )
 
@@ -282,9 +297,10 @@ def test_scheduler_graceful_shutdown(test_db) -> None:
     import asyncio
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from prismis_daemon.orchestrator import DaemonOrchestrator
-    from fetchers.rss import RSSFetcher
-    from fetchers.reddit import RedditFetcher
-    from fetchers.youtube import YouTubeFetcher
+    from prismis_daemon.fetchers.rss import RSSFetcher
+    from prismis_daemon.fetchers.reddit import RedditFetcher
+    from prismis_daemon.fetchers.youtube import YouTubeFetcher
+    from prismis_daemon.fetchers.file import FileFetcher
     from prismis_daemon.summarizer import ContentSummarizer
     from prismis_daemon.evaluator import ContentEvaluator
     from prismis_daemon.notifier import Notifier
@@ -295,13 +311,16 @@ def test_scheduler_graceful_shutdown(test_db) -> None:
     # Ensure config exists
     ensure_config()
     config_obj = Config.from_file()
-    config = {"llm": {"model": config_obj.llm_model, "api_key": config_obj.llm_api_key}}
 
-    # Create real services
+    # Create real services with test database
     storage = Storage(test_db)
-    fetcher = RSSFetcher()
-    summarizer = ContentSummarizer(config["llm"])
-    evaluator = ContentEvaluator(config["llm"])
+    rss_fetcher = RSSFetcher()
+    reddit_fetcher = RedditFetcher()
+    youtube_fetcher = YouTubeFetcher()
+    file_fetcher = FileFetcher()
+    summarizer = ContentSummarizer(config_obj.llm_light_service)
+    evaluator = ContentEvaluator(config_obj.llm_light_service)
+    notifier = Notifier()
 
     # Capture output
     output = StringIO()
@@ -309,10 +328,14 @@ def test_scheduler_graceful_shutdown(test_db) -> None:
 
     orchestrator = DaemonOrchestrator(
         storage=storage,
-        fetcher=fetcher,
+        rss_fetcher=rss_fetcher,
+        reddit_fetcher=reddit_fetcher,
+        youtube_fetcher=youtube_fetcher,
+        file_fetcher=file_fetcher,
         summarizer=summarizer,
         evaluator=evaluator,
-        config=config,
+        notifier=notifier,
+        config=config_obj,
         console=test_console,
     )
 

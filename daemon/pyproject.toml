@@ -23,6 +23,9 @@ dependencies = [
     "trafilatura",
     "typer",
     "uvicorn>=0.35.0",
+    # fetchers/youtube.py:39-42 hard-requires the yt-dlp binary on PATH and raises
+    # without it, so it is a runtime dependency, not an optional extra.
+    "yt-dlp",
 ]
 
 [project.scripts]
@@ -36,11 +39,30 @@ dev = [
     "pyright>=1.1.409",
     "pytest",
     "pytest-asyncio",
+    "ruff",
+]
+
+[tool.ruff]
+# scripts/ holds operator scratch work that is not part of the shipped package.
+exclude = ["scripts"]
+
+[tool.ruff.lint]
+# Decidable defect classes, not style. E4/E7/E9/F are ruff's defaults; the rest add
+# weakened types (ANN401, PGH, RUF013), unhandled async/error paths (ASYNC, BLE, S110,
+# S112, RUF006), dead code (ERA), and mutable-default/inherited bugs (B, RUF012).
+select = [
+    "E4", "E7", "E9", "F",
+    "B", "ASYNC", "BLE", "ERA",
+    "RUF006", "RUF012", "RUF013", "RUF100",
+    "ANN401", "PGH", "S110", "S112",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "src/prismis_daemon/api.py" = ["B008"]  # FastAPI Depends() in argument defaults
-"tests/**/*.py" = ["S101"]  # Allow assert statements in tests
+# BLE001 (blind `except Exception`) is selected so the class stays visible, but narrowing
+# these excepts changes runtime behavior in an unattended pipeline and is tracked separately:
+# https://github.com/nickpending/prismis/issues/58
+"**/*.py" = ["BLE001"]
 
 [tool.pyright]
 include = ["src/prismis_daemon"]

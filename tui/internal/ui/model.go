@@ -32,7 +32,6 @@ type Model struct {
 	ready             bool           // Viewport ready flag
 	width             int            // Terminal width
 	height            int            // Terminal height
-	showReader        bool           // Show reader view (from clean_cyber)
 	showUnprioritized bool           // Show items with null/empty priority (default false)
 	hiddenCount       int            // Count of hidden unprioritized items
 	// View state fields for header display
@@ -586,25 +585,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "j", "down":
 			if m.focusedPane == "sources" {
 				// When sources pane is focused, j/k scroll the sources
-				m.sourcesViewport.LineDown(1)
+				m.sourcesViewport.ScrollDown(1)
 			} else if m.focusedPane == "content" {
 				// Content pane focused - depends on view
 				if m.view == "list" && m.cursor < len(m.items)-1 {
 					m.cursor++
 				} else if m.view == "reader" {
-					m.viewport.LineDown(1)
+					m.viewport.ScrollDown(1)
 				}
 			}
 		case "k", "up":
 			if m.focusedPane == "sources" {
 				// When sources pane is focused, j/k scroll the sources
-				m.sourcesViewport.LineUp(1)
+				m.sourcesViewport.ScrollUp(1)
 			} else if m.focusedPane == "content" {
 				// Content pane focused - depends on view
 				if m.view == "list" && m.cursor > 0 {
 					m.cursor--
 				} else if m.view == "reader" {
-					m.viewport.LineUp(1)
+					m.viewport.ScrollUp(1)
 				}
 			}
 
@@ -1480,13 +1479,6 @@ func calculateUnreadCounts(sources []db.Source, items []db.ContentItem) []db.Sou
 func clearStatusAfterDelay(delay time.Duration) tea.Cmd {
 	return tea.Tick(delay, func(t time.Time) tea.Msg {
 		return clearStatusMsg{}
-	})
-}
-
-// flashItemCmd returns a command that flashes an item and then clears it
-func flashItemCmd() tea.Cmd {
-	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
-		return clearFlashMsg{}
 	})
 }
 

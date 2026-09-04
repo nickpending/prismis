@@ -68,7 +68,7 @@ def count(
                 )
             except ValueError as e:
                 console.print(f"[red]✗ {e}[/red]")
-                raise typer.Exit(1)
+                raise typer.Exit(1) from e
         else:
             console.print("🔍 Counting all unprioritized items...")
 
@@ -85,7 +85,7 @@ def count(
 
     except RuntimeError as e:
         console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -111,7 +111,7 @@ def delete(
                 days = parse_age(age)
             except ValueError as e:
                 console.print(f"[red]✗ {e}[/red]")
-                raise typer.Exit(1)
+                raise typer.Exit(1) from e
 
         # First get count
         count = client.count_unprioritized(days)
@@ -141,7 +141,7 @@ def delete(
 
     except RuntimeError as e:
         console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -189,4 +189,4 @@ def cleanup(
 
     except RuntimeError as e:
         console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e

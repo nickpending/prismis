@@ -18,7 +18,7 @@ if dotenv_path.exists():
 daemon_src = Path(__file__).parent.parent.parent.parent / "daemon" / "src"
 sys.path.insert(0, str(daemon_src))
 
-from cli import (  # noqa: E402
+from cli import (  # noqa: E402 - must follow the sys.path setup above
     analyze,
     archive,
     embeddings,
@@ -32,7 +32,7 @@ from cli import (  # noqa: E402
     source,
     statistics,
 )
-from cli.remote import set_remote_url  # noqa: E402
+from cli.remote import set_remote_url  # noqa: E402 - same
 
 app = typer.Typer(
     name="prismis-cli",

@@ -250,7 +250,7 @@ def test_orthogonal_unit_vectors_yield_zero_similarity(test_db: Path) -> None:
     relevance_score = results[0]["relevance_score"]
 
     # Recover actual_sim from relevance_score:
-    # relevance_score = sim*0.8 + priority_weight*0.1 + authority*0.1
+    # relevance_score = sim*0.8 + priority_weight*0.1 + authority*0.1  # noqa: ERA001 - prose, not code
     # For high priority (1.0) + rss authority (0.6): non-sim contribution = 0.1 + 0.06 = 0.16
     actual_sim = (relevance_score - 0.16) / 0.8
 

@@ -25,7 +25,7 @@ class YouTubeFetcher:
     Filters videos to only include those from the last N days (configurable).
     """
 
-    def __init__(self, config: Config = None, max_items: int = None):
+    def __init__(self, config: Config | None = None, max_items: int | None = None):
         """Initialize the YouTube fetcher.
 
         Args:
@@ -255,9 +255,9 @@ class YouTubeFetcher:
 
             return videos
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             logger.error("Video discovery timed out")
-            raise Exception("YouTube channel discovery timed out")
+            raise Exception("YouTube channel discovery timed out") from e
 
     def _process_video(
         self, video: dict[str, Any], source_id: str

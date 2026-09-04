@@ -5,6 +5,16 @@ import (
 )
 
 func TestConnectionPool(t *testing.T) {
+	// Point the pool at a temp database. Without this the test opens whatever is at the
+	// developer's real XDG_DATA_HOME, so it passes on one machine and fails everywhere
+	// else — CI included. resetDBForTest/createTestDB and the dbPathFunc seam are the
+	// package's existing pattern (queries_test.go:14,25,126).
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) { return dbPath, nil }
+	defer func() { dbPathFunc = originalDBPathFunc }()
+
 	// Test that we can get a connection pool
 	db1, err := GetDB()
 	if err != nil {

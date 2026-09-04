@@ -29,7 +29,7 @@ def test_malicious_content_injection(test_db: Path) -> None:
         "summary": "Summary with </body></html><script>steal_cookies()</script>",
         "source_id": malicious_source_id,
         "priority": "high",
-        "published_at": datetime.now(timezone.utc).isoformat(),
+        "published_at": datetime.now(timezone.utc),
         "analysis": {
             "matched_interests": ["</span><script>alert('hack')</script>"],
             "other_field": "</div><img src=x onerror=alert(1)>",
@@ -42,7 +42,7 @@ def test_malicious_content_injection(test_db: Path) -> None:
         report = generator.generate_daily_report(hours=24)
         html_output = generator.format_as_html(report)
     except Exception as e:
-        assert False, f"System crashed on malicious content: {e}"
+        raise AssertionError(f"System crashed on malicious content: {e}") from e
 
     # CRITICAL: Document security vulnerabilities found
     # The HTML formatter has escaping vulnerabilities - malicious content can inject JS
@@ -125,7 +125,7 @@ def test_analysis_field_corruption(test_db: Path) -> None:
             "summary": "Summary",
             "source_id": source_id,
             "priority": "high",
-            "published_at": datetime.now(timezone.utc).isoformat(),
+            "published_at": datetime.now(timezone.utc),
             "analysis": "this is not JSON",  # String instead of dict
         },
         {
@@ -136,7 +136,7 @@ def test_analysis_field_corruption(test_db: Path) -> None:
             "summary": "Summary",
             "source_id": source_id,
             "priority": "high",
-            "published_at": datetime.now(timezone.utc).isoformat(),
+            "published_at": datetime.now(timezone.utc),
             "analysis": {
                 "matched_interests": {
                     "nested": {"deeply": ["this", "should", "be", "flat", "list"]}
@@ -151,7 +151,7 @@ def test_analysis_field_corruption(test_db: Path) -> None:
             "summary": "Summary",
             "source_id": source_id,
             "priority": "high",
-            "published_at": datetime.now(timezone.utc).isoformat(),
+            "published_at": datetime.now(timezone.utc),
             "analysis": 42,  # Integer instead of dict
         },
         {
@@ -162,7 +162,7 @@ def test_analysis_field_corruption(test_db: Path) -> None:
             "summary": "Summary",
             "source_id": source_id,
             "priority": "high",
-            "published_at": datetime.now(timezone.utc).isoformat(),
+            "published_at": datetime.now(timezone.utc),
             "analysis": {},  # Empty dict
         },
     ]
@@ -179,7 +179,7 @@ def test_analysis_field_corruption(test_db: Path) -> None:
             print(f"Storage rejected item {item['title']}: {e}")
             pass
         except Exception as e:
-            assert False, f"Unexpected storage error for {item['title']}: {e}"
+            raise AssertionError(f"Unexpected storage error for {item['title']}: {e}") from e
 
     # Should have successfully added at least the dict-based corrupted items
     assert len(successfully_added) >= 2, (
@@ -197,7 +197,7 @@ def test_analysis_field_corruption(test_db: Path) -> None:
         print(f"Report generation failed due to corrupted analysis data: {e}")
         report_generated = False
     except Exception as e:
-        assert False, f"Unexpected error during report generation: {e}"
+        raise AssertionError(f"Unexpected error during report generation: {e}") from e
 
     if not report_generated:
         # If report generation failed due to corrupt data, that's a known limitation
@@ -227,7 +227,7 @@ def test_analysis_field_corruption(test_db: Path) -> None:
             )
 
     except Exception as e:
-        assert False, f"Top 3 algorithm crashed on corrupted analysis: {e}"
+        raise AssertionError(f"Top 3 algorithm crashed on corrupted analysis: {e}") from e
 
     # Verify HTML structure remains valid despite data corruption
     assert html_output.startswith("<!DOCTYPE html>"), "HTML structure maintained"

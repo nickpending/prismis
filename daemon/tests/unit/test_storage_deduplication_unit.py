@@ -2,10 +2,8 @@
 
 import tempfile
 from pathlib import Path
-import pytest
 from prismis_daemon.database import init_db
 from prismis_daemon.storage import Storage
-from prismis_daemon.models import ContentItem
 
 
 def test_create_or_update_content_returns_correct_tuple_types() -> None:

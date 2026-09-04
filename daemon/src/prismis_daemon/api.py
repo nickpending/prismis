@@ -4,9 +4,11 @@ import asyncio
 import os
 import re
 import time
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -188,7 +190,7 @@ async def validation_error_handler(
 
 
 # Dependency injection for Storage with proper cleanup
-async def get_storage() -> Storage:
+async def get_storage() -> AsyncGenerator[Storage, None]:
     """Dependency injection for Storage instances with cleanup.
 
     Uses FastAPI's yield dependency pattern to ensure database
@@ -598,7 +600,7 @@ async def update_content(
     try:
         # Build kwargs for update_content_status
         # Only pass user_feedback if it was explicitly provided in the request
-        update_kwargs = {
+        update_kwargs: dict[str, Any] = {
             "read": request.read,
             "favorited": request.favorited,
             "interesting_override": request.interesting_override,

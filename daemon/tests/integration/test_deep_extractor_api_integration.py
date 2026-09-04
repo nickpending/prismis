@@ -10,7 +10,7 @@ Mocking strategy:
 - app.state.deep_extractor is replaced with a controlled stub.
 - LLM (complete()) is NOT called in these tests -- the stub short-circuits it.
 - auth.py calls Config.from_file() for the real API key from
-  ~/.config/prismis/config.toml -- real key "prismis-api-4d5e" is used.
+  ~/.config/prismis/config.toml -- real key TEST_API_KEY is used.
 """
 
 from __future__ import annotations
@@ -25,8 +25,9 @@ from prismis_daemon.api import app, get_storage
 from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
+from conftest import TEST_API_KEY
 
-_API_KEY = "prismis-api-4d5e"
+_API_KEY = TEST_API_KEY
 
 # Patch targets -- allow-mock marker for claudex-guard scanner
 _PATCH_CONFIG_FROM_FILE = (

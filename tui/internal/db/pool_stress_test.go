@@ -12,7 +12,14 @@ func TestPoolSingletonStress(t *testing.T) {
 		THRESHOLD: No panics, all operations complete
 	*/
 
-	// Reset singleton for clean test
+	// Point the pool at a temp database, then reset the singleton so it picks it up.
+	// Without this the 50 goroutines all hammer the developer's real database, which
+	// only exists on one machine (CI has none — every operation fails to open it).
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) { return dbPath, nil }
+	defer func() { dbPathFunc = originalDBPathFunc }()
 	dbOnce = sync.Once{}
 	dbPool = nil
 	dbErr = nil

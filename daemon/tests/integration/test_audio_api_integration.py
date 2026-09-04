@@ -1,5 +1,7 @@
 """Integration tests for audio briefing API - protecting invariants."""
 
+import os
+
 import pytest
 from pathlib import Path
 from datetime import datetime
@@ -8,6 +10,7 @@ from fastapi.testclient import TestClient
 from prismis_daemon import api
 from prismis_daemon.storage import Storage
 from prismis_daemon.models import ContentItem
+from conftest import TEST_API_KEY
 
 app = api.app
 
@@ -46,7 +49,7 @@ def test_audio_fails_without_high_priority(
     # Call audio endpoint
     response = api_client.post(
         "/api/audio/briefings",
-        headers={"X-API-Key": "prismis-api-4d5e"},
+        headers={"X-API-Key": TEST_API_KEY},
     )
 
     # Should fail with ValidationError and helpful message
@@ -57,6 +60,11 @@ def test_audio_fails_without_high_priority(
     assert "Add content sources" in data["message"] or "adjust" in data["message"]
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
+    reason="Requires a live llm-core service (services.toml + provider key); "
+    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
+)
 def test_audio_generates_with_high_priority(
     api_client: TestClient, test_db: Path, full_config: dict
 ) -> None:
@@ -84,7 +92,7 @@ def test_audio_generates_with_high_priority(
     # Call audio endpoint (uses real lspeak with system TTS)
     response = api_client.post(
         "/api/audio/briefings",
-        headers={"X-API-Key": "prismis-api-4d5e"},
+        headers={"X-API-Key": TEST_API_KEY},
         timeout=90,  # Allow time for real TTS generation
     )
 
@@ -132,7 +140,7 @@ def test_audio_timeout_protection(api_client: TestClient, test_db: Path) -> None
 
     response = api_client.post(
         "/api/audio/briefings",
-        headers={"X-API-Key": "prismis-api-4d5e"},
+        headers={"X-API-Key": TEST_API_KEY},
         timeout=65,  # Slightly longer than backend's 60s
     )
 

@@ -34,4 +34,4 @@ def status() -> None:
 
     except RuntimeError as e:
         console.print(f"[red]✗ Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e

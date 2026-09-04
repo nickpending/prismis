@@ -1069,7 +1069,7 @@ class Storage:
             params.append(content_id)
 
             # Field names are constants, only values are parameterized
-            query = "UPDATE content SET " + ", ".join(updates) + " WHERE id = ?"  # noqa: S608
+            query = "UPDATE content SET " + ", ".join(updates) + " WHERE id = ?"
             cursor = self.conn.execute(query, params)
 
             self.conn.commit()
@@ -1346,7 +1346,7 @@ class Storage:
         """
         try:
             # PRUNE_EXCLUSION_WHERE is a class constant (not user input)
-            query = "SELECT COUNT(*) FROM content WHERE " + self.PRUNE_EXCLUSION_WHERE  # noqa: S608
+            query = "SELECT COUNT(*) FROM content WHERE " + self.PRUNE_EXCLUSION_WHERE
             params = []
 
             if days is not None:
@@ -1385,7 +1385,7 @@ class Storage:
                 return 0
 
             # PRUNE_EXCLUSION_WHERE is a class constant (not user input)
-            query = "DELETE FROM content WHERE " + self.PRUNE_EXCLUSION_WHERE  # noqa: S608
+            query = "DELETE FROM content WHERE " + self.PRUNE_EXCLUSION_WHERE
             params = []
 
             if days is not None:

@@ -1,6 +1,7 @@
 """Main entry point for Prismis daemon - just wiring, no logic."""
 
 import asyncio
+import contextlib
 import os
 import signal
 import sys
@@ -208,8 +209,10 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
         )
         api_server = uvicorn.Server(api_config)
 
-        # Run API server in background
-        asyncio.create_task(api_server.serve())
+        # Run API server in background. The reference must be held: the event loop keeps
+        # only a weak reference to a task, so an unbound one can be garbage-collected
+        # mid-flight and take the API server down with it.
+        api_task = asyncio.create_task(api_server.serve())
         console.print(
             f"[green]✅ API server running on http://{config.api_host}:8989[/green]"
         )
@@ -224,8 +227,10 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             scheduler.shutdown(wait=True)
         console.print("[yellow]Stopping API server...[/yellow]")
         api_server.should_exit = True
-        # Give API server a moment to finish in-flight requests
-        await asyncio.sleep(0.5)
+        # Wait on the task itself rather than guessing, keeping the reference live until
+        # the server has actually stopped. Bounded so a stuck request cannot hang exit.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(api_task, timeout=0.5)
         console.print("[green]✅ Shutdown complete[/green]")
 
     except Exception as e:

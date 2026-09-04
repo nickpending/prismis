@@ -61,4 +61,9 @@ class Embedder:
         Returns:
             Embedding dimension (384 for all-MiniLM-L6-v2)
         """
-        return self.model.get_sentence_embedding_dimension()
+        dimension = self.model.get_sentence_embedding_dimension()
+        if dimension is None:
+            raise RuntimeError(
+                f"Model {self.model} did not report an embedding dimension"
+            )
+        return dimension

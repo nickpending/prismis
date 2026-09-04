@@ -82,7 +82,7 @@ def test_get_latest_content_for_source_returns_actual_latest(test_db: Path) -> N
     assert "Version 1.2" in latest["analysis"]["full_text"], "Wrong version content"
 
     # Verify it's actually the LATEST by time (SQLite returns string)
-    expected_time = str(base_time + timedelta(hours=2))
+    expected_time = (base_time + timedelta(hours=2)).isoformat()
     assert latest["fetched_at"] == expected_time, (
         f"Not the newest entry: got {latest['fetched_at']}, expected {expected_time}"
     )

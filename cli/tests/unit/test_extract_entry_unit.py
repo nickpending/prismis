@@ -9,17 +9,12 @@ Tests bypass APIClient.__init__ (avoids config-file dependency) and patch
 httpx.Client.post at the HTTP boundary — same pattern as test_api_client_search_params.py.
 """
 
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
 
-# Add CLI src to path (matches pattern in test_api_client_search_params.py)
-cli_src = Path(__file__).parent.parent.parent / "src"
-sys.path.insert(0, str(cli_src))
 
-from cli.api_client import APIClient  # noqa: E402
+from cli.api_client import APIClient
 
 
 def _make_client() -> APIClient:

@@ -38,7 +38,7 @@ def test_notify_handles_empty_list() -> None:
 
     # Mock to ensure _send_notification is never called
     def mock_send_notification(items):
-        setattr(notifier, "_send_called", True)
+        notifier._send_called = True
 
     notifier._send_notification = mock_send_notification
 
@@ -60,7 +60,7 @@ def test_notify_handles_no_high_priority_items() -> None:
 
     # Mock to ensure _send_notification is never called
     def mock_send_notification(items):
-        setattr(notifier, "_send_called", True)
+        notifier._send_called = True
 
     notifier._send_notification = mock_send_notification
 

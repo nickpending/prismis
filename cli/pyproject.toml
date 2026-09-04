@@ -23,12 +23,41 @@ dev = [
     "pytest>=8.4.1",
     "pytest-cov>=6.2.1",
     "prismis-daemon",
+    "pyright>=1.1.409",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+# `tests` is on the path so test modules import shared fixtures explicitly; `src` matches
+# daemon/pytest.ini. Declaring them here retires the per-file sys.path.insert blocks that
+# forced imports below module top (E402).
+pythonpath = ["src", "tests"]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+# Same select as daemon/pyproject.toml — one definition of "decidable defect" across units.
+select = [
+    "E4", "E7", "E9", "F",
+    "B", "ASYNC", "BLE", "ERA",
+    "RUF006", "RUF012", "RUF013", "RUF100",
+    "ANN401", "PGH", "S110", "S112",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "S603", "S607"]
-"test_*.py" = ["S101", "S603", "S607"]
-"**/test_*.py" = ["S101", "S603", "S607"]
+# typer.Option() in argument defaults is how typer declares CLI options — the same
+# required-idiom case as daemon's FastAPI Depends() entry.
+"src/cli/report.py" = ["B008"]
+# BLE001 (blind `except Exception`) is selected so the class stays visible, but narrowing
+# these excepts changes runtime behavior and is tracked separately:
+# https://github.com/nickpending/prismis/issues/58
+"**/*.py" = ["BLE001"]
+
+[tool.pyright]
+include = ["src/cli"]
+exclude = ["**/__pycache__", "**/.venv", "**/node_modules"]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
+reportMissingImports = "warning"
 
 [tool.uv]
 package = true

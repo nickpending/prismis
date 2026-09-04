@@ -178,7 +178,7 @@ def test_concurrent_storage_instances(test_db: Path) -> None:
             instances.append(storage)
 
             # Each performs operations
-            for i in range(3):
+            for _ in range(3):
                 sources = storage.get_all_sources()
                 results.append((worker_id, len(sources)))
                 time.sleep(0.01)  # Small delay to encourage interleaving

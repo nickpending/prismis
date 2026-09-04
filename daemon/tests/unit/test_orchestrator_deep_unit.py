@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from typing import ClassVar
+
 import pytest
 
 from prismis_daemon.circuit_breaker import reset_circuit_breaker
@@ -55,13 +57,13 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
     class _FakeSummaryResult:
         summary = "Light summary text."
         reading_summary = "Reading summary."
-        alpha_insights = []
-        patterns = []
-        entities = []
-        quotes = []
-        tools = []
-        urls = []
-        metadata = {"summarization_mode": "standard", "word_count": 10}
+        alpha_insights: ClassVar = []
+        patterns: ClassVar = []
+        entities: ClassVar = []
+        quotes: ClassVar = []
+        tools: ClassVar = []
+        urls: ClassVar = []
+        metadata: ClassVar = {"summarization_mode": "standard", "word_count": 10}
 
     class _FakeSummarizer:
         def summarize_with_analysis(self, **kw):
@@ -72,7 +74,7 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
             value = "high"
 
         priority = _Priority()
-        matched_interests = ["AI"]
+        matched_interests: ClassVar = ["AI"]
         reasoning = "Matches AI interest."
         preference_influenced = False
 
@@ -86,7 +88,7 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
 
     class _FakeConfig:
         auto_extract = "high"
-        deep_extract_exclude: list[str] = []
+        deep_extract_exclude: ClassVar[list[str]] = []
         context = "AI, machine learning"
         llm_light_service = "prismis-openai"
         llm_deep_service = "prismis-openai-deep"
@@ -225,13 +227,13 @@ def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
     class _FakeSummaryResult:
         summary = LIGHT_SUMMARY
         reading_summary = "Reading summary."
-        alpha_insights = []
-        patterns = []
-        entities = []
-        quotes = []
-        tools = []
-        urls = []
-        metadata = {"summarization_mode": "standard", "word_count": 10}
+        alpha_insights: ClassVar = []
+        patterns: ClassVar = []
+        entities: ClassVar = []
+        quotes: ClassVar = []
+        tools: ClassVar = []
+        urls: ClassVar = []
+        metadata: ClassVar = {"summarization_mode": "standard", "word_count": 10}
 
     class _FakeSummarizer:
         def summarize_with_analysis(self, **kw):
@@ -242,7 +244,7 @@ def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
             value = "high"
 
         priority = _Priority()
-        matched_interests = ["AI"]
+        matched_interests: ClassVar = ["AI"]
         reasoning = "Matches AI interest."
         preference_influenced = False
 
@@ -256,7 +258,7 @@ def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
 
     class _FakeConfig:
         auto_extract = "high"
-        deep_extract_exclude: list[str] = []
+        deep_extract_exclude: ClassVar[list[str]] = []
         context = "AI, machine learning"
         llm_light_service = "prismis-openai"
         llm_deep_service = "prismis-openai-deep"

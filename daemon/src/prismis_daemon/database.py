@@ -56,7 +56,7 @@ def init_db(db_path: Optional[Path] = None) -> Path:
                 raise sqlite3.Error(
                     f"Failed to load sqlite-vec extension: {e}. "
                     "Ensure sqlite-vec is installed: uv add sqlite-vec"
-                )
+                ) from e
         finally:
             conn.enable_load_extension(False)
 
@@ -84,7 +84,7 @@ def init_db(db_path: Optional[Path] = None) -> Path:
 
     except sqlite3.Error as e:
         conn.rollback()
-        raise sqlite3.Error(f"Failed to initialize database: {e}")
+        raise sqlite3.Error(f"Failed to initialize database: {e}") from e
     finally:
         conn.close()
 
@@ -126,11 +126,11 @@ def get_db_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
             import sqlite_vec
 
             conn.load_extension(sqlite_vec.loadable_path())
-        except (ImportError, sqlite3.OperationalError):
+        except (ImportError, sqlite3.OperationalError) as fallback_error:
             raise sqlite3.Error(
                 f"Failed to load sqlite-vec extension: {e}. "
                 "Ensure sqlite-vec is installed: uv add sqlite-vec"
-            )
+            ) from fallback_error
     finally:
         conn.enable_load_extension(False)
 

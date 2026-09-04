@@ -1,25 +1,19 @@
 """Shared test fixtures for all tests."""
 
-import os
-import sys
+import dataclasses
 import tempfile
 from pathlib import Path
 
 import pytest
-from dotenv import load_dotenv
 
-# Load .env before anything else (same as daemon __main__.py does)
-config_home = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
-dotenv_path = Path(config_home) / "prismis" / ".env"
-if dotenv_path.exists():
-    load_dotenv(dotenv_path)
-
-# Add src to path for absolute imports
-src_path = str(Path(__file__).parent.parent / "src")
-sys.path.insert(0, src_path)
-
-# Import from the package properly
 from prismis_daemon import config, database
+from prismis_daemon.defaults import DEFAULT_CONFIG_TOML, DEFAULT_CONTEXT_MD
+
+# The API key the sealed config is written with. Every test that authenticates against
+# the API imports this rather than hardcoding a literal, so there is one source of truth
+# and no real key can be committed. Production's own generator (defaults.ensure_config)
+# is random, which is why the template is formatted here instead of calling it.
+TEST_API_KEY = "prismis-test-key"
 
 
 def init_db(path: Path) -> None:
@@ -28,6 +22,65 @@ def init_db(path: Path) -> None:
 
 def load_config() -> config.Config:
     return config.Config.from_file()
+
+
+def make_config(**overrides) -> config.Config:
+    """Build a valid Config from the sealed config file, with fields overridden.
+
+    Config has 26 required fields (config.py:19-59); hand-listing them in a test is how
+    a test rots the next time one is added or renamed. Loading the production template
+    and replacing only the field under test keeps the test about that field.
+    """
+    return dataclasses.replace(load_config(), **overrides)
+
+
+@pytest.fixture(autouse=True)
+def isolated_xdg_env(tmp_path_factory, monkeypatch) -> Path:
+    """Seal the suite from the developer's XDG directories.
+
+    Production resolves config/data/state from the environment at call time
+    (config.py:182-185, defaults.py:113, database.py:29,107, locking.py:13,
+    observability.py:22), including in the subprocess spawned by
+    test_daemon_integration.py — which only an env-level seal can reach. Without this
+    the suite's pass/fail counts are a property of the developer's $HOME rather than of
+    this repo: 113 failures against an empty config, 153 against the developer's own.
+
+    A complete, valid config is materialized from the production template so the suite
+    runs against the same shape production ships, not a hand-written stand-in that drifts.
+
+    Tests needing a *different* environment set their own value: pytest instantiates
+    autouse fixtures before the non-autouse fixtures and test bodies that override them
+    (test_db, test_dual_service_config_unit.py:225, test_llm_core_migration_unit.py:252).
+    """
+    root = tmp_path_factory.mktemp("xdg")
+    home = root / "home"
+    cfg_home = root / "config"
+    data_home = root / "data"
+    state_home = root / "state"
+    cache_home = root / "cache"
+    for d in (home, cfg_home, data_home, state_home, cache_home):
+        d.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache_home))
+
+    cfg_dir = cfg_home / "prismis"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    cfg_dir.joinpath("config.toml").write_text(
+        DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY)
+    )
+    cfg_dir.joinpath("context.md").write_text(DEFAULT_CONTEXT_MD)
+
+    return cfg_dir
+
+
+@pytest.fixture
+def api_key() -> str:
+    """The API key the sealed config was written with."""
+    return TEST_API_KEY
 
 
 @pytest.fixture
@@ -57,22 +110,16 @@ def test_db(monkeypatch) -> Path:
 
 
 @pytest.fixture
-def llm_config() -> dict:
-    """Load LLM configuration from config file for integration tests."""
-    try:
-        config = load_config()
-        return config.get("llm", {})
-    except Exception:
-        # If config doesn't exist, skip tests that need it
-        pytest.skip("Config file not found at ~/.config/prismis/config.toml")
+def llm_config() -> str:
+    """The light-summarization service name, for tests that construct LLM clients.
+
+    ContentSummarizer/ContentEvaluator take a service name (__main__.py:67), not a
+    settings dict.
+    """
+    return load_config().llm_light_service
 
 
 @pytest.fixture
 def full_config() -> config.Config:
     """Load full configuration including context for integration tests."""
-    try:
-        cfg = load_config()
-        return cfg
-    except Exception:
-        # If config doesn't exist, skip tests that need it
-        pytest.skip("Config file not found at ~/.config/prismis/config.toml")
+    return load_config()

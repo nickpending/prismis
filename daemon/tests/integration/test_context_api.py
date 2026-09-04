@@ -7,9 +7,10 @@ INVARIANTS PROTECTED:
 4. Malformed context.md handled gracefully - parser doesn't crash
 
 All tests use REAL LiteLLM API calls - no mocks.
-Tests skip if ~/.config/prismis/config.toml missing.
+Tests require a live llm-core service; set PRISMIS_LIVE_LLM_TESTS=1 to run (gh #60).
 """
 
+import os
 from collections.abc import Generator
 from pathlib import Path
 
@@ -177,6 +178,11 @@ def create_api_client_with_config(
 
 
 # INVARIANT TEST 1: Real LLM call with existing topics
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
+    reason="Requires a live llm-core service (services.toml + provider key); "
+    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
+)
 def test_context_api_real_llm_with_existing_topics(
     storage_with_flagged_items: Storage,
     test_context_md: Path,
@@ -240,6 +246,11 @@ def test_context_api_real_llm_with_existing_topics(
 
 
 # INVARIANT TEST 2: No flagged items returns clear error
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
+    reason="Requires a live llm-core service (services.toml + provider key); "
+    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
+)
 def test_context_api_no_flagged_items(
     test_db: Path,
     test_context_md: Path,
@@ -271,6 +282,11 @@ def test_context_api_no_flagged_items(
 
 
 # INVARIANT TEST 3: Malformed context.md handled gracefully
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
+    reason="Requires a live llm-core service (services.toml + provider key); "
+    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
+)
 def test_context_api_malformed_context_md(
     storage_with_flagged_items: Storage,
     malformed_context_md: Path,
@@ -313,6 +329,11 @@ def test_context_api_malformed_context_md(
 
 
 # INVARIANT TEST 4: Real LLM suggestions have valid structure
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
+    reason="Requires a live llm-core service (services.toml + provider key); "
+    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
+)
 def test_context_api_suggestion_quality(
     storage_with_flagged_items: Storage,
     test_context_md: Path,

@@ -22,7 +22,7 @@ class RedditFetcher:
     to fetch posts from subreddits and returns standardized ContentItem objects.
     """
 
-    def __init__(self, max_items: int = None, config: Config = None):
+    def __init__(self, max_items: int | None = None, config: Config | None = None):
         """Initialize the Reddit fetcher with PRAW client.
 
         Args:

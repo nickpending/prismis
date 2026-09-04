@@ -1,17 +1,9 @@
 """Unit tests for RedditFetcher logic functions."""
 
-from datetime import datetime
 from unittest.mock import Mock
 
 from prismis_daemon.fetchers.reddit import RedditFetcher
 from prismis_daemon.models import ContentItem
-from tests.fixtures.reddit_mocks import (
-    create_self_post_mock,
-    create_link_post_mock,
-    create_deleted_post_mock,
-    create_image_post_mock,
-    create_submission_with_missing_fields,
-)
 
 
 def test_parse_subreddit_name_full_url() -> None:

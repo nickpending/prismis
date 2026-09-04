@@ -23,7 +23,7 @@ def test_dict_to_content_item_conversion() -> None:
         mock_get_sources.return_value = [{"id": "test-source-id"}]
 
         # Mock the actual database execution to test conversion logic
-        with patch("storage.get_db_connection") as mock_db:
+        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
             mock_conn = Mock()
             mock_cursor = Mock()
             mock_cursor.fetchone.return_value = None  # No duplicate
@@ -77,7 +77,7 @@ def test_dict_without_source_id_uses_first_active_source() -> None:
             {"id": "source-2", "url": "http://source2.com"},
         ]
 
-        with patch("storage.get_db_connection") as mock_db:
+        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
             mock_conn = Mock()
             mock_cursor = Mock()
             mock_cursor.fetchone.return_value = None
@@ -138,7 +138,7 @@ def test_dict_with_explicit_source_id_bypasses_lookup() -> None:
 
     # Mock get_active_sources - should NOT be called
     with patch.object(storage, "get_active_sources") as mock_get_sources:
-        with patch("storage.get_db_connection") as mock_db:
+        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
             mock_conn = Mock()
             mock_cursor = Mock()
             mock_cursor.fetchone.return_value = None
@@ -178,7 +178,7 @@ def test_dict_optional_fields_handling() -> None:
     with patch.object(storage, "get_active_sources") as mock_get_sources:
         mock_get_sources.return_value = [{"id": "test-source"}]
 
-        with patch("storage.get_db_connection") as mock_db:
+        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
             mock_conn = Mock()
             mock_cursor = Mock()
             mock_cursor.fetchone.return_value = None

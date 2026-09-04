@@ -5,7 +5,7 @@ from pathlib import Path
 import shutil
 
 from prismis_daemon.config import Config
-from defaults import ensure_config, DEFAULT_CONTEXT_MD
+from prismis_daemon.defaults import ensure_config, DEFAULT_CONTEXT_MD
 
 
 def test_complete_config_workflow_with_real_files() -> None:

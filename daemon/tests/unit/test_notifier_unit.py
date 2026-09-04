@@ -1,6 +1,6 @@
 """Unit tests for Notifier logic functions."""
 
-from notifier import Notifier
+from prismis_daemon.notifier import Notifier
 
 
 def test_notify_filters_high_priority_only() -> None:

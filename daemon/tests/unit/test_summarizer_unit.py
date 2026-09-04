@@ -1,6 +1,6 @@
 """Unit tests for ContentSummarizer logic functions."""
 
-from summarizer import ContentSummarizer
+from prismis_daemon.summarizer import ContentSummarizer
 
 
 def test_summarizer_initialization_with_config() -> None:

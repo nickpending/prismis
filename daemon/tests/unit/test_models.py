@@ -1,7 +1,7 @@
 """Unit tests for data models."""
 
 from datetime import datetime
-from models import ContentItem, Source
+from prismis_daemon.models import ContentItem, Source
 
 
 def test_content_item_to_dict() -> None:

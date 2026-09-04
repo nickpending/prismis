@@ -4,8 +4,8 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from config import Config
-from defaults import DEFAULT_CONTEXT_MD
+from prismis_daemon.config import Config
+from prismis_daemon.defaults import DEFAULT_CONTEXT_MD
 
 
 def test_config_loading_with_all_files_present() -> None:

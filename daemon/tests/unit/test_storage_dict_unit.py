@@ -4,8 +4,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 import pytest
-from database import init_db
-from storage import Storage
+from prismis_daemon.database import init_db
+from prismis_daemon.storage import Storage
 
 
 def test_dict_to_content_item_conversion() -> None:

@@ -3,8 +3,8 @@
 from datetime import datetime
 from unittest.mock import Mock
 
-from fetchers.reddit import RedditFetcher
-from models import ContentItem
+from prismis_daemon.fetchers.reddit import RedditFetcher
+from prismis_daemon.models import ContentItem
 from tests.fixtures.reddit_mocks import (
     create_self_post_mock,
     create_link_post_mock,

@@ -2,8 +2,8 @@
 
 import os
 import pytest
-from summarizer import ContentSummarizer
-from evaluator import ContentEvaluator, PriorityLevel
+from prismis_daemon.summarizer import ContentSummarizer
+from prismis_daemon.evaluator import ContentEvaluator, PriorityLevel
 
 
 @pytest.mark.skipif(

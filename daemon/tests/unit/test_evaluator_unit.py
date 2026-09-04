@@ -1,6 +1,6 @@
 """Unit tests for ContentEvaluator logic functions."""
 
-from evaluator import ContentEvaluator, PriorityLevel
+from prismis_daemon.evaluator import ContentEvaluator, PriorityLevel
 
 
 def test_evaluator_initialization_with_config() -> None:

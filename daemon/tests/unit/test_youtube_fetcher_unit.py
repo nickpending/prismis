@@ -2,8 +2,8 @@
 
 from datetime import datetime
 
-from fetchers.youtube import YouTubeFetcher
-from models import ContentItem
+from prismis_daemon.fetchers.youtube import YouTubeFetcher
+from prismis_daemon.models import ContentItem
 
 
 def test_normalize_channel_url_with_handle() -> None:

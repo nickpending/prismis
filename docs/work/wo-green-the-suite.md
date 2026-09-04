@@ -3,7 +3,7 @@ id: wo-green-the-suite
 type: fix
 project: prismis
 status: active
-complexity: null
+complexity: 7
 created: 2026-09-03
 updated: 2026-09-03
 plan_ref: null
@@ -13,6 +13,9 @@ plan_ref: null
 
 Get `.specify/verify.sh` to exit 0 — a green test suite and a lint configuration that actually
 checks the decidable defect classes, across all three units.
+
+Then stand up CI running that same script, so the gate is enforced on every push rather than
+only when someone remembers to run it locally.
 
 This runs **before** `wo-openai-sdk-migration`. That order is blocked on this one.
 
@@ -62,7 +65,8 @@ exactly that.
 - **Key Questions:**
   1. For each failure bucket: real regression, test rotted against an intentional change, or
      dead test to delete? The counts below partition the work but do not answer this.
-  2. Does `cli` get pyright or mypy? It currently has no typechecker at all.
+  2. ~~Does `cli` get pyright or mypy?~~ **Decided: pyright**, matching `daemon` (P15 — use the
+     pattern already in the repo rather than introducing a second typechecker).
 
 ### Measured failure breakdown (2026-09-03, after the import class was closed)
 
@@ -166,7 +170,25 @@ Enable the rules; do not disable a rule to make its count go away.
   a `per-file-ignores` entry naming why
 - **And**: the pre-existing `B008`/`S101` ignores now reference enabled rules
 
-### SC-6: The toolchain is declared
+### SC-6: CI runs the same gate as local
+- **Given**: `.github/workflows/ci.yml` (this repo has no CI today)
+- **When**: a push to `main` or a pull request runs
+- **Then**: the workflow's verify job runs `bash .specify/verify.sh` — **the same script**, not a
+  reimplementation of its checks
+- **And**: its install step walks the same self-discovery the script does (`find` for
+  `pyproject.toml` and `go.mod`), so a unit added later is gated automatically with no list to
+  keep in step
+- **And**: the job passes on green `main`
+
+  Pattern to match — `bench/.github/workflows/ci.yml`, whose header records why: it used to
+  hand-list `[hooks, cli]` in a matrix, so CI checked 2 of 8 packages while the local gate
+  checked all 8. A hand-maintained enumeration silently omits a unit. Do not reintroduce one
+  here.
+
+  This lands **last**, after the suite is green. CI that goes red on its first run trains
+  everyone to ignore it, which is the same failure that let 12 test files sit unexecuted.
+
+### SC-7: The toolchain is declared
 - **Given**: both pyprojects
 - **When**: inspected
 - **Then**: `ruff` is a declared dev dependency in each, and `cli` declares a typechecker

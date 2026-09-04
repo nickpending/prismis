@@ -29,12 +29,6 @@ from .orchestrator import DaemonOrchestrator
 from .storage import Storage
 from .summarizer import ContentSummarizer
 
-# Load environment variables from ~/.config/prismis/.env
-config_home = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
-dotenv_path = Path(config_home) / "prismis" / ".env"
-if dotenv_path.exists():
-    load_dotenv(dotenv_path)
-
 console = Console()
 scheduler = None  # Global for signal handler
 api_server = None  # Global for API server
@@ -310,6 +304,21 @@ def run_context_update_sync(config: Config, storage: Storage) -> None:
     run_context_update(config, storage)
 
 
+def _load_ambient_env() -> None:
+    """Load ~/.config/prismis/.env into the process environment.
+
+    Called from the CLI entry point, never at import. At module scope this executed
+    during pytest collection — before any fixture could isolate it — so importing the
+    daemon injected whatever credentials happened to be on the developer's disk, and the
+    suite's behavior became a property of that machine. The four test modules that import
+    this one at top level are the route that made it reachable.
+    """
+    config_home = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+    dotenv_path = Path(config_home) / "prismis" / ".env"
+    if dotenv_path.exists():
+        load_dotenv(dotenv_path)
+
+
 app = typer.Typer(invoke_without_command=True)
 
 
@@ -363,6 +372,8 @@ def main(
     ),
 ) -> None:
     """Prismis content daemon."""
+    _load_ambient_env()
+
     # Admin subcommands (e.g., migrate-config) must run on stale configs.
     # Skip the daemon lock + config validation when a subcommand is dispatched;
     # typer will invoke the subcommand next.

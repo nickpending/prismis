@@ -66,4 +66,28 @@ jobs:
           done < <(find . -name go.mod -not -path '*/vendor/*' | sort)
 
       - name: Verify
-        run: bash .specify/verify.sh
+        # The gate's own contract treats an uncovered check as a notice, not a failure:
+        # verify.sh:119 prints VERIFY_UNCOVERED and falls through to `verify: PASS`, and its
+        # only non-zero exits are an empty COVERED set (:123) and a real failure (:129).
+        # Combined with verify.sh:73-77, which downgrades staticcheck to "uncovered" when the
+        # binary is missing from PATH, a bare invocation lets CI report success having gated
+        # on strictly less than a local run — a broken install step or a unit that loses its
+        # typechecker config would both pass silently.
+        #
+        # So CI holds itself to a stricter bar than the script: any VERIFY_UNCOVERED line is
+        # a failure here. The script is cross-project infrastructure and is not edited; this
+        # is the caller adding its own requirement on top of the script's exit code.
+        run: |
+          set +e
+          bash .specify/verify.sh 2>&1 | tee /tmp/verify.out
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::error::the verification gate failed"
+            exit "$status"
+          fi
+          if grep -q '^VERIFY_UNCOVERED:' /tmp/verify.out; then
+            echo "::error::gate passed but did not cover every check — CI must not gate on less than a local run"
+            grep '^VERIFY_UNCOVERED:' /tmp/verify.out
+            exit 1
+          fi

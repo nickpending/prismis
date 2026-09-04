@@ -59,9 +59,13 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/prismis_daemon/api.py" = ["B008"]  # FastAPI Depends() in argument defaults
-# BLE001 (blind `except Exception`) is selected so the class stays visible, but narrowing
-# these excepts changes runtime behavior in an unattended pipeline and is tracked separately:
-# https://github.com/nickpending/prismis/issues/58
+# BLE001 (blind `except Exception`) is SUPPRESSED across every Python file in this unit.
+# The glob below covers everything, so no ruff run reports the class and `ruff check .`
+# passing says nothing about it. The 62 findings here are recoverable only by deleting
+# this entry (`ruff check . --select BLE001 --config 'lint.per-file-ignores = {}'`).
+# Narrowing these excepts changes runtime behavior in an unattended pipeline, so the work
+# is deferred rather than done — but deferred is not the same as visible, and this is a
+# suppression, not a policy. Tracked: https://github.com/nickpending/prismis/issues/58
 "**/*.py" = ["BLE001"]
 
 [tool.pyright]

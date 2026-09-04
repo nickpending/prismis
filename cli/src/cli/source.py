@@ -59,6 +59,94 @@ def extract_name_from_url(url: str) -> str:
     return domain.split(".")[0].title() if "." in domain else domain
 
 
+def detect_and_normalize_source_url(url: str) -> tuple[str, str]:
+    """Derive a source's type from its URL and expand protocol URLs to real ones.
+
+    The daemon does the same expansion server-side in `normalize_source_url`
+    (daemon/src/prismis_daemon/api.py:227), but it is told the type; the CLI has to
+    derive it. Both must agree, or a source is fetched by the wrong fetcher and never
+    yields content.
+
+    Args:
+        url: The source URL as the user typed it, possibly a `reddit://` or
+            `youtube://` protocol URL
+
+    Returns:
+        (source_type, url) — the detected type and the URL to send to the API
+    """
+    # Check for file extensions (.md, .txt)
+    if url.endswith((".md", ".txt")):
+        return "file", url
+
+    if url.startswith("reddit://"):
+        # Convert reddit:// to actual Reddit URL
+        subreddit = url.replace("reddit://", "")
+        return "reddit", f"https://www.reddit.com/r/{subreddit}"
+
+    if url.startswith("youtube://"):
+        # Convert youtube:// to actual YouTube URL (similar to Reddit pattern)
+        channel = url.replace("youtube://", "")
+        # Handle different channel formats
+        if channel.startswith("@"):
+            return "youtube", f"https://www.youtube.com/{channel}"
+        if channel.startswith("UC") or channel.startswith("PL"):
+            # Looks like a channel/playlist ID
+            return "youtube", f"https://www.youtube.com/channel/{channel}"
+        # Assume it's a handle without @
+        return "youtube", f"https://www.youtube.com/@{channel}"
+
+    if "reddit.com" in url:
+        # Keep the URL as-is for PRAW to handle
+        return "reddit", url.rstrip("/")
+
+    if "youtube.com" in url or "youtu.be" in url:
+        return "youtube", url
+
+    return "rss", url
+
+
+def find_source_by_id(sources: list[dict], source_id: str) -> dict | None:
+    """Find a source by its id in a list from the API.
+
+    Returns:
+        The matching source, or None when no source has that id — which the caller
+        must treat as "not found" and refuse to delete anything for.
+    """
+    for source in sources:
+        if source["id"] == source_id:
+            return source
+    return None
+
+
+def format_source_row(source: dict) -> tuple[str, str, str, str, str, str]:
+    """Render one API source dict as the six columns of the `source list` table.
+
+    Returns:
+        (id, type, name, active, errors, last_fetched) as display strings
+    """
+    active_str = "✅ Yes" if source.get("active") else "❌ No"
+    error_str = str(source.get("error_count", 0)) if source.get("error_count") else "—"
+
+    last_fetched = source.get("last_fetched") or "Never"
+    if last_fetched != "Never":
+        # Truncate timestamp for readability
+        last_fetched = str(last_fetched)[:19]
+
+    # Truncate name if too long
+    name = source["name"] or "Unnamed"
+    if len(name) > 25:
+        name = name[:22] + "..."
+
+    return (
+        source["id"],
+        source["type"],
+        name,
+        active_str,
+        error_str,
+        str(last_fetched),
+    )
+
+
 @app.command()
 def add(
     url: str = typer.Argument(
@@ -72,35 +160,7 @@ def add(
     """Add a new content source to Prismis."""
     try:
         # Detect source type from URL
-        source_type = "rss"  # Default
-
-        # Check for file extensions (.md, .txt)
-        if url.endswith((".md", ".txt")):
-            source_type = "file"
-        elif url.startswith("reddit://"):
-            source_type = "reddit"
-            # Convert reddit:// to actual Reddit URL
-            subreddit = url.replace("reddit://", "")
-            url = f"https://www.reddit.com/r/{subreddit}"
-        elif url.startswith("youtube://"):
-            source_type = "youtube"
-            # Convert youtube:// to actual YouTube URL (similar to Reddit pattern)
-            channel = url.replace("youtube://", "")
-            # Handle different channel formats
-            if channel.startswith("@"):
-                url = f"https://www.youtube.com/{channel}"
-            elif channel.startswith("UC") or channel.startswith("PL"):
-                # Looks like a channel/playlist ID
-                url = f"https://www.youtube.com/channel/{channel}"
-            else:
-                # Assume it's a handle without @
-                url = f"https://www.youtube.com/@{channel}"
-        elif "reddit.com" in url:
-            source_type = "reddit"
-            # Keep the URL as-is for PRAW to handle
-            url = url.rstrip("/")
-        elif "youtube.com" in url or "youtu.be" in url:
-            source_type = "youtube"
+        source_type, url = detect_and_normalize_source_url(url)
 
         # Auto-generate name if not provided
         if not name:
@@ -178,24 +238,7 @@ def list_sources(
         table.add_column("Last Fetched", style="dim")
 
         for source in sources:
-            # Format values
-            active_str = "✅ Yes" if source.get("active") else "❌ No"
-            error_str = (
-                str(source.get("error_count", 0)) if source.get("error_count") else "—"
-            )
-            last_fetched = source.get("last_fetched") or "Never"
-            if last_fetched != "Never":
-                # Truncate timestamp for readability
-                last_fetched = str(last_fetched)[:19]
-
-            # Truncate name if too long
-            name = source["name"] or "Unnamed"
-            if len(name) > 25:
-                name = name[:22] + "..."
-
-            table.add_row(
-                source["id"], source["type"], name, active_str, error_str, last_fetched
-            )
+            table.add_row(*format_source_row(source))
 
         console.print(table)
         console.print(f"\n[dim]Total sources: {len(sources)}[/dim]")
@@ -217,11 +260,7 @@ def remove(
 
         # First, try to get the source to show what we're removing
         sources = api_client.get_sources()
-        source_to_remove = None
-        for source in sources:
-            if source["id"] == source_id:
-                source_to_remove = source
-                break
+        source_to_remove = find_source_by_id(sources, source_id)
 
         if not source_to_remove:
             console.print(f"[red]❌ Source not found:[/red] {source_id}")

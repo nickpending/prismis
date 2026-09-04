@@ -310,13 +310,33 @@ returns nothing. They also hit the live network
 (`https://this-host-does-not-exist-999.com/feed`, line 58), which Principle IV rules out for a
 CI-run gate. Delete both files as `SUPERSEDED`.
 **Replace the invariant they guarded, do not just drop it.** The stated invariant — "Source type
-MUST be correctly identified" (line 89) — is live logic at `cli/src/cli/source.py:74-104`. Add
-`cli/tests/unit/test_source_command_unit.py` following the pattern already in the repo at
-`cli/tests/unit/test_extract_command_unit.py:65` (patch `cli.<module>.APIClient`, invoke through
-`CliRunner`, assert on the call args). Assert the `source_type` passed to `add_source` for
-`reddit://`, `https://reddit.com/r/x`, `youtube://@h`, `https://youtube.com/@h`, `*.md`, and a
-plain feed URL. Patching `APIClient` at the module boundary is the true external boundary here —
-it is the HTTP hop to a separately deployed daemon.
+MUST be correctly identified" (line 89) — is live logic at `cli/src/cli/source.py:74-104`. Extract
+that URL→type branch into a module-level pure function returning `(source_type, url)`, a sibling of
+`extract_name_from_url` (`source.py:15`) which is already pure, module-level and tested directly
+with zero mocks — that is the pattern to copy, in the same file. Mirror the daemon's vocabulary
+(`normalize_source_url`, `api.py:227`). Then add `cli/tests/unit/test_source_command_unit.py`
+calling that function **directly**, asserting `(source_type, url)` for `reddit://`,
+`https://reddit.com/r/x`, `youtube://@h`, `https://youtube.com/@h`, `*.md`, and a plain feed URL.
+
+**CORRECTED 2026-09-04 — do not patch `APIClient`.** An earlier revision of this section said
+"Patching `APIClient` at the module boundary is the true external boundary here — it is the HTTP hop
+to a separately deployed daemon." That is wrong twice, and it propagated into the test's own
+docstring before being caught:
+
+1. `APIClient` is `cli/src/cli/api_client.py:13` — **the CLI's own code**, not a third party.
+   `constitution.md:42-43`: "Internal code is never mocked, and no fake stands in for infra you
+   could run for real." The daemon is infra you can run.
+2. `constitution.md:130-132` names the permitted mock exactly: "**LLM providers are the true
+   external boundary.** They are the one collaborator Principle I permits mocking, and the only
+   one. The database, the HTTP API, and every internal module are exercised for real."
+
+Separate deployment is not a justification either — `constitution.md:118-122` already states the
+three components are separately deployed, eight lines above the rule requiring the HTTP API be
+exercised for real. The constitution weighed that fact and ruled anyway, so amending it on that
+basis would be editing a governing document to ratify a test written against it (P28).
+
+Extracting the pure function removes the need for any mock: the decidable logic is called directly,
+and the `APIClient` call that remains in `add()` is a one-line pass-through recorded as glue.
 
 **Bucket F — `cli/tests/unit/test_url_extraction.py` → rotted test, fix the expectations.**
 One function fails: `test_extract_name_from_youtube_urls`. Traced by hand against
@@ -627,7 +647,14 @@ SC-3 has no gate: it is superseded by SC-12 (`wo-green-the-suite.md:324-325`).
 | `daemon/tests/conftest.py` | glue | Test fixtures. Holds env wiring and the production config template rendered with a fixed key; nothing decidable independent of what the tests it feeds assert. Proved by the SC-8 gate: identical pass/fail/skip counts under two hostile `$XDG_CONFIG_HOME` values. |
 | `cli/tests/conftest.py` | glue | Same; proved by `cd cli && uv run pytest -q` passing under SC-9's `env -i` run. |
 | `daemon/src/prismis_daemon/__main__.py` (RUF006 fix at line 212) | logic | The dropped-task-reference defect is statically decidable and enforced on every run by the SC-4 gate `uv run ruff check --select RUF006 .` → zero findings. A runtime GC test would be nondeterministic and would prove less. |
-| `cli/tests/unit/test_source_command_unit.py` (new) | logic (it is the test) | Proves URL → `source_type` mapping at `cli/src/cli/source.py:74-104` for the six branches; replaces the invariant deleted with `test_source_validation.py`. |
+| `cli/src/cli/source.py::detect_and_normalize_source_url` (extracted) | **logic** | The URL→type/normalization branch, pulled out of `add()` so it is callable without any collaborator. Proved directly by `test_source_command_unit.py` — 9 cases, zero mocks. Must agree with the daemon's `normalize_source_url` (`api.py:227`) or a source is fetched by the wrong fetcher. |
+| `cli/src/cli/source.py::find_source_by_id` (extracted) | **logic** | `remove` is destructive and cascades to all content from the source; this is what decides whether it deletes at all. Proved by `test_source_list_remove_unit.py` — match, absent, empty, duplicate-id, and the substring case that would otherwise delete the wrong source. |
+| `cli/src/cli/source.py::format_source_row` (extracted) | **logic** | Name truncation at 25→22+`…`, the zero-errors `—` rendering, and timestamp truncation are all decidable. Proved by `test_source_list_remove_unit.py`, including the exact-25 boundary. |
+| `cli/tests/unit/test_source_command_unit.py` (new) | logic (it is the test) | Proves the URL → `(source_type, url)` mapping for every branch; replaces the invariant deleted with `test_source_validation.py`. Calls the function directly — **no `APIClient` patch**, see the corrected Bucket E above. |
+| `cli/tests/unit/test_source_list_remove_unit.py` (new) | logic (it is the test) | Proves `find_source_by_id` and `format_source_row`; restores coverage for `remove` and `list`, which the Bucket E deletions left at zero. |
+| `cli/src/cli/source.py::add` — the `APIClient` call | **glue** | After the extraction, `add()` is `source_type, url = detect_and_normalize_source_url(url)`, an optional name derivation, then a one-line `api_client.add_source(...)` pass-through. Nothing decidable independent of its types. Exercising it for real needs a running daemon — gh #63 (the `SourceValidator` seam) blocks that, since `api.py:425-428` builds the validator inline with no `Depends()` and `validator.py:64,147` reach the network. |
+| `cli/src/cli/source.py::pause` / `resume` / `edit` | **glue** | Each is one `APIClient` call and a `console.print`. No branch, no derivation, no state — nothing decidable independent of the API client's own contract. Same real-daemon blocker as `add`. |
+| `cli/src/cli/source.py::remove` / `list` — the remaining command bodies | **glue** | Their decidable content is extracted above and tested directly. What is left is fetching from `APIClient`, printing, and `typer.confirm` for the removal gate — the confirmation is a stdin read from typer, not our logic, and driving it end-to-end needs the real daemon (gh #63). |
 | `daemon/tests/integration/test_validator_integration.py` (3-tuple repair) | logic (it is the test) | Proves `validate_source`'s 3-tuple contract (`validator.py:22-24`, `components.md:124`) at the integration boundary; complements the unit-level guard at `test_validator_youtube_protocol_unit.py`. |
 | `daemon/tests/integration/test_daemon_integration.py` (path + import repair) | logic (it is the test) | Proves the daemon entry point runs from a repo-relative cwd as `-m prismis_daemon`; the repair is what makes it provable anywhere but one laptop. |
 | `daemon/tests/unit/test_content_response_model_unit.py` (path repair) | logic (it is the test) | Proves INV-API-TS-4 is documented, against the in-repo `docs/architecture/boundaries.md:46`. |

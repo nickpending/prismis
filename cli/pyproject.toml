@@ -47,8 +47,11 @@ select = [
 # typer.Option() in argument defaults is how typer declares CLI options — the same
 # required-idiom case as daemon's FastAPI Depends() entry.
 "src/cli/report.py" = ["B008"]
-# BLE001 (blind `except Exception`) is selected so the class stays visible, but narrowing
-# these excepts changes runtime behavior and is tracked separately:
+# BLE001 (blind `except Exception`) is SUPPRESSED across every Python file in this unit.
+# The glob below covers everything, so no ruff run reports the class and `ruff check .`
+# passing says nothing about it. The 4 findings here are recoverable only by deleting this
+# entry (`ruff check . --select BLE001 --config 'lint.per-file-ignores = {}'`).
+# Deferred, not done — and deferral is not visibility. Tracked:
 # https://github.com/nickpending/prismis/issues/58
 "**/*.py" = ["BLE001"]
 

@@ -3,9 +3,11 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -14,8 +16,9 @@ import (
 func createTestClient(t *testing.T) *APIClient {
 	// Check if we have a test config or daemon running
 	if os.Getenv("PRISMIS_TEST_API_KEY") == "" {
+		// t.Skip does not return - it unwinds via runtime.Goexit, so callers never
+		// observe a nil client and must not branch on one.
 		t.Skip("Set PRISMIS_TEST_API_KEY to run integration tests")
-		return nil
 	}
 
 	return &APIClient{
@@ -74,10 +77,6 @@ func TestAddSource(t *testing.T) {
 	// This test requires the daemon to be running
 	// Create test config
 	client := createTestClient(t)
-	if client == nil {
-		t.Skip("Skipping integration test - no test setup")
-	}
-
 	// Try to add a source
 	req := SourceRequest{
 		URL:  "https://example.com/feed.xml",
@@ -100,10 +99,6 @@ func TestAddSource(t *testing.T) {
 func TestDeleteSource(t *testing.T) {
 	// This test requires the daemon to be running
 	client := createTestClient(t)
-	if client == nil {
-		t.Skip("Skipping integration test - no test setup")
-	}
-
 	// Try to delete a non-existent source
 	resp, err := client.DeleteSource("non-existent-id")
 	if err != nil {
@@ -120,10 +115,6 @@ func TestDeleteSource(t *testing.T) {
 func TestGetSources(t *testing.T) {
 	// This test requires the daemon to be running
 	client := createTestClient(t)
-	if client == nil {
-		t.Skip("Skipping integration test - no test setup")
-	}
-
 	// Try to get sources
 	sources, err := client.GetSources()
 	if err != nil {
@@ -219,10 +210,6 @@ key = "` + secretKey + `"
 // INVARIANT TEST: Delete operations must be idempotent
 func TestDeleteIdempotency(t *testing.T) {
 	client := createTestClient(t)
-	if client == nil {
-		t.Skip("Skipping integration test - no test setup")
-	}
-
 	// Delete non-existent source twice - should not fail fatally
 	nonExistentID := "definitely-does-not-exist-12345"
 
@@ -340,10 +327,6 @@ func TestDaemonUnavailable(t *testing.T) {
 // FAILURE TEST: Invalid API key must not leak the key
 func TestInvalidAPIKeyNoLeak(t *testing.T) {
 	client := createTestClient(t)
-	if client == nil {
-		t.Skip("Skipping integration test - no test setup")
-	}
-
 	// Use wrong API key
 	wrongKey := "wrong-key-should-not-appear-in-errors"
 	client.apiKey = wrongKey
@@ -361,25 +344,44 @@ func TestInvalidAPIKeyNoLeak(t *testing.T) {
 }
 
 // FAILURE TEST: Network timeout must leave client usable
+// Previously this pointed at http://localhost:8989 with a 1ms timeout and skipped when no
+// error came back. Both halves were wrong: with no daemon running it got connection-refused
+// rather than a timeout, so it "passed" without ever exercising one, and when the assertion
+// it exists to make did not hold it converted that into a skip. A server under this test's
+// own control makes the timeout real and the outcome deterministic.
 func TestNetworkTimeoutRecovery(t *testing.T) {
-	// Create client with very short timeout
+	var slow atomic.Bool
+	slow.Store(true)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if slow.Load() {
+			time.Sleep(500 * time.Millisecond) // outlive the client deadline below
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"sources":[],"total":0}}`))
+	}))
+	defer server.Close()
+
 	client := &APIClient{
-		baseURL:    "http://localhost:8989",
+		baseURL:    server.URL,
 		apiKey:     "test",
-		httpClient: &http.Client{Timeout: 1 * time.Millisecond}, // Extremely short
+		httpClient: &http.Client{Timeout: 50 * time.Millisecond},
 	}
 
-	// This should timeout
-	_, err := client.GetSources()
-	if err == nil {
-		t.Skip("Expected timeout but got success - daemon too fast")
+	// The request must time out - the server holds it open past the deadline.
+	if _, err := client.GetSources(); err == nil {
+		t.Fatal("expected a timeout from GetSources, got success")
 	}
 
-	// Client should still be usable with normal timeout
+	// INVARIANT: the client survives the timeout and works on the next call.
+	slow.Store(false)
 	client.httpClient.Timeout = 10 * time.Second
-	// This would work if daemon is running, but we just verify no panic
-	client.GetSources()
-	// No panic = success
+	sources, err := client.GetSources()
+	if err != nil {
+		t.Fatalf("client unusable after a timeout: %v", err)
+	}
+	if sources == nil {
+		t.Fatal("expected a decoded response after recovery, got nil")
+	}
 }
 
 // Helper function to check if string contains substring

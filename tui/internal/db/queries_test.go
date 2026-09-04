@@ -620,11 +620,12 @@ func TestConcurrentFavoriteOperations(t *testing.T) {
 		dbPathFunc = oldFunc
 	}()
 
-	// Ensure we can connect before starting goroutines
+	// Ensure we can connect before starting goroutines. dbPathFunc was pointed at a temp
+	// database above, so a failure here is a real failure — not pool contamination from a
+	// neighbouring test. Skipping on it turned a broken connection into a green run.
 	testDB, err := GetDB()
 	if err != nil {
-		// Skip this test if connection pool is contaminated from previous tests
-		t.Skip("Connection pool contaminated - run this test in isolation")
+		t.Fatalf("GetDB() failed against the temp database at %s: %v", dbPath, err)
 	}
 	_ = testDB
 

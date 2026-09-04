@@ -1556,13 +1556,19 @@ async def get_feedback_statistics(
 # Mount audio files directory
 
 
+# Mounted unconditionally with check_dir=False: gating the mount on the directory
+# existing at IMPORT time made the app's route table a property of the developer's disk
+# — /audio existed on one machine and 404'd as an unknown path on another, and 13 test
+# modules import this one at collection. StaticFiles resolves files per request, so the
+# route is now deterministic while what it can serve still follows the live filesystem.
 audio_dir = (
     Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
     / "prismis"
     / "audio"
 )
-if audio_dir.exists():
-    app.mount("/audio", StaticFiles(directory=str(audio_dir)), name="audio")
+app.mount(
+    "/audio", StaticFiles(directory=str(audio_dir), check_dir=False), name="audio"
+)
 
 # SPA catch-all routes (defined after all API routes)
 if static_dir.exists():

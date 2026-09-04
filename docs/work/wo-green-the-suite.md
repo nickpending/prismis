@@ -182,6 +182,18 @@ Enable the rules; do not disable a rule to make its count go away.
 - `daemon` has pyright, which is an accepted equivalent to the house-standard mypy.
 - `tui` has `staticcheck` available and `gofmt`/`go vet` clean.
 
+### Key exposure — verified 2026-09-03, not a hypothesis
+
+`git log -S` against the live key value:
+
+- **9 commits on `origin/main`** — i.e. already public on github.com/nickpending/prismis
+- earliest occurrence `e2ffa94`, **2025-09-09** — roughly twelve months
+- 31 occurrences currently in the working tree across 10 daemon test files
+
+Step 2 removes it from the tree. **Removing it from the tree does not remove it from history.**
+Whether that warrants rotation is the operator's call on their own threat model; the facts above
+are recorded so the decision is made against them rather than against an assumption.
+
 ## Success Criteria
 
 ### SC-1: The gate passes

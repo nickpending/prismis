@@ -22,3 +22,8 @@ a line number does not. The same rule binds counts: when a table reports a total
 re-derive every row from the tree in the pass that writes the total, and require the rows to sum
 to it. A citation or count that is wrong on arrival sends the next reader to unrelated code and
 discredits the surrounding claims, which are usually correct.
+
+Write that symbol reference as prose, not as a call signature. `ERA001` is enabled and reads
+`symbol_name (path/to/file.py)` inside a comment as commented-out code, which turns the gate red —
+phrase it as "the `symbol_name` helper in `path/to/file.py`" instead. The citation rule and the
+dead-code rule pull against each other in exactly this spot.

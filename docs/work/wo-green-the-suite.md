@@ -137,11 +137,33 @@ Neither pyproject declares `[tool.ruff.lint] select`, so ruff runs its default `
 Both files carry `per-file-ignores` for `B008` and `S101` — rules that are not enabled, making
 those ignores inert.
 
-Measured with a class-covering select (`E4,E7,E9,F,B,ASYNC,BLE,ARG,ERA,RUF,ANN401`) before
-changing anything: **246 findings in daemon, 47 in cli — 293 total.**
+**The select is `E4,E7,E9,F,B,ASYNC,BLE,ERA,RUF006,RUF012,RUF013,RUF100,ANN401,PGH,S110,S112`.**
 
-Top of the daemon distribution: `BLE001` blind-except ×73, `ARG002` unused-method-argument ×31,
-`RUF010` ×30, `F401` unused-import ×20, `RUF012` ×18, `ARG001` ×18.
+An earlier draft used `...,ARG,ERA,RUF,ANN401` and measured 293. That over-selected for the
+three named classes: `ARG002`×31 + `ARG001`×18 are FastAPI/protocol signature conformance, and
+`RUF010`×30 is pure style — 79 of 246 daemon findings from rules outside all three classes. It
+also under-selected: `S110`/`S112` (try-except-pass / try-except-continue) are the sharpest
+error-swallow rules and no `S` was present, and `PGH003` (blanket `# type: ignore`) is the real
+weakened-types escape hatch.
+
+Measured with the corrected select:
+
+| | daemon | cli | total |
+|---|---|---|---|
+| corrected select | 151 | 19 | **170** |
+| corrected, minus `BLE001` | 78 | 15 | **93** |
+
+**`BLE001` (74 findings) is OUT OF SCOPE for this work order** — decided 2026-09-03. It stays in
+the select but carries a `per-file-ignores` entry pointing at
+**https://github.com/nickpending/prismis/issues/58**, so the class is visible and scheduled
+rather than silently off. Narrowing a blind except changes runtime behavior in a pipeline the
+constitution describes as unattended, and the tests that would catch that regression are exactly
+the ones this work order is fixing. Doing it against a green suite is the point.
+
+**So this work order closes 93 findings, not 293.**
+
+`ruff check .` in `daemon` would lint `daemon/scripts/model_playtest.py`, which the Constraints
+forbid touching. Add `daemon/scripts/` to ruff's `exclude` rather than editing that file.
 
 **Three are genuine defects, not style — fix these regardless of what happens to the rest:**
 - `tests/integration/test_config_integration.py:132` — `F821` undefined name `load_config`
@@ -193,7 +215,8 @@ Enable the rules; do not disable a rule to make its count go away.
 
 ### SC-4: The three genuine defects are fixed
 - **Given**: the migrated tree
-- **When**: `uvx ruff check --select F821,RUF006 .` runs in `daemon`
+- **When**: `uv run ruff check --select F821,RUF006 .` runs in `daemon` — `uv run`, matching
+  `verify.sh:43`, not `uvx`; different resolutions give different versions and different findings
 - **Then**: it reports zero findings
 - **And**: `__main__.py`'s API server task holds a reference for the process lifetime
 

@@ -74,13 +74,48 @@ exactly that.
 
 | count | cause |
 |---|---|
-| **80** | `config.py:229` — `ValueError: Config [llm] section outdated`. One root cause, 52% of all failures. Test configs reach `Config.from_file` without `light_service` in their `[llm]` block. |
+| **80** | `config.py:229` — `ValueError: Config [llm] section outdated`. **NOT test-authored config — the ambient one.** See the corrected diagnosis below. |
 | 6 | `too many values to unpack (expected 2)` — a return-signature change the tests never followed |
 | 6 | `ModuleNotFoundError` — dynamic `importlib` resolution, distinct from the import class already fixed |
 | ~61 | assorted: `AssertionError` (36 total incl. above), `TypeError` (18), `AttributeError` (4), `FileNotFoundError` (1) |
 
 Error-type totals: 70 `ValueError`, 36 `AssertionError`, 18 `TypeError`, 6 `ModuleNotFoundError`,
 4 `AttributeError`, 1 `FileNotFoundError`.
+
+### CORRECTED DIAGNOSIS (2026-09-03, ferret pass + measurement)
+
+**The failure count is a property of the developer's home directory, not of this repo.**
+
+`daemon/tests/conftest.py:42` monkeypatches `XDG_DATA_HOME` only. Nothing isolates
+`XDG_CONFIG_HOME`. Meanwhile production code loads the ambient config with no path:
+`auth.py:31`, `api.py:211`, `__main__.py:377,698`, and all four fetchers
+(`rss.py:36`, `reddit.py:34`, `youtube.py:36`, `file.py:43`) call `Config.from_file()`.
+That resolves `$XDG_CONFIG_HOME/prismis/config.toml` (`config.py:182-185`).
+
+Measured, same tree, three environments:
+
+| `XDG_CONFIG_HOME` | failed | passed |
+|---|---|---|
+| empty — no prismis config at all | **113** | 240 |
+| hostile `[remote]`-only config | 153 | 200 |
+| the developer's actual `~/.config` | **153** | 200 |
+
+A 40-test swing on home-directory contents alone. **CI, which has no config, would produce the
+113 number** — so a workflow written against the local count disagrees with itself on its first
+run.
+
+**This makes SC-2's original framing wrong.** "Zero tests fail with that message" is satisfiable
+by changing machines. The real criterion is environment isolation, and it is SC-8 below.
+
+Two further consequences:
+- `conftest.py` lines 63-67 and 74-78 swallow config failure with
+  `except Exception: pytest.skip("Config file not found...")`. That is the 17 skipped, and it
+  violates the constitution's Quality Gates ("a gate that passes having executed nothing").
+- The isolation fix must NOT monkeypatch `Config.from_file` — that would neuter the INV-003
+  negative tests at `test_dual_service_config_unit.py:200`, which need a real outdated config
+  to raise.
+
+**Start with isolation, not with the 80.**
 
 **Start with the 80.** It is one fix at one call site's fixtures, and until it clears, the
 remaining buckets cannot be read accurately — an API test failing on config never reaches the
@@ -144,7 +179,8 @@ Enable the rules; do not disable a rule to make its count go away.
 - **Given**: the 80 failures raising `Config [llm] section outdated` at `config.py:229`
 - **When**: the fix is applied
 - **Then**: zero tests fail with that message
-- **And**: the fix is one shared fixture or helper, not 80 individual edits
+- **And**: the fix is an autouse fixture in `daemon/tests/conftest.py` isolating
+  `XDG_CONFIG_HOME`, not 80 individual edits, and not a monkeypatch of `Config.from_file`
 - **And**: `INV-003` still holds — `light_service` remains the required key, and a genuinely
   outdated config still raises
 
@@ -193,6 +229,77 @@ Enable the rules; do not disable a rule to make its count go away.
 - **When**: inspected
 - **Then**: `ruff` is a declared dev dependency in each, and `cli` declares a typechecker
 - **And**: `verify.sh` reports no `VERIFY_UNCOVERED:` line for a missing typechecker
+
+### SC-8: The suite is independent of the ambient config
+- **Given**: a `$XDG_CONFIG_HOME` holding a hostile prismis config (`[remote]` only, no `[llm]`),
+  and separately one holding no prismis directory at all
+- **When**: the daemon suite runs under each
+- **Then**: both exit 0, and both produce **identical** pass/fail/skip counts
+- **And**: zero tests skip for the reason "Config file not found" — `conftest.py`'s two
+  `except Exception: pytest.skip(...)` fallbacks are gone
+- **Verification**:
+  ```bash
+  cd /Users/rudy/development/projects/prismis/daemon
+  hostile=$(mktemp -d); mkdir -p "$hostile/prismis"
+  printf '[remote]\nurl = "https://example.invalid"\nkey = "x"\n' > "$hostile/prismis/config.toml"
+  empty=$(mktemp -d)
+  XDG_CONFIG_HOME="$hostile" uv run pytest -q --no-header >/tmp/sc8a.out 2>&1; a=$?
+  XDG_CONFIG_HOME="$empty"   uv run pytest -q --no-header >/tmp/sc8b.out 2>&1; b=$?
+  ha=$(grep -Eo '[0-9]+ (passed|failed|skipped)' /tmp/sc8a.out | sort | tr '\n' ' ')
+  hb=$(grep -Eo '[0-9]+ (passed|failed|skipped)' /tmp/sc8b.out | sort | tr '\n' ' ')
+  if [ $a -eq 0 ] && [ $b -eq 0 ] && [ "$ha" = "$hb" ] \
+     && ! grep -q "Config file not found" /tmp/sc8a.out /tmp/sc8b.out; then
+    echo "SC-8: PASS"; else echo "SC-8: FAIL"; fi
+  ```
+  Measured today this prints FAIL with 153 vs 113 — the gap this criterion exists to close.
+
+### SC-9: Green locally implies green in CI, proven before ci.yml is written
+- **Given**: a shell stripped of the developer environment (fresh `HOME`, no `XDG_CONFIG_HOME`)
+- **When**: `./.specify/verify.sh` runs
+- **Then**: it prints `verify: PASS`, exits 0, and emits the same `VERIFY_COVERED:` line as a
+  normal local run
+- **Verification**:
+  ```bash
+  cd /Users/rudy/development/projects/prismis
+  ./.specify/verify.sh >/tmp/sc9-local.out 2>&1 || true
+  fresh=$(mktemp -d)
+  env -i PATH="$PATH" HOME="$fresh" UV_CACHE_DIR="$HOME/.cache/uv" \
+    ./.specify/verify.sh >/tmp/sc9-ci.out 2>&1; rc=$?
+  a=$(grep '^VERIFY_COVERED:' /tmp/sc9-local.out); b=$(grep '^VERIFY_COVERED:' /tmp/sc9-ci.out)
+  if [ $rc -eq 0 ] && grep -q '^verify: PASS' /tmp/sc9-ci.out && [ "$a" = "$b" ]; then
+    echo "SC-9: PASS"; else echo "SC-9: FAIL"; fi
+  ```
+  SC-6 defers CI to last so it isn't red on arrival. This gets the *evidence* locally instead of
+  deferring it, and given `Config.from_file()`'s `$HOME` dependence it is the criterion most
+  likely to fail first.
+
+### SC-10: pytest.ini is actually read
+- **Given**: `daemon/pytest.ini`, whose section header is `[tool:pytest]` — the `setup.cfg`
+  section name, inert in a `pytest.ini`
+- **When**: corrected to `[pytest]`
+- **Then**: `testpaths` and `python_classes` take effect, and `python_paths` (a dead plugin
+  option) is replaced by core pytest's `pythonpath`
+- **And**: the suite still collects the same test count, proving `conftest.py:19`'s manual src
+  path insertion is now redundant or still needed — stated either way, not left ambiguous
+
+### SC-11: staticcheck is measured
+- **Given**: `tui/`
+- **When**: `staticcheck ./...` runs
+- **Then**: zero findings, or each remaining one carries a tracked handle
+- **And**: the CI image installs it, since `verify.sh:73` branches on `command -v staticcheck`
+  and would silently skip the check where it is absent
+
+### SC-12: Deletions are auditable, including unrecoverable ones
+- **Given**: the diff and this work order's `## Outputs`
+- **When**: reviewed
+- **Then**: every removed `def test_` has one line reading
+  `- DELETED <file>::<name> — <CATEGORY>: <detail>`
+- **And**: `<CATEGORY>` is one of `BEHAVIOR-GONE`, `SUPERSEDED`, or `UNRECOVERABLE` (the latter
+  naming the searches run — `git log --diff-filter=D -S`, docstring, INV id — that found nothing)
+- **And**: no test is `skip`-ped or `xfail`-ed to reach green
+
+  This replaces SC-3, which was unsatisfiable: it forbade skip/xfail *and* required a rationale
+  that may not exist, leaving no legal move for a test whose intent is genuinely unrecoverable.
 
 ## Approach
 

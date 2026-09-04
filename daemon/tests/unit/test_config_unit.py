@@ -153,7 +153,7 @@ provider = "openai"
 
         # Should use default context due to read error (or if Windows, will read it)
         if os.name != "nt":
-            from defaults import DEFAULT_CONTEXT_MD
+            from prismis_daemon.defaults import DEFAULT_CONTEXT_MD
 
             assert config.context == DEFAULT_CONTEXT_MD
             # Restore permissions for cleanup

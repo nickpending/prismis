@@ -18,14 +18,14 @@ def test_daemon_orchestration_with_test_database(test_db) -> None:
     - Runs the orchestration logic
     - Verifies it works end-to-end
     """
-    from orchestrator import DaemonOrchestrator
+    from prismis_daemon.orchestrator import DaemonOrchestrator
     from fetchers.rss import RSSFetcher
     from fetchers.reddit import RedditFetcher
     from fetchers.youtube import YouTubeFetcher
-    from summarizer import ContentSummarizer
-    from evaluator import ContentEvaluator
-    from notifier import Notifier
-    from config import Config
+    from prismis_daemon.summarizer import ContentSummarizer
+    from prismis_daemon.evaluator import ContentEvaluator
+    from prismis_daemon.notifier import Notifier
+    from prismis_daemon.config import Config
     from io import StringIO
     from rich.console import Console
 
@@ -174,14 +174,14 @@ def test_scheduler_runs_jobs_at_intervals(test_db) -> None:
     import asyncio
     import time
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
-    from orchestrator import DaemonOrchestrator
+    from prismis_daemon.orchestrator import DaemonOrchestrator
     from fetchers.rss import RSSFetcher
     from fetchers.reddit import RedditFetcher
     from fetchers.youtube import YouTubeFetcher
-    from summarizer import ContentSummarizer
-    from evaluator import ContentEvaluator
-    from notifier import Notifier
-    from config import Config
+    from prismis_daemon.summarizer import ContentSummarizer
+    from prismis_daemon.evaluator import ContentEvaluator
+    from prismis_daemon.notifier import Notifier
+    from prismis_daemon.config import Config
     from io import StringIO
     from rich.console import Console
 
@@ -281,14 +281,14 @@ def test_scheduler_graceful_shutdown(test_db) -> None:
     """
     import asyncio
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
-    from orchestrator import DaemonOrchestrator
+    from prismis_daemon.orchestrator import DaemonOrchestrator
     from fetchers.rss import RSSFetcher
     from fetchers.reddit import RedditFetcher
     from fetchers.youtube import YouTubeFetcher
-    from summarizer import ContentSummarizer
-    from evaluator import ContentEvaluator
-    from notifier import Notifier
-    from config import Config
+    from prismis_daemon.summarizer import ContentSummarizer
+    from prismis_daemon.evaluator import ContentEvaluator
+    from prismis_daemon.notifier import Notifier
+    from prismis_daemon.config import Config
     from io import StringIO
     from rich.console import Console
 

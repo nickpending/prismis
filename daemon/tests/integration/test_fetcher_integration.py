@@ -1,10 +1,18 @@
 """Integration tests for RSSFetcher with real RSS feeds."""
 
+import os
+
 import pytest
 from prismis_daemon.fetchers.rss import RSSFetcher
 from prismis_daemon.models import ContentItem
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_fetch_rss_with_real_feed() -> None:
     """Test complete RSS fetching workflow with a real feed.
 
@@ -54,6 +62,12 @@ def test_fetch_rss_with_real_feed() -> None:
     assert len(external_ids) == len(set(external_ids))
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_fetch_rss_handles_invalid_feed_url() -> None:
     """Test fetcher handles invalid RSS feed URLs gracefully."""
     fetcher = RSSFetcher()
@@ -70,6 +84,12 @@ def test_fetch_rss_handles_invalid_feed_url() -> None:
     assert "Failed to fetch RSS feed" in str(exc_info.value)
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_fetch_rss_handles_non_rss_content() -> None:
     """Test fetcher handles non-RSS content gracefully."""
     fetcher = RSSFetcher()
@@ -84,6 +104,12 @@ def test_fetch_rss_handles_non_rss_content() -> None:
     # May or may not find entries in HTML
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_fetch_rss_respects_max_items_limit() -> None:
     """Test fetcher respects max_items configuration."""
     # Test with very small limit
@@ -96,6 +122,12 @@ def test_fetch_rss_respects_max_items_limit() -> None:
     assert len(items) == 1
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_fetch_rss_cleanup_on_deletion() -> None:
     """Test fetcher properly cleans up HTTP client on deletion."""
     fetcher = RSSFetcher()

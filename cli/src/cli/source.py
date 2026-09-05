@@ -70,9 +70,14 @@ def detect_and_normalize_source_url(url: str) -> tuple[str, str]:
     - `youtube://PL...` — this function treats a `PL` prefix as a channel/playlist id and
       produces `/channel/PL...`; the daemon matches only `UC` and falls through to
       `/@PL...`.
-    - trailing slashes and leading whitespace — the daemon strips both; this function
-      strips neither, so `reddit://rust/` keeps its slash and ` reddit://rust` is not even
-      recognised as a reddit URL.
+    - trailing slashes and leading whitespace **on the protocol-URL branches** — the
+      daemon strips both before it looks at anything, so `reddit://rust/` loses its slash
+      and ` reddit://rust` is still recognised as reddit. Here the `reddit://` and
+      `youtube://` branches strip neither, so the slash survives and a leading space
+      defeats scheme detection entirely.
+      This does NOT generalize to every input: an already-real `reddit.com` URL does have
+      a trailing slash stripped here, by the `url.rstrip("/")` in the `reddit.com` branch
+      below — matching the daemon. Only the protocol-URL branches diverge.
 
     Filed as gh #65; which side is right is a product decision, so neither is changed here.
 
@@ -112,6 +117,28 @@ def detect_and_normalize_source_url(url: str) -> tuple[str, str]:
         return "youtube", url
 
     return "rss", url
+
+
+def resolve_source(url: str, name: str | None = None) -> tuple[str, str, str]:
+    """Turn what the user typed into the (type, url, name) the API is sent.
+
+    Normalization runs FIRST and the name is derived from its output, so
+    `source add reddit://rust` is named `r/rust` rather than `rust`. That ordering is
+    the whole point of this function existing: while it lived inline in `add`, the only
+    test of it was a copy in the test file, and reordering the production path left that
+    copy green.
+
+    Args:
+        url: The source URL as the user typed it
+        name: An explicit name, if the user supplied one; derived when absent
+
+    Returns:
+        (source_type, normalized_url, name)
+    """
+    source_type, normalized_url = detect_and_normalize_source_url(url)
+    if not name:
+        name = extract_name_from_url(normalized_url)
+    return source_type, normalized_url, name
 
 
 def find_source_by_id(sources: list[dict], source_id: str) -> dict | None:
@@ -169,11 +196,7 @@ def add(
     """Add a new content source to Prismis."""
     try:
         # Detect source type from URL
-        source_type, url = detect_and_normalize_source_url(url)
-
-        # Auto-generate name if not provided
-        if not name:
-            name = extract_name_from_url(url)
+        source_type, url, name = resolve_source(url, name)
 
         # Use API to add source (includes validation)
         if not output_json:

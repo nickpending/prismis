@@ -14,7 +14,7 @@ network, which a CI-run gate rules out.
 
 import pytest
 
-from cli.source import detect_and_normalize_source_url, extract_name_from_url
+from cli.source import detect_and_normalize_source_url, resolve_source
 
 
 @pytest.mark.parametrize(
@@ -81,12 +81,6 @@ def test_reddit_url_trailing_slash_is_stripped() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _name_add_would_derive(raw_url: str) -> str:
-    """Reproduce `add`'s derivation: normalize first, then name."""
-    _, normalized = detect_and_normalize_source_url(raw_url)
-    return extract_name_from_url(normalized)
-
-
 @pytest.mark.parametrize(
     ("raw_url", "expected_name"),
     [
@@ -99,7 +93,25 @@ def _name_add_would_derive(raw_url: str) -> str:
 def test_name_derived_for_a_source_the_user_adds(
     raw_url: str, expected_name: str
 ) -> None:
-    assert _name_add_would_derive(raw_url) == expected_name
+    """Calls the production composition, not a copy of it.
+
+    This test previously defined its own `_name_add_would_derive` calling the two helpers
+    in the documented order, while `add` held a separate copy — so it asserted that the
+    TEST behaved as documented, and reordering or dropping normalization in `add` left it
+    green. That is the exact bug this test exists to catch.
+    """
+    _, _, name = resolve_source(raw_url)
+    assert name == expected_name
+
+
+def test_explicit_name_is_not_overwritten() -> None:
+    """A user-supplied name wins; derivation only fills the gap."""
+    source_type, url, name = resolve_source("reddit://rust", name="My Feed")
+    assert (source_type, url, name) == (
+        "reddit",
+        "https://www.reddit.com/r/rust",
+        "My Feed",
+    )
 
 
 # ---------------------------------------------------------------------------

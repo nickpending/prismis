@@ -1,5 +1,6 @@
 """Integration tests for Notifier with real terminal-notifier subprocess calls."""
 
+import logging
 import shutil
 import subprocess
 
@@ -13,20 +14,23 @@ from prismis_daemon.notifier import Notifier
     reason="Requires the terminal-notifier binary on PATH (macOS-only, absent on the CI "
     "runner). Tracked: gh #60.",
 )
-def test_notifier_calls_terminal_notifier_subprocess() -> None:
-    """Test that Notifier makes real subprocess calls to terminal-notifier.
+def test_notifier_calls_terminal_notifier_subprocess(caplog) -> None:
+    """Test that Notifier makes a real terminal-notifier call that EXITS ZERO.
 
-    This test:
-    - Creates Notifier with real config
-    - Calls notify_new_content with HIGH priority items
-    - Verifies actual terminal-notifier subprocess is executed
-    - Checks notification appears on Mac (manual verification)
+    Calls `_send_notification` rather than `notify_new_content`: the public wrapper
+    catches every exception and logs a warning, so a test driving it cannot fail no
+    matter what the subprocess does. That is what the previous two versions of this test
+    got wrong — first an `isinstance(success, bool)` that was true in both branches, then
+    a bare call with no assertion at all over a callee that swallows.
+
+    `_send_notification` propagates a missing binary and a timeout, but it also only
+    *logs* a non-zero exit rather than raising. So reaching the end of the call still
+    proves nothing on its own; the exit status has to be asserted through the record it
+    leaves. A non-zero exit logs at WARNING and never logs the success line.
     """
-    # Create notifier with real terminal-notifier command
     config = {"high_priority_only": True, "command": "terminal-notifier"}
     notifier = Notifier(config)
 
-    # Create HIGH priority test content
     high_priority_items = [
         {
             "title": "Integration Test: Notifier Working",
@@ -35,12 +39,16 @@ def test_notifier_calls_terminal_notifier_subprocess() -> None:
         }
     ]
 
-    # The binary is present (the skipif above guarantees it), so this must succeed.
-    # It previously caught every exception, set a bool in both branches, and asserted
-    # `isinstance(success, bool)` — true either way. That is a pass having executed
-    # nothing, which the constitution names as a failure whatever the exit code, and it
-    # was the state on every machine: terminal-notifier is absent here too.
-    notifier.notify_new_content(high_priority_items)
+    with caplog.at_level(logging.DEBUG, logger="prismis_daemon.notifier"):
+        notifier._send_notification(high_priority_items)
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(m.startswith("Sent notification:") for m in messages), (
+        f"terminal-notifier did not exit 0 — no success record. Log was: {messages}"
+    )
+    assert not any("Notification command failed" in m for m in messages), (
+        f"terminal-notifier reported a failure: {messages}"
+    )
 
 
 def test_notifier_handles_terminal_notifier_failure() -> None:

@@ -6,24 +6,101 @@ import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 
 from prismis_daemon.fetchers.rss import RSSFetcher
 from conftest import make_config
 
 
+# A syntactically valid feed, so a fetch that is NOT cut short by a deadline succeeds.
+# An empty or malformed response would make the fetch fail for its own reasons and the
+# timeout assertion would hold with the timeout removed — which is what made the first
+# version of this fixture mutation-insensitive.
+_VALID_FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>Slow Feed</title><link>http://127.0.0.1/</link><description>d</description>
+  <item><title>An item</title><link>http://127.0.0.1/item</link>
+        <description>body</description></item>
+</channel></rss>"""
+
+SLOW_FEED_DELAY_SECONDS = 3
+
+
+def _dated_feed(recent_days: list[int], old_days: list[int]) -> str:
+    """Build a feed whose items sit a known number of days in the past."""
+    from email.utils import format_datetime
+
+    now = datetime.now(timezone.utc)
+    items = []
+    for tag, offsets in (("recent", recent_days), ("old", old_days)):
+        for d in offsets:
+            when = format_datetime(now - timedelta(days=d))
+            items.append(
+                f"<item><title>{tag} item {d}d</title>"
+                f"<link>http://127.0.0.1/{tag}-{d}</link>"
+                f"<description>body</description>"
+                f"<pubDate>{when}</pubDate></item>"
+            )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<rss version="2.0"><channel>'
+        "<title>Dated Feed</title><link>http://127.0.0.1/</link>"
+        "<description>d</description>" + "".join(items) + "</channel></rss>"
+    )
+
+
+@pytest.fixture
+def dated_feed_url() -> Iterator[str]:
+    """A local feed carrying items both inside and well outside a 7-day window.
+
+    Previously this test fetched https://simonwillison.net/atom/everything/ on every gate
+    run, so the result depended on a third party's publishing cadence — and its `except`
+    only skipped on network-shaped errors, so an empty or stale feed surfaced as a hard
+    failure. Serving known dates locally makes the date filter the only variable.
+    """
+    body = _dated_feed(recent_days=[1, 3], old_days=[30, 120]).encode()
+
+    class FeedHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # BaseHTTPRequestHandler dispatches on this name
+            self.send_response(200)
+            self.send_header("Content-Type", "application/rss+xml")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FeedHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/feed.xml"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 @pytest.fixture
 def slow_feed_url() -> Iterator[str]:
-    """A local feed URL that never answers before the caller's deadline.
+    """A local feed URL that answers correctly, but only after a delay.
 
-    Timeout behaviour must not depend on a third party staying slow. This serves from
-    127.0.0.1 on an ephemeral port and sleeps well past the one-second fetcher timeout
-    the test configures, so the timeout is produced by this test rather than observed.
+    Timeout behaviour must not depend on a third party staying slow, so the delay is
+    produced here rather than observed from the network. The response is a well-formed
+    feed: with the fetcher's deadline removed the fetch SUCCEEDS, which is what makes the
+    timeout assertion mutation-sensitive instead of passing for any failure at all.
     """
 
     class SlowHandler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # BaseHTTPRequestHandler dispatches on this name
-            time.sleep(5)
+            time.sleep(SLOW_FEED_DELAY_SECONDS)
+            body = _VALID_FEED.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/rss+xml")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def log_message(self, *args: object) -> None:
             pass  # keep pytest output clean
@@ -38,64 +115,40 @@ def slow_feed_url() -> Iterator[str]:
         server.server_close()
 
 
-def test_date_filtering_prevents_old_content() -> None:
+def test_date_filtering_prevents_old_content(dated_feed_url: str) -> None:
     """
     INVARIANT: NO content older than max_days_lookback ever fetched
     BREAKS: Could cost hundreds in API charges if violated
+
+    The feed is served locally and carries items at 1, 3, 30 and 120 days old, so the
+    7-day window must admit exactly the first two. Removing the cutoff comparison in
+    RSSFetcher lets the 30- and 120-day items through and turns this red.
     """
-    # Create config with short lookback for testing
     config = make_config(max_days_lookback=7, max_items_rss=10)
     rss_fetcher = RSSFetcher(config=config)
-
-    # Calculate expected cutoff
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
 
-    # Test with real RSS feed (Simon Willison's blog - reliable for testing)
-    test_source = {
-        "url": "https://simonwillison.net/atom/everything/",
-        "id": "test-source-id",
-    }
+    items = rss_fetcher.fetch_content({"url": dated_feed_url, "id": "test-source-id"})
 
-    try:
-        # Fetch content with date filtering
-        items = rss_fetcher.fetch_content(test_source)
+    # CRITICAL INVARIANT: NO items older than cutoff
+    old_items = [
+        i for i in items if i.published_at and i.published_at < cutoff_date
+    ]
+    assert not old_items, (
+        f"Found {len(old_items)} items older than {config.max_days_lookback} days "
+        "- API cost protection FAILED"
+    )
 
-        # CRITICAL INVARIANT: NO items older than cutoff
-        old_items = []
-        for item in items:
-            if item.published_at and item.published_at < cutoff_date:
-                old_items.append(item)
-
-        assert len(old_items) == 0, (
-            f"Found {len(old_items)} items older than {config.max_days_lookback} days - API cost protection FAILED"
-        )
-
-        # Verify we actually got some items (feed is active)
-        assert len(items) > 0, "Should fetch some recent items"
-
-        # Verify all fetched items have valid dates
-        items_with_dates = [item for item in items if item.published_at is not None]
-        assert len(items_with_dates) > 0, "Should have some items with valid dates"
-
-        # Verify all dates are timezone-aware
-        for item in items_with_dates:
-            assert item.published_at.tzinfo is not None, (
-                f"Item '{item.title}' has timezone-naive date"
-            )
-
-        print(
-            f"✅ SUCCESS: Fetched {len(items)} items, all within {config.max_days_lookback} days"
-        )
-
-    except Exception as e:
-        # Network failures are acceptable - skip test
-        if any(
-            keyword in str(e).lower()
-            for keyword in ["network", "timeout", "connection", "dns"]
-        ):
-            pytest.skip(f"Network issue during test: {e}")
-        else:
-            raise
+    # The feed carries two items inside the window; both must survive. Asserting the
+    # exact count is what makes the filter's absence visible — a bare `len(items) > 0`
+    # would still hold with every old item let through.
+    assert len(items) == 2, f"expected the 2 in-window items, got {len(items)}"
+    assert all(i.published_at is not None for i in items), (
+        "every item in this feed carries a pubDate"
+    )
+    assert all(i.published_at.tzinfo is not None for i in items), (
+        "dates must be timezone-aware"
+    )
 
 
 def test_network_timeout_graceful(slow_feed_url: str) -> None:
@@ -122,7 +175,16 @@ def test_network_timeout_graceful(slow_feed_url: str) -> None:
     with pytest.raises(Exception) as exc_info:
         rss_fetcher.fetch_content(test_source)
 
-    # Verify error is wrapped with context (not bare network error)
+    # The wrapper prefix alone proves nothing: rss.py wraps EVERY exception in
+    # "Failed to fetch RSS feed", so asserting on it passes for a DNS error, a refused
+    # connection or a malformed body just as readily as for the timeout under test.
+    # Assert on the chained cause's type, which only the deadline produces.
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, httpx.TimeoutException), (
+        f"expected the failure to be a timeout, got {type(cause).__name__}: {cause}"
+    )
+
+    # And that the wrapper still carries the context a caller needs.
     error_msg = str(exc_info.value)
     assert "Failed to fetch RSS feed" in error_msg, (
         "Error should be wrapped with context"

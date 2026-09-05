@@ -46,14 +46,22 @@ jobs:
       #
       # Sealing HF_HOME to a per-run temp dir would force a fresh ~90MB download on every
       # local run. Caching it here is the same move ci.yml already makes for staticcheck:
-      # make the input explicit and pinned so the gate's result depends on the code, not
-      # on when it ran or whether huggingface.co is up. Keyed on the model identity, so a
-      # cache miss is the only path that reaches the network.
+      # make the input explicit so the gate's result depends on the code, not on when it
+      # ran or whether huggingface.co is up.
+      #
+      # The key is DERIVED from the file that names the model, not hand-written. A literal
+      # would go stale silently: actions/cache skips the save on an exact-key hit, so after
+      # the model changed every run would restore the old one and re-download the new one
+      # forever. hashFiles ties the key to embeddings.py, so changing the model changes the
+      # key and the next run repopulates — the same derivation ci.yml uses for uv's
+      # cache-dependency-glob.
       - name: Cache the embedding model
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/huggingface
-          key: hf-all-MiniLM-L6-v2-${{ runner.os }}
+          key: hf-${{ runner.os }}-${{ hashFiles('daemon/src/prismis_daemon/embeddings.py') }}
+          restore-keys: |
+            hf-${{ runner.os }}-
 
       - name: Install staticcheck
         # verify.sh:73 branches on `command -v staticcheck` and silently drops the check

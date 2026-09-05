@@ -1,5 +1,7 @@
 """Integration tests for YouTubeFetcher with real YouTube API and yt-dlp."""
 
+import os
+
 import tempfile
 from pathlib import Path
 
@@ -63,6 +65,12 @@ def _make_config() -> Config:
         return Config.from_file(config_path)
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_fetch_youtube_with_real_api() -> None:
     """Test complete YouTube fetching workflow with real yt-dlp and YouTube API.
 
@@ -117,6 +125,12 @@ def test_fetch_youtube_with_real_api() -> None:
         assert len(external_ids) == len(set(external_ids))
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_fetch_youtube_handles_invalid_channel() -> None:
     """Test fetcher handles invalid YouTube channel gracefully."""
     config = make_config()
@@ -136,6 +150,12 @@ def test_fetch_youtube_handles_invalid_channel() -> None:
     assert len(items) == 0
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_fetch_youtube_respects_max_items() -> None:
     """Test fetcher respects max_items configuration."""
     config = make_config()
@@ -147,6 +167,12 @@ def test_fetch_youtube_respects_max_items() -> None:
     assert len(items) <= 1
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_fetch_youtube_respects_date_range() -> None:
     """Test fetcher only gets videos from configured date range."""
     # Use very short date range to limit results
@@ -164,6 +190,12 @@ def test_fetch_youtube_respects_date_range() -> None:
     assert isinstance(items, list)
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_fetch_youtube_handles_various_url_formats() -> None:
     """Test that various YouTube channel URL formats work correctly."""
     config = make_config()
@@ -187,6 +219,12 @@ def test_fetch_youtube_handles_various_url_formats() -> None:
             pytest.fail(f"Failed to fetch from URL format '{url}': {e}")
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_extract_transcript_from_specific_video() -> None:
     """Test transcript extraction from a specific video with known transcript."""
     config = make_config()
@@ -218,6 +256,12 @@ def test_extract_transcript_from_specific_video() -> None:
         assert "timed out" in str(e) or "not available" in str(e) or "failed" in str(e)
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_channel_url_normalization_integration() -> None:
     """Test that URL normalization works in complete fetching workflow."""
     config = make_config()
@@ -244,6 +288,12 @@ def test_channel_url_normalization_integration() -> None:
             assert "Error:" in str(result)
 
 
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
+    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
+    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
+    "Tracked: gh #60.",
+)
 def test_youtube_fetcher_date_filtering() -> None:
     """Test that date filtering works correctly in video discovery."""
     # Create fetcher with very restrictive date range

@@ -372,10 +372,10 @@ verify: PASS
 
 | | before | after |
 |---|---|---|
-| daemon pytest | 113 failed / 240 passed (empty config) · 153 failed / 200 passed (developer's config) | **344 passed, 0 failed**, 27 skipped, 1 xfailed |
+| daemon pytest | 113 failed / 240 passed (empty config) · 153 failed / 200 passed (developer's config) | **335 passed, 0 failed**, 41 skipped, 1 xfailed |
 | daemon ruff | not runnable (`ruff` undeclared); 76 findings once declared | **0** |
 | daemon pyright | 18 errors | **0** |
-| cli pytest | 17 failed / 19 passed | **27 passed, 0 failed** |
+| cli pytest | 17 failed / 19 passed | **53 passed, 0 failed** |
 | cli ruff | not runnable; 13 findings once declared | **0** |
 | cli pyright | no typechecker configured | **0 errors** |
 | tui go test | `internal/ui` FAIL | **all packages ok** |
@@ -418,10 +418,16 @@ Measured, same tree, two hostile environments:
 
 | `$XDG_CONFIG_HOME` | rc | counts |
 |---|---|---|
-| `[remote]`-only config, no `[llm]` | 0 | 344 passed, 27 skipped |
-| empty dir, no prismis config at all | 0 | 344 passed, 27 skipped |
+| `[remote]`-only config, no `[llm]` | 0 | see re-run note below |
+| empty dir, no prismis config at all | 0 | see re-run note below |
 
-Identical, and zero occurrences of "Config file not found". Before this work the same two
+**Not re-run since rounds 2-3.** The counts originally recorded here (344/27) predate the
+live-network gating and the tests added in those rounds; the tree now reports 335 passed /
+41 skipped. The *finding* — identical results under two hostile `$XDG_CONFIG_HOME` values, and zero
+occurrences of "Config file not found" — stands as measured on 2026-09-03, but the numbers it was
+measured against have moved, so SC-8 must be re-run before it is cited again.
+
+Originally, and zero occurrences of "Config file not found". Before this work the same two
 environments produced 153 and 113 failures respectively — a 40-test swing on home-directory
 contents alone.
 
@@ -533,7 +539,7 @@ behavior no longer exists), `UNRECOVERABLE` (intent not recoverable).
 
 `cli/tests/integration/test_source_commands.py` and `test_source_validation.py` deleted wholesale:
 they patch `cli.source.SourceValidator` and `cli.source.VALIDATOR_AVAILABLE` — `rg 'VALIDATOR_AVAILABLE|SourceValidator' cli/src` returns nothing. The CLI no longer validates locally or writes
-SQLite; it adds through `APIClient.add_source` (`source.py:115`) and the daemon owns validation.
+SQLite; it adds through the `add_source` call in `cli/src/cli/source.py` and the daemon owns validation.
 They also hit the live network, which Principle IV rules out for a CI-run gate. **Coverage re-homed**
 in `cli/tests/unit/test_source_command_unit.py` (7 cases over the URL → `source_type` mapping).
 
@@ -572,18 +578,18 @@ developer's real database) and `test_config_loading_with_all_files_present` kept
 
 ### Skips — every one names a precondition and a handle
 
-No test is skipped to dodge a failure. **28 skips**, all resource preconditions. Every row below
-was re-derived from a single run's `-rs` output on 2026-09-04, and the rows sum to the skip count
-pytest reports:
+No test is skipped to dodge a failure. **41 skips**, all resource preconditions. Every row was
+re-derived from a single run's `-rs` output on 2026-09-04, after the live-network gating below, and
+the rows sum to the skip count pytest reports:
 
 | count | gate | why |
 |---|---|---|
+| 20 | `PRISMIS_LIVE_NETWORK_TESTS` | fetches a live third-party endpoint; gh #59 blocks the Reddit ones specifically |
 | 8 | `OPENAI_API_KEY` | 6 pre-existing `skipif` marks plus 2 inline `pytest.skip`s in `test_llm_startup_validation_integration.py` |
-| 7 | `PRISMIS_LIVE_NETWORK_TESTS` | blocked on **gh #59**, not on credentials |
 | 7 | `PRISMIS_LIVE_LLM_TESTS` | needs a live llm-core service (gh #60) |
 | 5 | `REDDIT_CLIENT_ID` | PRAW returns 401 without OAuth credentials (gh #60) |
 | 1 | `shutil.which("terminal-notifier")` | macOS-only binary, absent on the CI runner **and on the operator's machine** (gh #60) |
-| **28** | | **= pytest's reported skip count** |
+| **41** | | **= pytest's reported skip count** |
 
 Separately, pytest reports **1 xfailed** — `test_rfc3339_helper_unit.py`, the documented xfail two
 other files assert must remain. An earlier revision listed it as a fifth row of this table, which
@@ -714,6 +720,69 @@ The other ten:
 
 - DELETED tui/internal/db/queries_integration_test.go::TestGetContentByPriorityRealDB — SUPERSEDED: compiled by no gate, guard checked a path the code does not use; same function covered by queries_test.go::TestGetContentByPriority under the gate
 
+### Third adversarial round — 2026-09-04
+
+**Two round-2 fixes reproduced the defect class they were fixing.** Both passed a review looking
+for exactly that shape, which is why the mutation rule is now in `CLAUDE.md`.
+
+- The notifier tautology became a bare call with **no assertion at all**, over a callee that
+  swallows every failure (`notify_new_content` catches `Exception` and logs; `_send_notification`
+  logs a non-zero exit rather than raising). It passed if the binary was missing, crashed, or
+  exited non-zero — the identical property its own comment condemned in the predecessor.
+- The httpstat.us fix became **mutation-insensitive**: the handler slept and closed without
+  writing, so httpx raised with or without a deadline, and the assertion checked only the wrapper
+  prefix that `rss.py` puts on *every* exception. Deleting the fetcher's timeout left it green.
+  And a second live URL — `simonwillison.net` — survived untouched in the same file.
+
+Every test touched this round was mutation-checked: the behaviour under test was disabled, the
+test confirmed red, then restored and confirmed green.
+
+| test | mutation applied | observed |
+|---|---|---|
+| notifier subprocess | stand-in binaries exiting 0 / 1, and an absent binary | exit 0 green; exit 1 raises `AssertionError`; absent binary propagates `FileNotFoundError` |
+| `test_network_timeout_graceful` | removed the `timeout=` from `httpx.Client` | RED, then green on restore |
+| `test_date_filtering_prevents_old_content` | disabled the cutoff comparison in `RSSFetcher` | RED, then green on restore |
+| `test_name_derived_for_a_source_the_user_adds` | derived the name *before* normalizing in `resolve_source` | RED, then green on restore |
+| daemon + cli ambient-`.env` guards | moved the `load_dotenv` back to module scope | RED on both sides, then green on restore |
+| daemon divergence pins | made the daemon match a `PL` prefix | RED, then green on restore |
+
+**The live-network class, swept.** `test_date_filtering_integration.py` was one instance of a class
+of three files. The other two were fetching on every gate run with no gate at all:
+`test_fetcher_integration.py` (5 tests, `simonwillison.net`) and
+`test_youtube_fetcher_integration.py` (8 tests, real yt-dlp against YouTube). Both now carry
+`PRISMIS_LIVE_NETWORK_TESTS`. The date-filtering pair is served from a local socket instead, so its
+invariant keeps executing: the feed carries items at 1, 3, 30 and 120 days old and the test asserts
+the 7-day window admits exactly two — which is what makes removing the filter visible. A bare
+`len(items) > 0` would have held either way.
+
+Sweeping both test trees for non-local URLs found 49 distinct hosts, but nearly all are string
+literals in fixtures and URL-parsing tests that are never fetched. The three files above were the
+only ones performing real network I/O in the default path. Skips moved 28 → 41 and the daemon suite
+now runs in ~50s rather than ~117s.
+
+**Neither `_load_ambient_env` fix had a test**, on either side, and the work order recorded the
+one-time manual check as though it were a standing guard. Both sides now have a regression test
+that imports the module in a subprocess with a `.env` planted on the XDG path and asserts the
+variable stays unset, then calls the helper and asserts it is set.
+
+**The composition test asserted its own copy of `add`'s logic.** It defined
+`_name_add_would_derive` calling the two helpers in the documented order while `add` held a
+separate copy, so reordering production left it green. The composition is now one production
+function, `resolve_source`, that `add` calls and the test exercises directly.
+
+**A docstring generalization was false.** It said the daemon strips trailing slashes and whitespace
+"and this function strips neither" — but the `reddit.com` branch does `url.rstrip("/")`, and a test
+already asserted it. Scoped to the protocol-URL branches, where it is true.
+
+**The HF cache key was a literal while the comment claimed derivation.** `actions/cache` skips the
+save on an exact-key hit, so after a model change every run would have restored the stale model and
+re-downloaded the new one indefinitely. Now derived with `hashFiles` over the file that names the
+model, with a `restore-keys` prefix.
+
+**All four action SHAs verified against their tags** via the GitHub API this session:
+`actions/checkout` v7.0.1, `astral-sh/setup-uv` v6.8.0, `actions/setup-go` v5.6.0 and
+`actions/cache` v4.3.0 all match the commit their tag resolves to.
+
 ### Second adversarial round — 2026-09-04
 
 **`add`'s name derivation was uncovered, and two tests pinned inputs production never passes.**
@@ -795,7 +864,7 @@ prints only the skip summary, so the failing node id never reached the output an
 ephemeral port and sleeps past the deadline, so the timeout is produced by the test rather than
 observed from the network. This is the same repair already made to the Go suite's
 `TestNetworkTimeoutRecovery`, which had the identical shape — a timeout assertion pointed at a live
-host. The invariant is unchanged and now actually exercised: daemon **343 passed, 0 failed**, with
+host. The invariant is unchanged and now actually exercised: daemon **335 passed, 0 failed**, with
 no network dependency in the path.
 ### CI
 
@@ -875,19 +944,18 @@ reads the plan, not the work order, so leaving it there regenerates this exact t
 are now corrected, the plan at the origin.
 
 **Fix: extract the decidable logic, call it directly, mock nothing.** This copies the pattern
-already in the same file — `extract_name_from_url` (`source.py:15`) is pure, module-level, and
+already in the same file — the `extract_name_from_url` helper in `cli/src/cli/source.py` is pure, module-level, and
 tested with zero mocks.
 
 | command | disposition |
 |---|---|
-| `add` | `detect_and_normalize_source_url` extracted (`source.py:62`); 9 direct cases. The remaining `APIClient` call is **glue** — a one-line pass-through. |
-| `remove` | `find_source_by_id` extracted (`source.py:108`); 5 direct cases including the substring case that would otherwise delete the wrong source. Body is **glue**. |
-| `list` | `format_source_row` extracted (`source.py:121`); 10 direct cases including the exact-25 truncation boundary. Body is **glue**. |
+| `add` | the `detect_and_normalize_source_url` and `resolve_source` helpers extracted into `cli/src/cli/source.py`; direct cases, no mock. The remaining `APIClient` call is **glue** — a one-line pass-through. |
+| `remove` | the `find_source_by_id` helper extracted into `cli/src/cli/source.py`; 5 direct cases including the substring case that would otherwise delete the wrong source. Body is **glue**. |
+| `list` | the `format_source_row` helper extracted into `cli/src/cli/source.py`; 10 direct cases including the exact-25 truncation boundary. Body is **glue**. |
 | `pause` / `resume` / `edit` | **glue** — one `APIClient` call and a print each; no branch, no derivation, no state. |
 | `extract_name_from_url` | already covered directly by `test_url_extraction.py`. |
 
-All recorded with reasons in the plan's Constitution Check table. cli tests: **27 → 44**, still zero
-mocks in the new files. `add()` behavior is unchanged — the extraction is a pure move.
+All recorded with reasons in the plan's Constitution Check table. cli tests: **27 → 53**, still zero mocks in the new files. `add()` behavior is unchanged — the extraction is a pure move.
 
 Running these commands against a real daemon instead of leaving the bodies as glue is blocked on
 **gh #63**: `api.py:425-428` constructs `SourceValidator()` inline with no `Depends()` seam, and

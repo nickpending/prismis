@@ -3,6 +3,7 @@
 import logging
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -10,9 +11,12 @@ from prismis_daemon.notifier import Notifier
 
 
 @pytest.mark.skipif(
-    shutil.which("terminal-notifier") is None,
-    reason="Requires the terminal-notifier binary on PATH (macOS-only, absent on the CI "
-    "runner). Tracked: gh #60.",
+    sys.platform != "darwin" or shutil.which("terminal-notifier") is None,
+    reason="terminal-notifier is a macOS-only binary and presence on PATH does not mean "
+    "it can run. The GitHub Ubuntu runner ships a terminal-notifier Ruby gem whose "
+    "executable is a macOS Mach-O app bundle, so `which` finds it, the old guard did not "
+    "fire, and exec died with 'Syntax error: \"(\" unexpected'. Gate on the platform "
+    "that can actually execute it. Tracked: gh #60.",
 )
 def test_notifier_calls_terminal_notifier_subprocess(caplog) -> None:
     """Test that Notifier makes a real terminal-notifier call that EXITS ZERO.

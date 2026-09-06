@@ -3,6 +3,7 @@
 import pytest
 import subprocess
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -100,6 +101,20 @@ def test_daemon_orchestration_with_test_database(test_db) -> None:
     assert first_item["analysis"] is not None
 
 
+_ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove SGR escapes so an assertion is about help CONTENT, not styled bytes.
+
+    Rich renders a long option as two separately-styled spans — a dash, a reset,
+    then the rest — so the literal `--once` is absent from styled output entirely.
+    Color is off when stdout is a pipe locally and on under CI's FORCE_COLOR, which
+    made this assertion a property of the runner rather than of the daemon.
+    """
+    return _ANSI_SGR.sub("", text)
+
+
 def test_daemon_help_command() -> None:
     """Test daemon shows help correctly."""
 
@@ -113,8 +128,9 @@ def test_daemon_help_command() -> None:
     )
 
     assert result.returncode == 0
-    assert "--once" in result.stdout
-    assert "Run once and exit" in result.stdout
+    plain = _strip_ansi(result.stdout)
+    assert "--once" in plain
+    assert "Run once and exit" in plain
 
 
 def test_daemon_complete_workflow_with_real_source(test_db) -> None:

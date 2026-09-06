@@ -20,13 +20,18 @@ note_uncovered() { UNCOVERED="${UNCOVERED:+$UNCOVERED; }$1"; }
 # Coverage records EXECUTION, not outcome — a check that ran and failed is covered.
 # An accumulator filled only on success would make an all-failing run look like broken
 # discovery, sending a fixer after the wrong problem.
+# Output is captured rather than discarded: a gate that names the failing check but not
+# the failing assertion cannot be diagnosed anywhere the failure does not also reproduce,
+# which is precisely the CI-vs-laptop case the gate exists to catch.
 run_step() {
   local desc="$1"; shift
+  local out
   note_covered "$desc"
-  if "$@" >/dev/null 2>&1; then
+  if out="$("$@" 2>&1)"; then
     return 0
   else
     echo "FAILED: $desc"
+    printf '%s\n' "$out" | sed 's/^/  | /'
     FAIL=1
     return 1
   fi

@@ -109,9 +109,9 @@ def repair(
             from prismis_daemon.summarizer import ContentSummarizer
 
             # Initialize analysis components
-            config = Config()
-            summarizer = ContentSummarizer()
-            evaluator = ContentEvaluator(config)
+            config = Config.from_file()
+            summarizer = ContentSummarizer(config.llm_light_service)
+            evaluator = ContentEvaluator(config.llm_light_service)
 
             # Track repair operation start
             start_time = time.time()

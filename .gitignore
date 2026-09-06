@@ -208,3 +208,18 @@ __marimo__/
 
 # Base compliance patterns (auto-added by gitignore-check)
 .sable/
+
+# Secrets — never commit
+!.env.example
+!.env.sample
+
+# Agent workspace
+.corpus/
+
+# Spec Kit — ephemeral extension state only; everything else under .specify/ is committed
+.specify/extensions/.cache/
+.specify/extensions/.backup/
+.specify/extensions/*/local-config.yml
+
+# Model playtest run artifacts
+playtest-runs/

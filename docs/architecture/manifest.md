@@ -3,7 +3,7 @@ type: manifest
 project: prismis
 generated: "2026-09-07"
 source: /Users/rudy/development/projects/prismis/docs/architecture
-reconciled_at: 43f69521446eeeef3645fcfff9c43046911619db
+reconciled_at: b111e3ddb1b16e44e1dcd203aed1fc8b0d713481
 ---
 
 ## Components

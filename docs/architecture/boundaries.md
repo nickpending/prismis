@@ -5,7 +5,7 @@ project: "prismis"
 status: active
 created: "2026-04-07"
 updated: "2026-09-07"
-last_change: "refresh (f100142..43f6952) — wo-green-the-suite: added the CLI ↔ Daemon source-URL-normalization divergence (gh #65), surfaced when source.py's inline logic was extracted into testable functions"
+last_change: "wo-reddit-validation-seam (#59) — added the Daemon ↔ Clients source-validation budget contract, where tying the server and client timeouts to the same number made the daemon's message unreachable"
 tags: [architecture, boundaries]
 ---
 
@@ -36,6 +36,12 @@ Interface contracts between components and external systems.
 **Between:** Python CLI ↔ FastAPI `GET /api/entries` (and any other endpoint with a Pydantic `limit` constraint)
 **Contract:** `GET /api/entries` enforces a server-side Pydantic `le=10000` constraint on the `limit` query parameter. CLI batch-iteration commands that fetch candidates via this endpoint with a `limit * N` overshoot formula (where `N > 1`) MUST guard the user-facing `--limit` value against the effective ceiling `10000 / N` BEFORE calling `APIClient.get_content()`. Symmetric input-validation guards live at the function-top of each batch command, mirroring the priority/filter validation pattern: a lower-bound `< 1` guard (short-circuits with "No items need extraction" message, exit 0 — the no-op path; honors plan-documented `--limit 0` behavior since the slice path `[:0]` is unreachable through the server's `ge=1` constraint) and an upper-bound `> ceiling` guard (clear red message naming the ceiling value and explaining the formula, exit 1 — the out-of-range path). The two guards have different exit codes by design (no-op vs out-of-range) and share form (P15).
 **Constraints:** Adding a new batch-iteration CLI command that consumes `/api/entries` requires verifying the effective ceiling against the current `limit * N` overshoot factor. Server-side `le=10000` is the authoritative ceiling — do not modify it; only the client-side guard adapts. quality.md `## Learned Patterns` 2026-05-19 "CLI batch-iteration limit floor" entry documents the floor; the 2026-05-20 task 3.1 build phase added the symmetric ceiling guard with `> 3333` for the `limit * 3` overshoot in `cli/src/cli/extract.py`. Future commands with different overshoot factors must compute their own ceiling. Demo-verified: `--limit 3333` passes the guard; `--limit 3334` fires it with exit 1; `--limit 10000` same path.
+
+## Daemon ↔ Clients (source-validation timeout budget)
+
+**Between:** Daemon `POST /api/sources` and `PATCH /api/sources/{id}` ↔ every HTTP client (Python CLI, Go TUI, web view, external callers)
+**Contract:** The daemon bounds source validation at `SOURCE_VALIDATION_TIMEOUT` in `api.py` and, on expiry, answers with a message naming which source overran — the only answer that identifies the offending source, since a client-side expiry knows only that the request did not finish. For that message to be reachable, **the server's budget must stay strictly under every client's request budget**, with headroom. It is currently 20s against the CLI's `httpx.Timeout(30.0)` in `cli/src/cli/api_client.py` and the TUI's `ResponseHeaderTimeout: 30 * time.Second` in `tui/internal/api/client.go`.
+**Constraints:** Both sides were 30.0 when the server bound was introduced, which made the branch dead in production while still passing its own test — the client's clock starts first and always wins the race. A test in `daemon/tests/integration/test_api_integration.py` reads both client files and asserts the headroom, so re-tying them from either side lands red in the daemon suite rather than silently killing the message. Raising a client budget is safe; lowering one to or below the server's is what breaks the contract. Any new client inherits the same requirement.
 
 ## API ↔ Consumers (datetime wire format)
 

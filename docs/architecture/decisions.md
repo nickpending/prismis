@@ -5,13 +5,28 @@ project: "prismis"
 status: active
 created: "2026-04-07"
 updated: "2026-09-07"
-last_change: "refresh (f100142..43f6952) — added two wo-green-the-suite entries: the CI verification gate consolidation, and test-suite environment sealing (with two production bugs it surfaced)"
+last_change: "wo-reddit-validation-seam (#59, #63) — Reddit validation moved onto PRAW with distinguishable outcomes; the config seam, the credential gate, and the bounded probe recorded with the premises that were retracted along the way"
 tags: [architecture, decisions]
 ---
 
 # Decisions
 
 Architectural decisions and their rationale. Most recent first.
+
+## [2026-09-07]: Reddit validation authenticates through PRAW; four premises were retracted by execution (wo-reddit-validation-seam, #59/#63)
+
+**Context:** `SourceValidator._validate_reddit` probed `reddit.com/r/<name>/about.json` unauthenticated. Reddit now 403s every such request — verified across `r/programming`, `r/python` and `r/LocalLLaMA`, two attempts each, sending the validator's own User-Agent — and the 403 branch returned "Subreddit r/X is private". Every public subreddit therefore reported as private and **no Reddit source could be added at all**. The fetcher had held real credentials the whole time (`fetchers/reddit.py` builds `praw.Reddit(...)` from `Config`); the validator had none, and `grep -c praw validator.py` returned 0. Separately gh #63 asked for an injection seam so `POST /api/sources` could be tested with a fake validator.
+
+**Choice:** Replace the unauthenticated probe with PRAW using the credentials the fetcher already holds — the endpoint cannot be repaired, only replaced. Split the reddit path into pure parse, networked probe, and pure interpret, keeping the `_validate_reddit` name because a test calls it directly in a file the gate never executes. Route nine outcomes to their own messages.
+
+- **D-CONFIG** — `SourceValidator` takes an *optional* `Config`, and `get_validator` catches a config-load failure and passes `None`. Optional because rss/youtube/file never needed config and twelve sites construct the validator bare. Under Principle II an unloadable config should degrade only the path that needs it, so the reddit path reports itself unconfigured rather than the whole validator failing to construct.
+- **D-ENVGUARD** — empty *and* `env:`-prefixed credentials are rejected before any network call. `expand_env_var` is `os.environ.get(env_var, value)`, so an unset variable leaves the literal truthy string `"env:REDDIT_CLIENT_ID"`; without the guard PRAW earns a 401 and an install with **no** credentials is told its credentials are **invalid** — collapsing exactly the two answers Principle II requires be distinct.
+- **D-TIMEOUT** — the probe is bounded by a mounted transport adapter plus `check_for_updates=False`, and the API call runs off the event loop under a 20-second budget. `PRAWCORE_TIMEOUT` is read at import and bound as a default argument value, so neither setting it at runtime nor patching the constant reaches anything.
+- **#63 re-scoped, not implemented as asked.** No fake validator was written: constitution Principle I says internal code is never mocked and the Project Constraints name LLM providers as the only permitted mock boundary. `SourceValidator` is internal and Reddit is not an LLM. The seam delivers *credentials*; deterministic endpoint coverage comes instead from a `file` source, whose validation is pure string work.
+
+**Why:** P16 throughout — the endpoint could not be fixed, and the `env:` guard addresses the cause of the false "invalid credentials" rather than rewording the message. P15 for every borrowed shape: `get_storage`/`get_config` for the provider, `fetchers/reddit.py` for the PRAW construction, `Config.validate()` for the `env:` check. P3 for the optional config.
+
+**Four premises stated confidently in this work were retracted by execution, and the record is kept because the pattern is the lesson.** (1) A success criterion required rss/youtube/file adds to succeed on an install whose config will not load. Unreachable, and correctly so — `verify_api_key` loads that same config to resolve the expected API key and is a route-level dependency, so such an install refuses every authenticated request. That is failing closed; the criterion asked for the opposite, and the builder returned blocked rather than weaken auth to satisfy it. (2) D-CONFIG originally justified its `try` by claiming an uncaught raise would exit as a bare non-JSON 500 — false, since `ServerError` extends `APIError` and has a registered handler. The code was right and the reason was not. (3) The auth redaction was justified by config *content* leaking; `tomllib` emits line and column only, verified against four malformed configs. What actually leaked was the absolute config path plus structural detail, which the blanket `str(e)` would keep leaking for any future exception on that path. (4) A single-attempt retry strategy added to *enforce* the budget became its largest consumer — prawcore sleeps ahead of every attempt and a lowered retry count reads as "retries already spent", costing 2–4 seconds before the first request. The test asserting the configuration passed throughout; the test measuring elapsed time failed immediately. That last one is why `CLAUDE.md` now carries "configuration is not behavior".
 
 ## [2026-09-03]: Test suite sealed from ambient environment; pytest.ini config was inert; two production bugs surfaced (wo-green-the-suite)
 

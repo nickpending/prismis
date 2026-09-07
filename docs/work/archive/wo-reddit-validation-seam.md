@@ -2,11 +2,11 @@
 id: wo-reddit-validation-seam
 type: fix
 project: prismis
-status: active
+status: complete
 complexity: 5
 created: 2026-09-06
 updated: 2026-09-07
-plan_ref: docs/work/reddit-validation-seam/plan.md
+plan_ref: docs/work/reddit-validation-seam/plan.md  # plan stays in place; work order archived
 ---
 
 ## What

@@ -4,14 +4,32 @@ subtype: decisions
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-08-23"
-last_change: "refresh (f100142) — repointed the deep-extraction exploration citation from the retired obsidian path to its new in-repo canonical location, docs/explorations/deep-extraction-two-tier-summarization.md"
+updated: "2026-09-07"
+last_change: "refresh (f100142..43f6952) — added two wo-green-the-suite entries: the CI verification gate consolidation, and test-suite environment sealing (with two production bugs it surfaced)"
 tags: [architecture, decisions]
 ---
 
 # Decisions
 
 Architectural decisions and their rationale. Most recent first.
+
+## [2026-09-03]: Test suite sealed from ambient environment; pytest.ini config was inert; two production bugs surfaced (wo-green-the-suite)
+
+**Context:** `.specify/verify.sh` (authored 2026-09-03) failed its first run. Twelve daemon test files failed at *import* (`from summarizer import ...` instead of `from prismis_daemon.summarizer import ...`, left over from a flat→src layout move) and took the whole run down with them; that class was closed first. After it cleared, the daemon suite's pass/fail counts still varied by up to 40 tests (113 vs. 153 failing, against 200 passing either way) purely as a function of what happened to be in the developer's own `~/.config` — `daemon/tests/conftest.py` isolated `XDG_DATA_HOME` but nothing isolated `XDG_CONFIG_HOME`, and both the daemon (`__main__.py`) and CLI (`cli/__main__.py`) loaded `~/.config/prismis/.env` at *module import time*, so pytest collection itself pulled in whatever ambient config/credentials existed on disk before any fixture could run. Separately, `daemon/pytest.ini`'s `[tool:pytest]` header is the setup.cfg section name and is inert under a `pytest.ini` file, so every option under it — including `python_paths = src`, itself an option belonging to a plugin that isn't installed — was silently ignored; every test file compensated with its own `sys.path.insert` instead.
+
+**Choice:** Added an autouse `isolated_xdg_env` fixture (`daemon/tests/conftest.py`) that points `HOME`/`XDG_CONFIG_HOME`/`XDG_DATA_HOME`/`XDG_STATE_HOME`/`XDG_CACHE_HOME` at a fresh temp dir per test and materializes a real config by formatting the production `defaults.DEFAULT_CONFIG_TOML` template (not a hand-written stand-in that would drift from what production ships). Moved `.env` loading out of module scope into an explicit `_load_ambient_env()`, called once from the Typer/CLI entrypoint in both `daemon/src/prismis_daemon/__main__.py` and `cli/src/cli/__main__.py`, so importing either package no longer has a side effect. Fixed `daemon/pytest.ini`'s header to `[pytest]` and its path option to `pythonpath = src tests`. Extended the same ruff lint `select` (decidable defect classes — `E4,E7,E9,F,B,ASYNC,BLE,ERA,RUF006,RUF012,RUF013,RUF100,ANN401,PGH,S110,S112`) and pyright (basic mode) from `daemon` to `cli`, so both units are held to the same mechanical bar.
+
+Mutation-testing this pass against the now-visible suite surfaced two live production bugs, both fixed in the same window: (1) `run_scheduler` (`daemon/__main__.py`) started the API server via a bare `asyncio.create_task(api_server.serve())` with no reference held — the event loop holds only a weak reference to a task, so it could be garbage-collected mid-flight and silently take the API server down; the task is now held in `api_task` and shutdown `asyncio.wait_for(api_task, timeout=0.5)`s it instead of blind-sleeping. (2) `/audio` (`daemon/api.py`) was only mounted when `audio_dir.exists()` at *import* time, making the route table a property of whichever machine imported the module; it now mounts unconditionally with `StaticFiles(..., check_dir=False)`, so the route always exists and resolves files per request against the live filesystem instead of never existing on a machine that happened not to have the directory yet at import.
+
+**Why:** P16 (root cause over symptom) drove all four fixes — sealing the environment rather than special-casing failure counts machine-by-machine; fixing the pytest.ini header rather than leaving the compensating `sys.path.insert` boilerplate in every file; holding the task reference and awaiting it rather than papering over the occasional dead API server with a longer sleep; mounting unconditionally rather than special-casing the "directory missing at import" case. BLE001 (blind `except Exception`) was deliberately left OUT of the new ruff select — both `daemon/pyproject.toml` and `cli/pyproject.toml` blanket-suppress it (`"**/*.py" = ["BLE001"]`) with a comment stating the suppression is deferred, not resolved, and pointing at the tracking handle (gh #58) — P9, the gap is named rather than silently dropped.
+
+## [2026-09-03]: CI verification gate consolidated — `.specify/verify.sh` is the one script dev, `make`, and CI all run (wo-green-the-suite)
+
+**Context:** `make test` ran `cd daemon && uv run pytest` and `cd cli && uv run pytest`, printed "Running TUI tests..." and ran `go test ./...`, and never ran lint or a typechecker at all — so `make test` could report green on a tree that `.specify/verify.sh` (the actual gate) would reject. No CI existed; the real gate ran only when someone remembered to invoke it by hand.
+
+**Choice:** `make test` now delegates: `test: bash .specify/verify.sh`, replacing the three hand-listed pytest/go test invocations with the same script a developer or CI would run. Added `.github/workflows/ci.yml`, triggered on push to `main` and on pull requests, installing every unit's dependencies via the same `find pyproject.toml` / `find go.mod` discovery `verify.sh` itself uses (so a new unit is gated automatically, with no hand-maintained list to fall out of step — this repo already lost 12 daemon test files to exactly that kind of gap), then running `bash .specify/verify.sh` unmodified. CI adds one requirement on top of the script's own exit code: `.specify/verify.sh` treats an uncovered check (e.g., staticcheck absent from PATH) as a `VERIFY_UNCOVERED` notice and still exits 0; CI greps its output for that line and fails the job if found, so CI can never silently gate on less than a local run.
+
+**Why:** P16 — the root cause of "green suite, red gate" was three independently-defined notions of "tested" (a developer's manual run, `make test`, and no CI at all) that could each report a different answer for the same tree; collapsing to one script removes the possibility of the three disagreeing. The script is treated as shared, unedited infrastructure — CI's stricter uncovered-check enforcement is the caller adding its own requirement on top, not a modification to the script.
 
 ## [2026-06-03]: Source-type exclusion from deep extraction (commit 1e39916)
 

@@ -4,8 +4,8 @@ subtype: components
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-08-23"
-last_change: "refresh (f100142) — adopted docs/explorations/EXPLORATION-2025-10-31-url-monitoring-design.md surfaced that Fetchers' file.py is static-URL change monitoring (SHA256 diff), not local file ingestion; Purpose/Key files corrected"
+updated: "2026-09-07"
+last_change: "refresh (f100142..43f6952) — wo-green-the-suite: Daemon api.py/__main__.py notes for two mutation-testing-surfaced fixes; Fetchers yt-dlp dependency note; CLI Key files closed to include archive/export/prune/report/source.py, source.py normalization split documented"
 tags: [architecture, components]
 ---
 
@@ -16,7 +16,7 @@ Registry of all system components. Each entry links to a detail doc when the com
 ## Daemon
 
 **Purpose:** Python daemon that fetches content from multiple sources, summarizes and evaluates it via LLM, stores results in SQLite, and serves a REST API.
-**Key files:** `daemon/src/prismis_daemon/` — orchestrator.py (fetch loop + deep-extract gate), summarizer.py, evaluator.py, deep_extractor.py, storage.py, api.py, config.py (incl. `deep_extract_exclude` field), defaults.py (config template defaults, incl. `deep_extract_exclude = ["reddit"]`), __main__.py
+**Key files:** `daemon/src/prismis_daemon/` — orchestrator.py (fetch loop + deep-extract gate), summarizer.py, evaluator.py, deep_extractor.py, storage.py, api.py (`/audio` now mounted unconditionally with `StaticFiles(..., check_dir=False)` — the route table no longer depends on the audio dir existing at import time), config.py (incl. `deep_extract_exclude` field), defaults.py (config template defaults, incl. `deep_extract_exclude = ["reddit"]`), __main__.py (`_load_ambient_env()` loads `~/.config/prismis/.env` explicitly from the Typer callback instead of at module import; the background API-server task from `asyncio.create_task()` is now held in `api_task` and awaited — bounded 0.5s — on shutdown, since an unreferenced task is only weakly held by the event loop and can be GC'd mid-flight)
 **Connections:** Depends on llm-core (Python) for all LLM calls. Depends on apiconf for API key resolution. TUI and CLI connect via REST API (api.py) and shared SQLite DB.
 **Detail:** [components/daemon.md](components/daemon.md)
 
@@ -24,7 +24,7 @@ Registry of all system components. Each entry links to a detail doc when the com
 
 **Purpose:** Content source adapters — RSS, Reddit, YouTube, and static-URL change monitoring (source type `"file"` — despite the name, fetches a remote URL and diffs it, not local filesystem ingestion).
 **Key files:** `daemon/src/prismis_daemon/fetchers/` — rss.py, reddit.py, youtube.py, file.py (`FileFetcher`: GETs a URL, SHA256-hashes content, compares against the previous entry's stored `analysis.content_hash`; on change, emits a new entry with a unified diff and `external_id = sha256(url + content_hash)[:16]` so each change becomes a new content item, preserving history — see `docs/explorations/EXPLORATION-2025-10-31-url-monitoring-design.md`)
-**Connections:** Called by orchestrator.py during fetch cycles. Each returns normalized content items to storage. **INV-FETCH-1 (task 2.9):** all fetcher datetime emissions are tz-aware via `datetime.now(UTC)`; no `datetime.utcnow()` anywhere under `daemon/src/prismis_daemon/fetchers/`. Producer-side complement to the storage ISO-string convention and the API RFC3339 wire contract — closes the wire end-to-end at the producer layer.
+**Connections:** Called by orchestrator.py during fetch cycles. Each returns normalized content items to storage. **INV-FETCH-1 (task 2.9):** all fetcher datetime emissions are tz-aware via `datetime.now(UTC)`; no `datetime.utcnow()` anywhere under `daemon/src/prismis_daemon/fetchers/`. Producer-side complement to the storage ISO-string convention and the API RFC3339 wire contract — closes the wire end-to-end at the producer layer. `yt-dlp` is declared as a hard `daemon/pyproject.toml` runtime dependency (not an optional extra) — `youtube.py` requires the binary on PATH and raises without it.
 
 ## Summarizer
 
@@ -90,7 +90,7 @@ Registry of all system components. Each entry links to a detail doc when the com
 ## CLI
 
 **Purpose:** Python CLI for installation, admin tasks, and batch operations against the daemon API.
-**Key files:** `cli/src/cli/__main__.py` (typer app + command registrations), `api_client.py` (APIClient with `search()`, `get_content()`, `extract_entry()` etc. — httpx-based, X-API-Key auth, configurable timeout per method), `extract.py` (task 3.1 — `prismis-cli extract --priority {high|medium|low|all} --limit N` batch deep-extraction command; symmetric `< 1` and `> 3333` input-validation guards mirror the server's `le=10000` constraint on `GET /api/entries` accounting for the `limit * 3` overshoot formula), `search.py`, `list.py`, `analyze.py`, `migrate-config` shim
+**Key files:** `cli/src/cli/__main__.py` (typer app + command registrations; `_load_ambient_env()` loads `~/.config/prismis/.env` explicitly from the Typer callback instead of at module import — mirrors the daemon's identical fix), `api_client.py` (APIClient with `search()`, `get_content()`, `extract_entry()` etc. — httpx-based, X-API-Key auth, configurable timeout per method), `extract.py` (task 3.1 — `prismis-cli extract --priority {high|medium|low|all} --limit N` batch deep-extraction command; symmetric `< 1` and `> 3333` input-validation guards mirror the server's `le=10000` constraint on `GET /api/entries` accounting for the `limit * 3` overshoot formula), `search.py`, `list.py`, `analyze.py` (`repair` now calls `Config.from_file()` + `ContentSummarizer(config.llm_light_service)` / `ContentEvaluator(config.llm_light_service)` — was calling `Config()`/`ContentSummarizer()`/`ContentEvaluator(config)` with the wrong signatures and crashing on entry), `archive.py`, `export.py`, `prune.py`, `report.py`, `source.py` (URL-type detection and normalization extracted into standalone functions — `detect_and_normalize_source_url`, `resolve_source`, `find_source_by_id`, `format_source_row` — for unit testability; see boundaries.md for a documented divergence between this normalization and the daemon's), `migrate-config` shim
 **Connections:** Calls daemon REST API via `APIClient` (httpx + X-API-Key). Remote mode (`is_remote_mode() == True` when `[remote]` block in `~/.config/prismis/config.toml`) routes calls to a deployed daemon (e.g., `https://prismis.mal.casa`); local mode hits `http://127.0.0.1:8989`. `youtube://` URL rewriting happens client-side in `source.py` before API calls. `extract_entry()` uses a local `httpx.Timeout(120.0)` override (LLM-bound; longer than the class-level 30s default).
 
 ## LLM Validator

@@ -4,8 +4,8 @@ subtype: boundaries
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-05-20"
-last_change: "task 3.1 — CLI ↔ /api/entries limit-ceiling boundary documented; symmetric client-side input-validation guards (`limit < 1` + `limit > 3333`) mirror the server's Pydantic `le=10000` constraint accounting for CLI's `limit * 3` overshoot formula"
+updated: "2026-09-07"
+last_change: "refresh (f100142..43f6952) — wo-green-the-suite: added the CLI ↔ Daemon source-URL-normalization divergence (gh #65), surfaced when source.py's inline logic was extracted into testable functions"
 tags: [architecture, boundaries]
 ---
 
@@ -46,6 +46,12 @@ Interface contracts between components and external systems.
 **INV-API-TS-4 (Pydantic-routed responses for content endpoints):** Every API list/detail endpoint that returns content data MUST flow through a Pydantic response model (`ContentResponse`, `ContentItemModel`, or a named sibling model with the same `@field_serializer` decorators applied). Raw-dict pass-through on response paths that emit datetime fields is prohibited. `/api/entries` and `/api/search` route through `ContentResponse` as of task 2.8; `/api/audio/briefings` routes through `AudioBriefingResponse` as of task 2.10 (`api.py:1337` returns `AudioBriefingResponse(...).model_dump(mode="json")`); `/api/entries/{content_id}` (`get_entry_summary`) routes through `ContentItemModel` as of task 2.11 (`api.py:1022-1028`, both branches — full and lightweight-with-`exclude={"content"}`). Future endpoints adding content responses must extend `ContentResponse` or define an equivalent model — this is the structural gate that makes INV-API-TS-1 a compile-time guarantee rather than a convention. The three datetime-bearing response models in `api_models.py` (`SourceResponse`, `AudioBriefingResponse`, `ContentItemModel`) all use Pydantic V2 `@field_serializer` decorators delegating to `_rfc3339`; the deprecated V1-compat `model_config = {"json_encoders": ...}` mechanism has been fully removed (zero references in `api_models.py`).
 
 **INV-OL-1/OL-2/OL-3 (encoder narrowing contract at definition site):** `_rfc3339` in `api_models.py` carries three `@typing.overload` stubs immediately before the implementation: `(datetime) -> str`, `(None) -> None`, `(datetime | None) -> str | None`, in narrowest-to-widest order. This narrows the encoder return type for callers based on argument type rather than requiring each non-Optional `@field_serializer` to annotate `-> str` at the callsite (task 2.10's symptom-level pattern). Adding new non-Optional datetime serializers requires no per-callsite type discipline — pyright resolves `_rfc3339(datetime)` to `str` via the first overload. Structural tests at `daemon/tests/unit/test_rfc3339_overload_stubs_unit.py` protect the three invariants via AST inspection (overload count, signature ordering, `overload` imported from `typing`). Pyright 1.1.409 in basic mode is the configured verifier (`cd daemon && uv run pyright`); daemon-wide baseline at 18 errors documents the regression yardstick.
+
+## CLI ↔ Daemon (source URL normalization — known divergence, gh #65)
+
+**Between:** CLI `source add` (`cli/src/cli/source.py:detect_and_normalize_source_url`) ↔ Daemon `normalize_source_url` (`daemon/src/prismis_daemon/api.py`)
+**Contract:** Both independently derive `(source_type, url)` from the same raw input the user types — the CLI to display type/name before sending and to build the request; the daemon to validate independent of what the client claims. They are two separate implementations and nothing checks that they agree.
+**Constraints:** Measured, test-pinned divergences (either side changing becomes visible via the CLI-side tests): (1) a `youtube://PL...` id — the CLI treats a `PL` prefix as a channel/playlist id and produces `/channel/PL...`; the daemon matches only `UC` and falls through to `/@PL...`. (2) trailing slash / leading whitespace on the `reddit://` and `youtube://` protocol-URL branches — the daemon strips both before inspecting the input; the CLI's protocol branches strip neither, so a leading space defeats scheme detection there and a trailing slash survives. This does not generalize to every input: an already-real `reddit.com` URL has its trailing slash stripped on both sides identically — only the `protocol://` branches diverge. Which side is correct is an open product decision (gh #65); neither implementation has been changed to resolve it — do not assume they agree when adding a third consumer of source-URL detection.
 
 ## Daemon ↔ SQLite
 

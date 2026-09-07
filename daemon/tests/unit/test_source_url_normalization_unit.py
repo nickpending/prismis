@@ -3,10 +3,12 @@
 INVARIANT: Special protocol URLs must be normalized to real URLs.
 BREAKS: Fetchers expect real URLs, not protocol URLs.
 
-This is the deterministic half of the invariant that
-test_api_integration.py::test_url_normalization proves end-to-end. That test goes through
-POST /api/sources, which runs SourceValidator against live third-party endpoints, so it
-cannot run in CI (gh #59, gh #60). The mapping itself is a pure function and is proved here.
+This is the deterministic half of the invariant that the tests named
+test_url_normalization and test_url_normalization_reddit, in the API integration suite,
+prove end to end. Those go through POST /api/sources, so they carry that path's
+requirements: the rss row validates against a live third-party feed, and the reddit rows
+probe Reddit's authenticated API and need credentials as well. Neither runs in CI. The
+mapping itself is a pure function and is proved here.
 """
 
 import pytest

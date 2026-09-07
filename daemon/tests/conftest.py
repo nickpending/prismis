@@ -1,7 +1,10 @@
 """Shared test fixtures for all tests."""
 
 import dataclasses
+import socket
 import tempfile
+import threading
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -75,6 +78,58 @@ def isolated_xdg_env(tmp_path_factory, monkeypatch) -> Path:
     cfg_dir.joinpath("context.md").write_text(DEFAULT_CONTEXT_MD)
 
     return cfg_dir
+
+
+@pytest.fixture
+def hung_peer() -> Iterator[str]:
+    """A local TCP listener that accepts connections and then never answers.
+
+    Yields `host:port`.
+
+    A timeout claim is only worth what the clock says, and a clock needs something to
+    wait on. Every third-party endpoint that could stall is either unreliable or
+    unreachable from CI, so the stall is produced here instead: this accepts the
+    connection — so the code under test gets past connect and blocks on the read, which
+    is where a real stalled peer leaves it — and then says nothing. Nothing stands in
+    for the code under test; it opens a real socket, to this.
+
+    The accept loop blocks rather than polling. A timeout on the listener turns it into
+    a spin that holds the GIL, which does not merely slow the test — it inflates the
+    elapsed time any caller measures, so a timing assertion ends up measuring this
+    fixture instead of the code under test. Shutdown unblocks the blocked accept with a
+    connection of its own instead.
+    """
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(8)
+    host, port = listener.getsockname()
+
+    accepted: list[socket.socket] = []
+    stop = threading.Event()
+
+    def accept_forever() -> None:
+        while not stop.is_set():
+            try:
+                conn, _addr = listener.accept()
+            except OSError:
+                return
+            accepted.append(conn)
+
+    thread = threading.Thread(target=accept_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"{host}:{port}"
+    finally:
+        stop.set()
+        try:
+            socket.create_connection((host, port), timeout=1.0).close()
+        except OSError:
+            pass
+        thread.join(timeout=2.0)
+        listener.close()
+        for conn in accepted:
+            conn.close()
 
 
 @pytest.fixture

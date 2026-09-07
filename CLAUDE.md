@@ -46,3 +46,24 @@ Never describe a one-time manual check as if it were a standing guard. "Proved b
 and observing the result" reads as a regression test to everyone downstream; if no test asserts it,
 say the check was manual and unguarded, or write the test. A work order that records proofs the
 tree does not contain is worse than one that records nothing.
+
+An assertion proves nothing where it cannot fail. Before writing a guard assertion — that a
+message is absent, that a prefix was not taken, that a call returned quickly — name the code path
+that would produce the thing being excluded and check that the unit under test can reach it. An
+assertion that a message lacks a string only the caller emits, or that a call finished fast when
+the path under test makes no request either way, passes identically whether the behavior exists or
+not, and it passes most convincingly on the parametrized rows that cannot exercise it at all.
+
+Assert at the level the criterion names. When a criterion is about a composition — a public
+method, an endpoint, a request path — proving its parts in isolation leaves the composition
+unproven, because the try/except that joins the parts, the ordering between them, and the wrapper
+that renders their output are precisely what an isolated test skips. Splitting code into pure
+pieces for testability is right, and it does not discharge the criterion: keep at least one
+assertion that enters through the seam the criterion names, and route it through a real failure
+rather than a mock.
+
+Configuration is not behavior. Asserting that a timeout field, a retry class, or a deadline
+attribute holds the value the code just finished setting proves the wiring and leaves the bound
+unproven. When the claim is about elapsed time, attempts, or bytes, measure those against
+something the test controls; when measuring them is not practical, narrow the claim in the
+criterion to what the code actually guarantees rather than asserting a proxy for it.

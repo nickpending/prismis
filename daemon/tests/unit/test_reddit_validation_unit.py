@@ -5,10 +5,14 @@ PRISMIS_LIVE_NETWORK_TESTS or REDDIT_CLIENT_ID and all of them run in the gate.
 
 Nothing is mocked, faked or stubbed. The probe is the only step that needs Reddit, and
 it is the only step not exercised here: the two steps that hold decisions take plain
-values, so real prawcore exceptions built over real requests responses drive them. The
-one outcome reachable without a secret — a 401 from credentials Reddit refuses — is
-proven end to end through the public entry point by the live test named
-`test_reddit_invalid_credentials_are_named` in the validator integration suite.
+values, so real prawcore exceptions built over real requests responses drive them.
+
+Driving a helper directly proves the helper, never the composition around it, so the
+composition is proven elsewhere and every one of those is a real failure rather than a
+described one. `test_validate_source_routes_a_real_probe_failure` in the validator
+integration suite drives a raised probe out through the public method against a socket
+it owns, and runs in the gate; `test_reddit_invalid_credentials_are_named`, in the same
+file behind the live-network gate, does it for a 401 Reddit itself returns.
 """
 
 import time
@@ -55,11 +59,13 @@ def _response(status: int, **headers: str) -> requests.Response:
 def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """Route every outbound HTTP call at a proxy port nothing listens on.
 
-    A test asserting the credential gate returns before the network can otherwise only
-    infer it from the message. With this seal in place a request the gate failed to
-    prevent never reaches Reddit — it dies as a proxy error, several seconds late and
-    under a different message — so the assertions below are about the gate rather than
-    about the wording. Verified by removing the gate and observing exactly that.
+    This is containment, not the assertion. It guarantees that a gate failure cannot
+    reach Reddit from a gate-run test; what proves the gate fired is the message, and it
+    proves it for every row, because no path that reaches the network can produce the
+    not-configured message. Removing the gate produces a different message either way —
+    a proxy error for the rows carrying credentials, and an attribute error on the None
+    config, which is why there is no timing assertion here: one row fails fast and the
+    others fail slow, so elapsed time cannot discriminate across the set.
     """
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
     monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
@@ -118,19 +124,14 @@ def test_unusable_credentials_are_reported_without_a_request(
     }
     validator = SourceValidator(configs[config])
 
-    started = time.monotonic()
     is_valid, error, metadata = validator.validate_source("reddit://python", "reddit")
-    elapsed = time.monotonic() - started
 
     assert is_valid is False
     assert error == REDDIT_NOT_CONFIGURED, (
-        "Unconfigured credentials must be named as absent, not as invalid"
+        "Unconfigured credentials must be named as absent, not as invalid — and no "
+        "path that reaches the network can produce this message"
     )
     assert metadata is None
-    assert elapsed < 1.0, (
-        f"Returned in {elapsed:.2f}s — the gate must precede the network, and every "
-        "outbound route is refused in this test"
-    )
 
 
 def test_usable_credentials_pass_the_gate() -> None:
@@ -179,6 +180,20 @@ OUTCOMES = [
         prawcore_exceptions.ResponseException(_response(401)),
         "credentials are invalid or expired",
     ),
+    # Reddit refuses a bad client id or secret with HTTP 200 and an error in the token
+    # payload, which prawcore raises as this — a direct PrawcoreException subclass, so
+    # the status check that catches the row above cannot see it.
+    (
+        "oauth-refused",
+        prawcore_exceptions.OAuthException(
+            _response(200), "invalid_grant", "credentials were rejected"
+        ),
+        "credentials are invalid or expired",
+    ),
+    # prawcore's authorization-error mapping holds 403 and two OAuth error strings and
+    # no 401, so a 401 with no www-authenticate header raises this bare rather than any
+    # exception of its own. Same for a token payload missing the fields it reads.
+    ("auth-mapping-miss", KeyError(401), "credentials are invalid or expired"),
     (
         "other-status",
         prawcore_exceptions.ResponseException(_response(503)),
@@ -222,12 +237,13 @@ def test_each_probe_outcome_names_its_own_cause(
     assert metadata is None
     assert error is not None
     assert expected_substring in error, f"{label}: {error!r}"
-    assert not error.startswith("Validation failed:"), (
-        f"{label} reached the blind except this repo suppresses the lint for"
-    )
     assert not error.startswith("Reddit validation error:"), (
-        f"{label} fell through to the unrouted catch-all"
+        f"{label} fell through to the unrouted tail"
     )
+    # The blind except in validate_source is the other collapse, and it cannot be
+    # reached from here — that string is only emitted one level up. The test named
+    # test_validate_source_routes_a_real_probe_failure, in the validator integration
+    # suite, is what holds it, because it drives the public method.
 
 
 def test_probe_outcomes_are_distinguishable_by_cause() -> None:
@@ -255,26 +271,96 @@ def test_probe_outcomes_are_distinguishable_by_cause() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("label", "outcome", "expected_substring"),
-    OUTCOMES,
-    ids=[row[0] for row in OUTCOMES],
-)
-def test_no_outcome_message_carries_a_credential(
-    label: str, outcome: Exception, expected_substring: str
-) -> None:
+class _HostileURL(str):
+    """A URL whose own failure carries the credential in its text.
+
+    The blind except in `validate_source` renders whatever `str()` an escaping exception
+    produces. Nothing in the tree routes a credential there today, which is exactly why
+    it needs a test: the redaction has to hold for text nobody has predicted, and the
+    only way to assert that is to send text nobody predicted through it.
     """
-    INVARIANT: No secret reaches a validation message
-    BREAKS: prawcore's exception text flows into the API's 422 body, so a credential in
-            a message is a credential in an HTTP response and in whatever logs it
+
+    def startswith(
+        self, prefix: object, start: object = None, end: object = None
+    ) -> bool:
+        raise RuntimeError(f"upstream failure quoting {FAKE_CLIENT_SECRET}")
+
+
+def test_unrouted_outcome_text_is_redacted() -> None:
     """
-    _is_valid, error, _metadata = SourceValidator()._interpret_reddit_outcome(
-        "python", outcome
+    INVARIANT: The unrouted tail strips credentials out of the exception text it renders
+    BREAKS: An exception carrying the client secret becomes a 422 body carrying it —
+            `add_source` wraps this message verbatim, so the response is the exit route
+    """
+    validator = SourceValidator(_reddit_config())
+
+    _is_valid, error, _metadata = validator._interpret_reddit_outcome(
+        "python", RuntimeError(f"unmapped failure quoting {FAKE_CLIENT_SECRET}")
     )
 
     assert error is not None
-    assert FAKE_CLIENT_ID not in error, label
-    assert FAKE_CLIENT_SECRET not in error, label
+    assert error.startswith("Reddit validation error:"), (
+        f"This case must reach the unrouted tail to test it: {error!r}"
+    )
+    assert FAKE_CLIENT_SECRET not in error, error
+    assert "[redacted]" in error
+
+
+def test_network_error_text_is_redacted() -> None:
+    """
+    INVARIANT: The network-failure message strips credentials out of the wrapped cause
+    BREAKS: prawcore hands the whole request — credentials included — to
+            RequestException, and this message renders its original exception
+    """
+    validator = SourceValidator(_reddit_config())
+    outcome = prawcore_exceptions.RequestException(
+        requests.exceptions.ConnectionError(f"refused while sending {FAKE_CLIENT_ID}"),
+        ("post", "https://www.reddit.com/api/v1/access_token"),
+        {"data": FAKE_CLIENT_SECRET},
+    )
+
+    _is_valid, error, _metadata = validator._interpret_reddit_outcome("python", outcome)
+
+    assert error is not None
+    assert error.startswith("Network error contacting Reddit:")
+    assert FAKE_CLIENT_ID not in error, error
+    assert "[redacted]" in error
+
+
+def test_the_blind_except_redacts_what_escapes_into_it() -> None:
+    """
+    INVARIANT: The catch-all in validate_source strips credentials out of the exception
+               text it renders
+    BREAKS: The one message built from text no branch predicted is the one message that
+            can carry anything, including a secret, straight into a 422 body
+    """
+    validator = SourceValidator(_reddit_config())
+
+    is_valid, error, _metadata = validator.validate_source(
+        _HostileURL("reddit://python"), "reddit"
+    )
+
+    assert is_valid is False
+    assert error is not None
+    assert error.startswith("Validation failed:"), (
+        f"This case must reach the catch-all to test it: {error!r}"
+    )
+    assert FAKE_CLIENT_SECRET not in error, error
+    assert "[redacted]" in error
+
+
+def test_redaction_leaves_a_message_alone_when_there_is_no_credential() -> None:
+    """
+    INVARIANT: Redaction removes credential values and nothing else
+    BREAKS: Over-broad redaction eats the diagnostic text, and every failure reads the
+            same to the operator — the collapse this whole path exists to prevent
+    """
+    validator = SourceValidator(_reddit_config())
+
+    assert validator._redact("HTTP 503 from Reddit") == "HTTP 503 from Reddit"
+    assert SourceValidator()._redact(f"carrying {FAKE_CLIENT_SECRET}") == (
+        f"carrying {FAKE_CLIENT_SECRET}"
+    ), "With no config there is no configured value to recognise — say so, don't guess"
 
 
 def test_success_carries_the_prefixed_display_name() -> None:

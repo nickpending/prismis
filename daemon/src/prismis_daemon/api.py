@@ -236,7 +236,16 @@ async def get_validator() -> SourceValidator:
 # applies that budget per connect/read/write phase, so a stalled peer can hold the
 # worker thread well past it. This outer bound is what keeps one slow source from
 # holding an API request open; it fires only when a validator overruns its own budget.
-SOURCE_VALIDATION_TIMEOUT = 30.0
+#
+# It MUST stay strictly below every client's own budget, with room to spare. Both
+# clients currently allow 30 seconds — the CLI through the `timeout` attribute its
+# `PrismisClient` sets in `cli/src/cli/api_client.py`, the TUI through the
+# `ResponseHeaderTimeout` on the transport its `NewClient` builds in
+# `tui/internal/api/client.go`. Tie this value to theirs and the client's clock always
+# expires first, so the operator sees a generic client-side timeout and never the
+# message below that says which source overran. That relationship is enforced by the
+# test named `test_server_validation_budget_stays_under_every_client_budget`.
+SOURCE_VALIDATION_TIMEOUT = 20.0
 
 
 # Configure CORS for local access only

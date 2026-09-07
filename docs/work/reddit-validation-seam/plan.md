@@ -14,7 +14,7 @@ One row per module created or materially changed. Written before implementation.
 | Module (path) | logic \| glue | Test that proves it, or why glue |
 |---|---|---|
 | `daemon/src/prismis_daemon/validator.py` | **logic** | `tests/unit/test_reddit_validation_unit.py` (new) — parse over 5 URL forms, interpret over 8 exception outcomes, the `env:`-placeholder and `None`-config guards. All network-free. |
-| `daemon/src/prismis_daemon/api.py` (`get_validator`) | **logic** | `tests/integration/test_api_integration.py` — SC-11 asserts an unloadable config still yields the `{success,message,data}` envelope for rss/youtube/file adds and name-only PATCHes. The config-failure branch is a decision, not a pass-through, so it is logic. |
+| `daemon/src/prismis_daemon/api.py` (`get_validator`) | **logic** | `tests/integration/test_api_integration.py` — SC-11 (as corrected) asserts `get_validator` returns a validator holding `config=None` rather than propagating the raise, and that the API still refuses authenticated requests inside the envelope. The config-failure branch is a decision, not a pass-through, so it is logic. |
 | `daemon/src/prismis_daemon/api.py` (`add_source` / `update_source` signatures) | **glue** | Holds no independent decision — parameter wiring to `Depends(get_validator)`. Its behaviour is covered transitively by SC-7 and SC-11; a bug here is a type error pyright catches. |
 
 ## Approach
@@ -77,8 +77,9 @@ do work, and we use both:
 
 - `check_for_updates=False` on the `praw.Reddit(...)` call — `praw.Reddit.__init__` calls
   `_check_for_update()`, which reaches `pypi.org` and unpickles a temp file. Verified by
-  execution. `fetchers/reddit.py` does not pass it either; **out of scope here, needs its own
-  handle.**
+  execution. `fetchers/reddit.py` does not pass it either; out of scope here, filed as **gh #67**.
+  (Correction: that pypi call is gated on a class attribute, so it is once per process, not once
+  per fetch cycle.)
 - A custom `requests.Session` passed via `requestor_kwargs`, whose `request()` clamps `timeout`
   to the validator's budget. prawcore passes `timeout=` explicitly on every call, so the clamp
   lands.
@@ -104,10 +105,11 @@ async def get_validator(...) -> SourceValidator:
 Written in the shape of the existing `get_storage` / `get_config` providers. Injected into both
 `add_source` and `update_source` as `Depends(get_validator)`; no inline construction survives.
 
-The `try` is required, not defensive habit: FastAPI resolves dependencies **before** the handler
-body, `api.py` registers handlers only for `APIError` and `RequestValidationError`, so an uncaught
-config raise exits as a bare non-JSON 500 and breaks the envelope the TUI and CLI parse — for
-rss/youtube/file adds that never needed config, and for name-only PATCHes that never validate at all.
+The `try` is defence in depth, and its original justification has been retired: it claimed an
+uncaught config raise would exit as a bare non-JSON 500. It would not — every route resolving
+`get_validator` also carries `Depends(verify_api_key)`, which loads the same config and raises
+`ServerError` first, and that has a registered handler. What survives is the Principle II reason:
+an unloadable config should degrade only the path that needs it.
 
 ## Files
 

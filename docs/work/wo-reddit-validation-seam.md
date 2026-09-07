@@ -65,12 +65,17 @@ at all.
 
 - **Decisions taken before planning (do not re-open):**
   - **D-CONFIG.** `get_validator` catches a `Config.from_file()` failure and passes
-    `config=None`. `api.py` registers exception handlers only for `APIError` and
-    `RequestValidationError`, and FastAPI resolves dependencies before the handler body, so an
-    uncaught config raise leaves as a bare non-JSON 500 and breaks the
-    `{success, message, data}` envelope the TUI and CLI parse. Under Principle II an unloadable
-    config should degrade only the path that needs it; the reddit path then returns its own
-    distinguishable "not configured" message.
+    `config=None`. Under Principle II an unloadable config should degrade only the path that
+    needs it: the reddit path reports itself unconfigured rather than the whole validator
+    failing to construct.
+
+    **Retired premise, recorded so it is not re-derived.** This decision originally cited a
+    bare non-JSON 500 breaking the `{success, message, data}` envelope. That is false. Every
+    route resolving `get_validator` also carries `Depends(verify_api_key)`, which loads the
+    same config and raises `ServerError` first; `ServerError` extends `APIError`, which has a
+    registered handler, so the envelope was never at risk. SC-11's correction established this
+    and the rationale was not updated with it. Keep the `try` as declared defence in depth —
+    the code is right, the old reason for it was not.
   - **D-TIMEOUT.** Bound the PRAW probe to the validator's timeout: override prawcore's 16-second
     default and its 3-attempt retry strategy, and pass `check_for_updates=False` so
     `praw.Reddit.__init__` does not reach `pypi.org` via `update_checker`. Run the blocking probe
@@ -178,7 +183,7 @@ at all.
   fake constants any honest test must contain. A useful fake looks like a real credential —
   that is what makes it useful. Grep cannot tell a fake from a secret, so this criterion checks
   what is actually decidable and leaves entropy-based detection to a real scanner, which this
-  repo does not currently run. **That gap needs its own handle.**
+  repo does not currently run. Filed as **gh #70**.
 - **Verification**:
   ```bash
   cd /Users/rudy/development/projects/prismis
@@ -272,13 +277,23 @@ at all.
 - Restoring the other live-network integration tests (#60) — only the reddit validator tests
   are touched here.
 - The verify chain over the nine pipeline links — separate work.
-- `praw.ini` being read relative to the process CWD (`praw/config.py`), ambient input the
-  conftest XDG seal does not reach. `fetchers/reddit.py` already carries this. **Needs a gh
-  issue before this work order closes** — do not drop it silently.
+- `praw.ini` being read relative to the process CWD, ambient input the conftest XDG seal does
+  not reach. Filed as **gh #69**.
+- `RedditFetcher`'s PRAW client is unbounded and leaves the update check on. Filed as **gh #67**.
+- `RedditFetcher` has no `env:`-placeholder credential guard, so an unconfigured install is told
+  its credentials are invalid — the live sibling of the defect D-ENVGUARD fixed here, on the path
+  that runs every cycle. Filed as **gh #68**.
+- The repo runs no entropy-based secret scanning, which is why SC-8 checks only what grep can
+  decide. Filed as **gh #70**.
 
 ## Approach
 
-[Empty — filled after planning]
+`docs/work/reddit-validation-seam/plan.md`. `_validate_reddit` keeps its name and becomes a
+composition over parse / credential-gate / build-client / probe / interpret. The `about.json`
+request is gone; the probe authenticates through PRAW with the credentials `fetchers/reddit.py`
+already holds. Nine outcomes route to their own messages. `SourceValidator` takes an optional
+`Config`, delivered by a `get_validator` provider written in the shape of `get_storage` and
+`get_config` and injected at both handlers.
 
 ## Verification
 
@@ -325,4 +340,40 @@ XDG_DATA_HOME=$(mktemp -d) PRISMIS_LIVE_NETWORK_TESTS=1 \
 
 ## Outputs
 
-[Empty — filled on completion]
+Landed across `025bb14` and the review round that followed. Counts derived from the tree in the
+pass that wrote them.
+
+**Gate:** `./.specify/verify.sh` exit 0, ten checks covered, no `VERIFY_UNCOVERED` line. Run by
+the runner outside the builder (`verify.ran: true`) and re-run independently here.
+
+**Suites:** daemon 379 passed / 44 skipped / 1 xfailed. `test_reddit_validation_unit.py` holds 35
+tests.
+
+**SC-14 — the plan's HIGH risk, discharged.** `verify.sh` never executes
+`test_validator_integration.py`, so the parse/probe/interpret split could have broken it
+invisibly. Run explicitly with `PRISMIS_LIVE_NETWORK_TESTS=1`: **8 passed, 3 skipped.** The three
+skips need real Reddit credentials. No `AttributeError` or `TypeError` from the refactor.
+
+**Working tree at gate time** (recorded so the question is not reopened): `cli/src/cli/analyze.py`
+and `.gitignore` were last committed at `6a98b8e`, four commits before the build, and `025bb14`
+touched neither. The only untracked entry is the operator's own `daemon/scripts/`.
+
+**Two premises were corrected by execution rather than argument:**
+- SC-11's original form was unsatisfiable *because the system is correct*. `verify_api_key` loads
+  the same config to resolve the expected API key and is a route-level `Security` dependency, so
+  an install that cannot read its config refuses every authenticated request. That is failing
+  closed. The builder returned `blocked` rather than weaken auth, which was the right call.
+- The auth redaction's stated premise was wrong. `tomllib` does not echo file content — four
+  malformed configs were run and every message is line/column only. What reached the response was
+  the absolute config path plus structural detail. Redaction still belongs there: a blanket
+  `str(e)` leaks whatever a future exception on that path carries.
+
+**A bound-enforcing mechanism was itself the largest consumer of the budget.** The single-attempt
+retry strategy added in the first round made prawcore sleep 2–4 seconds *before the first request*
+of every validation, because prawcore sleeps before every attempt and a lowered retry count reads
+as "retries already spent". The configuration-asserting test passed throughout; the measured test
+failed on its first run. This is the case the new `CLAUDE.md` rule was written for, found hours
+after writing it.
+
+**Not proven here.** SC-13 and the success / 404 / 403 discrimination need real Reddit
+credentials, which exist only on cerebro. Three skips in the SC-14 run are exactly those.

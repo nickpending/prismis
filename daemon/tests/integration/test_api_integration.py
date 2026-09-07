@@ -2,13 +2,16 @@
 
 import asyncio
 import os
+import re
 import time
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from prismis_daemon import api
 from prismis_daemon.api import app, get_validator
+from prismis_daemon.auth import CONFIG_UNAVAILABLE_MESSAGE
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
 from prismis_daemon.validator import REDDIT_NOT_CONFIGURED
@@ -57,19 +60,19 @@ def test_api_auth_required(api_client: TestClient) -> None:
 
 @pytest.mark.skipif(
     not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Hits live third-party endpoints, and Reddit now 403s every unauthenticated "
-    "about.json request so validation fails for any subreddit (gh #59). "
-    "Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
+    reason="Adds sources through POST /api/sources, which validates the rss row against "
+    "a live third-party feed. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
 )
 def test_url_normalization(api_client: TestClient, test_db: Path) -> None:
     """
     INVARIANT: Special protocol URLs must be normalized to real URLs
     BREAKS: Fetchers expect real URLs, not protocol URLs
+    NOTE: The reddit rows moved to the companion test below. Reddit validation now needs
+          credentials, so on a host without them the credential gate refuses the source
+          and the add returns a 422 — which would read here as a normalization failure.
     """
     test_cases = [
         # (input_url, type, expected_normalized)  # noqa: ERA001 - prose, not code
-        ("reddit://rust", "reddit", "https://www.reddit.com/r/rust"),
-        ("reddit://python", "reddit", "https://www.reddit.com/r/python"),
         (
             "youtube://UC_x5XG1OV2P6uZZ5FSM9Ttw",
             "youtube",
@@ -98,6 +101,47 @@ def test_url_normalization(api_client: TestClient, test_db: Path) -> None:
         assert data["data"]["url"] == expected_url, f"Failed to normalize {input_url}"
 
         # Verify database stores normalized URL
+        storage = Storage(test_db)
+        sources = storage.get_all_sources()
+        source = next((s for s in sources if s["id"] == data["data"]["id"]), None)
+        assert source is not None
+        assert source["url"] == expected_url, "Database should store normalized URL"
+
+
+@pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS")
+    or not os.environ.get("REDDIT_CLIENT_ID")
+    or not os.environ.get("REDDIT_CLIENT_SECRET"),
+    reason="Adds reddit sources through POST /api/sources, which now probes Reddit's "
+    "authenticated API. Set PRISMIS_LIVE_NETWORK_TESTS=1 and BOTH REDDIT_CLIENT_ID and "
+    "REDDIT_CLIENT_SECRET to run.",
+)
+def test_url_normalization_reddit(api_client: TestClient, test_db: Path) -> None:
+    """
+    INVARIANT: reddit:// URLs are normalized to real URLs on the way into the database
+    BREAKS: The fetcher gets a protocol URL it cannot resolve
+    NOTE: Split from the test above because these rows need credentials as well as
+          network. The stored name comes from the subreddit's own prefixed display name,
+          which is why the URL rather than the name is what is asserted here.
+    """
+    test_cases = [
+        # (input_url, expected_normalized)  # noqa: ERA001 - prose, not code
+        ("reddit://rust", "https://www.reddit.com/r/rust"),
+        ("reddit://python", "https://www.reddit.com/r/python"),
+    ]
+
+    for input_url, expected_url in test_cases:
+        response = api_client.post(
+            "/api/sources",
+            json={"url": input_url, "type": "reddit"},
+            headers={"X-API-Key": TEST_API_KEY},
+        )
+
+        assert response.status_code == 200, f"Failed for {input_url}: {response.json()}"
+        data = response.json()
+        assert data["success"] is True
+        assert data["data"]["url"] == expected_url, f"Failed to normalize {input_url}"
+
         storage = Storage(test_db)
         sources = storage.get_all_sources()
         source = next((s for s in sources if s["id"] == data["data"]["id"]), None)
@@ -444,7 +488,9 @@ def test_validator_dependency_degrades_when_config_will_not_load(
     )
     assert is_valid is True, f"File validation needs no config: {error}"
 
-    is_valid, error, _metadata = validator.validate_source("youtube://@mkbhd", "youtube")
+    is_valid, error, _metadata = validator.validate_source(
+        "youtube://@mkbhd", "youtube"
+    )
     assert is_valid is True, f"YouTube validation needs no config: {error}"
 
     is_valid, error, _metadata = validator.validate_source("reddit://python", "reddit")
@@ -470,8 +516,15 @@ def test_unloadable_config_fails_closed_inside_the_envelope(
           `daemon/src/prismis_daemon/auth.py` is a route-level Security dependency and
           refuses first, whatever the source type. Failing closed is the answer; making
           these adds succeed would mean changing where the key comes from.
+
+          The message is asserted whole rather than by keyword. A substring check passes
+          for any failure that happens to mention configuration, including one that
+          reached the body by rendering the underlying exception — which is what used to
+          happen, and what put the absolute config path in front of a caller holding no
+          valid key.
     """
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
+    config_home = tmp_path / "empty"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
     client = TestClient(app)
 
     for payload in (
@@ -494,4 +547,92 @@ def test_unloadable_config_fails_closed_inside_the_envelope(
             f"{payload['type']}: envelope must survive an unloadable config: {body}"
         )
         assert body["success"] is False
-        assert "configuration" in body["message"].lower()
+        assert body["message"] == CONFIG_UNAVAILABLE_MESSAGE, (
+            f"{payload['type']}: the refusal must say only that the config would not "
+            f"load, got: {body['message']!r}"
+        )
+        assert str(config_home) not in body["message"], (
+            "The config path is internal detail and the caller holds no valid key"
+        )
+
+
+def test_slow_validation_is_refused_rather_than_held_open(
+    api_client: TestClient,
+    test_db: Path,
+    hung_peer: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    INVARIANT: A validation that outruns the server budget comes back as a 422 naming
+               the timeout, not as a request held open until something else gives up
+    BREAKS: A source whose host accepts and never answers holds an API request for as
+            long as the validator will wait, and the operator gets whatever their own
+            client does on timeout — which names nothing
+
+    NOTE: The budget is lowered for the test, not the slowness faked: the peer is a real
+          listener this test owns that accepts and never answers, so the validator does
+          block. Waiting out the real budget would put twenty seconds in the gate to
+          prove a branch that does not depend on the number.
+
+          What proves the outer bound fired is the message. The validator's own timeout
+          answers with "Request timed out after 5 seconds" and only this branch says
+          "Source validation timed out", so the two cannot be confused. Elapsed time
+          cannot serve here: the outer bound stops the waiting but cannot kill the
+          worker thread, and TestClient does not return until that thread drains, so
+          this test takes about five seconds while the daemon's own request log records
+          the answer in tens of milliseconds.
+    """
+    monkeypatch.setattr(api, "SOURCE_VALIDATION_TIMEOUT", 0.05)
+    storage = Storage(test_db)
+    initial_count = len(storage.get_all_sources())
+
+    response = api_client.post(
+        "/api/sources",
+        json={"url": f"http://{hung_peer}/feed.xml", "type": "rss"},
+        headers={"X-API-Key": TEST_API_KEY},
+    )
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["success"] is False
+    assert "Source validation timed out" in body["message"], (
+        "Only the outer bound emits this. Anything else means the validator's own "
+        f"timeout answered and the branch under test never ran: {body['message']!r}"
+    )
+    assert len(storage.get_all_sources()) == initial_count, "Nothing may be stored"
+
+
+def test_server_validation_budget_stays_under_every_client_budget() -> None:
+    """
+    INVARIANT: The server's validation budget leaves headroom under every client's
+    BREAKS: The client's clock expires first, so the daemon's message — the only one
+            that names which source overran — can never reach an operator. Tying the two
+            to the same number is what makes the timeout branch above dead in production
+            while still passing its own test
+
+    NOTE: This reads the client sources rather than restating their values, so an edit
+          on either side lands here instead of going unnoticed. If a pattern below stops
+          matching, the budget it guarded is unknown, and unknown fails.
+    """
+    root = Path(__file__).parents[3]
+    cli_source = (root / "cli/src/cli/api_client.py").read_text()
+    tui_source = (root / "tui/internal/api/client.go").read_text()
+
+    cli_match = re.search(r"httpx\.Timeout\(\s*([\d.]+)", cli_source)
+    tui_match = re.search(
+        r"ResponseHeaderTimeout:\s*(\d+)\s*\*\s*time\.Second", tui_source
+    )
+
+    assert cli_match, "Could not find the CLI's httpx.Timeout — re-derive the budget"
+    assert tui_match, (
+        "Could not find the TUI's ResponseHeaderTimeout — re-derive the budget"
+    )
+
+    smallest_client_budget = min(float(cli_match.group(1)), float(tui_match.group(1)))
+
+    assert api.SOURCE_VALIDATION_TIMEOUT + 5.0 <= smallest_client_budget, (
+        f"Server budget {api.SOURCE_VALIDATION_TIMEOUT}s leaves less than 5s under the "
+        f"smallest client budget {smallest_client_budget}s. The daemon needs time to "
+        "build and send its answer after the budget expires, or the client times out "
+        "first and the answer is never seen"
+    )

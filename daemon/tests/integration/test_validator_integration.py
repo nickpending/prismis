@@ -1,6 +1,11 @@
 """Integration tests for SourceValidator - real network validation.
 
-Two gates guard this file, and they are not the same gate. PRISMIS_LIVE_NETWORK_TESTS
+Some tests here are ungated and run in the gate. They are not exceptions to the rule
+below: a socket this suite opens on loopback and controls for the length of one test is
+not a third party, and a bound proven against one is proven, where the same bound read
+back off the object that just set it is not.
+
+Two gates guard the rest, and they are not the same gate. PRISMIS_LIVE_NETWORK_TESTS
 covers everything here that reaches a third party. Reddit credentials are a second,
 narrower requirement, and both variables are checked wherever they are needed: the
 suite's XDG seal means credentials reach these tests only through the environment, so
@@ -13,6 +18,7 @@ Reddit — while the tests that prove a subreddit's own state need working ones.
 """
 
 import os
+import time
 
 import pytest
 
@@ -250,4 +256,91 @@ def test_reddit_private_subreddit_handling() -> None:
     assert error is not None, "Should have error message"
     assert "private or quarantined" in error, (
         f"An inaccessible subreddit must be named as such: {error}"
+    )
+
+
+def test_validate_source_routes_a_real_probe_failure(
+    hung_peer: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    INVARIANT: A probe that raises comes back out of the PUBLIC method as the routed
+               message for its cause, not as the blind except's generic string
+    BREAKS: The composition between the probe and the mapping is where every routed
+            message is either delivered or swallowed. Proving the mapping in isolation
+            says nothing about it — validate_source wraps the whole dispatch in a catch
+            that turns any escape into one identical "Validation failed" for every cause
+    NOTE: Ungated and third-party-free. The failure is real, not simulated: the probe
+          opens a real socket to a listener this test owns, which accepts and then never
+          answers, so prawcore raises its own RequestException the way a stalled peer
+          makes it.
+    """
+    monkeypatch.setenv("HTTP_PROXY", f"http://{hung_peer}")
+    monkeypatch.setenv("HTTPS_PROXY", f"http://{hung_peer}")
+    monkeypatch.setenv("NO_PROXY", "")
+
+    validator = SourceValidator(
+        make_config(
+            reddit_client_id="prismis-not-a-real-client-id",
+            reddit_client_secret="prismis-not-a-real-client-secret",
+        )
+    )
+    validator.timeout = 1.0
+
+    is_valid, error, metadata = validator.validate_source(
+        "https://reddit.com/r/python", "reddit"
+    )
+
+    assert is_valid is False
+    assert metadata is None
+    assert error is not None
+    assert error.startswith("Network error contacting Reddit:"), (
+        f"A raised probe must arrive as its own routed message, got: {error!r}"
+    )
+    assert not error.startswith("Validation failed:"), (
+        "The blind except in validate_source swallowed a routed outcome — every cause "
+        "would reach the operator as one string"
+    )
+
+
+def test_reddit_probe_is_cut_off_at_the_validators_budget(
+    hung_peer: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    INVARIANT: A peer that accepts and never answers is cut off at
+               SourceValidator.timeout, measured, not configured
+    BREAKS: prawcore's own 16-second default applies instead, and the docstring's
+            5-second promise is fiction on the path that most needs it
+    NOTE: Asserting the values the builder just set proves the builder ran, not that
+          anything is bounded. This waits on a real socket and reads the clock.
+          What is bounded is each socket operation, not total elapsed time — requests
+          turns a float timeout into a urllib3 Timeout with connect and read both set to
+          it — so the upper bound below allows for more than one capped operation while
+          staying far under the 16 seconds this transport exists to displace.
+    """
+    monkeypatch.setenv("HTTP_PROXY", f"http://{hung_peer}")
+    monkeypatch.setenv("HTTPS_PROXY", f"http://{hung_peer}")
+    monkeypatch.setenv("NO_PROXY", "")
+
+    validator = SourceValidator(
+        make_config(
+            reddit_client_id="prismis-not-a-real-client-id",
+            reddit_client_secret="prismis-not-a-real-client-secret",
+        )
+    )
+    validator.timeout = 1.0
+
+    started = time.monotonic()
+    is_valid, error, _metadata = validator.validate_source("reddit://python", "reddit")
+    elapsed = time.monotonic() - started
+
+    assert is_valid is False
+    assert error is not None
+    assert elapsed >= validator.timeout * 0.8, (
+        f"Returned in {elapsed:.2f}s — too fast to have waited on the socket at all, so "
+        "this measured something other than the timeout"
+    )
+    assert elapsed < validator.timeout * 2, (
+        f"Took {elapsed:.2f}s against a {validator.timeout}s budget. Either the clamp "
+        "did not reach the request, leaving prawcore's 16-second default in force, or "
+        "something is sleeping before the request the budget is supposed to cover"
     )

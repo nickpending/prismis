@@ -24,15 +24,27 @@ REDDIT_NOT_CONFIGURED = (
 
 
 class _SingleAttemptRetry(FiniteRetryStrategy):
-    """prawcore's retry strategy fixed at one attempt.
+    """prawcore's retry strategy reduced to one attempt that never sleeps.
 
     prawcore sleeps for up to several seconds between its three default attempts, and
-    that sleep sits outside the session where this validator's deadline is enforced. The
-    only way the stated budget holds is for there to be nothing to sleep between.
+    that sleep sits outside the session where this validator's deadline is enforced, so
+    the budget only holds if there is nothing to sleep between.
+
+    The two hooks are the whole mechanism; the inherited retry count is left alone on
+    purpose. Lowering that count is what an earlier version of this did, and it made
+    matters worse rather than better: prawcore calls sleep() before every attempt
+    including the first, and its own strategy returns nothing there only while the
+    counter still sits at the initial 3, so a lower count reads to it as retries already
+    spent and it sleeps two to four seconds before the first request is even made.
+    Measured, not reasoned — the test named
+    `test_reddit_probe_is_cut_off_at_the_validators_budget` is what caught it.
     """
 
-    def __init__(self, retries: int = 1) -> None:
-        super().__init__(retries=min(retries, 1))
+    def _sleep_seconds(self) -> float | None:
+        return None
+
+    def should_retry_on_failure(self) -> bool:
+        return False
 
 
 class _DeadlineAdapter(HTTPAdapter):
@@ -44,6 +56,16 @@ class _DeadlineAdapter(HTTPAdapter):
     place the validator's own budget can be imposed on the request itself. The deadline
     spans the whole probe rather than each request, because one probe costs two calls:
     the access token, then the subreddit.
+
+    What this guarantees, exactly. No request starts after the deadline — that refusal
+    is absolute. Each socket operation is capped at whatever is left, because requests
+    turns a float timeout into a urllib3 Timeout with connect and read both set to it,
+    so a peer that accepts and never answers is cut off at the budget. What it does not
+    guarantee is total elapsed time: connect and read are separate caps rather than one,
+    and urllib3's read timeout measures the gap between reads rather than the whole
+    response, so a peer trickling bytes can outlive the budget. Bounding that would take
+    a reader that watches the clock, which is a different mechanism from this one; the
+    outer bound at the API call site is what covers it today.
     """
 
     def __init__(self, budget: float) -> None:
@@ -112,6 +134,35 @@ class SourceValidator:
         self.user_agent = "Prismis/1.0 (Content Aggregator)"
         self.config = config
 
+    def _redact(self, message: str) -> str:
+        """Strip this validator's own credential values out of a message.
+
+        Every message returned from here reaches an HTTP response body, because
+        `add_source` wraps it in a ValidationError that leaves as a 422. Several of the
+        messages are built from arbitrary exception text, and an exception raised
+        anywhere under PRAW can carry the value it was authenticating with. The
+        constitution's Security Requirements put secrets out of responses without
+        qualification, so the redaction sits at the point where the message is made
+        rather than at the outcomes currently known to carry one.
+
+        Only the values this validator was handed can be removed. A credential arriving
+        by a route the validator cannot see — PRAW reads a praw.ini relative to the
+        process working directory — is not reachable from here.
+
+        Args:
+            message: The message about to be returned to a caller
+
+        Returns:
+            The message with any configured credential value replaced
+        """
+        config = self.config
+        if config is None:
+            return message
+        for secret in (config.reddit_client_id, config.reddit_client_secret):
+            if secret and not secret.startswith("env:"):
+                message = message.replace(secret, "[redacted]")
+        return message
+
     def validate_source(
         self, url: str, source_type: str
     ) -> tuple[bool, str | None, dict | None]:
@@ -139,7 +190,7 @@ class SourceValidator:
             else:
                 return False, f"Unknown source type: {source_type}", None
         except Exception as e:
-            return False, f"Validation failed: {str(e)}", None
+            return False, self._redact(f"Validation failed: {str(e)}"), None
 
     def _validate_rss(self, url: str) -> tuple[bool, str | None, dict | None]:
         """Validate an RSS/Atom feed URL.
@@ -178,7 +229,7 @@ class SourceValidator:
                 # Only fail if there are no entries at all
                 if not hasattr(feed, "entries") or len(feed.entries) == 0:
                     error = getattr(feed, "bozo_exception", "Invalid RSS/Atom feed")
-                    return False, f"Invalid feed format: {error}", None
+                    return False, self._redact(f"Invalid feed format: {error}"), None
 
             # Check if feed has entries
             if not hasattr(feed, "entries"):
@@ -194,9 +245,9 @@ class SourceValidator:
         except httpx.TimeoutException:
             return False, "Request timed out after 5 seconds", None
         except httpx.RequestError as e:
-            return False, f"Network error: {str(e)}", None
+            return False, self._redact(f"Network error: {str(e)}"), None
         except Exception as e:
-            return False, f"RSS validation error: {str(e)}", None
+            return False, self._redact(f"RSS validation error: {str(e)}"), None
 
     def _validate_reddit(self, url: str) -> tuple[bool, str | None, dict | None]:
         """Validate a Reddit subreddit URL against Reddit's authenticated API.
@@ -355,6 +406,13 @@ class SourceValidator:
             return False, f"Subreddit r/{name} is unavailable for legal reasons", None
         if isinstance(outcome, prawcore_exceptions.TooManyRequests):
             return False, "Reddit rate limit exceeded - try again later", None
+        if isinstance(outcome, prawcore_exceptions.OAuthException):
+            # Reddit answers a refused client id or secret with HTTP 200 and an `error`
+            # key in the token payload, which prawcore's authorizer turns into this
+            # exception. It descends from PrawcoreException directly rather than from
+            # ResponseException, so the status check below cannot see it, and without
+            # this branch a refused credential reports as a generic API error.
+            return False, "Reddit credentials are invalid or expired", None
         if isinstance(outcome, prawcore_exceptions.ResponseException):
             status = outcome.response.status_code
             if status == 401:
@@ -363,13 +421,23 @@ class SourceValidator:
         if isinstance(outcome, prawcore_exceptions.RequestException):
             return (
                 False,
-                f"Network error contacting Reddit: {outcome.original_exception}",
+                self._redact(
+                    f"Network error contacting Reddit: {outcome.original_exception}"
+                ),
                 None,
             )
         if isinstance(outcome, prawcore_exceptions.PrawcoreException):
             return False, f"Reddit API error: {type(outcome).__name__}", None
+        if isinstance(outcome, KeyError):
+            # prawcore signals two credential failures without raising an exception of
+            # its own. Its authorization-error mapping is keyed on 403 and two OAuth
+            # error strings and holds no 401, so a 401 carrying no www-authenticate
+            # header makes that lookup raise a bare KeyError; and a token response
+            # missing the fields the authorizer reads raises the same on the payload.
+            # Both are the handshake failing to yield a usable token.
+            return False, "Reddit credentials are invalid or expired", None
 
-        return False, f"Reddit validation error: {str(outcome)}", None
+        return False, self._redact(f"Reddit validation error: {str(outcome)}"), None
 
     def _validate_youtube(self, url: str) -> tuple[bool, str | None, dict | None]:
         """Validate a YouTube channel/user URL.
@@ -428,7 +496,7 @@ class SourceValidator:
             return False, "Invalid YouTube channel URL format", None
 
         except Exception as e:
-            return False, f"YouTube validation error: {str(e)}", None
+            return False, self._redact(f"YouTube validation error: {str(e)}"), None
 
     def _validate_file(self, url: str) -> tuple[bool, str | None, dict | None]:
         """Validate a file URL for text/markdown content.
@@ -459,4 +527,4 @@ class SourceValidator:
             return True, None, None
 
         except Exception as e:
-            return False, f"File validation error: {str(e)}", None
+            return False, self._redact(f"File validation error: {str(e)}"), None

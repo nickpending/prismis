@@ -1,5 +1,6 @@
 """Integration tests for REST API - protecting invariants and handling failures."""
 
+import asyncio
 import os
 import time
 from pathlib import Path
@@ -7,9 +8,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from prismis_daemon.api import app
+from prismis_daemon.api import app, get_validator
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
+from prismis_daemon.validator import REDDIT_NOT_CONFIGURED
 from conftest import TEST_API_KEY
 
 
@@ -339,3 +341,157 @@ def test_api_performance(api_client: TestClient, test_db: Path) -> None:
     )
     # POST with real validation might take up to 10 seconds
     assert operations[1][1] < 10, f"POST took {operations[1][1]:.1f}s, should be <10s"
+
+
+def test_add_file_source_end_to_end(api_client: TestClient, test_db: Path) -> None:
+    """
+    INVARIANT: POST /api/sources creates a source that reads back from the database
+    BREAKS: The endpoint's own wiring — normalization, validation, storage, response —
+            is unproven, and a break in it is only found by a user adding a source
+
+    NOTE: A file source is what makes this deterministic. Its validation is an extension
+          check and a scheme check, so the test asserts the endpoint rather than a third
+          party's uptime, and it does so without standing anything in for the validator,
+          the storage layer or the client.
+    """
+    storage = Storage(test_db)
+    initial_count = len(storage.get_all_sources())
+
+    response = api_client.post(
+        "/api/sources",
+        json={
+            "url": "https://example.com/notes/reading-list.md",
+            "type": "file",
+            "name": "Reading list",
+        },
+        headers={"X-API-Key": TEST_API_KEY},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["type"] == "file"
+    assert body["data"]["url"] == "https://example.com/notes/reading-list.md"
+    assert body["data"]["name"] == "Reading list"
+    source_id = body["data"]["id"]
+
+    stored = storage.get_all_sources()
+    assert len(stored) == initial_count + 1, "The source must reach the database"
+    created = next(s for s in stored if s["id"] == source_id)
+    assert created["url"] == "https://example.com/notes/reading-list.md"
+    assert created["type"] == "file"
+    assert created["name"] == "Reading list"
+
+    listed = api_client.get("/api/sources", headers={"X-API-Key": TEST_API_KEY}).json()
+    assert any(s["id"] == source_id for s in listed["data"]["sources"]), (
+        "A created source must be readable back through the API"
+    )
+
+
+def test_add_file_source_rejects_an_unsupported_extension(
+    api_client: TestClient, test_db: Path
+) -> None:
+    """
+    INVARIANT: The endpoint refuses a file URL the fetcher cannot read
+    BREAKS: An unreadable source enters the database and fails every fetch cycle after
+
+    NOTE: This is the other half of the pair above — a deterministic rejection through
+          the same path, which is what proves the success case was decided rather than
+          merely defaulted to.
+    """
+    storage = Storage(test_db)
+    initial_count = len(storage.get_all_sources())
+
+    response = api_client.post(
+        "/api/sources",
+        json={"url": "https://example.com/notes/reading-list.pdf", "type": "file"},
+        headers={"X-API-Key": TEST_API_KEY},
+    )
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["success"] is False
+    assert "validation failed" in body["message"].lower()
+    assert len(storage.get_all_sources()) == initial_count, "Nothing may be stored"
+
+
+def test_validator_dependency_degrades_when_config_will_not_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    INVARIANT: A config that will not load leaves non-reddit validation working and the
+               reddit path reporting its own distinguishable "not configured"
+    BREAKS: One unloadable config takes down validation for source types that never
+            needed a config, and reddit reports credentials as invalid on a machine that
+            has none
+
+    NOTE: The provider is where this behaviour lives, so the provider is what this
+          exercises. It is not reachable through an endpoint on such an install and is
+          not meant to be: the `verify_api_key` guard in
+          `daemon/src/prismis_daemon/auth.py` loads the same config to resolve the
+          expected API key and is a route-level Security dependency, so the request is
+          refused before any handler dependency resolves. The companion test below holds
+          that refusal in place deliberately.
+    """
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
+
+    validator = asyncio.run(get_validator())
+
+    assert validator.config is None, "An unloadable config must degrade, not propagate"
+
+    is_valid, error, _metadata = validator.validate_source(
+        "https://example.com/notes.md", "file"
+    )
+    assert is_valid is True, f"File validation needs no config: {error}"
+
+    is_valid, error, _metadata = validator.validate_source("youtube://@mkbhd", "youtube")
+    assert is_valid is True, f"YouTube validation needs no config: {error}"
+
+    is_valid, error, _metadata = validator.validate_source("reddit://python", "reddit")
+    assert is_valid is False
+    assert error == REDDIT_NOT_CONFIGURED, (
+        f"Reddit must name the absent config, not blame the credentials: {error!r}"
+    )
+
+
+def test_unloadable_config_fails_closed_inside_the_envelope(
+    test_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    INVARIANT: An install whose config will not load refuses every authenticated
+               request, and refuses it inside the {success, message, data} envelope
+    BREAKS: Either half is a defect. Serving the request means an install that cannot
+            know its expected API key accepted one anyway; losing the envelope means the
+            TUI and CLI get a body they cannot parse and show nothing actionable
+
+    NOTE: The refusal is the correct posture and must not be "fixed". The expected API
+          key comes from the same config, so an install that cannot load it cannot know
+          what to compare against — the `verify_api_key` guard in
+          `daemon/src/prismis_daemon/auth.py` is a route-level Security dependency and
+          refuses first, whatever the source type. Failing closed is the answer; making
+          these adds succeed would mean changing where the key comes from.
+    """
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
+    client = TestClient(app)
+
+    for payload in (
+        {"url": "https://example.com/notes.md", "type": "file"},
+        {"url": "youtube://@mkbhd", "type": "youtube"},
+    ):
+        response = client.post(
+            "/api/sources", json=payload, headers={"X-API-Key": TEST_API_KEY}
+        )
+
+        assert response.status_code >= 400, (
+            f"{payload['type']}: an install that cannot resolve its own API key must "
+            f"refuse the request, not serve it (got {response.status_code})"
+        )
+        assert response.headers["content-type"].startswith("application/json"), (
+            f"{payload['type']}: response must stay JSON"
+        )
+        body = response.json()
+        assert set(body) == {"success", "message", "data"}, (
+            f"{payload['type']}: envelope must survive an unloadable config: {body}"
+        )
+        assert body["success"] is False
+        assert "configuration" in body["message"].lower()

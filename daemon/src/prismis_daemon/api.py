@@ -213,6 +213,32 @@ async def get_config() -> Config:
     return Config.from_file()
 
 
+# Dependency injection for SourceValidator
+async def get_validator() -> SourceValidator:
+    """Dependency injection for SourceValidator instances.
+
+    A config that will not load degrades only the path that needs it. FastAPI resolves
+    dependencies before the handler body runs and this module registers handlers for
+    APIError and RequestValidationError only, so a load failure escaping here would
+    leave as a bare non-JSON 500 and break the envelope the TUI and CLI parse — for rss,
+    youtube and file sources that never needed a config, and for renames that never
+    validate anything. Passing None instead lets the reddit path say what is actually
+    wrong.
+    """
+    try:
+        config = Config.from_file()
+    except Exception:
+        config = None
+    return SourceValidator(config)
+
+
+# The validators bound their own network calls at SourceValidator.timeout, but httpx
+# applies that budget per connect/read/write phase, so a stalled peer can hold the
+# worker thread well past it. This outer bound is what keeps one slow source from
+# holding an API request open; it fires only when a validator overruns its own budget.
+SOURCE_VALIDATION_TIMEOUT = 30.0
+
+
 # Configure CORS for local access only
 app.add_middleware(
     CORSMiddleware,
@@ -407,7 +433,9 @@ def deduplicate_content(
     "/api/sources", response_model=APIResponse, dependencies=[Depends(verify_api_key)]
 )
 async def add_source(
-    request: SourceRequest, storage: Storage = Depends(get_storage)
+    request: SourceRequest,
+    storage: Storage = Depends(get_storage),
+    validator: SourceValidator = Depends(get_validator),
 ) -> APIResponse:
     """Add a new content source.
 
@@ -422,11 +450,19 @@ async def add_source(
         if not name:
             name = extract_name_from_url(normalized_url, request.type)
 
-        # Validate the source
-        validator = SourceValidator()
-        is_valid, error_msg, metadata = validator.validate_source(
-            normalized_url, request.type
-        )
+        # Validate the source off the event loop — validate_source blocks on network
+        try:
+            is_valid, error_msg, metadata = await asyncio.wait_for(
+                asyncio.to_thread(
+                    validator.validate_source, normalized_url, request.type
+                ),
+                timeout=SOURCE_VALIDATION_TIMEOUT,
+            )
+        except TimeoutError as e:
+            raise ValidationError(
+                f"Source validation timed out after "
+                f"{SOURCE_VALIDATION_TIMEOUT:.0f} seconds"
+            ) from e
 
         if not is_valid:
             raise ValidationError(f"Source validation failed: {error_msg}")
@@ -499,6 +535,7 @@ async def update_source(
     source_id: str,
     request: SourceRequest,
     storage: Storage = Depends(get_storage),
+    validator: SourceValidator = Depends(get_validator),
 ) -> APIResponse:
     """Update a content source (name and/or URL).
 
@@ -520,11 +557,19 @@ async def update_source(
             # Normalize the new URL
             normalized_url = normalize_source_url(request.url, request.type)
 
-            # Validate the new URL
-            validator = SourceValidator()
-            is_valid, error_msg, metadata = validator.validate_source(
-                normalized_url, request.type
-            )
+            # Validate off the event loop — validate_source blocks on network
+            try:
+                is_valid, error_msg, metadata = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        validator.validate_source, normalized_url, request.type
+                    ),
+                    timeout=SOURCE_VALIDATION_TIMEOUT,
+                )
+            except TimeoutError as e:
+                raise ValidationError(
+                    f"Source validation timed out after "
+                    f"{SOURCE_VALIDATION_TIMEOUT:.0f} seconds"
+                ) from e
 
             if not is_valid:
                 raise ValidationError(f"Source validation failed: {error_msg}")

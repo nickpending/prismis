@@ -1,4 +1,16 @@
-"""Integration tests for SourceValidator - real network validation."""
+"""Integration tests for SourceValidator - real network validation.
+
+Two gates guard this file, and they are not the same gate. PRISMIS_LIVE_NETWORK_TESTS
+covers everything here that reaches a third party. Reddit credentials are a second,
+narrower requirement, and both variables are checked wherever they are needed: the
+suite's XDG seal means credentials reach these tests only through the environment, so
+setting one of the pair un-skips a test that then fails on a 401 and reads as a broken
+subreddit rather than a half-set environment.
+
+Refusing a credential and never having one are different answers, so the test that
+proves the first needs no secret at all — garbage credentials earn a real 401 from
+Reddit — while the tests that prove a subreddit's own state need working ones.
+"""
 
 import os
 
@@ -6,13 +18,33 @@ import pytest
 
 from prismis_daemon.validator import SourceValidator
 
+from conftest import make_config
 
-@pytest.mark.skipif(
+LIVE_NETWORK = pytest.mark.skipif(
     not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Hits live third-party endpoints, and Reddit now 403s every unauthenticated "
-    "about.json request so validation fails for any subreddit (gh #59). "
-    "Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
+    reason="Hits live third-party endpoints. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
 )
+
+LIVE_REDDIT = pytest.mark.skipif(
+    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS")
+    or not os.environ.get("REDDIT_CLIENT_ID")
+    or not os.environ.get("REDDIT_CLIENT_SECRET"),
+    reason="Hits Reddit's authenticated API. Set PRISMIS_LIVE_NETWORK_TESTS=1 and BOTH "
+    "REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET to run.",
+)
+
+
+def reddit_validator() -> SourceValidator:
+    """Build a validator carrying the credentials the environment supplies."""
+    return SourceValidator(
+        make_config(
+            reddit_client_id=os.environ["REDDIT_CLIENT_ID"],
+            reddit_client_secret=os.environ["REDDIT_CLIENT_SECRET"],
+        )
+    )
+
+
+@LIVE_NETWORK
 def test_valid_sources_accepted() -> None:
     """
     INVARIANT: Known-good sources must always validate as true
@@ -27,11 +59,6 @@ def test_valid_sources_accepted() -> None:
     assert is_valid is True, f"Simon Willison's feed should be valid: {error}"
     assert error is None, "Valid feed should have no error"
 
-    # Test well-known Reddit subreddit
-    is_valid, error, _metadata = validator.validate_source("https://reddit.com/r/python", "reddit")
-    assert is_valid is True, f"r/python should be valid: {error}"
-    assert error is None, "Valid subreddit should have no error"
-
     # Test well-known YouTube channel formats
     youtube_urls = [
         "https://youtube.com/@mkbhd",
@@ -45,12 +72,7 @@ def test_valid_sources_accepted() -> None:
         assert error is None, f"Valid YouTube URL should have no error: {url}"
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Hits live third-party endpoints, and Reddit now 403s every unauthenticated "
-    "about.json request so validation fails for any subreddit (gh #59). "
-    "Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
-)
+@LIVE_NETWORK
 def test_invalid_sources_rejected() -> None:
     """
     INVARIANT: Invalid sources must be rejected with clear errors
@@ -68,16 +90,6 @@ def test_invalid_sources_rejected() -> None:
         "Should explain network failure"
     )
 
-    # Test non-existent subreddit
-    is_valid, error, _metadata = validator.validate_source(
-        "https://reddit.com/r/this_subreddit_definitely_does_not_exist_12345", "reddit"
-    )
-    assert is_valid is False, "Non-existent subreddit should fail"
-    assert error is not None, "Should have error message"
-    assert "does not exist" in error or "Invalid" in error, (
-        "Should explain subreddit doesn't exist"
-    )
-
     # Test invalid YouTube URL (video instead of channel)
     is_valid, error, _metadata = validator.validate_source(
         "https://youtube.com/watch?v=dQw4w9WgXcQ", "youtube"
@@ -89,12 +101,7 @@ def test_invalid_sources_rejected() -> None:
     )
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Hits live third-party endpoints, and Reddit now 403s every unauthenticated "
-    "about.json request so validation fails for any subreddit (gh #59). "
-    "Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
-)
+@LIVE_NETWORK
 def test_network_timeout_handling() -> None:
     """
     FAILURE MODE: Network timeouts must fail gracefully
@@ -118,41 +125,7 @@ def test_network_timeout_handling() -> None:
     validator.timeout = 5.0
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Hits live third-party endpoints, and Reddit now 403s every unauthenticated "
-    "about.json request so validation fails for any subreddit (gh #59). "
-    "Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
-)
-def test_reddit_rate_limit_handling() -> None:
-    """
-    FAILURE MODE: Reddit rate limiting (429) must be handled
-    GRACEFUL: Clear message about rate limiting
-    NOTE: This test uses httpbin.org/status/429 to simulate a 429 response
-    """
-    validator = SourceValidator()
-
-    # Test with an endpoint that returns 429 status
-    # httpbin.org is a testing service that returns specific status codes
-    is_valid, error, _metadata = validator._validate_reddit("https://httpbin.org/status/429")
-
-    # The validator should handle non-Reddit URLs gracefully
-    # In production, Reddit returns 429 when rate limited
-    # For now, we verify the code handles unexpected responses
-    assert is_valid is False, "Non-Reddit URL should fail validation"
-    assert error is not None, "Should have error message"
-
-    # Alternative: Test with a subreddit that might trigger rate limiting
-    # This is less reliable but tests the actual Reddit API path
-    # Skipping to avoid hitting real Reddit API rate limits in CI
-
-
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Hits live third-party endpoints, and Reddit now 403s every unauthenticated "
-    "about.json request so validation fails for any subreddit (gh #59). "
-    "Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
-)
+@LIVE_NETWORK
 def test_malformed_rss_handling() -> None:
     """
     FAILURE MODE: Malformed RSS/XML must be rejected
@@ -172,37 +145,109 @@ def test_malformed_rss_handling() -> None:
     )
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Hits live third-party endpoints, and Reddit now 403s every unauthenticated "
-    "about.json request so validation fails for any subreddit (gh #59). "
-    "Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
-)
-def test_reddit_private_subreddit_handling() -> None:
+def test_validate_reddit_rejects_an_unparseable_url() -> None:
     """
-    FAILURE MODE: Private subreddits return 403
-    GRACEFUL: Clear message that subreddit is private
-    NOTE: Testing with a known private subreddit if one exists
+    INVARIANT: A URL naming no subreddit is refused before any client is built
+    BREAKS: The parse failure reaches PRAW as a subreddit name and comes back as an
+            unrelated API error
+    NOTE: Ungated on purpose — it reaches nothing. It also calls the private reddit
+          entry point directly, which is what holds the parse/probe/interpret split to
+          the name the rest of this suite uses.
     """
     validator = SourceValidator()
 
-    # Test with a subreddit that is likely to be private or restricted
-    # Note: This test may be flaky if the subreddit's status changes
-    # Some subreddits like r/lounge are known to be restricted
-    is_valid, error, _metadata = validator.validate_source(
-        "https://reddit.com/r/lounge",
-        "reddit",  # Known restricted subreddit
+    is_valid, error, metadata = validator._validate_reddit(
+        "https://httpbin.org/status/429"
     )
 
-    # If not private, at least verify it handles the response properly
-    # The validator should either:
-    # 1. Detect it's private/restricted (403)
-    # 2. Detect it exists but can't access
-    # 3. Return some error about accessibility
+    assert is_valid is False
+    assert error == "Could not extract subreddit name from URL"
+    assert metadata is None
+
+
+@LIVE_NETWORK
+def test_reddit_invalid_credentials_are_named() -> None:
+    """
+    INVARIANT: Credentials Reddit refuses are reported as credentials, not as a private
+               or missing subreddit
+    BREAKS: The operator is sent to Reddit's subreddit settings for a problem that lives
+            in their own client id and secret
+    NOTE: Needs no valid secret. Reddit answers syntactically well-formed garbage with a
+          401, which is exactly the outcome under test.
+    """
+    validator = SourceValidator(
+        make_config(
+            reddit_client_id="prismis-not-a-real-client-id",
+            reddit_client_secret="prismis-not-a-real-client-secret",
+        )
+    )
+
+    is_valid, error, _metadata = validator.validate_source(
+        "https://reddit.com/r/python", "reddit"
+    )
+
+    assert is_valid is False
+    assert error is not None
+    assert "credentials" in error.lower(), (
+        f"A refused credential must say so, got: {error!r}"
+    )
+    assert "private" not in error.lower(), "Must not blame the subreddit"
+    assert "not configured" not in error.lower(), (
+        "Refused credentials and absent credentials are different answers"
+    )
+    assert "prismis-not-a-real" not in error, "No credential may reach the message"
+
+
+@LIVE_REDDIT
+def test_reddit_valid_subreddit_accepted_with_display_name() -> None:
+    """
+    INVARIANT: A real public subreddit validates and reports its prefixed display name
+    BREAKS: Reddit sources cannot be added, or are added named from the URL instead of
+            r/Name
+    """
+    is_valid, error, metadata = reddit_validator().validate_source(
+        "https://reddit.com/r/python", "reddit"
+    )
+
+    assert is_valid is True, f"r/python should be valid: {error}"
+    assert error is None, "Valid subreddit should have no error"
+    assert metadata is not None
+    assert metadata.get("display_name", "").lower() == "r/python", (
+        f"Expected the prefixed display name, got: {metadata}"
+    )
+
+
+@LIVE_REDDIT
+def test_reddit_missing_subreddit_rejected() -> None:
+    """
+    INVARIANT: A subreddit that does not exist is named as absent
+    BREAKS: A typo in the subreddit name reads as a credential or access problem
+    """
+    is_valid, error, _metadata = reddit_validator().validate_source(
+        "https://reddit.com/r/this_subreddit_definitely_does_not_exist_12345", "reddit"
+    )
+
+    assert is_valid is False, "Non-existent subreddit should fail"
+    assert error is not None, "Should have error message"
+    assert "does not exist" in error, f"Should explain the subreddit is absent: {error}"
+
+
+@LIVE_REDDIT
+def test_reddit_private_subreddit_handling() -> None:
+    """
+    FAILURE MODE: A subreddit that exists but refuses access returns 403
+    GRACEFUL: The message says private or quarantined, not missing
+    NOTE: r/lounge is restricted to Reddit Premium members. If that ever changes the
+          test skips rather than asserting something it can no longer observe.
+    """
+    is_valid, error, _metadata = reddit_validator().validate_source(
+        "https://reddit.com/r/lounge", "reddit"
+    )
+
     if is_valid:
-        # Subreddit might have become public, skip this test
         pytest.skip("r/lounge is not private/restricted anymore")
-    else:
-        assert error is not None, "Should have error message"
-        # The error might mention private, restricted, or inaccessible
-        # We're testing that it handles non-accessible subreddits gracefully
+
+    assert error is not None, "Should have error message"
+    assert "private or quarantined" in error, (
+        f"An inaccessible subreddit must be named as such: {error}"
+    )

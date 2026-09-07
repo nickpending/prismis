@@ -164,22 +164,31 @@ at all.
 - **And**: the test does not patch, stub, or fake `SourceValidator`, `Storage`, or `APIClient`
 
 ### SC-8: No credential reaches the repo or CI
-- **Given**: the change **staged** (`git add -A`), so new untracked test files are in scope —
-  `git grep` searches only tracked content and would miss a fresh file holding a secret
+- **Given**: the change staged (`git add -A`), so new untracked files are in scope
 - **When**: the index and the workflow are inspected
-- **Then**: no credential value is staged, no `praw.ini` is added, `ci.yml` gains no secret
-  reference, and every test needing real credentials stays behind the existing
-  `REDDIT_CLIENT_ID` env skip
+- **Then**: no credential-bearing file is tracked — no `.env`, no `config.toml`, no `praw.ini`,
+  no key material — `ci.yml` references no secret, and every test needing real credentials
+  stays behind the existing `REDDIT_CLIENT_ID` env skip
+- **And**: any credential-shaped literal in a test is visibly fake
+
+  **Why this is not a pattern match.** The first version of this criterion grepped for
+  credential-shaped strings by length. It cannot work: six pre-existing
+  `client_secret = "test-secret"` literals in the config tests match it, so it fails on the
+  baseline commit, and tightening it to a realistic 14-char shape then matches the deliberately
+  fake constants any honest test must contain. A useful fake looks like a real credential —
+  that is what makes it useful. Grep cannot tell a fake from a secret, so this criterion checks
+  what is actually decidable and leaves entropy-based detection to a real scanner, which this
+  repo does not currently run. **That gap needs its own handle.**
 - **Verification**:
   ```bash
   cd /Users/rudy/development/projects/prismis
   git add -A
-  bad=$(git grep --cached -inE \
-    "(client_id|client_secret|refresh_token)[[:space:]]*[=:][[:space:]]*[\"'][^\"'\$]{8,}" \
-    -- . ':!Makefile' ':!*.md' | grep -v 'your-reddit\|env:' || true)
-  ini=$(git ls-files --cached | grep -c 'praw\.ini' || true)
-  if [ -z "$bad" ] && [ "$ini" = "0" ] && ! grep -q 'secrets\.' .github/workflows/ci.yml; then
-    echo "SC-8: PASS"; else echo "SC-8: FAIL"; printf '%s\n' "$bad"; fi
+  files=$(git ls-files --cached | grep -cE '(^|/)\.env$|(^|/)config\.toml$|praw\.ini|\.pem$' || true)
+  ci=$(grep -c 'secrets\.' .github/workflows/ci.yml || true)
+  # every praw.Reddit construction in tests must sit behind the credential skip or use a fake
+  if [ "$files" = "0" ] && [ "$ci" = "0" ]; then
+    echo "SC-8: PASS"; else echo "SC-8: FAIL (files=$files ci=$ci)"; fi
+  git reset -q
   ```
 
 ### SC-9: The gate passes
@@ -198,15 +207,31 @@ at all.
   distinct from the invalid-credentials message of SC-3
 - **And**: the same holds for `config=None`, and a unit test asserts both with no network
 
-### SC-11: The seam does not make config a precondition for non-reddit CRUD
+### SC-11: The seam degrades instead of raising, and the API fails closed
 - **Given**: an install where `Config.from_file()` raises — no config file, or an outdated
   `[llm]` section
-- **When**: `POST /api/sources` adds an rss, youtube, or file source, and
-  `PATCH /api/sources/{id}` changes only a name
-- **Then**: both still succeed with the `{success, message, data}` envelope — never a bare 500,
-  never a non-JSON body
-- **And**: an integration test asserts this by overriding the autouse `isolated_xdg_env` seal,
-  the way `test_dual_service_config_unit.py` already does
+- **When**: `get_validator` resolves
+- **Then**: it returns a `SourceValidator` holding `config=None` rather than propagating the
+  raise, and a reddit validation through it reports "credentials not configured" (SC-10)
+- **And**: the API still refuses authenticated requests on such an install, returning the
+  `{success, message, data}` envelope. This is correct and must NOT be "fixed."
+
+  **Corrected premise.** The original SC-11 required rss/youtube/file adds to *succeed* on an
+  install with no loadable config. That is unreachable, and should not be reached.
+  `verify_api_key` in `daemon/src/prismis_daemon/auth.py` calls `Config.from_file()` to resolve
+  the expected API key and raises `ServerError` when it cannot. It is a route-level `Security`
+  dependency, so every authenticated request is refused before any handler dependency resolves,
+  whatever the source type. `ServerError` extends `APIError`, which has a registered handler,
+  so the response is a well-formed 500 envelope rather than a bare one.
+
+  An install that cannot load its config cannot know its expected API key. Refusing is failing
+  closed, which is the right posture — the original criterion asked for the opposite. Changing
+  where the key comes from is a security decision, out of scope, and the builder correctly
+  refused to bridge it.
+
+  The criterion was written by checking the dependency provider and concluding about the
+  request path: evidence and claim about different nouns (B5). The coupling one layer up was
+  never opened.
 
 ### SC-12: The reddit probe is bounded by the validator's own budget
 - **Given**: the PRAW client the validator builds

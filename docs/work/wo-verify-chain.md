@@ -6,7 +6,7 @@ status: active
 complexity: 7
 created: 2026-09-08
 updated: 2026-09-08
-plan_ref: null
+plan_ref: docs/work/verify-chain/plan.md
 ---
 
 ## What

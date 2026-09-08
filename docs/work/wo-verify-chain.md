@@ -146,11 +146,25 @@ argument for pointing the instrument at the product deliberately.
   `fetch_source_content()`
 - **And**: it contains no re-derived fetch, summarize, evaluate, store or embed logic of its own —
   a reviewer must be able to point at the orchestrator call and see the whole pipeline behind it
-- **And**: backed by a mechanical check, not reviewer judgment alone — the chain module must not
-  import the libraries a link would need if it were reimplementing that link (`feedparser`,
-  `praw`, `yt_dlp`, `httpx`, `sentence_transformers`) nor call an LLM directly. The constitution
-  gates completion on executed verification, and this work order's central stake is exactly this
-  criterion, so it cannot rest on a judgment call
+- **And**: backed by a mechanical check, not reviewer judgment alone — an AST walk asserts the
+  chain module's absolute imports are a **subset of an allowlist**, so anything not explicitly
+  permitted fails the gate regardless of its name. The constitution gates completion on executed
+  verification, and this work order's central stake is exactly this criterion, so it cannot rest
+  on a judgment call.
+
+  **Why an allowlist and not a denylist.** The first version enumerated the libraries a link would
+  need — `feedparser`, `praw`, `yt_dlp`, `httpx`, `sentence_transformers`, `llm_core` — and a
+  reimplementation written with `urllib`, `requests`, `socket` or hand-rolled logic walked straight
+  past it. A denylist can only exclude the names on it, so calling it "not a judgment call"
+  overstated what it proved; the judgment had simply moved into the list's completeness (P16).
+
+  The inversion is cheap because the AST walk already skips relative imports (`node.level == 0`),
+  so every real collaborator — the orchestrator, storage, the fetchers, summarizer, evaluator,
+  embeddings, notifier — is outside the check by construction and needs no enumeration. The chain
+  module's absolute imports are exactly `dataclasses`, `datetime`, `json`, `pathlib`, `rich`,
+  `typing` and `uuid`, verified by parsing it, so the allowlist is small, stdlib-shaped and stable.
+  It also mechanically enforces this work order's "No new dependencies" constraint as a side
+  effect.
 
 ### SC-1b: The schema exists before any collaborator is constructed
 - **Given**: a fresh temp `XDG_DATA_HOME` with no database file
@@ -190,11 +204,22 @@ argument for pointing the instrument at the product deliberately.
 - **And**: **ran-and-produced-nothing**, **skipped-by-flag**, **never-reached-because-an-earlier-link-failed**,
   and **skipped-because-the-circuit-was-open** are four visibly different states, not one blank
   cell (Principle II)
-- **And**: the circuit-open case is the hard one — it raises before the `obs_log` try block in
-  both `summarizer.py` and `evaluator.py`, so it currently emits nothing. The plan must state how
-  the report distinguishes it, and whether it is allowed to read `fetch_source_content`'s returned
-  stats for that one purpose — which is a deliberate exception to D-REPORT and must be named as
-  one, not slipped in
+- **And**: the circuit-open case is the hard one. `summarizer.py` and `evaluator.py` raise before
+  their `obs_log` try block, so **that raise** emits nothing — but the breaker itself logs
+  `circuit_breaker.state` with `state="open"` at `circuit_breaker.py:117-119` as it crosses the
+  threshold, through `obs_log`, so it carries the run id like any other event. A record does
+  exist; it just is not an `llm.call`.
+
+  Classification reads `fetch_source_content`'s returned stats for the refusal entries — a
+  deliberate exception to D-REPORT, named here rather than slipped in. The `circuit_breaker.state`
+  event decides only whether the report says "opened during this run" or "was already open when
+  the run started"; it must NOT gate the classification itself. A run that begins with the circuit
+  already open refuses every item and logs no transition, so gating on the event would report that
+  run as `error` — the same collapse this criterion exists to prevent, arriving from the other
+  side.
+
+  *(Corrected after the build. The original text asserted the case "emits nothing", which is true
+  of the raise and false of the breaker.)*
 
 ### SC-4: A link-1 failure stops the run before money is spent
 - **Given**: a `--source` URL that cannot be fetched

@@ -39,8 +39,10 @@ VALID_SOURCE_TYPES = ("rss", "reddit", "youtube", "file")
 
 # The substring both the summarizer and the evaluator raise when the shared circuit is
 # open. That raise happens before either method reaches its own observability call, so
-# this state leaves no event behind and must be read from the returned stats instead —
-# the one sanctioned exception to reporting from the JSONL.
+# a refused item leaves no llm.call event; the orchestrator's per-item error entry is
+# the only record that the item was turned away, which is what this counts. Whether the
+# circuit opened at all is answered by an event, not by this string — see
+# the helper that counts circuit-open refusals below.
 CIRCUIT_OPEN_MARKER = "circuit breaker is open"
 
 # The two error prefixes the orchestrator itself writes into stats["errors"].
@@ -132,6 +134,43 @@ def _errors_matching(stats: dict[str, Any], marker: str) -> list[str]:
     return [e for e in stats.get("errors", []) if marker in e]
 
 
+def _circuit_opened_during_run(events: list[dict[str, Any]]) -> bool:
+    """Whether the circuit crossed its threshold inside this run, rather than arriving
+    already open.
+
+    The breaker logs the transition itself at the moment it decides, and the event is
+    stamped with this run's id like every other. Both cases are real and the operator
+    acts on them differently — one says this run burned the quota, the other says it
+    was already gone — so this decides wording, never whether the circuit was open.
+    Classification is the refusal count below: an item that was actually turned away is
+    the fact that matters, and it is equally true either way.
+    """
+    return any(
+        e.get("event") == "circuit_breaker.state" and e.get("state") == "open"
+        for e in events
+    )
+
+
+def _circuit_open_refusals(stats: dict[str, Any]) -> int:
+    """How many items an open circuit turned away without attempting them.
+
+    The orchestrator's per-item error entry is the whole signal, and it is unambiguous
+    on its own. It cannot come from the deep service's separate breaker, whose
+    CircuitOpenError the orchestrator swallows under INV-002 and never records in the
+    returned stats, and it cannot come from another process, because the stats are this
+    run's own return value.
+
+    Deliberately NOT also requiring this run to have logged the open transition. A
+    circuit that was already open when the run started refuses every item and logs no
+    transition, and reporting that as a plain error is precisely the collapse the
+    circuit-open state exists to prevent.
+
+    Zero means either the circuit was never open, or it opened on the run's last
+    failure and no item was ever refused because of it.
+    """
+    return len(_errors_matching(stats, CIRCUIT_OPEN_MARKER))
+
+
 def _llm_events(events: list[dict[str, Any]], action: str) -> list[dict[str, Any]]:
     return [
         e for e in events if e.get("event") == "llm.call" and e.get("action") == action
@@ -162,21 +201,45 @@ def _llm_link(
     action: str,
     circuit_open_status: str,
     circuit_open_detail: str,
+    circuit_preempts: bool = False,
 ) -> LinkStatus:
     """Classify one LLM-backed link from its own llm.call events plus the stats.
 
-    circuit_open_status/detail differ per link: summarize always runs first and shares
-    one circuit with evaluate, so an open circuit surfaces at summarize and leaves
-    evaluate genuinely never attempted.
+    circuit_preempts is set only for the link that raises when the circuit is open.
+    That link's own error events are the failures that opened the circuit, so it always
+    has some, and reporting them as a plain error would bury the fact that every
+    remaining item was then refused unattempted. A downstream link is different: if it
+    logged calls of its own they happened before the circuit opened and are worth
+    reporting on their own terms, so the circuit only explains a link that logged
+    nothing at all.
     """
     if stats.get("items_processed", 0) == 0:
         return LinkStatus(name, "never-reached", None, "no items reached this link")
 
     matching = _llm_events(events, action)
+    refused = _circuit_open_refusals(stats)
+    failures = [e for e in matching if e.get("status") == "error"]
+    successes = [e for e in matching if e.get("status") == "success"]
+
+    if refused and (circuit_preempts or not matching):
+        when = (
+            "opened during this run"
+            if _circuit_opened_during_run(events)
+            else "was already open when the run started"
+        )
+        detail = f"{circuit_open_detail} {when}; {refused} item(s) refused unattempted"
+        if failures:
+            detail += f"; {len(failures)} call(s) failed before it opened"
+        return LinkStatus(
+            name,
+            circuit_open_status,
+            _sum_durations(matching),
+            detail,
+            _sum_costs(successes),
+            _models_seen(matching),
+        )
 
     if not matching:
-        if _errors_matching(stats, CIRCUIT_OPEN_MARKER):
-            return LinkStatus(name, circuit_open_status, None, circuit_open_detail)
         item_errors = _errors_matching(stats, ITEM_FAILURE_MARKER)
         if item_errors:
             return LinkStatus(name, "error", None, item_errors[0])
@@ -184,15 +247,18 @@ def _llm_link(
             name, "empty", None, "items processed but this link produced no call"
         )
 
-    failures = [e for e in matching if e.get("status") == "error"]
-    successes = [e for e in matching if e.get("status") == "success"]
     if failures:
+        detail = (
+            f"{len(failures)} of {len(matching)} calls failed: "
+            f"{failures[0].get('error', 'no error text')}"
+        )
+        if _circuit_opened_during_run(events):
+            detail += " (the circuit opened on the last failure; no item was refused)"
         return LinkStatus(
             name,
             "error",
             _sum_durations(matching),
-            f"{len(failures)} of {len(matching)} calls failed: "
-            f"{failures[0].get('error', 'no error text')}",
+            detail,
             _sum_costs(successes),
             _models_seen(matching),
         )
@@ -288,8 +354,7 @@ def _store_link(events: list[dict[str, Any]], stats: dict[str, Any]) -> LinkStat
         )
 
     item_errors = _errors_matching(stats, ITEM_FAILURE_MARKER)
-    circuit_errors = _errors_matching(stats, CIRCUIT_OPEN_MARKER)
-    if circuit_errors:
+    if _circuit_open_refusals(stats):
         return LinkStatus(
             "store",
             "never-reached",
@@ -327,7 +392,7 @@ def _embed_link(events: list[dict[str, Any]], stats: dict[str, Any]) -> LinkStat
             None,
             _models_seen(matching),
         )
-    if _errors_matching(stats, CIRCUIT_OPEN_MARKER):
+    if _circuit_open_refusals(stats):
         return LinkStatus(
             "embed",
             "never-reached",
@@ -404,7 +469,7 @@ def render_report(
             stats,
             "deep_extract",
             "never-reached",
-            "the light circuit opened before deep extraction was attempted",
+            "deep extraction never attempted, the light circuit",
         )
         deep.detail += " (--full forces auto_extract=all, overriding your config)"
 
@@ -417,7 +482,8 @@ def render_report(
             stats,
             "summarize",
             "circuit-open",
-            "the shared LLM circuit was open; the call raised before any event",
+            "the shared LLM circuit",
+            circuit_preempts=True,
         ),
         _llm_link(
             "evaluate",
@@ -425,7 +491,7 @@ def render_report(
             stats,
             "evaluate",
             "never-reached",
-            "summarize hit the open circuit first, so evaluate was never attempted",
+            "summarize hit the open circuit first; evaluate never attempted, the circuit",
         ),
         deep,
         _store_link(events, stats),
@@ -469,6 +535,40 @@ def print_report(console: Console, links: list[LinkStatus]) -> None:
     console.print(table)
 
 
+def build_orchestrator(
+    config: Config, storage: Storage, console: Console
+) -> DaemonOrchestrator:
+    """Construct the production orchestrator with real collaborators.
+
+    Mirrors the wiring the daemon's own --once path uses. Kept as one function so a
+    test can drive the exact object the CLI drives instead of a second copy of this
+    wiring that could drift away from it.
+    """
+    deep_extractor = None
+    if config.llm_deep_service:
+        deep_extractor = ContentDeepExtractor(config.llm_deep_service)
+
+    return DaemonOrchestrator(
+        storage=storage,
+        rss_fetcher=RSSFetcher(config=config),
+        reddit_fetcher=RedditFetcher(config=config),
+        youtube_fetcher=YouTubeFetcher(config=config),
+        file_fetcher=FileFetcher(config=config, storage=storage),
+        summarizer=ContentSummarizer(config.llm_light_service),
+        evaluator=ContentEvaluator(config.llm_light_service),
+        notifier=Notifier(
+            {
+                "high_priority_only": config.high_priority_only,
+                "command": config.notification_command,
+            }
+        ),
+        config=config,
+        console=console,
+        embedder=Embedder(),
+        deep_extractor=deep_extractor,
+    )
+
+
 def run_chain(source_url: str, source_type: str, full: bool, console: Console) -> int:
     """Drive one source through the real pipeline and print the per-link report.
 
@@ -491,30 +591,7 @@ def run_chain(source_url: str, source_type: str, full: bool, console: Console) -
             config = dataclasses.replace(config, auto_extract="all")
 
         storage, source = setup_isolated_run(source_url, source_type)
-
-        deep_extractor = None
-        if config.llm_deep_service:
-            deep_extractor = ContentDeepExtractor(config.llm_deep_service)
-
-        orchestrator = DaemonOrchestrator(
-            storage=storage,
-            rss_fetcher=RSSFetcher(config=config),
-            reddit_fetcher=RedditFetcher(config=config),
-            youtube_fetcher=YouTubeFetcher(config=config),
-            file_fetcher=FileFetcher(config=config, storage=storage),
-            summarizer=ContentSummarizer(config.llm_light_service),
-            evaluator=ContentEvaluator(config.llm_light_service),
-            notifier=Notifier(
-                {
-                    "high_priority_only": config.high_priority_only,
-                    "command": config.notification_command,
-                }
-            ),
-            config=config,
-            console=console,
-            embedder=Embedder(),
-            deep_extractor=deep_extractor,
-        )
+        orchestrator = build_orchestrator(config, storage, console)
 
         stats = orchestrator.fetch_source_content(source)
 

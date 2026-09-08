@@ -1,13 +1,19 @@
 """Unit tests for the per-link report renderer.
 
 Invariants protected:
-  - SC-3's four states — ran-and-produced-nothing, skipped-by-flag,
-    never-reached-because-an-earlier-link-failed, and skipped-because-the-circuit-was-
-    open — render as four different statuses, never one blank cell
-  - The circuit-open string the renderer matches is the one real code raises, captured
-    from a real forced-open circuit rather than written from memory
+  - ran-and-produced-nothing, skipped-by-flag and
+    never-reached-because-an-earlier-link-failed render as three different statuses,
+    never one blank cell
+  - The circuit-open string the renderer counts refusals with is the one real code
+    raises, captured from a real forced-open circuit rather than written from memory
   - The chain module reimplements no link: it imports none of the libraries a link
     would need and never talks to an LLM itself (SC-1's mechanical check)
+
+SC-3's fourth state, skipped-because-the-circuit-was-open, is proven in
+tests/integration/test_verify_chain_circuit_open_integration.py against a real
+orchestrator run. It is not proven here because the input it needs cannot be
+assembled honestly by hand: an open circuit always leaves the failures that opened
+it behind in the same run, so an events list without them is one no run produces.
 
 Success criteria covered:
   SC-1, SC-3, SC-6
@@ -30,15 +36,24 @@ from prismis_daemon.verify_chain import CIRCUIT_OPEN_MARKER, LinkStatus, render_
 _SOURCE_ID = "source-under-test"
 _SERVICE = "verify-chain-test-service"
 
-# The libraries a link would need if the chain were reimplementing that link, plus the
-# LLM client itself. SC-1 gates on the chain importing none of them.
-_FORBIDDEN_IMPORTS = {
-    "feedparser",
-    "praw",
-    "yt_dlp",
-    "httpx",
-    "sentence_transformers",
-    "llm_core",
+# Every absolute import the chain is allowed to hold. An allowlist rather than a list
+# of banned libraries, because a denylist only catches the reimplementations somebody
+# thought to name: a link rebuilt on urllib, requests, socket or hand-rolled parsing
+# would pass a denylist untouched, which puts the judgment back in "is the list
+# complete" — the exact judgment call SC-1 says it must not rest on.
+#
+# The walk below skips relative imports, so every real collaborator the chain drives
+# (the orchestrator, storage, the fetchers, the summarizer, evaluator, embedder,
+# notifier, config, database, observability, deep extractor) sits outside this set by
+# construction and needs no entry here.
+_ALLOWED_IMPORTS = {
+    "dataclasses",
+    "datetime",
+    "json",
+    "pathlib",
+    "rich",
+    "typing",
+    "uuid",
 }
 
 
@@ -113,36 +128,6 @@ def test_renderer_matches_the_string_real_code_raises(real_circuit_open_error) -
     which is the state SC-3 exists to make visible.
     """
     assert CIRCUIT_OPEN_MARKER in real_circuit_open_error
-
-
-def test_circuit_open_is_distinguishable_from_the_other_three_states(
-    real_circuit_open_error,
-) -> None:
-    """
-    SC-3: the four states render as four different statuses in one report.
-
-    summarize hit the open circuit; evaluate was never attempted because summarize runs
-    first and they share one circuit; deep_extract was skipped by the absent --full;
-    fetch ran and produced items.
-
-    BREAKS: a quota-exhausted run is indistinguishable from a run where nothing
-    happened — Principle II's exact failure.
-    """
-    stats = _stats(
-        items_fetched=1,
-        items_processed=1,
-        errors=[f"Failed to analyze item 'A title': {real_circuit_open_error}"],
-    )
-
-    links = _by_name(render_report(stats, [_fetch_complete(1)], _SOURCE_ID, full=False))
-
-    assert links["summarize"].status == "circuit-open"
-    assert links["evaluate"].status == "never-reached"
-    assert links["deep_extract"].status == "skipped-by-flag"
-    assert links["store"].status == "never-reached"
-    assert links["embed"].status == "never-reached"
-    assert links["fetch"].status == "ran"
-    assert len({links[n].status for n in ("summarize", "evaluate", "deep_extract")}) == 3
 
 
 # --- Per-link states ------------------------------------------------------------------
@@ -479,10 +464,14 @@ def test_fetch_events_from_another_source_are_ignored() -> None:
 # --- SC-1: the chain reimplements no link ---------------------------------------------
 
 
-def test_chain_module_imports_no_link_library() -> None:
+def test_chain_module_imports_nothing_outside_the_allowlist() -> None:
     """
-    SC-1 (mechanical, not reviewer judgment): the chain must not import the libraries a
-    link would need if it were reimplementing that link, nor the LLM client.
+    SC-1 (mechanical, not reviewer judgment): every absolute import the chain holds is
+    one of a fixed set that cannot fetch, call a model, or reach a store.
+
+    Stated as an allowlist so the check does not depend on anyone having predicted which
+    library a reimplementation would reach for — a link rebuilt on urllib or a raw
+    socket trips this, where a list of named offenders would wave it through.
 
     Parsed rather than grepped so a mention in prose cannot pass or fail this, and so a
     `from x import y` form is caught as surely as `import x`.
@@ -501,8 +490,8 @@ def test_chain_module_imports_no_link_library() -> None:
             imported.add(node.module.split(".")[0])
 
     assert imported, "the parse must have found imports, or this proves nothing"
-    assert _FORBIDDEN_IMPORTS.isdisjoint(imported), (
-        f"chain imports a link library: {sorted(_FORBIDDEN_IMPORTS & imported)}"
+    assert imported.issubset(_ALLOWED_IMPORTS), (
+        f"chain imports outside the allowlist: {sorted(imported - _ALLOWED_IMPORTS)}"
     )
 
 

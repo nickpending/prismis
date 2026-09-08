@@ -367,6 +367,8 @@ class Storage:
                 content_item.notes = item["notes"]
             item = content_item
 
+        start_time = time.time()
+
         try:
             # Check if content already exists using helper method
             existing = self._get_by_external_id(item.external_id)
@@ -392,6 +394,14 @@ class Storage:
                     ),
                 )
                 self.conn.commit()
+                obs_log(
+                    "db.insert",
+                    table="content",
+                    operation="create_or_update_content",
+                    row_count=1,
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    status="updated",
+                )
                 return existing["id"], False
 
             else:
@@ -441,10 +451,26 @@ class Storage:
                     ),
                 )
                 self.conn.commit()
+                obs_log(
+                    "db.insert",
+                    table="content",
+                    operation="create_or_update_content",
+                    row_count=1,
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    status="created",
+                )
                 return item.id, True
 
         except sqlite3.Error as e:
             self.conn.rollback()
+            obs_log(
+                "db.insert",
+                table="content",
+                operation="create_or_update_content",
+                duration_ms=int((time.time() - start_time) * 1000),
+                status="error",
+                error=str(e),
+            )
             raise sqlite3.Error(f"Failed to create or update content: {e}") from e
 
     def update_analysis(self, content_id: str, analysis: dict) -> bool:

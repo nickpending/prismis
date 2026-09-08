@@ -2,7 +2,10 @@
 
 import logging
 import subprocess
+import time
 from typing import Dict, Any, List, Optional
+
+from .observability import log as obs_log
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +38,24 @@ class Notifier:
         high_items = [item for item in items if item.get("priority") == "high"]
 
         if not high_items:
+            obs_log(
+                "notification.send",
+                status="skipped",
+                reason="no_high_priority_items",
+                count=0,
+            )
             logger.debug("No HIGH priority items to notify about")
             return
 
         try:
             self._send_notification(high_items)
         except Exception as e:
+            obs_log(
+                "notification.send",
+                status="error",
+                count=len(high_items),
+                error=str(e),
+            )
             logger.warning(f"Failed to send notification: {e}")
 
     def _send_notification(self, high_items: List[Dict[str, Any]]) -> None:
@@ -72,7 +87,19 @@ class Notifier:
         ]
 
         # Execute notification command
+        start_time = time.time()
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        # A non-zero exit is a refusal by the thing that can refuse, so it gets its own
+        # distinguishable record rather than only a warning line.
+        obs_log(
+            "notification.send",
+            status="success" if result.returncode == 0 else "error",
+            count=count,
+            duration_ms=duration_ms,
+            error=result.stderr if result.returncode != 0 else None,
+        )
 
         if result.returncode != 0:
             logger.warning(f"Notification command failed: {result.stderr}")

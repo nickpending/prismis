@@ -1,8 +1,11 @@
 """Embedding generation for semantic search."""
 
+import time
 from typing import List
 
 from sentence_transformers import SentenceTransformer
+
+from .observability import log as obs_log
 
 
 class Embedder:
@@ -39,21 +42,44 @@ class Embedder:
         Returns:
             List of floats (384 dimensions for all-MiniLM-L6-v2)
         """
-        # Combine title and text for better semantic representation
-        if title:
-            combined = f"{title}. {text}"
-        else:
-            combined = text
+        start_time = time.time()
 
-        # Truncate if too long (model has token limits)
-        if len(combined) > 5000:
-            combined = combined[:5000]
+        try:
+            # Combine title and text for better semantic representation
+            if title:
+                combined = f"{title}. {text}"
+            else:
+                combined = text
 
-        # Generate embedding
-        embedding = self.model.encode(combined, convert_to_numpy=True)
+            # Truncate if too long (model has token limits)
+            if len(combined) > 5000:
+                combined = combined[:5000]
 
-        # Convert to list for JSON serialization
-        return embedding.tolist()
+            # Generate embedding
+            embedding = self.model.encode(combined, convert_to_numpy=True)
+
+            # Convert to list for JSON serialization
+            vector = embedding.tolist()
+        except Exception as e:
+            obs_log(
+                "embedding.generate",
+                model=self.model_name,
+                duration_ms=int((time.time() - start_time) * 1000),
+                status="error",
+                error=str(e),
+            )
+            # Re-raised so callers keep the behavior they already have: every caller in
+            # the orchestrator wraps this in its own try/except that logs and continues.
+            raise
+
+        obs_log(
+            "embedding.generate",
+            model=self.model_name,
+            dimension=len(vector),
+            duration_ms=int((time.time() - start_time) * 1000),
+            status="success",
+        )
+        return vector
 
     def get_dimension(self) -> int:
         """Get embedding dimension for this model.

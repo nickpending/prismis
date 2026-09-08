@@ -2,10 +2,29 @@
 
 import fcntl
 import json
+import os
 import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+_current_run_id: str | None = None
+
+
+def set_run_id(run_id: str | None) -> None:
+    """Set the run id every subsequent log() call in this process stamps onto its event.
+
+    Pass None to clear it. Process-scoped by design: a plain module-level global, not a
+    file or an environment write, so a separate process — the long-running daemon —
+    never sees it and its own events are never stamped.
+    """
+    global _current_run_id
+    _current_run_id = run_id
+
+
+def get_run_id() -> str | None:
+    """The run id currently in effect for this process, or None."""
+    return _current_run_id
 
 
 class ObservabilityLogger:
@@ -15,11 +34,15 @@ class ObservabilityLogger:
         """Initialize observability logger.
 
         Args:
-            base_dir: Directory for JSONL files. Defaults to ~/.local/share/prismis/observability
+            base_dir: Directory for JSONL files. Defaults to
+                $XDG_DATA_HOME/prismis/observability
+                (or ~/.local/share/prismis/observability)
         """
         if base_dir is None:
-            data_home = Path.home() / ".local" / "share"
-            base_dir = data_home / "prismis" / "observability"
+            xdg_data_home = os.environ.get(
+                "XDG_DATA_HOME", str(Path.home() / ".local" / "share")
+            )
+            base_dir = Path(xdg_data_home) / "prismis" / "observability"
 
         self.base_dir = base_dir
         self.base_dir.mkdir(parents=True, exist_ok=True)
@@ -37,7 +60,16 @@ class ObservabilityLogger:
         today = datetime.now().strftime("%Y-%m-%d")
         log_file = self.base_dir / f"{today}_events.jsonl"
 
-        entry = {"ts": datetime.now(UTC).isoformat(), "event": event, **metadata}
+        # When no run id is set the entry keeps its historical shape exactly — no
+        # "run_id" key at all, not even null — so existing readers see no schema change
+        # and an unstamped event can never match a stamped run's filter.
+        entry: dict[str, object] = {
+            "ts": datetime.now(UTC).isoformat(),
+            "event": event,
+        }
+        if _current_run_id is not None:
+            entry["run_id"] = _current_run_id
+        entry.update(metadata)
 
         # Retry wrapper for lock failures (3 attempts with exponential backoff)
         for attempt in range(3):
@@ -116,6 +148,17 @@ def get_logger() -> ObservabilityLogger:
     if _logger is None:
         _logger = ObservabilityLogger()
     return _logger
+
+
+def reset_logger() -> None:
+    """Discard the global logger (for testing).
+
+    The next get_logger() call re-resolves the base directory from the environment,
+    which a test that re-points XDG_DATA_HOME needs — the instance caches the path it
+    resolved when it was first constructed. Mirrors reset_circuit_breaker.
+    """
+    global _logger
+    _logger = None
 
 
 def log(event: str, **metadata: object) -> None:

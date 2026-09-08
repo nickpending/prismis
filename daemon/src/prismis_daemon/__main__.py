@@ -6,6 +6,7 @@ import os
 import signal
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
 import uvicorn
@@ -699,12 +700,46 @@ value = "{resolved_key}"
 
 
 @app.command()
-def verify() -> None:
+def verify(
+    # Annotated form, not `x: bool = typer.Option(...)`: the latter leaves an OptionInfo
+    # object as the Python default, which is truthy, so a direct `verify()` call would
+    # take the chain branch. Existing callers invoke this function directly.
+    chain: Annotated[
+        bool,
+        typer.Option("--chain", help="Drive one source through the real pipeline"),
+    ] = False,
+    source: Annotated[
+        str | None,
+        typer.Option("--source", help="Source URL to drive (required with --chain)"),
+    ] = None,
+    source_type: Annotated[
+        str,
+        typer.Option("--type", help="Source type: rss|reddit|youtube|file"),
+    ] = "rss",
+    full: Annotated[
+        bool,
+        typer.Option("--full", help="Also deep-extract and notify (--chain only)"),
+    ] = False,
+) -> None:
     """Run post-deployment smoke check: config, services, sources.
 
     Read-only checks. Safe to run against a production daemon.
     Exits 0 on all pass, 1 on any failure. Deep service 'not configured' is info.
+
+    With --chain, instead drives one --source URL through the real pipeline against a
+    throwaway database and reports every link.
     """
+    if chain:
+        from .verify_chain import VALID_SOURCE_TYPES, run_chain
+
+        if not source:
+            console.print("[red]✗ --chain requires --source <url>[/red]")
+            sys.exit(1)
+        if source_type not in VALID_SOURCE_TYPES:
+            console.print(f"[red]✗ invalid --type: {source_type}[/red]")
+            sys.exit(1)
+        sys.exit(run_chain(source, source_type, full, console))
+
     import llm_core
 
     failures = 0

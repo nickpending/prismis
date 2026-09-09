@@ -114,3 +114,44 @@ def test_invalid_source_type_is_rejected(empty_data_home: Path) -> None:
         setup_isolated_run(_URL, "gopher")
 
     assert not (empty_data_home / "prismis" / "prismis.db").exists()
+
+
+def test_default_run_cannot_deep_extract_whatever_the_config_says(tmp_path) -> None:
+    """
+    INVARIANT: Without --full the deep extractor is not constructed, so the deep
+               service cannot be billed no matter what auto_extract is set to
+    BREAKS: The first real run on the deploy host reported deep_extract as
+            "skipped-by-flag" while the deep service was actually being billed. The
+            orchestrator decides to deep-extract from its own auto_extract config
+            ("high" on that host), so a constructed extractor runs on a HIGH item
+            regardless of what this command intended, and the report asserted the
+            opposite of what happened.
+    NOTE: This asserts the collaborator is absent rather than observing an absent LLM
+          call, because observing the call needs credentials this machine does not
+          have. It is not a proxy: orchestrator.py gates the whole deep-extract branch
+          on `if self.deep_extractor and ...`, so None makes the branch unreachable
+          rather than merely unlikely.
+    """
+    from conftest import init_db, make_config
+    from prismis_daemon.storage import Storage
+    from prismis_daemon.verify_chain import build_orchestrator
+    from rich.console import Console
+
+    db = tmp_path / "prismis.db"
+    init_db(db)
+    storage = Storage(db_path=db)
+    config = make_config(
+        llm_deep_service="a-deep-service-that-would-cost-money",
+        auto_extract="high",
+    )
+
+    default_run = build_orchestrator(config, storage, Console(quiet=True))
+    assert default_run.deep_extractor is None, (
+        "a default run built a deep extractor; the deep service can be billed while "
+        "the report claims the link was skipped by flag"
+    )
+
+    full_run = build_orchestrator(config, storage, Console(quiet=True), full=True)
+    assert full_run.deep_extractor is not None, (
+        "--full must build the extractor, or the flag does nothing"
+    )

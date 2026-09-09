@@ -256,8 +256,8 @@ def test_api_respects_favorites_preservation(test_db: Path) -> None:
     response = api_client.post(
         "/api/sources",
         json={
-            "url": "https://simonwillison.net/atom/everything/",
-            "type": "rss",
+            "url": "https://example.invalid/notes.md",
+            "type": "file",
             "name": "Test Feed",
         },
         headers={"X-API-Key": TEST_API_KEY},

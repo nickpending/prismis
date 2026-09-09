@@ -209,7 +209,7 @@ def test_cascade_delete(api_client: TestClient, test_db: Path) -> None:
     # Add a real source
     response = api_client.post(
         "/api/sources",
-        json={"url": "https://simonwillison.net/atom/everything/", "type": "rss"},
+        json={"url": "https://example.invalid/notes.md", "type": "file"},
         headers={"X-API-Key": TEST_API_KEY},
     )
     assert response.status_code == 200
@@ -264,45 +264,65 @@ def test_cascade_delete(api_client: TestClient, test_db: Path) -> None:
 
 def test_concurrent_source_adds(api_client: TestClient, test_db: Path) -> None:
     """
-    FAILURE: Database locks during concurrent writes
-    GRACEFUL: All requests eventually succeed with retries
+    INVARIANT: Rapid repeated writes through POST /api/sources all land, and a URL
+               posted twice yields one row rather than a second one or an error
+    BREAKS: A burst of adds silently drops rows, or duplicate handling regresses and
+            the sources table grows a row per attempt
+
+    This test used to post ten times across five real RSS feeds and assert that at
+    least five unique sources appeared. Its docstring claimed to cover "database locks
+    during concurrent writes" while its own comment conceded TestClient cannot be
+    concurrent, so what it actually measured was whether five third parties answered.
+    One of them was reddit.com/r/programming/.rss, which returns 429 on a second
+    request within the window; the test hits each feed twice, so it failed whenever
+    Reddit rate-limited — reproducibly under three concurrent suite runs, 2 of 3.
+    That is gh #64, which was filed as an unreproduced intermittent.
+
+    The sources here are "file" URLs because _validate_file checks an extension and a
+    scheme and makes no network call, so the write path is exercised and nothing
+    outside this process can change the verdict.
     """
     storage = Storage(test_db)
     initial_count = len(storage.get_all_sources())
 
-    # Use different real RSS feeds for variety
-    feeds = [
-        "https://simonwillison.net/atom/everything/",
-        "https://xkcd.com/rss.xml",
-        "https://feeds.bbci.co.uk/news/rss.xml",
-        "https://hnrss.org/frontpage",
-        "https://www.reddit.com/r/programming/.rss",
-    ]
+    unique_urls = [f"https://example.invalid/note-{i}.md" for i in range(5)]
 
-    # TestClient doesn't support true concurrency, but we can test rapid sequential adds
-    # which will still test database locking and retry logic
-    successful_adds = 0
-    for i in range(10):
-        feed_url = feeds[i % len(feeds)]
+    for url in unique_urls:
         response = api_client.post(
             "/api/sources",
-            json={
-                "url": feed_url,
-                "type": "rss",
-                "name": f"Feed {i}",
-            },
+            json={"url": url, "type": "file", "name": f"Note {url[-5:]}"},
             headers={"X-API-Key": TEST_API_KEY},
         )
-        if response.status_code == 200:
-            successful_adds += 1
+        assert response.status_code == 200, (
+            f"a file source must add without network: {url} -> "
+            f"{response.status_code} {response.text}"
+        )
 
-    # Should successfully add at least the 5 unique feeds
-    assert successful_adds >= 5, f"Only {successful_adds} adds succeeded"
+    after_unique = len(storage.get_all_sources())
+    assert after_unique == initial_count + len(unique_urls), (
+        f"every unique source must land: expected {initial_count + len(unique_urls)}, "
+        f"got {after_unique}"
+    )
 
-    # Verify at least 5 unique sources were added
-    final_count = len(storage.get_all_sources())
-    assert final_count >= initial_count + 5, "At least 5 unique sources should be added"
+    # Re-post the same five. Two independent guards keep the table from growing —
+    # Storage.add_source returns the existing id, and sources.url is UNIQUE in the
+    # schema — so a row-count assertion alone passes with the Python check disabled.
+    # Assert the graceful answer too: that is the half only the Python check provides,
+    # and without it a duplicate becomes a 500 from the UNIQUE violation.
+    for url in unique_urls:
+        again = api_client.post(
+            "/api/sources",
+            json={"url": url, "type": "file", "name": "duplicate attempt"},
+            headers={"X-API-Key": TEST_API_KEY},
+        )
+        assert again.status_code == 200, (
+            f"re-posting {url} answered {again.status_code}; a duplicate must be "
+            f"absorbed gracefully, not surfaced as a constraint violation: {again.text}"
+        )
 
+    assert len(storage.get_all_sources()) == after_unique, (
+        "re-posting an existing URL added a row; the sources table grows per attempt"
+    )
 
 def test_validation_timeout(api_client: TestClient) -> None:
     """
@@ -359,7 +379,7 @@ def test_api_performance(api_client: TestClient, test_db: Path) -> None:
     start = time.time()
     response = api_client.post(
         "/api/sources",
-        json={"url": "https://simonwillison.net/atom/everything/", "type": "rss"},
+        json={"url": "https://example.invalid/notes.md", "type": "file"},
         headers={"X-API-Key": TEST_API_KEY},
     )
     elapsed = time.time() - start

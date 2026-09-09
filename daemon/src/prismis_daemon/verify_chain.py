@@ -536,7 +536,7 @@ def print_report(console: Console, links: list[LinkStatus]) -> None:
 
 
 def build_orchestrator(
-    config: Config, storage: Storage, console: Console
+    config: Config, storage: Storage, console: Console, full: bool = False
 ) -> DaemonOrchestrator:
     """Construct the production orchestrator with real collaborators.
 
@@ -544,8 +544,14 @@ def build_orchestrator(
     test can drive the exact object the CLI drives instead of a second copy of this
     wiring that could drift away from it.
     """
+    # Without --full the deep extractor is not merely unreported, it is not built.
+    # The orchestrator decides to deep-extract from its own auto_extract config, so a
+    # constructed extractor runs on a HIGH item whatever this command intended — and the
+    # report said "skipped-by-flag" while the deep service was being billed. Found by the
+    # first real run on the deploy host; the pure-function tests could not see it,
+    # because they were handed inputs in which the deep events were simply absent.
     deep_extractor = None
-    if config.llm_deep_service:
+    if full and config.llm_deep_service:
         deep_extractor = ContentDeepExtractor(config.llm_deep_service)
 
     return DaemonOrchestrator(
@@ -591,7 +597,7 @@ def run_chain(source_url: str, source_type: str, full: bool, console: Console) -
             config = dataclasses.replace(config, auto_extract="all")
 
         storage, source = setup_isolated_run(source_url, source_type)
-        orchestrator = build_orchestrator(config, storage, console)
+        orchestrator = build_orchestrator(config, storage, console, full=full)
 
         stats = orchestrator.fetch_source_content(source)
 

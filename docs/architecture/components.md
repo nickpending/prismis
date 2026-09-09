@@ -4,8 +4,8 @@ subtype: components
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-07"
-last_change: "wo-reddit-validation-seam (#59, #63): Source Validator rewritten onto PRAW with nine distinguishable outcomes and an optional Config; API Server gained get_validator and moved validation off the event loop under a 20s budget; auth.py stopped rendering config-load exception text into the response; Fetchers noted as divergent from the validator's PRAW construction (#67, #68)"
+updated: "2026-09-09"
+last_change: "wo-verify-chain: new Verify Chain component (`verify_chain.py`, `verify --chain`) drives the real orchestrator against a throwaway DB; Observability gained XDG_DATA_HOME resolution + a process-scoped run_id; Embeddings, Notifier, and Storage's create_or_update_content are newly instrumented (D-DARK closed)"
 tags: [architecture, components]
 ---
 
@@ -67,7 +67,7 @@ Registry of all system components. Each entry links to a detail doc when the com
 ## Storage
 
 **Purpose:** SQLite persistence layer — content items, metadata, deduplication, archival, on-demand analysis patching.
-**Key files:** `daemon/src/prismis_daemon/storage.py` (added `update_analysis(content_id, analysis)` for on-demand extraction patching; datetime values bound as ISO strings via `datetime.now(timezone.utc).isoformat()` to satisfy Python 3.12 sqlite3 adapter requirements), `database.py`, `schema.sql`
+**Key files:** `daemon/src/prismis_daemon/storage.py` (added `update_analysis(content_id, analysis)` for on-demand extraction patching; datetime values bound as ISO strings via `datetime.now(timezone.utc).isoformat()` to satisfy Python 3.12 sqlite3 adapter requirements; `create_or_update_content` — the method the pipeline actually calls to store an item — now emits `obs_log("db.insert", operation="create_or_update_content", status="created"|"updated"|"error")` on all three branches, matching the shape `add_content` already used even though nothing in the pipeline calls `add_content`), `database.py`, `schema.sql`
 **Connections:** Central data layer. Written by daemon orchestrator, read by API server and TUI. The on-demand extract endpoint updates `analysis` JSON without rewriting other content fields.
 
 ## Audio Briefings
@@ -104,20 +104,20 @@ Registry of all system components. Each entry links to a detail doc when the com
 ## Embeddings
 
 **Purpose:** Local, offline embedding generation for semantic search.
-**Key files:** `daemon/src/prismis_daemon/embeddings.py` (`Embedder` class)
+**Key files:** `daemon/src/prismis_daemon/embeddings.py` (`Embedder` class; `generate_embedding` was a dark link — zero observability — until wo-verify-chain wrapped it to emit `obs_log("embedding.generate", status="success", dimension=..., duration_ms=...)` on success and `status="error"` on failure, then re-raise — every existing caller already wraps the call in its own try/except that logs and continues, so re-raising preserves prior behavior exactly)
 **Connections:** Uses the `all-MiniLM-L6-v2` SentenceTransformer model (384 dimensions, lazy-loaded on first use). Imported by api.py, orchestrator.py, and storage.py — embeddings are generated on content ingestion/deep-extraction and stored in the `vec_content` vec0 table; storage.py converts vec0's default L2 distance to cosine via `1 - d²/2` (relies on this model's Normalize layer producing unit-normalized vectors). Underpins the `/api/search` semantic-search path.
 
 ## Notifier
 
 **Purpose:** Desktop notifications for newly-fetched HIGH-priority content.
-**Key files:** `daemon/src/prismis_daemon/notifier.py` (`Notifier` class)
+**Key files:** `daemon/src/prismis_daemon/notifier.py` (`Notifier` class; also a dark link until wo-verify-chain — `notify_new_content` now emits `obs_log("notification.send", status="skipped", reason="no_high_priority_items")` on the early-return path, and `_send_notification` emits `status="success"|"error"` from the subprocess's own exit code, turning what used to be only a `logger.warning` on a nonzero exit into a distinguishable event)
 **Connections:** `notify_new_content(items)` filters for HIGH items and calls `_send_notification`. Instantiated/called by orchestrator.py during fetch cycles; defaults sourced from defaults.py. Config-driven via `__main__.py`.
 
 ## Observability
 
 **Purpose:** JSONL event-tracking logger for daemon operations.
-**Key files:** `daemon/src/prismis_daemon/observability.py` (`ObservabilityLogger` class + module-level `get_logger()` / `log(event, **metadata)` helpers; uses `fcntl` for append-safe writes)
-**Connections:** Cross-cutting — used by `__main__.py`, api.py, orchestrator.py, storage.py, summarizer.py, evaluator.py, deep_extractor.py, circuit_breaker.py, context_analyzer.py, context_auto_updater.py. The "Logs via observability" connections noted on Summarizer/Evaluator/etc. resolve here.
+**Key files:** `daemon/src/prismis_daemon/observability.py` (`ObservabilityLogger` class + module-level `get_logger()` / `log(event, **metadata)` helpers; uses `fcntl` for append-safe writes; base dir now resolves under `XDG_DATA_HOME` — was hardcoded to `Path.home()/.local/share`, the one module in the daemon that didn't follow `database.py`'s pattern, until wo-verify-chain fixed it; `set_run_id(str | None)` / `get_run_id()` hold a process-scoped global that `log()` stamps onto every event as `run_id` while set — additive to the event shape, absent entirely (not even `null`) when unset, so the long-running daemon process, which never calls `set_run_id`, is byte-for-byte unaffected; `reset_logger()` discards the cached global logger so a test that re-points `XDG_DATA_HOME` gets a re-resolved base dir)
+**Connections:** Cross-cutting — used by `__main__.py`, api.py, orchestrator.py, storage.py, summarizer.py, evaluator.py, deep_extractor.py, circuit_breaker.py, context_analyzer.py, context_auto_updater.py, embeddings.py, notifier.py. `verify_chain.py` is the first (and, per the 2026-05-18 audit in decisions.md, still the only) reader of the JSONL it writes. The "Logs via observability" connections noted on Summarizer/Evaluator/etc. resolve here.
 
 ## Source Validator
 
@@ -132,3 +132,9 @@ Nine outcomes are told apart where one message served before (Principle II): suc
 **Credentials are gated before any network call.** `Config` expands credentials with `os.environ.get(env_var, value)`, so an unset variable leaves the literal truthy string `"env:REDDIT_CLIENT_ID"` — handing that to Reddit earns a 401 and reports credentials *invalid* on a machine that has *none*. Empty and `env:`-prefixed credentials are rejected up front, reusing the `startswith("env:")` shape `Config.validate()` already used.
 
 **The probe is bounded, because PRAW is not.** `prawcore.const.TIMEOUT` is 16s, computed at import and bound as a default argument value in `prawcore/sessions.py`, so setting `PRAWCORE_TIMEOUT` at runtime or patching the constant reaches nothing. The client is built with `check_for_updates=False` (`praw.Reddit.__init__` otherwise reaches `pypi.org` via `update_checker`) and a mounted transport adapter carrying the validator's own deadline. Retry suppression overrides prawcore's sleep and should-retry hooks rather than its retry *count* — lowering the count made prawcore sleep 2–4s before the first request, since it sleeps ahead of every attempt and a lowered counter reads as "retries already spent". What is bounded is each socket operation plus request admission, not total elapsed time; the outer `asyncio.wait_for` at the API layer bounds the request.
+
+## Verify Chain
+
+**Purpose:** `prismis-daemon verify --chain --source <url>` drives one source through the real `DaemonOrchestrator` pipeline against a throwaway temp-XDG database and reports per-link status/duration/cost/model — the only place the daemon's actual production classes run end to end before `make install-daemon` replaces the running cerebro daemon.
+**Key files:** `daemon/src/prismis_daemon/verify_chain.py` (`LinkStatus` dataclass; `build_source`/`setup_isolated_run` construct a synthetic source row via `init_db()` then `Storage()` — that order is load-bearing, `Storage.__init__` opens a connection eagerly despite a "lazy" comment and raises against a schema-less temp dir otherwise; `render_report` is pure aggregation classifying fetch/dedup/summarize/evaluate/deep_extract/store/embed/notify into `ran | empty | never-reached | skipped-by-flag | skipped | circuit-open | error`; `run_chain` is the entry point; its absolute imports are mechanically restricted to a stdlib+rich allowlist so it cannot quietly grow a reimplementation of any link). `daemon/src/prismis_daemon/__main__.py` — `verify()` gained `chain`/`source`/`source_type`/`full` params via `Annotated[bool, typer.Option(...)] = False` (not the plain-default form, which leaves a truthy `OptionInfo` object that would make a bare `verify()` call always take the chain branch); dispatches to `verify_chain.run_chain` and leaves the pre-existing zero-flag behavior byte-for-byte unchanged.
+**Connections:** `build_orchestrator` constructs the real `DaemonOrchestrator` with real fetchers/summarizer/evaluator/embedder/notifier and, only under `--full`, a real `ContentDeepExtractor` — it reimplements no link. Attribution is solved at the Observability layer, not here: `run_chain` calls `observability.set_run_id()` before constructing anything and clears it in a `finally`, so `read_run_events` selects exactly this run's JSONL lines even when a live daemon cycle writes to the same file concurrently. One deliberate exception to reading events: a circuit-open refusal is read from `fetch_source_content`'s returned `stats["errors"]` instead, because `summarizer.py`/`evaluator.py` raise before their own `obs_log` call — see decisions.md. The deep-extractor's own circuit-open path is swallowed by the orchestrator's INV-002 catch and stays invisible to both the JSONL and stats — a named, accepted gap. Never calls `get_active_sources()`; the source under test comes only from `--source`, though `build_source` inserts one throwaway row via `Storage.add_source` to satisfy the `content` table's FK.

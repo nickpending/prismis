@@ -4,14 +4,30 @@ subtype: decisions
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-07"
-last_change: "wo-reddit-validation-seam (#59, #63) — Reddit validation moved onto PRAW with distinguishable outcomes; the config seam, the credential gate, and the bounded probe recorded with the premises that were retracted along the way"
+updated: "2026-09-09"
+last_change: "wo-verify-chain — `verify --chain` drives the real orchestrator end to end; observability gained XDG_DATA_HOME + a process-scoped run_id for attribution; gh #64 diagnosed as Reddit's live rate limiter, not a flaky test"
 tags: [architecture, decisions]
 ---
 
 # Decisions
 
 Architectural decisions and their rationale. Most recent first.
+
+## [2026-09-08]: `verify --chain` drives the real pipeline end to end; observability gains XDG_DATA_HOME + a process-scoped run_id (wo-verify-chain)
+
+**Context:** The daemon suite proved pipeline *logic* but nothing about the *pipeline* — three real bugs (#59, #61, #65) had all been found by incidental contact with reality while fixing something else, and `make install-daemon` replaces the running cerebro daemon with no way to learn a build is broken first. Three links left no record at all: `embeddings.py` and `notifier.py` had zero `obs_log` calls, and `Storage.create_or_update_content` — the method `fetch_source_content` actually calls to store an item — had zero, even though `Storage.add_content` in the same file (which nothing in the pipeline calls) was already instrumented, which is what made the work order's original "storage YES" claim look true. Separately, `observability.py` resolved its base dir from `Path.home()` and never read `XDG_DATA_HOME`, unlike every sibling module (`database.py` twice, `api.py` twice, `config.py`), so a chain run's JSONL would land in the operator's real observability tree instead of a throwaway one.
+
+**Choice:** New `daemon/src/prismis_daemon/verify_chain.py` extends `prismis-daemon verify` with `--chain --source <url> [--type ...] [--full]`. It constructs the real `DaemonOrchestrator` with real collaborators against a throwaway temp-XDG database (`init_db()` before `Storage()` — `Storage.__init__` opens a connection eagerly despite its "lazy" comment) and mines the observability JSONL the run itself writes to classify each link into one of seven states (`ran | empty | never-reached | skipped-by-flag | skipped | circuit-open | error`). Default scope is fetch/dedup/summarize/evaluate/store/embed; `--full` adds deep-extract and notify. `observability.py` now reads `XDG_DATA_HOME` and stamps a process-scoped `run_id` (`set_run_id`/`get_run_id`, cleared in `run_chain`'s `finally`) onto every event logged while set — additive to the JSONL schema, absent entirely (not even `null`) when unset, so the daemon's own long-running process is untouched by construction. `embeddings.py`, `notifier.py`, and `Storage.create_or_update_content` are newly instrumented with `obs_log` to close the three-link gap (D-DARK).
+
+**Circuit-open is the one deliberate exception to "read the JSONL."** `summarizer.py`/`evaluator.py` raise before reaching their own `obs_log` call, so a refused item leaves no `llm.call` event; `render_report` reads `fetch_source_content`'s returned `stats["errors"]` for the `"circuit breaker is open"` substring instead, and consults `circuit_breaker.state` events only to decide wording ("opened during this run" vs. "was already open") — never to gate the classification itself, since a circuit already open when the run starts refuses every item and logs no transition. The deep-extractor's own circuit-open raise is swallowed by the orchestrator's INV-002 catch before either the JSONL or the returned stats can see it — named as an accepted gap, not fixed, since it is reachable only under `--full`.
+
+**Why:** P29 (mine the artifact the system authoritatively writes) over inventing test-only instrumentation or a chain-private JSONL file — the latter was rejected specifically because it would stop testing that the chain reads the *same* file the daemon authoritatively writes. P16 — a `run_id` kwarg threaded through 20+ existing `obs_log` call sites across 8 files was rejected in favor of stamping once at the single point (`observability.log`) that already mediates every one of them. P15 — the `XDG_DATA_HOME` fix mirrors `database.py` verbatim; the run-id set/get/clear-via-`None` shape mirrors `circuit_breaker.py`'s existing `reset_circuit_breaker` convention; the three newly-instrumented modules match `summarizer.py`'s / `add_content`'s existing `obs_log` shape. Constitution Principle I: no mock of any kind, including LLM providers, since exercising them for real is the point.
+
+## [2026-09-08]: gh #64 was Reddit's live rate limiter, not a flaky test — and the test never proved what its docstring claimed
+
+**Context:** `test_concurrent_source_adds` posted ten sources across five real RSS feeds (including a live `reddit.com/r/programming/.rss` fetch) and asserted five unique rows landed; under concurrent CI load Reddit 429s the feed's second hit within the window, so four sources land against an assertion wanting five. The docstring claimed "Database locks during concurrent writes" while its own comment conceded `TestClient` cannot be concurrent — it was ten sequential POSTs whose only real variable was whether five third-party sites answered.
+**Choice:** Rewrote the test to assert exact counts (not `>=`) using `file://` sources — `_validate_file` checks only an extension and scheme, no network call — so the write path is exercised without a live host in the loop. Swept the class: an AST pass over every test posting to `/api/sources` with a live host found five ungated call sites; four were converted to file sources, leaving only a skipped test and one invalid-input case the reddit parser rejects pre-network.
+**Why:** P16 — the fix is the diagnosis (a real external rate limiter), not a retry or a skip; re-citing gh #64 as an "intermittent" without a cause would have repeated the same non-explanation. Mutation-verified: an assertion on row count alone survived disabling `Storage.add_source`'s dedup (the schema's `UNIQUE` constraint did the work silently), so the rewritten test additionally asserts the duplicate re-post answers 200.
 
 ## [2026-09-07]: Reddit validation authenticates through PRAW; four premises were retracted by execution (wo-reddit-validation-seam, #59/#63)
 

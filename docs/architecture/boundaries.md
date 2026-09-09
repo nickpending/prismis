@@ -4,14 +4,26 @@ subtype: boundaries
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-07"
-last_change: "wo-reddit-validation-seam (#59) — added the Daemon ↔ Clients source-validation budget contract, where tying the server and client timeouts to the same number made the daemon's message unreachable"
+updated: "2026-09-09"
+last_change: "wo-verify-chain — added the observability JSONL run_id attribution contract and the verify --chain live-DB isolation contract"
 tags: [architecture, boundaries]
 ---
 
 # Boundaries
 
 Interface contracts between components and external systems.
+
+## Observability JSONL event schema (run_id attribution)
+
+**Between:** `observability.py`'s `log()` (every daemon producer: fetchers, storage, summarizer, evaluator, deep_extractor, circuit_breaker) ↔ any reader of `$XDG_DATA_HOME/prismis/observability/*_events.jsonl` (currently `verify_chain.py` is the only reader; per the 2026-05-18 audit above, no external consumer existed as of that date)
+**Contract:** Every event is `{ts, event, **metadata}`. When a process has called `set_run_id(<uuid>)`, every event that process logs for the rest of its life additionally carries `run_id: <uuid>`, until `set_run_id(None)`. The daemon's own long-running process never calls `set_run_id`, so its events keep the exact pre-existing shape — no `run_id` key at all, not even `null`. A reader MUST treat `run_id` as optional and MUST NOT infer anything from its absence beyond "no run claimed this event."
+**Constraints:** `_current_run_id` is a plain module-level global — process-scoped, not persisted, not visible across processes, which is what keeps a chain run's attribution correct even when it overlaps a live daemon cycle writing to the same file. Code that sets it directly (rather than through `verify_chain.run_chain`, which clears it in a `finally`) must clear it back to `None` itself — pytest runs a whole suite in one process, so an uncleared run id leaks into every event logged afterward in that process.
+
+## Daemon ↔ `verify --chain` isolation contract
+
+**Between:** `prismis-daemon verify --chain` ↔ the operator's real database and observability history
+**Contract:** The chain never opens the live database in either direction — `XDG_DATA_HOME` points at a fresh temp dir before `Storage` or `init_db()` is touched, and `observability.py` (as of this work) resolves under the same `XDG_DATA_HOME`, so the run's JSONL also lands in the temp tree, not the operator's real observability history. Credentials and LLM config are the operator's real ones (`XDG_CONFIG_HOME`, untouched) — only data-plane state is isolated. The chain never calls `get_active_sources()`; the source under test comes only from `--source`, though `build_source` inserts one throwaway row into the temp DB's `sources` table to satisfy the `content` table's `FOREIGN KEY (source_id)`.
+**Constraints:** `Storage.__init__` opens a connection eagerly (despite a "lazy" comment), so `init_db()` must run before `Storage()` is constructed — reversing the order raises against a genuinely empty temp dir. `--full` overrides only `auto_extract` to `"all"` (via `dataclasses.replace`) so the report is deterministic regardless of the operator's configured threshold; the LLM services it calls are still the operator's real configured ones, not a simulated deployment.
 
 ## Daemon ↔ llm-core
 

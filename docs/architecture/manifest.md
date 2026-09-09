@@ -1,15 +1,15 @@
 ---
 type: manifest
 project: prismis
-generated: "2026-09-07"
+generated: "2026-09-09"
 source: /Users/rudy/development/projects/prismis/docs/architecture
-reconciled_at: b111e3ddb1b16e44e1dcd203aed1fc8b0d713481
+reconciled_at: 129f1552266e5afea2bf42223dcfb13a53d1a5ee
 ---
 
 ## Components
 
 - **Daemon** — Python daemon: fetch, LLM summarize/evaluate/deep-extract, SQLite storage, REST API.
-- **Fetchers** — Source adapters: RSS, Reddit, YouTube, static-URL change monitoring (SHA256 diff, source type "file").
+- **Fetchers** — Source adapters: RSS, Reddit, YouTube, static-URL change monitoring (source type "file").
 - **Summarizer** — LLM content summarization with structured insights.
 - **Evaluator** — LLM content prioritization against user interests.
 - **Deep Extractor** — Second-tier LLM synthesis for HIGH items; `deep_extract_exclude` skips low-signal sources.
@@ -21,11 +21,12 @@ reconciled_at: b111e3ddb1b16e44e1dcd203aed1fc8b0d713481
 - **Audio Briefings** — Spoken daily briefings via LLM script + lspeak TTS.
 - **Notifier** — Desktop notifications for new HIGH-priority content.
 - **Observability** — JSONL event logger, cross-cutting across daemon modules.
-- **Source Validator** — Pre-add validation of RSS/Reddit/YouTube/file sources.
+- **Source Validator** — Pre-add validation of RSS/Reddit/YouTube/file.
 - **TUI** — Go reading/triage UI; `:extract` triggers deep extraction.
 - **Web View** — Single-page frontend served from daemon.
 - **CLI** — Python admin/batch ops against the daemon API.
 - **LLM Validator** — Dual-service startup health check (light fatal, deep non-fatal).
+- **Verify Chain** — `verify --chain`: real orchestrator run against a throwaway DB, per-link report.
 
 ## Where to look
 

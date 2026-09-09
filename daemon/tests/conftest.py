@@ -1,6 +1,8 @@
 """Shared test fixtures for all tests."""
 
 import dataclasses
+import os
+import re
 import socket
 import tempfile
 import threading
@@ -17,6 +19,38 @@ from prismis_daemon.defaults import DEFAULT_CONFIG_TOML, DEFAULT_CONTEXT_MD
 # and no real key can be committed. Production's own generator (defaults.ensure_config)
 # is random, which is why the template is formatted here instead of calling it.
 TEST_API_KEY = "prismis-test-key"
+
+# Popped at import, not in the fixture below, and this ordering is the whole point.
+# Rich resolves a Console's color system once, in its constructor, and caches it — only
+# is_terminal is re-read later. __main__.py and orchestrator.py both build a console at
+# module scope, which happens while pytest imports the test modules, before any fixture
+# has run. A fixture-time delenv therefore leaves those consoles already committed to
+# emitting SGR codes, and a test asserting on a literal substring of their output
+# measures the runner's color negotiation instead of what the command said. conftest is
+# imported before the modules under test, so this is early enough. The fixture keeps its
+# own delenv for the subprocesses tests spawn.
+os.environ.pop("FORCE_COLOR", None)
+
+
+_ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def strip_ansi(text: str) -> str:
+    """Remove SGR escapes so an assertion is about CONTENT, not styled bytes.
+
+    Rich renders a long option as two separately-styled spans — a dash, a reset, then
+    the rest — so a literal `--chain` is absent from styled output entirely. Whether
+    styling is on depends on the runner: Rich checks TTY_COMPATIBLE, then FORCE_COLOR,
+    then isatty(), so a test asserting on raw CLI text measures which of those the
+    environment happened to set.
+
+    The FORCE_COLOR seal below closes one of those paths. This closes all of them, so
+    use it for any assertion against rendered CLI output rather than relying on the
+    environment being clean. It lives here, not in one test file, because the first fix
+    for this was a file-private helper and the same defect reappeared two days later in
+    a different file.
+    """
+    return _ANSI_SGR.sub("", text)
 
 
 def init_db(path: Path) -> None:
@@ -51,6 +85,13 @@ def isolated_xdg_env(tmp_path_factory, monkeypatch) -> Path:
     A complete, valid config is materialized from the production template so the suite
     runs against the same shape production ships, not a hand-written stand-in that drifts.
 
+    FORCE_COLOR is sealed for the same reason and is deleted rather than overridden:
+    Rich gives it precedence over both NO_COLOR and TERM=dumb, so nothing else turns it
+    off. With it set, Rich splits a long option into separately styled spans — a dash,
+    a reset, then the rest — and the literal "--chain" is absent from the output. A test
+    asserting on rendered CLI text then measures which color mode the runner negotiated,
+    passing on a developer's piped stdout and failing under CI's FORCE_COLOR.
+
     Tests needing a *different* environment set their own value: pytest instantiates
     autouse fixtures before the non-autouse fixtures and test bodies that override them
     (test_db, test_dual_service_config_unit.py:225, test_llm_core_migration_unit.py:252).
@@ -69,6 +110,7 @@ def isolated_xdg_env(tmp_path_factory, monkeypatch) -> Path:
     monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
     monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache_home))
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
 
     cfg_dir = cfg_home / "prismis"
     cfg_dir.mkdir(parents=True, exist_ok=True)

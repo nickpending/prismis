@@ -22,6 +22,8 @@ network-free.
 import io
 import json
 import subprocess
+
+from conftest import strip_ansi
 from datetime import datetime
 from pathlib import Path
 
@@ -220,5 +222,6 @@ def test_verify_help_lists_the_chain_options() -> None:
     )
 
     assert result.returncode == 0, result.stderr
+    plain = strip_ansi(result.stdout)
     for flag in ("--chain", "--source", "--type", "--full"):
-        assert flag in result.stdout
+        assert flag in plain

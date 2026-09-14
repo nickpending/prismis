@@ -2,10 +2,10 @@
 id: wo-verify-chain
 type: feature
 project: prismis
-status: active
+status: complete
 complexity: 7
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-14
 plan_ref: docs/work/verify-chain/plan.md
 ---
 
@@ -335,8 +335,59 @@ cd daemon && XDG_DATA_HOME=$(mktemp -d) \
 
 ## Approach
 
-[Empty — filled after planning]
+`docs/work/verify-chain/plan.md`. `verify --chain` builds the real `DaemonOrchestrator` with
+real collaborators — mirroring the daemon's own `--once` wiring — inits the schema against a
+temp `XDG_DATA_HOME`, inserts a real sources row there, and drives `fetch_source_content()`
+against one `--source` URL. It then reads back the observability JSONL its own run wrote,
+selected by a process-scoped run id stamped on every event, and renders one row per link.
+`observability.py` was fixed to read `XDG_DATA_HOME`, and three dark links — `embeddings.py`,
+`notifier.py` and `Storage.create_or_update_content` — were instrumented.
 
 ## Outputs
 
-[Empty — filled on completion]
+**Gate:** `./.specify/verify.sh` exit 0, ten checks covered, no `VERIFY_UNCOVERED`. Run by the
+runner outside the builder and re-run independently. CI green on `main`.
+
+**Suite:** daemon 434 passed / 44 skipped / 1 xfailed.
+
+**SC-10 — the real run on the deploy host.** `fcbf109` checked out on cerebro, temp
+`XDG_DATA_HOME`, real config and credentials, installed daemon untouched:
+
+```
+link          status          duration   cost   model            detail
+fetch         ran               337 ms      —   —                5 item(s) fetched
+dedup         ran                    —      —   —                0 already-seen filtered, 5 new (inferred)
+summarize     ran             51330 ms      —   gpt-4.1-mini…    5 call(s)
+evaluate      ran              6750 ms      —   gpt-4.1-mini…    5 call(s)
+deep_extract  skipped-by-flag        —      —   —                run with --full to extract
+store         ran                 0 ms      —   —                5 created, 0 updated
+embed         ran              1342 ms      —   all-MiniLM-L…    5 embedding(s)
+notify        skipped-by-flag        —      —   —                run with --full to send
+```
+
+**This is a manual, unguarded run.** Nothing in the tree asserts it. It is recorded as
+evidence of one execution, not as a standing guard.
+
+**The first attempt at this run failed, and that was the point.** It reported
+`deep_extract: skipped-by-flag` while the orchestrator's own output showed
+"🧠 Deep extraction added" — deep extraction ran on the deep service and billed, because
+`build_orchestrator` constructed `ContentDeepExtractor` whenever a deep service was configured
+and never consulted `full`. The report asserted the opposite of what happened, which is the
+false-green class this work order exists to prevent. Fixed, guarded structurally by a unit test
+asserting the extractor is not built without `--full`, and the re-run above is clean.
+
+**Anyone can now run the chain without the deploy host.** `fcbf109` added a local HTTP stub
+serving the feed, the item bodies and an OpenAI-shaped completions endpoint, so the whole
+composition executes in the gate with no credentials and no spend. That gap was real: the one
+thing nobody could exercise from a clone was the composition itself, and the deep-extract bug
+above — a wiring bug — cost a billed run to find.
+
+**Known gap, not closed here:** every cost cell is empty. `gpt-4.1-mini` is present in
+`pricing.toml`, and the model column truncates to `gpt-4.1-mini…`, so a dated provider id would
+not match the pricing key. `docs/work/wo-openai-sdk-migration.md` already owns this — it records
+that four of six models are absent from a pricing file last written 8 April, and that the SDK
+reports real billed cost from the provider instead.
+
+**Handles filed during this work:** #71 (`fetch_interval` never reaches the scheduler), #72
+(deep-extract circuit-open invisible to both channels), #73 (two tests mock internal code).
+gh #64 was root-caused and closed — it was Reddit's rate limiter, not an intermittent.

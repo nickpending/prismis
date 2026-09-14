@@ -660,9 +660,14 @@ async def update_content(
             "interesting_override": request.interesting_override,
         }
 
-        # Check if user_feedback was explicitly set in the request JSON
-        # We need to distinguish between "not provided" and "explicitly set to null"
-        if hasattr(request, "user_feedback"):
+        # Distinguish "not provided" from "explicitly set to null". hasattr cannot:
+        # user_feedback is a declared field on the model, so it is always present as an
+        # attribute and hasattr is unconditionally true. Passing None then misses
+        # storage's "__NOT_PROVIDED__" sentinel, so every PATCH that omitted the field
+        # wrote user_feedback = NULL — the web UI's mark-read sends {"read": true}
+        # alone, so reading an item you had voted on erased the vote. model_fields_set
+        # holds only the keys the caller actually sent.
+        if "user_feedback" in request.model_fields_set:
             update_kwargs["user_feedback"] = request.user_feedback
 
         # Update content status

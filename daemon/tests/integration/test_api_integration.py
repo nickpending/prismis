@@ -656,3 +656,120 @@ def test_server_validation_budget_stays_under_every_client_budget() -> None:
         "build and send its answer after the budget expires, or the client times out "
         "first and the answer is never seen"
     )
+
+
+def test_mark_read_preserves_an_existing_vote(
+    api_client: TestClient, test_db: Path
+) -> None:
+    """
+    INVARIANT: A PATCH that omits user_feedback leaves the stored vote alone
+    BREAKS: Marking an item read erases the vote on it. The web UI's mark-read sends
+            {"read": true} alone (static/index.html), so voting then reading destroyed
+            the vote — which is what 15 up / 0 down across 35k items looked like, and
+            it starves the learning loop, which needs >=5 votes in 30 days before the
+            orchestrator injects preferences into the LLM context.
+    NOTE: The endpoint must distinguish "field not sent" from "field sent as null".
+          hasattr cannot: user_feedback is a declared pydantic field, so it is always
+          an attribute and hasattr is unconditionally true. Storage's sentinel is the
+          string "__NOT_PROVIDED__", which None is not, so the omitted case took the
+          "caller provided null" branch and wrote NULL.
+    """
+    storage = Storage(test_db)
+    response = api_client.post(
+        "/api/sources",
+        json={"url": "https://example.invalid/votes.md", "type": "file"},
+        headers={"X-API-Key": TEST_API_KEY},
+    )
+    assert response.status_code == 200
+    source_id = response.json()["data"]["id"]
+
+    storage.add_content(
+        ContentItem(
+            external_id="voted-item",
+            source_id=source_id,
+            title="An item worth voting on",
+            url="https://example.invalid/voted",
+            content="Body.",
+            published_at=None,
+        )
+    )
+    content_id = storage.conn.execute(
+        "SELECT id FROM content WHERE external_id = ?", ("voted-item",)
+    ).fetchone()[0]
+
+    vote = api_client.patch(
+        f"/api/entries/{content_id}",
+        json={"user_feedback": "up"},
+        headers={"X-API-Key": TEST_API_KEY},
+    )
+    assert vote.status_code == 200, vote.text
+    stored = storage.conn.execute(
+        "SELECT user_feedback FROM content WHERE id = ?", (content_id,)
+    ).fetchone()[0]
+    assert stored == "up", f"the vote must land before this proves anything: {stored!r}"
+
+    # Exactly what the web UI sends on mark-read — no user_feedback key at all.
+    mark_read = api_client.patch(
+        f"/api/entries/{content_id}",
+        json={"read": True},
+        headers={"X-API-Key": TEST_API_KEY},
+    )
+    assert mark_read.status_code == 200, mark_read.text
+
+    after = storage.conn.execute(
+        "SELECT user_feedback, read FROM content WHERE id = ?", (content_id,)
+    ).fetchone()
+    assert after[0] == "up", (
+        f"marking read erased the vote: user_feedback is now {after[0]!r}"
+    )
+    assert after[1] == 1, "the read flag must still have been applied"
+
+
+def test_explicit_null_feedback_still_clears_the_vote(
+    api_client: TestClient, test_db: Path
+) -> None:
+    """
+    INVARIANT: A PATCH that sends user_feedback: null clears the vote deliberately
+    BREAKS: The fix for the omitted case over-corrects and makes un-voting impossible,
+            so a caller has no way to retract a vote it set by mistake.
+    """
+    storage = Storage(test_db)
+    response = api_client.post(
+        "/api/sources",
+        json={"url": "https://example.invalid/unvote.md", "type": "file"},
+        headers={"X-API-Key": TEST_API_KEY},
+    )
+    source_id = response.json()["data"]["id"]
+    storage.add_content(
+        ContentItem(
+            external_id="unvote-item",
+            source_id=source_id,
+            title="An item to un-vote",
+            url="https://example.invalid/unvote",
+            content="Body.",
+            published_at=None,
+        )
+    )
+    content_id = storage.conn.execute(
+        "SELECT id FROM content WHERE external_id = ?", ("unvote-item",)
+    ).fetchone()[0]
+
+    api_client.patch(
+        f"/api/entries/{content_id}",
+        json={"user_feedback": "down"},
+        headers={"X-API-Key": TEST_API_KEY},
+    )
+    cleared = api_client.patch(
+        f"/api/entries/{content_id}",
+        json={"user_feedback": None},
+        headers={"X-API-Key": TEST_API_KEY},
+    )
+    assert cleared.status_code == 200, cleared.text
+
+    stored = storage.conn.execute(
+        "SELECT user_feedback FROM content WHERE id = ?", (content_id,)
+    ).fetchone()[0]
+    assert stored is None, (
+        f"an explicit null must clear the vote, got {stored!r} — otherwise the fix for "
+        f"the omitted case has made retracting a vote impossible"
+    )

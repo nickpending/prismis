@@ -579,8 +579,17 @@ def run_chain(source_url: str, source_type: str, full: bool, console: Console) -
     """Drive one source through the real pipeline and print the per-link report.
 
     Returns the process exit code: 1 if any in-scope link errored or hit an open
-    circuit, otherwise 0.
+    circuit, otherwise 0. Callers wanting the per-link outcomes — the end-to-end test
+    asserts on them rather than on the exit code alone, which collapses eight links
+    into one bit — use execute_chain.
     """
+    return execute_chain(source_url, source_type, full, console)[0]
+
+
+def execute_chain(
+    source_url: str, source_type: str, full: bool, console: Console
+) -> tuple[int, list[LinkStatus]]:
+    """run_chain's body, returning the links alongside the exit code."""
     run_id = str(uuid.uuid4())
     set_run_id(run_id)
     try:
@@ -588,7 +597,7 @@ def run_chain(source_url: str, source_type: str, full: bool, console: Console) -
             config = Config.from_file()
         except Exception as e:
             console.print(f"[red]✗ config: {e}[/red]")
-            return 1
+            return 1, []
 
         if full:
             # The deep service itself stays real; only the priority threshold is
@@ -612,4 +621,5 @@ def run_chain(source_url: str, source_type: str, full: bool, console: Console) -
     )
     print_report(console, links)
 
-    return 1 if any(link.status in FAILING_STATUSES for link in links) else 0
+    exit_code = 1 if any(link.status in FAILING_STATUSES for link in links) else 0
+    return exit_code, links

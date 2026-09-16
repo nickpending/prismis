@@ -5,13 +5,21 @@ project: "prismis"
 status: active
 created: "2026-04-07"
 updated: "2026-09-15"
-last_change: "wo-verify-chain closed — the chain now runs end to end from a clone via a local HTTP stub, no credentials or spend, which caught a real deep-extraction billing bug; separately, #57 fixed PATCH /api/entries/{id} erasing an existing vote on mark-read"
+last_change: "`.specify/verify.sh` reduced to a 5-line shim over `bench verify` — the self-discovery gate the 2026-09-03 decision documents now lives outside this repo"
 tags: [architecture, decisions]
 ---
 
 # Decisions
 
 Architectural decisions and their rationale. Most recent first.
+
+## [2026-09-15]: `.specify/verify.sh` becomes a shim over `bench verify` (commit `1276be6`)
+
+**Context:** The [2026-09-03] decision below ("CI verification gate consolidated") made `.specify/verify.sh` the one script dev, `make`, and CI all run, and documents its self-discovery logic in detail: walking every `pyproject.toml`/`go.mod`/`Cargo.toml`/`package.json` in the tree and dispatching ruff/pyright/pytest, gofmt/go vet/staticcheck/go test, cargo fmt/clippy/test, and bun typecheck/check/test per unit, then reporting `VERIFY_COVERED`/`VERIFY_UNCOVERED`/`VERIFY_NOT_YET`. That ~140-line implementation was hand-authored and repo-local — every project wanting the same self-discovering gate had to carry and maintain its own copy.
+**Choice:** `.specify/verify.sh` is now 5 lines: `exec bench verify --cwd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"`. Its own comment states the new contract: "The gate is `bench verify` — one implementation for every project, versioned in bench and tested there. This file exists only because callers invoke a path, not a command; it holds no logic and never needs editing." All of the discovery/execution/reporting mechanics the 2026-09-03 decision documents now live in `bench verify`, external to this repo. `make test` (`bash .specify/verify.sh`) and `.github/workflows/ci.yml`'s `bash .specify/verify.sh` + `VERIFY_UNCOVERED` grep are unchanged at the call site — the shim preserves the script's path, stdout vocabulary, and exit-code contract, so neither caller needed to change.
+**Why:** Collapsing every project's repo-local copy of the same discovery script into one versioned-and-tested implementation in `bench` removes the chance of per-repo copies drifting from each other — the same rationale the 2026-09-03 decision used to collapse three notions of "tested" (developer, `make test`, CI) into one script, one level up the stack.
+
+**Note:** `.github/workflows/ci.yml`'s inline comments still narrate the retired self-discovery internals by line number (e.g. "verify.sh:73 branches on `command -v staticcheck`", "verify.sh:119 prints VERIFY_UNCOVERED") — those line numbers no longer exist in `.specify/verify.sh`; the behavior they describe now lives in `bench verify`. `ci.yml` itself was not touched by this change and is not reconciled here.
 
 ## [2026-09-14]: PATCH /api/entries/{id} gates on `model_fields_set`, not `hasattr` (#57)
 

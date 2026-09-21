@@ -4,14 +4,20 @@ subtype: boundaries
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-09"
-last_change: "wo-verify-chain — added the observability JSONL run_id attribution contract and the verify --chain live-DB isolation contract"
+updated: "2026-09-21"
+last_change: "Added the repo ↔ `bench verify` contract: `.specify/verify.sh` is now a 5-line shim delegating to an external, out-of-repo verification gate (commit 1276be6)"
 tags: [architecture, boundaries]
 ---
 
 # Boundaries
 
 Interface contracts between components and external systems.
+
+## Repo ↔ `bench verify` (external verification gate)
+
+**Between:** `.specify/verify.sh` (the entry point `make test` and `.github/workflows/ci.yml` invoke) ↔ `bench verify`, a command versioned and tested outside this repo
+**Contract:** `.specify/verify.sh` is a 5-line shim — `exec bench verify --cwd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"` — that holds no logic of its own. It preserves the pre-shim script's path, stdout vocabulary (`VERIFY_COVERED`/`VERIFY_UNCOVERED`/`VERIFY_NOT_YET`, `verify: PASS`/`verify: FAIL`), and exit-code contract, so `make test` and CI's `VERIFY_UNCOVERED` grep needed no changes at their call sites.
+**Constraints:** All self-discovery and execution logic (per-language unit discovery across Python/Go/Rust/JS-TS, and the ruff/pyright/pytest, gofmt/go vet/staticcheck/go test, cargo fmt/clippy/test, bun typecheck/check/test dispatch previously documented in decisions.md's [2026-09-03] entry) now lives in `bench verify`, external to this repo — verification behavior can no longer be changed by a commit here; it requires a `bench` release. `bench` must be installed and on `PATH` for verification to run at all. `.github/workflows/ci.yml`'s inline comments still narrate the retired internals by line number (e.g. "verify.sh:73", "verify.sh:119") — those line numbers no longer exist in `.specify/verify.sh`, and `ci.yml` was not reconciled by this change (see decisions.md [2026-09-15]).
 
 ## Observability JSONL event schema (run_id attribution)
 

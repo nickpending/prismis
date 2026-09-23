@@ -122,6 +122,7 @@ class DaemonOrchestrator:
             "items_new": 0,
             "items_updated": 0,
             "errors": [],
+            "fetch_error": None,  # Set when the source itself failed, not one item
             "new_high_priority_items": [],  # Track new HIGH priority items for notifications
         }
 
@@ -407,6 +408,7 @@ class DaemonOrchestrator:
             error_msg = f"Failed to fetch from {source['url']}: {e}"
             self.console.print(f"  [red]{error_msg}[/red]")
             stats["errors"].append(error_msg)
+            stats["fetch_error"] = str(e)
             return stats
 
     def run_once(self, force_refetch: bool = False) -> dict:
@@ -482,8 +484,14 @@ class DaemonOrchestrator:
                     source_stats["new_high_priority_items"]
                 )
 
-                # Update source fetch status (success)
-                self.storage.update_source_fetch_status(source["id"], True)
+                # fetch_source_content reports a failed fetch in its stats rather than
+                # raising, so the except below never sees it (#75).
+                if source_stats["fetch_error"] is not None:
+                    self.storage.update_source_fetch_status(
+                        source["id"], False, source_stats["fetch_error"]
+                    )
+                else:
+                    self.storage.update_source_fetch_status(source["id"], True)
 
             except Exception as e:
                 error_msg = f"Failed to process source {source['url']}: {e}"

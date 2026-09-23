@@ -7,6 +7,12 @@ from pathlib import Path
 
 from .defaults import DEFAULT_CONTEXT_MD
 
+# Absent credentials and refused credentials are two different answers that send the
+# operator to two different places. This message covers only the first.
+REDDIT_NOT_CONFIGURED = (
+    "Reddit credentials not configured - set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET"
+)
+
 
 @dataclass
 class Config:
@@ -70,6 +76,18 @@ class Config:
         default_factory=list
     )  # source types to skip for deep extraction (e.g. ["reddit"])
 
+    @property
+    def has_reddit_credentials(self) -> bool:
+        """Whether both Reddit credentials hold a value Reddit could accept.
+
+        An unset environment variable leaves the literal env: placeholder in place, and
+        that string is truthy, so a plain truthiness check reads it as configured.
+        """
+        return all(
+            value and not value.startswith("env:")
+            for value in (self.reddit_client_id, self.reddit_client_secret)
+        )
+
     def get_max_items(self, source_type: str) -> int:
         """Get max items limit for a specific source type.
 
@@ -131,9 +149,7 @@ class Config:
             )
 
         # Warn if Reddit credentials are not set (don't fail validation)
-        if self.reddit_client_id.startswith(
-            "env:"
-        ) or self.reddit_client_secret.startswith("env:"):
+        if not self.has_reddit_credentials:
             print(
                 "Warning: Reddit credentials not configured. Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET environment variables to use Reddit sources."
             )

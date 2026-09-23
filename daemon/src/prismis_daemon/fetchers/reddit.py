@@ -8,11 +8,15 @@ from typing import Any
 
 import praw
 
-from ..config import Config
+from ..config import REDDIT_NOT_CONFIGURED, Config
 from ..models import ContentItem
 from ..observability import log as obs_log
 
 logger = logging.getLogger(__name__)
+
+
+class RedditNotConfiguredError(RuntimeError):
+    """Raised when a Reddit fetch is attempted with no usable credentials."""
 
 
 class RedditFetcher:
@@ -35,6 +39,15 @@ class RedditFetcher:
 
         self.max_items = max_items or config.get_max_items("reddit")
         self.config = config
+
+        # PRAW accepts the env: placeholder without complaint, so without this the
+        # first fetch reports Reddit's 401 on an install that has no credentials at all.
+        if not config.has_reddit_credentials:
+            logger.warning(REDDIT_NOT_CONFIGURED)
+            self.reddit = None
+            self.credentials_missing = True
+            return
+        self.credentials_missing = False
 
         # Initialize PRAW with credentials from config
         try:
@@ -61,7 +74,8 @@ class RedditFetcher:
         Raises:
             Exception: If subreddit access fails
         """
-        # Check if Reddit client is available
+        if self.credentials_missing:
+            raise RedditNotConfiguredError(REDDIT_NOT_CONFIGURED)
         if not self.reddit:
             raise Exception("Reddit client not initialized - check credentials")
 

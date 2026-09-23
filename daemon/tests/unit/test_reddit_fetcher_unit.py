@@ -2,8 +2,13 @@
 
 from unittest.mock import Mock
 
-from prismis_daemon.fetchers.reddit import RedditFetcher
+import pytest
+
+from prismis_daemon.config import REDDIT_NOT_CONFIGURED
+from prismis_daemon.fetchers.reddit import RedditFetcher, RedditNotConfiguredError
 from prismis_daemon.models import ContentItem
+
+from conftest import make_config
 
 
 def test_parse_subreddit_name_full_url() -> None:
@@ -303,3 +308,35 @@ def test_to_content_item_date_parsing_error() -> None:
 
     assert item.published_at is None  # Should handle error gracefully
     assert item.content == "Content here"  # Other fields should still work
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"reddit_client_id": "env:REDDIT_CLIENT_ID"},
+        {"reddit_client_secret": "env:REDDIT_CLIENT_SECRET"},
+        {"reddit_client_id": ""},
+    ],
+    ids=["placeholder-id", "placeholder-secret", "empty-id"],
+)
+def test_fetch_without_credentials_reports_them_absent(
+    overrides: dict[str, str], no_network: None
+) -> None:
+    """
+    INVARIANT: A fetch with unusable credentials raises "not configured" before any request
+    BREAKS: PRAW accepts the env: placeholder, so every cycle reports Reddit's 401 and an
+            install with no credentials is told its credentials are invalid (#68)
+    """
+    fields = {
+        "reddit_client_id": "zzclientidzz-8f3a1c",
+        "reddit_client_secret": "zzclientsecretzz-4b7e92",
+    }
+    config = make_config(**(fields | overrides))
+    fetcher = RedditFetcher(config=config)
+
+    with pytest.raises(RedditNotConfiguredError) as raised:
+        fetcher.fetch_content(
+            {"url": "https://www.reddit.com/r/python", "id": "source-1"}
+        )
+
+    assert str(raised.value) == REDDIT_NOT_CONFIGURED

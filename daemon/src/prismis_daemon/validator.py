@@ -14,13 +14,7 @@ from prawcore.sessions import FiniteRetryStrategy
 from praw.models import Subreddit
 from requests.adapters import HTTPAdapter
 
-from .config import Config
-
-# Absent credentials and refused credentials are two different answers that send the
-# operator to two different places. This message covers only the first.
-REDDIT_NOT_CONFIGURED = (
-    "Reddit credentials not configured - set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET"
-)
+from .config import REDDIT_NOT_CONFIGURED, Config
 
 
 class _SingleAttemptRetry(FiniteRetryStrategy):
@@ -313,11 +307,8 @@ class SourceValidator:
             Tuple of (config, error_message); exactly one of the two is None
         """
         config = self.config
-        if config is None:
+        if config is None or not config.has_reddit_credentials:
             return None, REDDIT_NOT_CONFIGURED
-        for value in (config.reddit_client_id, config.reddit_client_secret):
-            if not value or value.startswith("env:"):
-                return None, REDDIT_NOT_CONFIGURED
         return config, None
 
     def _build_reddit_client(self, config: Config) -> praw.Reddit:

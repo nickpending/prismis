@@ -55,23 +55,6 @@ def _response(status: int, **headers: str) -> requests.Response:
     return response
 
 
-@pytest.fixture
-def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Route every outbound HTTP call at a proxy port nothing listens on.
-
-    This is containment, not the assertion. It guarantees that a gate failure cannot
-    reach Reddit from a gate-run test; what proves the gate fired is the message, and it
-    proves it for every row, because no path that reaches the network can produce the
-    not-configured message. Removing the gate produces a different message either way —
-    a proxy error for the rows carrying credentials, and an attribute error on the None
-    config, which is why there is no timing assertion here: one row fails fast and the
-    others fail slow, so elapsed time cannot discriminate across the set.
-    """
-    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
-    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
-    monkeypatch.setenv("NO_PROXY", "")
-
-
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
@@ -112,6 +95,11 @@ def test_unusable_credentials_are_reported_without_a_request(
     INVARIANT: Absent credentials return "not configured" before any outbound request
     BREAKS: An install with no credentials is told its credentials are invalid, and the
             operator goes looking at Reddit for a problem that lives in their own config
+
+    No timing assertion: without the gate one row fails fast (an attribute error on the
+    None config) and the others slow (a proxy error), so elapsed time cannot
+    discriminate across the set. The message can, because no path that reaches the
+    network produces it.
     """
     configs = {
         None: None,

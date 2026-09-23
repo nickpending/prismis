@@ -334,3 +334,15 @@ def local_pipeline_stub() -> Iterator[str]:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2.0)
+
+
+@pytest.fixture
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Route every outbound HTTP call at a proxy port nothing listens on.
+
+    Containment, not an assertion: a guard that fails to fire cannot reach a real
+    service from a gate-run test, and fails with a proxy error instead.
+    """
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("NO_PROXY", "")

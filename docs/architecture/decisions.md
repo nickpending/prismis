@@ -4,14 +4,21 @@ subtype: decisions
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-15"
-last_change: "`.specify/verify.sh` reduced to a 5-line shim over `bench verify` — the self-discovery gate the 2026-09-03 decision documents now lives outside this repo"
+updated: "2026-09-22"
+last_change: "`.specify/verify.sh` reverted to the self-contained gate (commit 562f168) — the 2026-09-15 `bench verify` shim broke CI on every run"
 tags: [architecture, decisions]
 ---
 
 # Decisions
 
 Architectural decisions and their rationale. Most recent first.
+
+## [2026-09-22]: `.specify/verify.sh` reverts to the self-contained gate — the `bench verify` shim broke CI (commit `562f168`)
+
+**Context:** The [2026-09-15] decision below reduced `.specify/verify.sh` to `exec bench verify --cwd ...`, moving the self-discovery/dispatch logic external to this repo. `bench` exists only on the operator's machine — it is not installed in CI's container or in a fresh clone. Per the commit message: "bench exists only on the operator's machine, so every CI run since failed with `bench: not found` (exit 127) and a fresh clone could not run the gate at all — against constitution Principle IV." Principle IV ("Verified Where It Runs") states verification must execute in the environment the code runs in and must not depend on anything the interactive shell alone supplies — a `bench` binary on the operator's `PATH` is exactly such a dependency.
+**Choice:** `.specify/verify.sh` is restored to the pre-shim, self-contained implementation — per the commit message, "the restored script is d58403c's, the last green CI run." It is once again a ~145-line bash 3.2-safe script that discovers every `pyproject.toml`/`go.mod`/`Cargo.toml`/`package.json` in the tree at run time (excluding `.venv`, `node_modules`, `build`, `dist`, `target`, `vendor`, and `.claude/worktrees` — the last because Claude Code materializes agent worktrees inside the repo and `find` doesn't honor `.gitignore`) and dispatches ruff/pyright-or-mypy/pytest per Python unit, gofmt/go vet/staticcheck/go test per Go unit, cargo fmt/clippy/test per Rust unit, and typecheck/check/bun-test per JS/TS unit — reporting `VERIFY_COVERED`/`VERIFY_UNCOVERED`/`VERIFY_NOT_YET` and `verify: PASS`/`verify: FAIL`, unchanged from the 2026-09-03 decision's contract. `bench` is no longer a runtime dependency of this repo's verification gate.
+**Why:** A verification gate that cannot run in the environment it is supposed to gate (CI, a fresh clone) is worse than no gate — it fails closed for the wrong reason and every green run since the shim landed was actually CI never executing the gate at all. Principle IV makes this non-negotiable rather than a style preference: restoring self-containment trades the shim's cross-repo consolidation benefit (see 2026-09-15's rationale) for the gate actually running everywhere the code runs.
+**Note:** This re-opens the exact per-repo-copy drift risk the 2026-09-15 decision existed to close — every project carrying this pattern again maintains its own copy of the same ~145-line script. The shim was a fleet-wide 09-15 change affecting at least prismis, manifaces, parley and ward; the operator chose to revert prismis only, leaving the other three repos on the shim for now. The revert's GitHub Actions run was watched and confirmed green on `562f168`. `docs/architecture/boundaries.md`'s "Repo ↔ `bench verify`" entry, which documented the now-reverted shim contract, has been updated to describe the restored self-contained gate.
 
 ## [2026-09-15]: `.specify/verify.sh` becomes a shim over `bench verify` (commit `1276be6`)
 

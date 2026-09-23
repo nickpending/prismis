@@ -4,8 +4,8 @@ subtype: boundaries
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-21"
-last_change: "Added the repo ↔ `bench verify` contract: `.specify/verify.sh` is now a 5-line shim delegating to an external, out-of-repo verification gate (commit 1276be6)"
+updated: "2026-09-22"
+last_change: "Reverted the repo ↔ `bench verify` contract: `.specify/verify.sh` is self-contained again — the `bench` shim broke CI, which has no `bench` binary (commit 562f168, decisions.md [2026-09-22])"
 tags: [architecture, boundaries]
 ---
 
@@ -13,11 +13,11 @@ tags: [architecture, boundaries]
 
 Interface contracts between components and external systems.
 
-## Repo ↔ `bench verify` (external verification gate)
+## `.specify/verify.sh` ↔ its callers (`make test`, `.github/workflows/ci.yml`)
 
-**Between:** `.specify/verify.sh` (the entry point `make test` and `.github/workflows/ci.yml` invoke) ↔ `bench verify`, a command versioned and tested outside this repo
-**Contract:** `.specify/verify.sh` is a 5-line shim — `exec bench verify --cwd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"` — that holds no logic of its own. It preserves the pre-shim script's path, stdout vocabulary (`VERIFY_COVERED`/`VERIFY_UNCOVERED`/`VERIFY_NOT_YET`, `verify: PASS`/`verify: FAIL`), and exit-code contract, so `make test` and CI's `VERIFY_UNCOVERED` grep needed no changes at their call sites.
-**Constraints:** All self-discovery and execution logic (per-language unit discovery across Python/Go/Rust/JS-TS, and the ruff/pyright/pytest, gofmt/go vet/staticcheck/go test, cargo fmt/clippy/test, bun typecheck/check/test dispatch previously documented in decisions.md's [2026-09-03] entry) now lives in `bench verify`, external to this repo — verification behavior can no longer be changed by a commit here; it requires a `bench` release. `bench` must be installed and on `PATH` for verification to run at all. `.github/workflows/ci.yml`'s inline comments still narrate the retired internals by line number (e.g. "verify.sh:73", "verify.sh:119") — those line numbers no longer exist in `.specify/verify.sh`, and `ci.yml` was not reconciled by this change (see decisions.md [2026-09-15]).
+**Between:** `.specify/verify.sh` (self-contained gate, ~145 lines) ↔ `make test` (`bash .specify/verify.sh`) and `.github/workflows/ci.yml` (`bash .specify/verify.sh` + a grep on its output)
+**Contract:** `verify.sh` discovers every `pyproject.toml`/`go.mod`/`Cargo.toml`/`package.json` in the tree at run time (never a hardcoded unit list) and dispatches ruff/pyright-or-mypy/pytest per Python unit, gofmt/go vet/staticcheck/go test per Go unit, cargo fmt/clippy/test per Rust unit, and typecheck/check/bun-test per JS/TS unit. It prints `VERIFY_COVERED: <comma-joined list>` and, when any check was skipped, `VERIFY_UNCOVERED: <reason>`, then a final `verify: PASS` or `verify: FAIL`, and exits non-zero on failure. `.github/workflows/ci.yml` greps this stdout for the `VERIFY_UNCOVERED` line and fails the job if found, so CI can never silently gate on less than a local run passing the same script. The script has no dependency on anything outside this repo — no external binary, no network call — per constitution Principle IV ("Verified Where It Runs"): verification must execute in the environment the code runs in, not depend on what an interactive shell alone supplies.
+**Constraints:** This was briefly a 5-line shim to `bench verify` (commit `1276be6`, 2026-09-15) but `bench` is installed only on the operator's machine — CI has no `bench` on `PATH`, so every CI run under the shim failed with `bench: not found` (exit 127) and a fresh clone could not run the gate at all. Reverted in commit `562f168` (2026-09-22) back to the pre-shim implementation (decisions.md [2026-09-03], [2026-09-22]). `.github/workflows/ci.yml`'s inline comments still narrate the script's internals by line number (e.g. "verify.sh:73 branches on `command -v staticcheck`", "verify.sh:119 prints VERIFY_UNCOVERED") from before the shim/revert cycle — the staticcheck branch is now at line 83 and the `VERIFY_UNCOVERED`-then-fall-through-to-`verify: PASS` print is now at line 130, so these comments point at the wrong lines in the restored script; `ci.yml` has not been reconciled against it.
 
 ## Observability JSONL event schema (run_id attribution)
 

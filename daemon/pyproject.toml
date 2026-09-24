@@ -19,6 +19,9 @@ dependencies = [
     "python-dotenv",
     "rich",
     "sentence-transformers>=2.0.0",
+    # Direct only so [tool.uv.sources] can route it: uv applies sources to direct
+    # dependencies, and sentence-transformers would otherwise pull the CUDA build.
+    "torch",
     "sqlite-vec>=0.1.0",
     "trafilatura",
     "typer",
@@ -27,6 +30,14 @@ dependencies = [
     # without it, so it is a runtime dependency, not an optional extra.
     "yt-dlp",
 ]
+
+# CPU-only torch on Linux, where PyPI's default wheel carries ~4GB of CUDA libraries.
+# The only model prismis runs is a small embedder; a GPU would not speed it up in any
+# way that matters (#74). macOS wheels have no CUDA, so they stay on PyPI.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.scripts]
 prismis-daemon = "prismis_daemon.__main__:app"
@@ -85,3 +96,4 @@ reportMissingImports = "warning"
 # the new rev (INV-DEP-3). This makes the bump deliberate and visible in git log.
 [tool.uv.sources]
 llm-core = { git = "https://github.com/nickpending/llm-core", subdirectory = "python", rev = "2eb4429" }
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]

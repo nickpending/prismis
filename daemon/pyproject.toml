@@ -55,7 +55,7 @@ dev = [
 ]
 
 [tool.ruff]
-# scripts/ holds operator scratch work that is not part of the shipped package.
+# scripts/ holds operator tools (e.g. model_playtest.py) that are not part of the shipped package.
 exclude = ["scripts"]
 
 [tool.ruff.lint]

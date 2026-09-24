@@ -25,7 +25,7 @@ from prismis_daemon.api import app, get_storage
 from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
-from conftest import TEST_API_KEY
+from conftest import TEST_API_KEY, add_new_content
 
 _API_KEY = TEST_API_KEY
 
@@ -36,7 +36,7 @@ _PATCH_CONFIG_FROM_FILE = (
 
 
 @pytest.fixture(autouse=True)
-def clean_circuit_registry() -> None:
+def clean_circuit_registry() -> Generator[None]:
     """Reset circuit breaker registry before and after each test."""
     reset_circuit_breaker()
     yield
@@ -62,8 +62,7 @@ def _seed_entry(
         analysis=analysis,
         priority="high",
     )
-    content_id = storage.add_content(item)
-    return content_id
+    return add_new_content(storage, item)
 
 
 @pytest.fixture
@@ -107,7 +106,7 @@ class _StubExtractor:
         return self._result
 
 
-def _make_api_client(storage: Storage) -> Generator[TestClient]:
+def _make_api_client(storage: Storage) -> TestClient:
     """Create TestClient with storage dependency overridden."""
 
     def override_get_storage() -> Generator[Storage]:

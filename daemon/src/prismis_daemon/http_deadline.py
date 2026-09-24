@@ -40,7 +40,7 @@ class DeadlineAdapter(HTTPAdapter):
         stream: bool = False,
         timeout: float | tuple[float, float] | tuple[float, None] | None = None,
         verify: bool | str = True,
-        cert: str | tuple[str, str] | None = None,
+        cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
         proxies: Mapping[str, str] | None = None,
     ) -> requests.Response:
         """Send a request bounded by whatever is left of the deadline."""

@@ -241,7 +241,7 @@ def test_top_3_ranking_with_corrupt_data() -> None:
         source_name="Source E",
         url="https://e.com",
         summary="Summary",
-        published_at=None,  # Corrupt: null date
+        published_at=None,  # type: ignore[arg-type]  # deliberately invalid input (corrupt: null date)
         priority="high",
         analysis={"matched_interests": ["topic1"]},  # 1 match
     )

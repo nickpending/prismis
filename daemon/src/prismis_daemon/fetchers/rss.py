@@ -215,7 +215,8 @@ class RSSFetcher:
         if published_parsed:
             try:
                 # Convert time tuple to timezone-aware datetime
-                return datetime(*published_parsed[:6], tzinfo=UTC)
+                year, month, day, hour, minute, second = published_parsed[:6]
+                return datetime(year, month, day, hour, minute, second, tzinfo=UTC)
             except Exception as e:
                 logger.debug(f"Could not parse published date: {e}")
 
@@ -224,7 +225,8 @@ class RSSFetcher:
         if updated_parsed:
             try:
                 # Convert time tuple to timezone-aware datetime
-                return datetime(*updated_parsed[:6], tzinfo=UTC)
+                year, month, day, hour, minute, second = updated_parsed[:6]
+                return datetime(year, month, day, hour, minute, second, tzinfo=UTC)
             except Exception as e:
                 logger.debug(f"Could not parse updated date: {e}")
 

@@ -34,14 +34,19 @@ def create_base_submission_mock(**overrides) -> Mock:
 
     # Create mock subreddit object
     if "subreddit" not in overrides:
-        subreddit_mock = Mock()  # claudex-guard: allow-mock
-        subreddit_mock.__str__ = lambda self: "python"
+        # __str__ passed to the constructor, not assigned after: Mock dynamically
+        # subclasses itself per-instance so this dunder binds `self` at call time
+        # (verified: a plain `lambda: "python"` raises "takes 0 positional
+        # arguments but 1 was given"). A post-construction `.__str__ = ...`
+        # assignment types the target as the bound-method shape mypy sees on the
+        # class, one arg narrower than what actually gets called; the constructor
+        # kwarg goes through Mock's untyped `**kwargs: Any` instead.
+        subreddit_mock = Mock(__str__=lambda self: "python")  # claudex-guard: allow-mock
         submission.subreddit = subreddit_mock
 
     # Create mock author object
     if "author" not in overrides:
-        author_mock = Mock()  # claudex-guard: allow-mock
-        author_mock.__str__ = lambda self: "test_user"
+        author_mock = Mock(__str__=lambda self: "test_user")  # claudex-guard: allow-mock
         submission.author = author_mock
 
     return submission

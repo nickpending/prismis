@@ -105,8 +105,11 @@ def test_source_response_naive_last_fetched_is_rfc3339() -> None:
         id="test-uuid-1234",
         url="https://example.com/feed.xml",
         type="rss",
+        name=None,
         active=True,
         last_fetched=naive_ts,
+        error_count=0,
+        last_error=None,
     )
 
     json_str = source.model_dump_json()

@@ -9,6 +9,7 @@ combine summary + synthesis so search reflects the richer content.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 from typing import ClassVar
@@ -20,7 +21,7 @@ from prismis_daemon.storage import Storage
 
 
 @pytest.fixture(autouse=True)
-def clean_circuit_registry() -> None:
+def clean_circuit_registry() -> Iterator[None]:
     """Reset circuit breaker registry before and after each test."""
     reset_circuit_breaker()
     yield
@@ -57,12 +58,12 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
     class _FakeSummaryResult:
         summary = "Light summary text."
         reading_summary = "Reading summary."
-        alpha_insights: ClassVar = []
-        patterns: ClassVar = []
-        entities: ClassVar = []
-        quotes: ClassVar = []
-        tools: ClassVar = []
-        urls: ClassVar = []
+        alpha_insights: ClassVar[list[str]] = []
+        patterns: ClassVar[list[str]] = []
+        entities: ClassVar[list[str]] = []
+        quotes: ClassVar[list[str]] = []
+        tools: ClassVar[list[str]] = []
+        urls: ClassVar[list[str]] = []
         metadata: ClassVar = {"summarization_mode": "standard", "word_count": 10}
 
     class _FakeSummarizer:
@@ -106,7 +107,7 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
         called_ids.append(result[0])
         return result
 
-    storage.create_or_update_content = tracking_create
+    storage.create_or_update_content = tracking_create  # type: ignore[method-assign]  # internal fake, removed by docs/work/no-internal-mocks
 
     # Build a minimal source dict that matches what orchestrator expects
     source_dict = {
@@ -124,10 +125,10 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
         reddit_fetcher=_NullFetcher(),
         youtube_fetcher=_NullFetcher(),
         file_fetcher=_NullFetcher(),
-        summarizer=_FakeSummarizer(),
-        evaluator=_FakeEvaluator(),
-        notifier=_FakeNotifier(),
-        config=config,
+        summarizer=_FakeSummarizer(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+        evaluator=_FakeEvaluator(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+        notifier=_FakeNotifier(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+        config=config,  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
         deep_extractor=failing_extractor,
     )
 
@@ -151,7 +152,7 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
     orchestrator.rss_fetcher = _StubRSSFetcher()
 
     # Pre-seed existing IDs as empty so deduplication doesn't skip our item
-    storage.get_existing_external_ids = lambda sid: set()
+    storage.get_existing_external_ids = lambda sid: set()  # type: ignore[method-assign, assignment]  # internal fake, removed by docs/work/no-internal-mocks
 
     stats = orchestrator.fetch_source_content(source_dict)
 
@@ -230,12 +231,12 @@ def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
     class _FakeSummaryResult:
         summary = LIGHT_SUMMARY
         reading_summary = "Reading summary."
-        alpha_insights: ClassVar = []
-        patterns: ClassVar = []
-        entities: ClassVar = []
-        quotes: ClassVar = []
-        tools: ClassVar = []
-        urls: ClassVar = []
+        alpha_insights: ClassVar[list[str]] = []
+        patterns: ClassVar[list[str]] = []
+        entities: ClassVar[list[str]] = []
+        quotes: ClassVar[list[str]] = []
+        tools: ClassVar[list[str]] = []
+        urls: ClassVar[list[str]] = []
         metadata: ClassVar = {"summarization_mode": "standard", "word_count": 10}
 
     class _FakeSummarizer:
@@ -303,15 +304,15 @@ def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
         reddit_fetcher=_NullFetcher(),
         youtube_fetcher=_NullFetcher(),
         file_fetcher=_NullFetcher(),
-        summarizer=_FakeSummarizer(),
-        evaluator=_FakeEvaluator(),
-        notifier=_FakeNotifier(),
-        config=_FakeConfig(),
+        summarizer=_FakeSummarizer(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+        evaluator=_FakeEvaluator(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+        notifier=_FakeNotifier(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+        config=_FakeConfig(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
         deep_extractor=_SucceedingExtractor("prismis-openai-deep"),
-        embedder=recording_embedder,
+        embedder=recording_embedder,  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
     )
 
-    storage.get_existing_external_ids = lambda sid: set()
+    storage.get_existing_external_ids = lambda sid: set()  # type: ignore[method-assign, assignment]  # internal fake, removed by docs/work/no-internal-mocks
     orchestrator.fetch_source_content(source_dict)
 
     # SC-5: exactly one embedding call was made

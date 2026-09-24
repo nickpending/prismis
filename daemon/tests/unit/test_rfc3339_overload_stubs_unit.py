@@ -32,7 +32,7 @@ def _parse_module() -> ast.Module:
     return ast.parse(source)
 
 
-def _get_rfc3339_group(tree: ast.Module) -> list[ast.stmt]:
+def _get_rfc3339_group(tree: ast.Module) -> list[ast.FunctionDef]:
     """Return the consecutive block of _rfc3339 function defs (stubs + impl).
 
     All top-level FunctionDef nodes named '_rfc3339' appear consecutively:

@@ -61,7 +61,7 @@ class DailyReport:
     @property
     def top_sources(self) -> List[tuple[str, int]]:
         """Get top sources by item count."""
-        source_counts = {}
+        source_counts: dict[str, int] = {}
         for item in self.high_priority + self.medium_priority + self.low_priority:
             source_counts[item.source_name] = source_counts.get(item.source_name, 0) + 1
 
@@ -114,7 +114,7 @@ class DailyReport:
             return []
 
         # Enrich items with ranking metadata
-        ranked_items = []
+        ranked_items: list[dict[str, Any]] = []
         for item in self.high_priority:
             # Extract matched_interests from analysis, handle missing/null
             matched_interests = []

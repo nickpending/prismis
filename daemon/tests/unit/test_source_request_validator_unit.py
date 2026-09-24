@@ -32,7 +32,7 @@ def test_source_request_empty_url_rejected() -> None:
     must raise ValueError("URL cannot be empty"), surfaced as ValidationError.
     """
     with pytest.raises(ValidationError) as exc_info:
-        SourceRequest(url="", type="rss")
+        SourceRequest(url="", type="rss", name=None)
 
     error_str = str(exc_info.value)
     assert "URL cannot be empty" in error_str, (
@@ -52,7 +52,7 @@ def test_source_request_whitespace_only_url_rejected() -> None:
     Must raise the same ValidationError as empty string.
     """
     with pytest.raises(ValidationError) as exc_info:
-        SourceRequest(url="   ", type="rss")
+        SourceRequest(url="   ", type="rss", name=None)
 
     error_str = str(exc_info.value)
     assert "URL cannot be empty" in error_str, (
@@ -72,7 +72,7 @@ def test_source_request_url_whitespace_stripped() -> None:
     The stored url must be the stripped form, not the raw padded input.
     """
     padded = "  https://example.com/feed.xml  "
-    request = SourceRequest(url=padded, type="rss")
+    request = SourceRequest(url=padded, type="rss", name=None)
 
     assert request.url == "https://example.com/feed.xml", (
         f"URL must be stripped of leading/trailing whitespace; got: {request.url!r}"

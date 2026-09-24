@@ -113,7 +113,7 @@ def test_reddit_fetcher_to_content_item_fetched_at_is_tz_aware() -> None:
     Mock's method dispatch can pass self).
     """
     from prismis_daemon.fetchers.reddit import RedditFetcher
-    from tests.fixtures.reddit_mocks import create_self_post_mock
+    from fixtures.reddit_mocks import create_self_post_mock
 
     fetcher = RedditFetcher()
     submission = create_self_post_mock(
@@ -192,6 +192,7 @@ def test_youtube_handle_missing_transcript_fetched_at_is_tz_aware() -> None:
 
     item = fetcher._handle_missing_transcript(video, "source-uuid-test")
 
+    assert item is not None, "item must not be None"
     assert item.fetched_at is not None, "fetched_at must not be None"
     assert item.fetched_at.tzinfo is not None, (
         f"INV-DEP-FETCH-2 FAIL (youtube no-transcript): fetched_at is naive. "

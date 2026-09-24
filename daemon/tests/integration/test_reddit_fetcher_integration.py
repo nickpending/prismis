@@ -127,6 +127,7 @@ def test_fetch_reddit_filters_image_posts() -> None:
     # All returned items should be text posts (not image domains)
     image_domains = ["i.redd.it", "imgur.com", "v.redd.it"]
     for item in items:
+        assert item.content is not None
         # Check that content doesn't start with image link
         for domain in image_domains:
             if item.content.startswith(f"Link: https://{domain}"):

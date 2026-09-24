@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 import pytest
 
@@ -50,7 +51,7 @@ def isolated_xdg_env(tmp_path_factory, monkeypatch) -> Path:
 
 
 @pytest.fixture
-def test_db() -> Path:
+def test_db() -> Iterator[Path]:
     """Create a temporary test database for each test."""
     # Create temp directory
     temp_dir = tempfile.mkdtemp()

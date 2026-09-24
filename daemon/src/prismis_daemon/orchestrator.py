@@ -116,7 +116,7 @@ class DaemonOrchestrator:
         Returns:
             Dict with processing stats: items_fetched, items_processed, items_new, items_updated, new_high_priority_items
         """
-        stats = {
+        stats: dict[str, Any] = {
             "items_fetched": 0,
             "items_processed": 0,
             "items_new": 0,
@@ -428,7 +428,7 @@ class DaemonOrchestrator:
         """
         start_time = time.time()
 
-        stats = {
+        stats: dict[str, Any] = {
             "total_items": 0,
             "total_analyzed": 0,
             "total_new": 0,

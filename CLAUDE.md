@@ -8,13 +8,6 @@ every failure, and reports what it covered. CI runs that same script.
 
 ## Learned Patterns
 
-pyright covers only production sources in this repo: `daemon/pyproject.toml` sets
-`include = ["src/prismis_daemon"]` and `cli/pyproject.toml` sets `include = ["src/cli"]`. Test
-files in `daemon/tests` and `cli/tests` are never typechecked. A green gate line reading
-`pyright(daemon)` or `pyright(cli)` says nothing about test code — do not cite it as evidence that
-a change to tests is type-correct. When a change is mostly or entirely in tests, the typecheck
-steps prove nothing about it, and the claim of coverage must be scoped to `src` accordingly.
-
 Never write a line number into a comment, docstring, test header, or work-order table from memory
 or from a read earlier in the session. Open the file and read the target line as you write the
 citation, and prefer naming the symbol over a bare line range — a symbol survives edits above it,

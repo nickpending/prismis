@@ -53,7 +53,7 @@ def test_get_external_id_no_data_uses_timestamp() -> None:
     fetcher = RSSFetcher()
 
     # Create empty entry
-    entry = {}
+    entry: dict[str, str] = {}
 
     external_id = fetcher._get_external_id(entry)
 

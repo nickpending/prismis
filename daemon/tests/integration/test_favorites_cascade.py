@@ -9,7 +9,7 @@ from prismis_daemon.storage import Storage
 from prismis_daemon.models import ContentItem
 from fastapi.testclient import TestClient
 from prismis_daemon.api import app
-from conftest import TEST_API_KEY
+from conftest import TEST_API_KEY, add_new_content
 
 
 def test_favorites_survive_source_deletion(test_db: Path) -> None:
@@ -35,7 +35,7 @@ def test_favorites_survive_source_deletion(test_db: Path) -> None:
             priority="high" if i < 2 else "medium",
             published_at=datetime.now(),
         )
-        content_id = storage.add_content(item)
+        content_id = add_new_content(storage, item)
         items.append(content_id)
 
     # Mark some as favorites, some as read
@@ -84,7 +84,7 @@ def test_nonfavorites_deleted_with_source(test_db: Path) -> None:
             content=f"Content {i}",
             published_at=datetime.now(),
         )
-        content_id = storage.add_content(item)
+        content_id = add_new_content(storage, item)
         items.append(content_id)
 
     # Only mark one as favorite
@@ -129,7 +129,7 @@ def test_concurrent_favorite_during_delete(test_db: Path) -> None:
             content=f"Content {i}",
             published_at=datetime.now(),
         )
-        content_id = storage.add_content(item)
+        content_id = add_new_content(storage, item)
         items.append(content_id)
 
     # Track which items we're trying to favorite
@@ -208,7 +208,7 @@ def test_simultaneous_source_deletions(test_db: Path) -> None:
         content="Important content",
         published_at=datetime.now(),
     )
-    content_id = storage.add_content(item)
+    content_id = add_new_content(storage, item)
     storage.update_content_status(content_id, favorited=True)
 
     # Simulate multiple clients trying to delete the same source
@@ -277,7 +277,7 @@ def test_api_respects_favorites_preservation(test_db: Path) -> None:
             priority="high",
             published_at=datetime.now(),
         )
-        content_id = storage.add_content(item)
+        content_id = add_new_content(storage, item)
         items.append(content_id)
 
     # Mark one as favorite

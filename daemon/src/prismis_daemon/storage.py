@@ -39,7 +39,7 @@ class Storage:
                      (or ~/.local/share/prismis/prismis.db)
         """
         self.db_path = db_path
-        self._conn = None  # Lazy connection initialization
+        self._conn: sqlite3.Connection | None = None  # Lazy connection initialization
         # Test that we can create a connection
         test_conn = get_db_connection(self.db_path)
         test_conn.close()
@@ -1081,7 +1081,7 @@ class Storage:
         try:
             # Build SET clause with hardcoded field names (safe - not user input)
             updates = []
-            params = []
+            params: list[Any] = []
 
             if read is not None:
                 updates.append("read = ?")
@@ -1383,7 +1383,7 @@ class Storage:
         try:
             # PRUNE_EXCLUSION_WHERE is a class constant (not user input)
             query = "SELECT COUNT(*) FROM content WHERE " + self.PRUNE_EXCLUSION_WHERE
-            params = []
+            params: list[Any] = []
 
             if days is not None:
                 # Calculate cutoff datetime
@@ -1422,7 +1422,7 @@ class Storage:
 
             # PRUNE_EXCLUSION_WHERE is a class constant (not user input)
             query = "DELETE FROM content WHERE " + self.PRUNE_EXCLUSION_WHERE
-            params = []
+            params: list[Any] = []
 
             if days is not None:
                 # Calculate cutoff datetime
@@ -1908,7 +1908,7 @@ class Storage:
         """
         try:
             # Build parameters for datetime modifiers
-            params = []
+            params: list[Any] = []
 
             # HIGH: Only read + N days (or skip if None)
             if config.get("high_read") is not None:

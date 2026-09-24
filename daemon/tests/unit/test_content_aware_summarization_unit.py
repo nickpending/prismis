@@ -16,7 +16,7 @@ def test_word_count_empty_content() -> None:
     INVARIANT: Empty content returns 0 words, not crash.
     BREAKS: System crashes on failed content fetches if not handled.
     """
-    summarizer = ContentSummarizer({"model": "gpt-4o-mini"})
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # Empty string
     assert summarizer._calculate_word_count("") == 0
@@ -31,7 +31,7 @@ def test_word_count_empty_content() -> None:
 
 def test_word_count_normal_content() -> None:
     """Verify word count calculation for normal content."""
-    summarizer = ContentSummarizer({"model": "gpt-4o-mini"})
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # Simple cases
     assert summarizer._calculate_word_count("hello") == 1
@@ -47,7 +47,7 @@ def test_routing_boundary_values_reddit() -> None:
     INVARIANT: Boundaries route correctly (299 brief, 300 standard for reddit).
     BREAKS: Wrong summary depth - wastes money or provides poor UX.
     """
-    summarizer = ContentSummarizer({"model": "gpt-4o-mini"})
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # Reddit < 300 words → brief
     assert summarizer._get_mode_name(299, "reddit") == "brief"
@@ -62,7 +62,7 @@ def test_routing_boundary_values_youtube() -> None:
     INVARIANT: Boundaries route correctly (5000 standard, 5001 detailed for youtube).
     BREAKS: Wrong summary depth - wastes money or provides poor UX.
     """
-    summarizer = ContentSummarizer({"model": "gpt-4o-mini"})
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # YouTube <= 5000 words → standard
     assert summarizer._get_mode_name(5000, "youtube") == "standard"
@@ -78,7 +78,7 @@ def test_default_to_standard_for_invalid_source() -> None:
     INVARIANT: Invalid/missing source_type defaults to standard mode.
     BREAKS: Routing failures with unknown source types.
     """
-    summarizer = ContentSummarizer({"model": "gpt-4o-mini"})
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # Invalid source types → standard
     assert summarizer._get_mode_name(100, "rss") == "standard"
@@ -96,7 +96,7 @@ def test_extreme_word_counts_handled() -> None:
     FAILURE: Extreme word counts must not break routing.
     GRACEFUL: System handles 0 to very large word counts.
     """
-    summarizer = ContentSummarizer({"model": "gpt-4o-mini"})
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # Zero words
     assert summarizer._get_mode_name(0, "reddit") == "brief"
@@ -112,7 +112,7 @@ def test_standard_mode_preserved_from_baseline() -> None:
     INVARIANT: Standard mode is default and unchanged from baseline.
     BREAKS: Existing summarization behavior changes unexpectedly.
     """
-    summarizer = ContentSummarizer({"model": "gpt-4o-mini"})
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # Get all three prompts
     standard_prompt = summarizer._get_system_prompt()
@@ -150,7 +150,7 @@ def test_standard_mode_preserved_from_baseline() -> None:
 
 def test_select_system_prompt_routing() -> None:
     """Verify _select_system_prompt routes to correct prompt variant."""
-    summarizer = ContentSummarizer({"model": "gpt-4o-mini"})
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # Reddit < 300 → brief
     brief = summarizer._select_system_prompt(299, "reddit")

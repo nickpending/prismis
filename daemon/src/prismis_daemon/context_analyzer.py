@@ -92,7 +92,7 @@ class ContextAnalyzer:
         Returns:
             Dict with keys "high", "medium", "low", each containing list of topics
         """
-        sections = {"high": [], "medium": [], "low": []}
+        sections: dict[str, list[str]] = {"high": [], "medium": [], "low": []}
 
         if not context_text:
             logger.warning("Empty context.md provided")

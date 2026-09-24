@@ -194,6 +194,7 @@ def test_handle_missing_transcript() -> None:
     assert result.external_id == "https://www.youtube.com/watch?v=test123"
     assert result.priority == "low"  # Should be low priority
     assert result.notes == "No transcript available"
+    assert result.content is not None
     assert "No transcript available" in result.content
     assert result.published_at is not None
     assert result.fetched_at is not None

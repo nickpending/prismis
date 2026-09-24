@@ -21,7 +21,7 @@ def test_notify_filters_high_priority_only() -> None:
     def mock_send_notification(items):
         called_items.extend(items)
 
-    notifier._send_notification = mock_send_notification
+    notifier._send_notification = mock_send_notification  # type: ignore[method-assign]  # internal fake, removed by docs/work/no-internal-mocks
 
     notifier.notify_new_content(items)
 
@@ -40,7 +40,7 @@ def test_notify_handles_empty_list() -> None:
     def mock_send_notification(items):
         notifier._send_called = True
 
-    notifier._send_notification = mock_send_notification
+    notifier._send_notification = mock_send_notification  # type: ignore[method-assign]  # internal fake, removed by docs/work/no-internal-mocks
 
     notifier.notify_new_content([])
 
@@ -62,7 +62,7 @@ def test_notify_handles_no_high_priority_items() -> None:
     def mock_send_notification(items):
         notifier._send_called = True
 
-    notifier._send_notification = mock_send_notification
+    notifier._send_notification = mock_send_notification  # type: ignore[method-assign]  # internal fake, removed by docs/work/no-internal-mocks
 
     notifier.notify_new_content(items)
 

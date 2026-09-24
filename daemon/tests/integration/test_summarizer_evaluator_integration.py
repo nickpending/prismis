@@ -19,12 +19,7 @@ def test_summarizer_with_real_llm_extracts_all_fields() -> None:
     - Verifies all fields extracted (summary, reading_summary, alpha_insights, patterns, entities)
     """
     # Use real API key from environment
-    config = {
-        "model": "gpt-4o-mini",
-        "api_key": os.environ.get("OPENAI_API_KEY"),
-    }
-
-    summarizer = ContentSummarizer(config)
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # Test content about AI that should generate rich analysis
     content = """
@@ -103,12 +98,7 @@ def test_evaluator_with_real_llm_high_priority() -> None:
     - Verifies HIGH priority assigned with matched interests
     """
     # Use real API key from environment
-    config = {
-        "model": "gpt-4o-mini",
-        "api_key": os.environ.get("OPENAI_API_KEY"),
-    }
-
-    evaluator = ContentEvaluator(config)
+    evaluator = ContentEvaluator("gpt-4o-mini")
 
     # Content that should be high priority
     content = """
@@ -173,12 +163,7 @@ def test_evaluator_with_real_llm_low_priority() -> None:
     - Verifies LOW priority assigned
     """
     # Use real API key from environment
-    config = {
-        "model": "gpt-4o-mini",
-        "api_key": os.environ.get("OPENAI_API_KEY"),
-    }
-
-    evaluator = ContentEvaluator(config)
+    evaluator = ContentEvaluator("gpt-4o-mini")
 
     # Content that should be low priority (crypto - in Not Interested)
     content = """

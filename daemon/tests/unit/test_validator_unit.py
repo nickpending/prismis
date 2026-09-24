@@ -39,6 +39,7 @@ def test_tuple_return_contract() -> None:
 
     # Verify the unknown type is handled correctly
     assert result[0] is False, "Unknown type should return False"
+    assert result[1] is not None
     assert "Unknown source type" in result[1], "Should explain unknown type"
 
     # Test with invalid URL for each type to ensure tuple contract holds

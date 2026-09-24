@@ -146,9 +146,10 @@ def test_date_filtering_prevents_old_content(dated_feed_url: str) -> None:
     assert all(i.published_at is not None for i in items), (
         "every item in this feed carries a pubDate"
     )
-    assert all(i.published_at.tzinfo is not None for i in items), (
-        "dates must be timezone-aware"
-    )
+    assert all(
+        i.published_at is not None and i.published_at.tzinfo is not None
+        for i in items
+    ), "dates must be timezone-aware"
 
 
 def test_network_timeout_graceful(slow_feed_url: str) -> None:

@@ -23,7 +23,7 @@ class Embedder:
                        (384 dimensions, fast, good semantic matching)
         """
         self.model_name = model_name
-        self._model = None
+        self._model: SentenceTransformer | None = None
 
     @property
     def model(self) -> SentenceTransformer:

@@ -15,7 +15,7 @@ from prismis_daemon.config import Config
 from prismis_daemon.context_analyzer import ContextAnalyzer
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
-from conftest import TEST_API_KEY
+from conftest import TEST_API_KEY, add_new_content
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def test_INVARIANT_flagged_items_excluded_from_prune_count(test_db: Path) -> Non
             content="Content",
             priority=None,  # Unprioritized
         )
-        content_id = storage.add_content(item)
+        content_id = add_new_content(storage, item)
         items.append(content_id)
 
     # Initial count: all 3 unprioritized items
@@ -97,7 +97,7 @@ def test_INVARIANT_flagged_items_not_deleted_by_prune(test_db: Path) -> None:
             content="Content",
             priority=None,  # Unprioritized
         )
-        content_id = storage.add_content(item)
+        content_id = add_new_content(storage, item)
 
         # Flag first 2 items via user_feedback='up' (the current flagging mechanism)
         if i < 2:
@@ -163,7 +163,7 @@ def test_INVARIANT_favorited_items_also_protected_from_prune(test_db: Path) -> N
             content="Content",
             priority=None,  # Unprioritized
         )
-        content_id = storage.add_content(item)
+        content_id = add_new_content(storage, item)
 
         if case == "favorited":
             storage.update_content_status(content_id, favorited=True)
@@ -247,7 +247,7 @@ def test_INVARIANT_flagged_items_unchanged_after_suggest(
             content=item_data["content"],
             url=f"https://example.com/{item_data['id']}",
         )
-        content_id = storage.add_content(item)
+        content_id = add_new_content(storage, item)
         storage.flag_interesting(content_id)
 
     # Capture state before API call
@@ -321,7 +321,7 @@ def test_INVARIANT_no_credentials_in_errors(
         content="Test content",
         url="https://example.com/cred",
     )
-    content_id = storage.add_content(item)
+    content_id = add_new_content(storage, item)
     storage.update_content_status(content_id, user_feedback="up")
 
     # Fake API key that should never appear in error responses
@@ -391,7 +391,7 @@ def test_FAILURE_database_locked_during_get_flagged(test_db: Path) -> None:
         content="Test content",
         url="https://example.com/lock",
     )
-    content_id = storage.add_content(item)
+    content_id = add_new_content(storage, item)
     storage.update_content_status(content_id, user_feedback="up")
 
     # Mock get_flagged_items to simulate database lock

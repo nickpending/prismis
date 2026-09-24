@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import Any
 
 from prismis_daemon.reports import ReportGenerator
 from prismis_daemon.storage import Storage
@@ -116,7 +117,7 @@ def test_analysis_field_corruption(test_db: Path) -> None:
     source_id = storage.add_source("https://test.com/feed", "rss", "Test Source")
 
     # Simulate various types of analysis field corruption
-    corrupted_items = [
+    corrupted_items: list[dict[str, Any]] = [
         {
             "external_id": "corrupt-1",
             "title": "Item with Non-JSON Analysis",
@@ -221,9 +222,9 @@ def test_analysis_field_corruption(test_db: Path) -> None:
 
         # All items should have 0 interest count due to corruption, so ranking by date
         successfully_added_titles = [i["title"] for i in successfully_added]
-        for item in top_3:
-            assert item.title in successfully_added_titles, (
-                f"Top 3 contains unexpected item: {item.title}"
+        for summary_item in top_3:
+            assert summary_item.title in successfully_added_titles, (
+                f"Top 3 contains unexpected item: {summary_item.title}"
             )
 
     except Exception as e:

@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import AsyncGenerator, List
 from unittest.mock import patch
 
-from src.prismis_daemon.api import app, get_storage
-from src.prismis_daemon.storage import Storage
+from prismis_daemon.api import app, get_storage
+from prismis_daemon.storage import Storage
 from fastapi.testclient import TestClient
 
 

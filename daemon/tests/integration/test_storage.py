@@ -158,7 +158,7 @@ def test_priority_based_retrieval_and_marking_read(test_db: Path) -> None:
     assert len(high_content_after) == 0
 
     # Try marking non-existent content
-    marked_missing = storage.mark_content_read(999)
+    marked_missing = storage.mark_content_read("nonexistent-content-id-999")
     assert marked_missing is False
 
 

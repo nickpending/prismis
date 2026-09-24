@@ -125,7 +125,7 @@ def test_database_lock_handling(test_db: Path) -> None:
     )
 
     # Storage2 in thread should handle busy database gracefully
-    result = {"success": False, "error": None}
+    result: dict[str, bool | str | None] = {"success": False, "error": None}
 
     def attempt_read() -> None:
         # Create Storage in thread (SQLite connections are thread-local)

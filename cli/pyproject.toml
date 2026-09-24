@@ -23,7 +23,8 @@ dev = [
     "pytest>=8.4.1",
     "pytest-cov>=6.2.1",
     "prismis-daemon",
-    "pyright>=1.1.409",
+    "mypy",
+    "types-requests",
     "ruff",
 ]
 
@@ -55,12 +56,17 @@ select = [
 # https://github.com/nickpending/prismis/issues/58
 "**/*.py" = ["BLE001"]
 
-[tool.pyright]
-include = ["src/cli"]
-exclude = ["**/__pycache__", "**/.venv", "**/node_modules"]
-pythonVersion = "3.13"
-typeCheckingMode = "basic"
-reportMissingImports = "warning"
+[tool.mypy]
+# `uv run mypy .` from this directory is the gate's typecheck (ember's house toolchain).
+python_version = "3.13"
+mypy_path = ["src", "tests"]
+explicit_package_bases = true
+exclude = ["^scripts/", "^\\.venv/", "^build/"]
+
+# Reached through prismis_daemon; they ship no type information and have no stubs.
+[[tool.mypy.overrides]]
+module = ["apscheduler.*", "feedparser", "llm_core", "llm_core.*", "praw", "praw.*", "prawcore", "prawcore.*", "sqlite_vec"]
+ignore_missing_imports = true
 
 [tool.uv]
 package = true

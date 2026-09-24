@@ -178,7 +178,7 @@ class LspeakTTSEngine:
 
             # Wait for file to be created (TTS takes time)
             max_wait = 30  # seconds
-            waited = 0
+            waited = 0.0
             while not output_path.exists() and waited < max_wait:
                 time.sleep(0.5)
                 waited += 0.5

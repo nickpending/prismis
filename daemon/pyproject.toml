@@ -47,7 +47,8 @@ packages = ["src/prismis_daemon"]
 
 [dependency-groups]
 dev = [
-    "pyright>=1.1.409",
+    "mypy",
+    "types-requests",
     "pytest",
     "pytest-asyncio",
     "ruff",
@@ -79,21 +80,18 @@ select = [
 # suppression, not a policy. Tracked: https://github.com/nickpending/prismis/issues/58
 "**/*.py" = ["BLE001"]
 
-[tool.pyright]
-include = ["src/prismis_daemon"]
-exclude = ["**/__pycache__", "**/.venv", "**/node_modules"]
-pythonVersion = "3.13"
-typeCheckingMode = "basic"
-reportMissingImports = "warning"
+[tool.mypy]
+# `uv run mypy .` from this directory is the gate's typecheck (ember's house toolchain).
+python_version = "3.13"
+mypy_path = ["src", "tests"]
+explicit_package_bases = true
+exclude = ["^scripts/", "^\\.venv/"]
 
-# Git dependencies are pinned to specific commits validated at iteration boundaries.
-# `uv tool install --reinstall` (used by `make install-daemon`) bypasses the lockfile
-# for git sources, so source-level `rev=` pins are required, not optional — without
-# them the resolver silently advances to the remote HEAD on every reinstall.
-#
-# To bump a pinned dep: update `rev=` to the new commit, run `uv lock` from this
-# directory, and commit pyproject.toml + uv.lock together with a message naming
-# the new rev (INV-DEP-3). This makes the bump deliberate and visible in git log.
+# These ship no type information and have no stubs package; their calls are unchecked.
+[[tool.mypy.overrides]]
+module = ["apscheduler.*", "feedparser", "llm_core", "llm_core.*", "praw", "praw.*", "prawcore", "prawcore.*", "sqlite_vec"]
+ignore_missing_imports = true
+
 [tool.uv.sources]
 llm-core = { git = "https://github.com/nickpending/llm-core", subdirectory = "python", rev = "2eb4429" }
 torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]

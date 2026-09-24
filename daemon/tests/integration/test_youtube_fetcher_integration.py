@@ -270,7 +270,7 @@ def test_channel_url_normalization_integration() -> None:
     # Test that different URL formats for same channel work
     test_urls = ["@LexClips", "LexClips"]
 
-    results = []
+    results: list[tuple[str, int | str]] = []
     for url in test_urls:
         try:
             source = {"url": url, "id": f"test-{url}"}

@@ -50,12 +50,10 @@ while IFS= read -r pp; do
     note_uncovered "ruff($rel): no [tool.ruff] config"
   fi
 
-  if grep -q '\[tool\.pyright\]' "$pp" 2>/dev/null; then
-    run_step "pyright($rel)" env -C "$d" uv run --quiet pyright || true
-  elif grep -q '\[tool\.mypy\]' "$pp" 2>/dev/null; then
+  if grep -q '\[tool\.mypy\]' "$pp" 2>/dev/null; then
     run_step "mypy($rel)" env -C "$d" uv run --quiet mypy . || true
   else
-    note_uncovered "typecheck($rel): no pyright/mypy config — type errors are unchecked here"
+    note_uncovered "typecheck($rel): no [tool.mypy] config — type errors are unchecked here"
   fi
 
   if [ -d "$d/tests" ]; then

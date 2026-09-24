@@ -155,16 +155,16 @@ class Config:
             )
 
         # Validate archival windows (must be positive or None)
-        for field_name, value in [
+        for field_name, window in [
             ("archival_high_read", self.archival_high_read),
             ("archival_medium_unread", self.archival_medium_unread),
             ("archival_medium_read", self.archival_medium_read),
             ("archival_low_unread", self.archival_low_unread),
             ("archival_low_read", self.archival_low_read),
         ]:
-            if value is not None and value < 1:
+            if window is not None and window < 1:
                 raise ValueError(
-                    f"{field_name} must be positive (or None to disable), got {value}"
+                    f"{field_name} must be positive (or None to disable), got {window}"
                 )
 
         # Validate context auto-update settings

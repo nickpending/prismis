@@ -30,6 +30,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import add_new_content
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
 
@@ -87,8 +88,8 @@ def seeded_storage(test_db: Path) -> Storage:
         published_at=None,
     )
 
-    id_high = storage.add_content(item_high)
-    id_low = storage.add_content(item_low)
+    id_high = add_new_content(storage, item_high)
+    id_low = add_new_content(storage, item_low)
 
     storage.add_embedding(id_high, _make_high_score_embedding())
     storage.add_embedding(id_low, _make_low_score_embedding())
@@ -187,7 +188,7 @@ def test_max_value_min_score_includes_perfect_match(test_db: Path) -> None:
         priority="high",
         published_at=None,
     )
-    content_id = storage.add_content(item)
+    content_id = add_new_content(storage, item)
 
     # Identical embedding as query → sim=1.0
     perfect_emb = [0.0] * 384
@@ -231,7 +232,7 @@ def test_orthogonal_unit_vectors_yield_zero_similarity(test_db: Path) -> None:
         priority="high",
         published_at=None,
     )
-    content_id = storage.add_content(item)
+    content_id = add_new_content(storage, item)
 
     # Unit vector in dimension 1 — orthogonal to query [1, 0, ...]
     ortho_emb = [0.0] * 384

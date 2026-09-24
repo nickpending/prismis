@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from prismis_daemon.api import app
 from prismis_daemon.storage import Storage
 from prismis_daemon.models import ContentItem
-from conftest import TEST_API_KEY
+from conftest import TEST_API_KEY, add_new_content
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ def test_favorites_persist_on_source_delete(test_db: Path) -> None:
             priority="high",
             published_at=datetime.now(),
         )
-        content_id = storage.add_content(item)
+        content_id = add_new_content(storage, item)
         items.append(content_id)
 
     # Mark one as favorite
@@ -92,7 +92,7 @@ def test_concurrent_favorite_updates_idempotent(test_db: Path) -> None:
         priority="high",
         published_at=datetime.now(),
     )
-    content_id = storage.add_content(item)
+    content_id = add_new_content(storage, item)
 
     # Simulate concurrent updates from multiple clients
     def toggle_favorite(iteration: int) -> bool:
@@ -180,7 +180,7 @@ def test_database_lock_during_update(test_db: Path) -> None:
         priority="high",
         published_at=datetime.now(),
     )
-    content_id = storage.add_content(item)
+    content_id = add_new_content(storage, item)
 
     # Hold a write transaction to cause lock
     lock_conn = storage.conn
@@ -225,7 +225,7 @@ def test_concurrent_api_updates(api_client: TestClient, test_db: Path) -> None:
         priority="high",
         published_at=datetime.now(),
     )
-    content_id = storage.add_content(item)
+    content_id = add_new_content(storage, item)
 
     def api_update(should_favorite: bool) -> int:
         """Make API call to update content."""

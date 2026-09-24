@@ -56,7 +56,7 @@ from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.deep_extractor import CircuitOpenError
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
-from conftest import TEST_API_KEY
+from conftest import TEST_API_KEY, add_new_content
 
 _API_KEY = TEST_API_KEY
 
@@ -105,7 +105,7 @@ def _seed_entry(
         analysis=analysis,
         priority="high",
     )
-    return storage.add_content(item)
+    return add_new_content(storage, item)
 
 
 def _override_storage(storage: Storage) -> None:

@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from prismis_daemon.api import app, get_storage
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
-from conftest import TEST_API_KEY
+from conftest import TEST_API_KEY, add_new_content
 
 # RFC3339 pattern: T separator, explicit offset (Z or ±HH:MM), optional fractional seconds.
 RFC3339_RE = re.compile(
@@ -122,7 +122,7 @@ def storage_with_embedding(test_db: Path) -> Storage:
         fetched_at=naive_fetched,
         published_at=None,
     )
-    content_id = storage.add_content(item)
+    content_id = add_new_content(storage, item)
     storage.add_embedding(content_id, _make_high_score_embedding())
     return storage
 
@@ -325,14 +325,7 @@ def test_entry_detail_fetched_at_wire_format_is_rfc3339(
     entry = data["data"]
     fetched_at = entry.get("fetched_at")
     assert fetched_at is not None, "fetched_at must be present in detail response"
-    (
-        assert_rfc3339(fetched_at),
-        (
-            f"DEFECT (INV-API-TS-4): /api/entries/{{id}} fetched_at is not RFC3339. "
-            f"Got: {fetched_at!r}. "
-            "Route get_entry_summary() through ContentItemModel to fix."
-        ),
-    )
+    assert_rfc3339(fetched_at)
 
 
 # ---------------------------------------------------------------------------

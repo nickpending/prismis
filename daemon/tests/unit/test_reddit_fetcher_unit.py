@@ -225,7 +225,9 @@ def test_to_content_item_self_post() -> None:
     )
     assert item.source_id == "test-source-id"
     # Check timestamp is converted correctly (account for timezone)
+    assert item.published_at is not None
     assert item.published_at.year == 2021 or item.published_at.year == 2022
+    assert item.analysis is not None
     assert "metrics" in item.analysis
     assert item.analysis["metrics"]["score"] == 25
 
@@ -255,6 +257,7 @@ def test_to_content_item_link_post() -> None:
     assert item.title == "Cool Programming Article"
     assert item.content == "Link: https://example.com/programming-article\n\n"
     assert item.url == "https://reddit.com/r/programming/comments/456/cool_article/"
+    assert item.analysis is not None
     assert item.analysis["metrics"]["score"] == 100
 
 
@@ -280,6 +283,7 @@ def test_to_content_item_deleted_content() -> None:
     item = fetcher._to_content_item(submission, "test-source-id")
 
     assert item.content == "Link post to: https://example.com/external-link"
+    assert item.analysis is not None
     assert item.analysis["metrics"]["author"] == "[deleted]"
 
 

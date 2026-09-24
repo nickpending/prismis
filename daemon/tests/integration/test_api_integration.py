@@ -30,17 +30,17 @@ def test_api_auth_required(api_client: TestClient) -> None:
     BREAKS: Unauthorized access to source management
     """
     # Test all protected endpoints without API key
-    protected_endpoints = [
-        ("GET", "/api/sources"),
+    protected_endpoints: list[tuple[str, str, dict[str, str] | None]] = [
+        ("GET", "/api/sources", None),
         ("POST", "/api/sources", {"url": "https://example.com", "type": "rss"}),
-        ("DELETE", "/api/sources/test-id"),
+        ("DELETE", "/api/sources/test-id", None),
     ]
 
-    for method, path, *data in protected_endpoints:
+    for method, path, json_body in protected_endpoints:
         if method == "GET":
             response = api_client.get(path)
         elif method == "POST":
-            response = api_client.post(path, json=data[0])
+            response = api_client.post(path, json=json_body)
         elif method == "DELETE":
             response = api_client.delete(path)
 

@@ -37,10 +37,10 @@ class YouTubeFetcher:
 
         self.max_items = max_items or config.get_max_items("youtube")
         self.config = config
-        self.yt_dlp_path = shutil.which("yt-dlp")
-
-        if not self.yt_dlp_path:
+        yt_dlp_path = shutil.which("yt-dlp")
+        if not yt_dlp_path:
             raise Exception("yt-dlp not found. Please install it: pip install yt-dlp")
+        self.yt_dlp_path: str = yt_dlp_path
 
         logger.info(f"YouTube fetcher initialized with yt-dlp at {self.yt_dlp_path}")
 

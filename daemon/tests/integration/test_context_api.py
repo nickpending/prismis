@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import add_new_content
 from prismis_daemon.api import app, get_config, get_storage
 from prismis_daemon.config import Config
 from prismis_daemon.models import ContentItem
@@ -64,7 +65,7 @@ def storage_with_flagged_items(test_db: Path) -> Storage:
 
     # Add items and flag them as interesting
     for item in test_items:
-        content_id = storage.add_content(item)
+        content_id = add_new_content(storage, item)
         storage.flag_interesting(content_id)  # Use UUID returned from add_content
 
     return storage
@@ -115,7 +116,7 @@ Other interests:
 
 def create_api_client_with_config(
     storage: Storage, context_path: Path, full_config: Config
-) -> TestClient:
+) -> Generator[TestClient]:
     """Create API client with real LLM config and test context.md."""
     # Read test context.md content
     context_content = context_path.read_text()
@@ -129,11 +130,11 @@ def create_api_client_with_config(
         max_items_youtube=full_config.max_items_youtube,
         max_items_file=full_config.max_items_file,
         max_days_lookback=full_config.max_days_lookback,
-        # LLM settings (real API keys)
-        llm_provider=full_config.llm_provider,
-        llm_model=full_config.llm_model,
-        llm_api_key=full_config.llm_api_key,
-        llm_api_base=full_config.llm_api_base,
+        # LLM settings (real service, from full_config)
+        llm_light_service=full_config.llm_light_service,
+        llm_deep_service=full_config.llm_deep_service,
+        auto_extract=full_config.auto_extract,
+        deep_extract_exclude=full_config.deep_extract_exclude,
         # Reddit settings
         reddit_client_id=full_config.reddit_client_id,
         reddit_client_secret=full_config.reddit_client_secret,
@@ -154,6 +155,11 @@ def create_api_client_with_config(
         archival_medium_read=full_config.archival_medium_read,
         archival_low_unread=full_config.archival_low_unread,
         archival_low_read=full_config.archival_low_read,
+        # Context auto-update settings
+        context_auto_update_enabled=full_config.context_auto_update_enabled,
+        context_auto_update_interval_days=full_config.context_auto_update_interval_days,
+        context_auto_update_min_votes=full_config.context_auto_update_min_votes,
+        context_backup_count=full_config.context_backup_count,
         # Audio settings
         audio_provider=full_config.audio_provider,
         audio_voice=full_config.audio_voice,
@@ -186,7 +192,7 @@ def create_api_client_with_config(
 def test_context_api_real_llm_with_existing_topics(
     storage_with_flagged_items: Storage,
     test_context_md: Path,
-    full_config: dict,
+    full_config: Config,
 ):
     """
     INVARIANT: LLM receives both flagged items AND existing topics from context.md
@@ -254,7 +260,7 @@ def test_context_api_real_llm_with_existing_topics(
 def test_context_api_no_flagged_items(
     test_db: Path,
     test_context_md: Path,
-    full_config: dict,
+    full_config: Config,
 ):
     """
     FAILURE: No items flagged as interesting
@@ -290,7 +296,7 @@ def test_context_api_no_flagged_items(
 def test_context_api_malformed_context_md(
     storage_with_flagged_items: Storage,
     malformed_context_md: Path,
-    full_config: dict,
+    full_config: Config,
 ):
     """
     FAILURE: Context.md missing proper ## section headers
@@ -337,7 +343,7 @@ def test_context_api_malformed_context_md(
 def test_context_api_suggestion_quality(
     storage_with_flagged_items: Storage,
     test_context_md: Path,
-    full_config: dict,
+    full_config: Config,
 ):
     """
     INVARIANT: LLM suggestions meet quality standards

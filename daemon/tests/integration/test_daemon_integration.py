@@ -217,7 +217,7 @@ def test_scheduler_runs_jobs_at_intervals(test_db) -> None:
 
     # Wrap the orchestrator to track executions
     class TestOrchestrator(DaemonOrchestrator):
-        def run_once(self) -> dict:
+        def run_once(self, force_refetch: bool = False) -> dict:
             execution_times.append(time.time())
             # Don't actually fetch/analyze, just track the call
             return {"total_items": 0, "total_analyzed": 0, "errors": []}

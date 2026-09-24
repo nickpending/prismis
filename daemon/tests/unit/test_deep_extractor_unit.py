@@ -12,6 +12,7 @@ Error cases:
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from unittest.mock import patch  # claudex-guard: allow-mock
 
 import pytest
@@ -29,7 +30,7 @@ _PATCH_OBS_LOG = "prismis_daemon.deep_extractor.obs_log"  # claudex-guard: allow
 
 
 @pytest.fixture(autouse=True)
-def clean_circuit_registry() -> None:
+def clean_circuit_registry() -> Iterator[None]:
     """Reset circuit breaker registry before and after each test."""
     reset_circuit_breaker()
     yield
@@ -113,7 +114,7 @@ def test_should_deep_extract_none_threshold_always_skips() -> None:
     """auto_extract="none" or falsy -> never extract regardless of priority."""
     assert DaemonOrchestrator._should_deep_extract("high", "none") is False
     assert DaemonOrchestrator._should_deep_extract("high", "") is False
-    assert DaemonOrchestrator._should_deep_extract("high", None) is False
+    assert DaemonOrchestrator._should_deep_extract("high", None) is False  # type: ignore[arg-type]  # deliberately invalid input
 
 
 def test_should_deep_extract_none_priority_skips() -> None:

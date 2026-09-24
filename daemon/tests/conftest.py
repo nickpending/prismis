@@ -8,11 +8,14 @@ import tempfile
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from prismis_daemon import config, database
 from prismis_daemon.defaults import DEFAULT_CONFIG_TOML, DEFAULT_CONTEXT_MD
+from prismis_daemon.models import ContentItem
+from prismis_daemon.storage import Storage
 
 # The API key the sealed config is written with. Every test that authenticates against
 # the API imports this rather than hardcoding a literal, so there is one source of truth
@@ -53,8 +56,21 @@ def strip_ansi(text: str) -> str:
     return _ANSI_SGR.sub("", text)
 
 
-def init_db(path: Path) -> None:
+def init_db(path: Path) -> Path:
     return database.init_db(path)
+
+
+def add_new_content(storage: Storage, item: ContentItem | dict[str, Any]) -> str:
+    """Add content and assert it was newly inserted, narrowing the id to `str`.
+
+    `Storage.add_content` returns `str | None` — None on a duplicate external_id.
+    Every test that inserts content it then reads or mutates by id already assumes
+    the insert was new; this makes that assumption explicit instead of leaving
+    call sites to pass a possibly-None id downstream.
+    """
+    content_id = storage.add_content(item)
+    assert content_id is not None, "expected a newly inserted content id, got a duplicate"
+    return content_id
 
 
 def load_config() -> config.Config:
@@ -181,7 +197,7 @@ def api_key() -> str:
 
 
 @pytest.fixture
-def test_db(monkeypatch) -> Path:
+def test_db(monkeypatch) -> Iterator[Path]:
     """Create a temporary test database for each test."""
     # Create temp directory
     temp_dir = tempfile.mkdtemp()
@@ -326,6 +342,7 @@ def local_pipeline_stub() -> Iterator[str]:
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     host, port = server.server_address[0], server.server_address[1]
+    assert isinstance(host, str), "loopback bind always yields a str host"
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

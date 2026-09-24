@@ -44,7 +44,9 @@ def test_find_source_by_id_on_empty_list() -> None:
 def test_find_source_by_id_returns_the_first_match_only() -> None:
     """Ids are UUIDs and unique; if the API ever returns duplicates, take the first."""
     sources = [{"id": "a", "name": "First"}, {"id": "a", "name": "Shadow"}]
-    assert find_source_by_id(sources, "a")["name"] == "First"
+    found = find_source_by_id(sources, "a")
+    assert found is not None
+    assert found["name"] == "First"
 
 
 def test_find_source_by_id_does_not_match_on_substring() -> None:

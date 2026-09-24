@@ -91,7 +91,7 @@ def populated_storage(test_db: Path) -> Storage:
 
 
 @pytest.fixture
-def api_client(populated_storage: Storage) -> TestClient:
+def api_client(populated_storage: Storage) -> Generator[TestClient, None, None]:
     """Create test client for API with overridden storage dependency."""
 
     def override_get_storage() -> Generator[Storage, None, None]:

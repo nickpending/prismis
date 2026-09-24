@@ -19,12 +19,7 @@ def test_empty_content_does_not_crash() -> None:
     FAILURE: Empty content from failed fetch must not crash system.
     GRACEFUL: Returns None gracefully without API call.
     """
-    config = {
-        "model": "gpt-4o-mini",
-        "api_key": os.environ.get("OPENAI_API_KEY"),
-    }
-
-    summarizer = ContentSummarizer(config)
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # Empty content should return None without crashing
     result = summarizer.summarize_with_analysis(
@@ -56,12 +51,7 @@ def test_all_modes_return_same_json_structure() -> None:
     INVARIANT: Brief/standard/detailed modes all return same JSON structure.
     BREAKS: Parsing fails if LLM returns different fields for different modes.
     """
-    config = {
-        "model": "gpt-4o-mini",
-        "api_key": os.environ.get("OPENAI_API_KEY"),
-    }
-
-    summarizer = ContentSummarizer(config)
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # Short Reddit content for brief mode
     short_content = """
@@ -179,12 +169,7 @@ def test_content_aware_mode_selection_with_real_api() -> None:
     2. YouTube >5000 words uses detailed mode (longer reading summary)
     3. Everything else uses standard mode (comprehensive reading summary)
     """
-    config = {
-        "model": "gpt-4o-mini",
-        "api_key": os.environ.get("OPENAI_API_KEY"),
-    }
-
-    summarizer = ContentSummarizer(config)
+    summarizer = ContentSummarizer("gpt-4o-mini")
 
     # Test 1: Brief mode for short Reddit post (299 words)
     words_299 = " ".join(["word"] * 299)

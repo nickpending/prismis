@@ -1,5 +1,7 @@
 """Unit tests for circuit breaker service-keyed registry — SC-14."""
 
+from collections.abc import Iterator
+
 import pytest
 
 from prismis_daemon.circuit_breaker import (
@@ -11,7 +13,7 @@ from prismis_daemon.circuit_breaker import (
 
 
 @pytest.fixture(autouse=True)
-def clean_registry() -> None:
+def clean_registry() -> Iterator[None]:
     """Reset the circuit breaker registry before and after each test."""
     reset_circuit_breaker()
     yield

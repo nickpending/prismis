@@ -11,6 +11,7 @@ real orchestrator, real fetcher over HTTP, real Storage, the stub LLM endpoint.
 """
 
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -23,7 +24,7 @@ from conftest import LOCAL_DEEP_SERVICE, configure_local_services
 
 
 @pytest.fixture(autouse=True)
-def clean_circuits() -> None:
+def clean_circuits() -> Iterator[None]:
     reset_circuit_breaker()
     yield
     reset_circuit_breaker()

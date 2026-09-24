@@ -45,25 +45,17 @@ def test_normalize_source_url(input_url: str, source_type: str, expected: str) -
 
 
 # ---------------------------------------------------------------------------
-# The daemon half of the CLI/daemon normalization divergence (gh #65)
-#
-# The CLI half lives in cli/tests/unit/test_source_command_unit.py — the
-# test_pl_prefix_is_treated_as_a_channel_id, test_protocol_url_trailing_slash_is_not_stripped
-# and test_leading_whitespace_defeats_scheme_detection cases there. Pinning only that side
-# documented the divergence without guarding it: the daemon could start matching PL and no
-# test would fail. These assert what the daemon produces TODAY, so a change on either side
-# turns something red. Neither implementation is changed here — which side is right is
-# gh #65.
+# normalize_source_url is the only protocol-URL expansion (#65). Every client sends the
+# URL as typed; these pin the inputs the CLI used to expand differently.
 # ---------------------------------------------------------------------------
 
 
-def test_daemon_matches_only_a_uc_channel_prefix() -> None:
-    """CLI maps PL to /channel/; the daemon matches only UC and falls through to /@."""
+def test_a_pl_id_expands_to_a_playlist_not_a_channel() -> None:
+    """A playlist id must not become a channel or handle URL that fetches nothing."""
     assert (
         normalize_source_url("youtube://PLabc123", "youtube")
-        == "https://www.youtube.com/@PLabc123"
+        == "https://www.youtube.com/playlist?list=PLabc123"
     )
-    # UC is where the two agree.
     assert (
         normalize_source_url("youtube://UCabc123", "youtube")
         == "https://www.youtube.com/channel/UCabc123"
@@ -71,7 +63,7 @@ def test_daemon_matches_only_a_uc_channel_prefix() -> None:
 
 
 def test_daemon_strips_a_protocol_url_trailing_slash() -> None:
-    """CLI keeps the slash on a protocol URL; the daemon strips it."""
+    """A trailing slash must not make reddit://rust/ a second source."""
     assert (
         normalize_source_url("reddit://rust/", "reddit")
         == "https://www.reddit.com/r/rust"
@@ -79,7 +71,7 @@ def test_daemon_strips_a_protocol_url_trailing_slash() -> None:
 
 
 def test_daemon_strips_leading_whitespace_before_scheme_detection() -> None:
-    """A leading space defeats the CLI's scheme detection; the daemon strips first."""
+    """Surrounding whitespace must not defeat scheme detection."""
     assert (
         normalize_source_url(" reddit://rust", "reddit")
         == "https://www.reddit.com/r/rust"

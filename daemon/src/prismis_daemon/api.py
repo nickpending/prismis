@@ -292,6 +292,12 @@ def normalize_source_url(url: str, source_type: str) -> str:
             if channel.startswith("UC"):
                 return f"https://www.youtube.com/channel/{channel}"
 
+            # A PL id is a playlist. Expanding it as a channel or a handle yields a
+            # URL that passes validation and fetches nothing; as a playlist URL the
+            # validator refuses it by name, since playlists are unsupported (#65).
+            if channel.startswith("PL"):
+                return f"https://www.youtube.com/playlist?list={channel}"
+
             # Default to @handle format
             return f"https://www.youtube.com/@{channel}"
 

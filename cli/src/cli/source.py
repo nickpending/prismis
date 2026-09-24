@@ -1,6 +1,5 @@
 """Source management commands for Prismis CLI."""
 
-import re
 
 import typer
 from rich.console import Console
@@ -12,133 +11,28 @@ app = typer.Typer(help="Manage content sources")
 console = Console()
 
 
-def extract_name_from_url(url: str) -> str:
-    """Extract a human-readable name from a URL.
+def detect_source_type(url: str) -> str:
+    """Derive a source's type from the URL the user typed.
+
+    Only the type is decided here. The URL goes to the daemon as typed, and the
+    daemon's `normalize_source_url` (daemon/src/prismis_daemon/api.py) expands
+    `reddit://` and `youtube://` and names the source, for every client alike. A second
+    expansion here is how the CLI and the daemon came to store the same source under
+    different URLs (#65).
 
     Args:
-        url: The source URL
+        url: The source URL as the user typed it, surrounding whitespace removed
 
     Returns:
-        A reasonable name extracted from the URL
+        One of "file", "reddit", "youtube", "rss"
     """
-    # Remove protocol
-    url = re.sub(r"^https?://", "", url)
-    url = re.sub(r"^reddit://", "", url)
-    url = re.sub(r"^youtube://", "", url)
-
-    # Remove www.
-    url = re.sub(r"^www\.", "", url)
-
-    # Remove paths and query strings for domain extraction
-    domain = url.split("/")[0].split("?")[0]
-
-    # For reddit subreddits
-    if "reddit.com/r/" in url or url.startswith("r/"):
-        match = re.search(r"/r/([^/\?]+)", url)
-        if match:
-            return f"r/{match.group(1)}"
-        # For reddit:// URLs
-        parts = url.split("/")
-        if parts:
-            return f"r/{parts[-1]}"
-
-    # For YouTube channels
-    if "youtube.com" in url or "youtu.be" in url:
-        # Try to extract channel name (matching API behavior)
-        if "@" in url:
-            match = re.search(r"@([^/\?]+)", url)
-            if match:
-                return f"@{match.group(1)}"
-        elif "channel/" in url:
-            match = re.search(r"channel/([^/\?]+)", url)
-            if match:
-                return match.group(1)[:20]
-        return "YouTube Channel"
-
-    # For regular domains, use the domain name
-    return domain.split(".")[0].title() if "." in domain else domain
-
-
-def detect_and_normalize_source_url(url: str) -> tuple[str, str]:
-    """Derive a source's type from its URL and expand protocol URLs to real ones.
-
-    The daemon normalizes independently in `normalize_source_url`
-    (daemon/src/prismis_daemon/api.py), which is told the type rather than deriving it.
-    The two do NOT agree on every input, and nothing checks that they do — measured
-    divergences, pinned by the tests below so either side moving becomes visible:
-
-    - `youtube://PL...` — this function treats a `PL` prefix as a channel/playlist id and
-      produces `/channel/PL...`; the daemon matches only `UC` and falls through to
-      `/@PL...`.
-    - trailing slashes and leading whitespace **on the protocol-URL branches** — the
-      daemon strips both before it looks at anything, so `reddit://rust/` loses its slash
-      and ` reddit://rust` is still recognised as reddit. Here the `reddit://` and
-      `youtube://` branches strip neither, so the slash survives and a leading space
-      defeats scheme detection entirely.
-      This does NOT generalize to every input: an already-real `reddit.com` URL does have
-      a trailing slash stripped here, by the `url.rstrip("/")` in the `reddit.com` branch
-      below — matching the daemon. Only the protocol-URL branches diverge.
-
-    Filed as gh #65; which side is right is a product decision, so neither is changed here.
-
-    Args:
-        url: The source URL as the user typed it, possibly a `reddit://` or
-            `youtube://` protocol URL
-
-    Returns:
-        (source_type, url) — the detected type and the URL to send to the API
-    """
-    # Check for file extensions (.md, .txt)
     if url.endswith((".md", ".txt")):
-        return "file", url
-
-    if url.startswith("reddit://"):
-        # Convert reddit:// to actual Reddit URL
-        subreddit = url.replace("reddit://", "")
-        return "reddit", f"https://www.reddit.com/r/{subreddit}"
-
-    if url.startswith("youtube://"):
-        # Convert youtube:// to actual YouTube URL (similar to Reddit pattern)
-        channel = url.replace("youtube://", "")
-        # Handle different channel formats
-        if channel.startswith("@"):
-            return "youtube", f"https://www.youtube.com/{channel}"
-        if channel.startswith("UC") or channel.startswith("PL"):
-            # Looks like a channel/playlist ID
-            return "youtube", f"https://www.youtube.com/channel/{channel}"
-        # Assume it's a handle without @
-        return "youtube", f"https://www.youtube.com/@{channel}"
-
-    if "reddit.com" in url:
-        # Keep the URL as-is for PRAW to handle
-        return "reddit", url.rstrip("/")
-
-    if "youtube.com" in url or "youtu.be" in url:
-        return "youtube", url
-
-    return "rss", url
-
-
-def resolve_source(url: str, name: str | None = None) -> tuple[str, str, str]:
-    """Turn what the user typed into the (type, url, name) the API is sent.
-
-    Normalization runs FIRST and the name is derived from its output, so
-    `source add reddit://rust` is named `r/rust` rather than `rust`. That ordering is
-    the whole point of this function existing: while it lived inline in `add`, the only
-    test of it was a copy in the test file, and reordering the production path left that
-    copy green.
-
-    Args:
-        url: The source URL as the user typed it
-        name: An explicit name, if the user supplied one; derived when absent
-
-    Returns:
-        (source_type, normalized_url, name)
-    """
-    source_type, normalized_url = detect_and_normalize_source_url(url)
-    if not name:
-        name = extract_name_from_url(normalized_url)
-    return source_type, normalized_url, name
+        return "file"
+    if url.startswith("reddit://") or "reddit.com" in url:
+        return "reddit"
+    if url.startswith("youtube://") or "youtube.com" in url or "youtu.be" in url:
+        return "youtube"
+    return "rss"
 
 
 def find_source_by_id(sources: list[dict], source_id: str) -> dict | None:
@@ -195,8 +89,8 @@ def add(
 ) -> None:
     """Add a new content source to Prismis."""
     try:
-        # Detect source type from URL
-        source_type, url, name = resolve_source(url, name)
+        url = url.strip()
+        source_type = detect_source_type(url)
 
         # Use API to add source (includes validation)
         if not output_json:
@@ -225,10 +119,10 @@ def add(
                     console.print(f"[red]❌ API error:[/red] {error_msg}")
             raise typer.Exit(1) from e
 
-        # Use the name from the API response if available
+        # The daemon normalizes and names the source; show what it stored.
         response_name = result.get("name", name)
         console.print(f"[green]✅ Added {source_type} source:[/green] {response_name}")
-        console.print(f"[dim]URL: {url}[/dim]")
+        console.print(f"[dim]URL: {result.get('url', url)}[/dim]")
         console.print(f"[dim]ID: {source_id}[/dim]")
 
     except Exception as e:

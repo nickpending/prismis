@@ -223,3 +223,6 @@ __marimo__/
 
 # Model playtest run artifacts
 playtest-runs/
+.claude/worktrees/
+docs/work/*/review.diff
+docs/work/*/.journal.lock

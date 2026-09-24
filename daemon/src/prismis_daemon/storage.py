@@ -687,8 +687,12 @@ class Storage:
 
             params: list[Any] = []
             if since is not None:
-                query += " AND c.fetched_at > ?"
-                params.append(since.strftime("%Y-%m-%d %H:%M:%S.%f+00:00"))
+                # fetched_at is stored in four historical string shapes (space or T
+                # separator, with or without +00:00); datetime() normalizes both sides,
+                # where a raw string compare treats every row from the bound's date
+                # as newer than it (#61).
+                query += " AND datetime(c.fetched_at) > datetime(?)"
+                params.append(since.isoformat())
 
             # Add archived filter unless explicitly including archived
             if not include_archived:
@@ -1378,7 +1382,7 @@ class Storage:
             if days is not None:
                 # Calculate cutoff datetime
                 cutoff = datetime.now(UTC) - timedelta(days=days)
-                query += " AND published_at < ?"
+                query += " AND datetime(published_at) < datetime(?)"
                 params.append(cutoff.isoformat())
 
             cursor = self.conn.execute(query, params)
@@ -1417,7 +1421,7 @@ class Storage:
             if days is not None:
                 # Calculate cutoff datetime
                 cutoff = datetime.now(UTC) - timedelta(days=days)
-                query += " AND published_at < ?"
+                query += " AND datetime(published_at) < datetime(?)"
                 params.append(cutoff.isoformat())
 
             # Execute deletion in a transaction
@@ -1932,18 +1936,18 @@ class Storage:
                   AND notes IS NULL
                   AND (
                     -- HIGH: Only read + N days (or never if high_read is None)
-                    (priority = 'high' AND read = 1 AND fetched_at < datetime('now', ?))
+                    (priority = 'high' AND read = 1 AND datetime(fetched_at) < datetime('now', ?))
                     OR
                     -- MEDIUM: Unread N days OR read N days
                     (priority = 'medium' AND (
-                      (read = 0 AND fetched_at < datetime('now', ?))
-                      OR (read = 1 AND fetched_at < datetime('now', ?))
+                      (read = 0 AND datetime(fetched_at) < datetime('now', ?))
+                      OR (read = 1 AND datetime(fetched_at) < datetime('now', ?))
                     ))
                     OR
                     -- LOW: Unread N days OR read N days
                     (priority = 'low' AND (
-                      (read = 0 AND fetched_at < datetime('now', ?))
-                      OR (read = 1 AND fetched_at < datetime('now', ?))
+                      (read = 0 AND datetime(fetched_at) < datetime('now', ?))
+                      OR (read = 1 AND datetime(fetched_at) < datetime('now', ?))
                     ))
                   )
             """

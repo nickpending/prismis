@@ -588,6 +588,7 @@ class Storage:
         limit: int = 50,
         include_archived: bool = False,
         source_filter: str | None = None,
+        since: datetime | None = None,
     ) -> list[dict[str, Any]]:
         """Get unread content by priority level.
 
@@ -596,6 +597,7 @@ class Storage:
             limit: Maximum number of items to return
             include_archived: Include archived content if True
             source_filter: Filter by source name (case-insensitive substring match)
+            since: Only content fetched after this instant
 
         Returns:
             List of content dictionaries
@@ -618,6 +620,10 @@ class Storage:
             if source_filter:
                 query += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
                 params.append(source_filter)
+
+            if since is not None:
+                query += " AND datetime(c.fetched_at) > datetime(?)"
+                params.append(since.isoformat())
 
             query += " ORDER BY c.published_at DESC LIMIT ?"
             params.append(limit)

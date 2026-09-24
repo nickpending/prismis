@@ -148,3 +148,47 @@ def test_prune_age_reads_a_space_separated_published_at_by_its_time(test_db) -> 
     assert storage.count_unprioritized(days=7) == 0, (
         "an item newer than the cutoff was counted as prunable"
     )
+
+
+@pytest.mark.parametrize("priority", [None, "high"], ids=["all-priorities", "one-priority"])
+def test_unread_only_still_honors_the_time_bound(priority: str | None, test_db) -> None:
+    """
+    INVARIANT: unread_only=true with a time bound returns only unread items fetched after it
+    BREAKS: The unread paths never passed the bound to storage, so
+            `prismis-cli list --unread --since-hours N` returned every unread item
+    """
+    bound = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
+    storage = Storage()
+    source_id = storage.add_source("https://example.com/feed.xml", "rss", "Feed")
+    ids = {}
+    for label, fetched in (
+        ("fresh", bound + timedelta(hours=1)),
+        ("stale", bound - timedelta(days=3)),
+    ):
+        item_id, _ = storage.create_or_update_content(
+            ContentItem(
+                source_id=source_id,
+                external_id=label,
+                title=label,
+                url=f"https://example.com/{label}",
+                priority="high",
+            )
+        )
+        storage.conn.execute(
+            "UPDATE content SET fetched_at = ? WHERE id = ?",
+            (fetched.isoformat(), item_id),
+        )
+        ids[label] = item_id
+    storage.conn.commit()
+
+    params = {"since": bound.isoformat(), "unread_only": "true", "skip_dedup": "true"}
+    if priority:
+        params["priority"] = priority
+    response = TestClient(app).get(
+        "/api/entries", params=params, headers={"X-API-Key": TEST_API_KEY}
+    )
+
+    assert response.status_code == 200, response.text
+    returned = {item["id"] for item in response.json()["data"]["items"]}
+    assert ids["fresh"] in returned, "the unread item inside the window is missing"
+    assert ids["stale"] not in returned, "the unread item before the bound passed"

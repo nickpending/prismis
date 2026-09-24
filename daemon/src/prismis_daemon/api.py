@@ -858,7 +858,11 @@ async def get_content(
                     if remaining <= 0:
                         break
                     items = storage.get_content_by_priority(
-                        p, remaining, include_archived, source_filter=source
+                        p,
+                        remaining,
+                        include_archived,
+                        source_filter=source,
+                        since=since_dt,
                     )
                     content_items.extend(items)
             else:
@@ -876,7 +880,11 @@ async def get_content(
             if unread_only:
                 # Get unread from all priorities, respecting limit
                 high_items = storage.get_content_by_priority(
-                    "high", limit, include_archived, source_filter=source
+                    "high",
+                    limit,
+                    include_archived,
+                    source_filter=source,
+                    since=since_dt,
                 )
                 remaining_limit = limit - len(high_items)
 
@@ -888,12 +896,17 @@ async def get_content(
                         remaining_limit,
                         include_archived,
                         source_filter=source,
+                        since=since_dt,
                     )
                     remaining_limit = remaining_limit - len(medium_items)
 
                 if remaining_limit > 0:
                     low_items = storage.get_content_by_priority(
-                        "low", remaining_limit, include_archived, source_filter=source
+                        "low",
+                        remaining_limit,
+                        include_archived,
+                        source_filter=source,
+                        since=since_dt,
                     )
 
                 content_items = high_items + medium_items + low_items

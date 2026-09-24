@@ -1,0 +1,96 @@
+{
+  "artifact": [
+    "docs/work/no-internal-mocks/results/plan-2.json"
+  ],
+  "verified": false,
+  "jobs": [
+    {
+      "number": 1,
+      "title": "Replace Notifier._send_notification attribute-assignment fakes with the real notify path",
+      "files": [
+        "daemon/tests/unit/test_notifier_unit.py"
+      ],
+      "delivers": ["SC-3"],
+      "red": true
+    },
+    {
+      "number": 2,
+      "title": "Replace DaemonOrchestrator's injected fake Summarizer/Evaluator/Notifier/Config/Embedder and Storage method-assign fakes with real collaborators",
+      "files": [
+        "daemon/tests/unit/test_orchestrator_deep_unit.py"
+      ],
+      "delivers": ["SC-3"],
+      "red": true
+    },
+    {
+      "number": 3,
+      "title": "Drive ContentDeepExtractor and CircuitBreaker against a real local stub LLM server: remove get_circuit_breaker/obs_log/Config.from_file patches and the _Stub/_Slow/_RaisingExtractor stand-ins across the deep-extraction test cluster",
+      "files": [
+        "daemon/tests/conftest.py",
+        "daemon/tests/unit/test_deep_extractor_unit.py",
+        "daemon/tests/integration/test_deep_extractor_api_integration.py",
+        "daemon/tests/integration/test_extract_endpoint_race.py"
+      ],
+      "delivers": ["SC-4"],
+      "red": true
+    },
+    {
+      "number": 4,
+      "title": "Replace Storage.add_content's get_db_connection/get_active_sources patches with a real temp DB and real seeded sources",
+      "files": [
+        "daemon/tests/unit/test_storage_dict_unit.py"
+      ],
+      "delivers": ["SC-3"],
+      "red": true
+    },
+    {
+      "number": 5,
+      "title": "Replace the summarizer/evaluator get_circuit_breaker patches in the llm-core migration tests with the real circuit breaker (keep the allowlisted llm_core.complete patches)",
+      "files": [
+        "daemon/tests/unit/test_llm_core_migration_unit.py"
+      ],
+      "delivers": ["SC-3"],
+      "red": true
+    },
+    {
+      "number": 6,
+      "title": "Replace the Storage.get_active_sources patch.object spy in the verify-subcommand tests with a non-patching proof that the sources check ran (keep the allowlisted llm_core.health_check patches)",
+      "files": [
+        "daemon/tests/unit/test_verify_subcommand_unit.py"
+      ],
+      "delivers": ["SC-3"],
+      "red": true
+    },
+    {
+      "number": 7,
+      "title": "Replace Config.from_file (api/auth), ContextAnalyzer._call_llm, and Storage.get_flagged_items internal fakes in the context-assistant tests with real collaborators (real on-disk sealed config, a real unreachable-service proof of no-LLM-call, a real SQLite lock)",
+      "files": [
+        "daemon/tests/integration/test_context_assistant.py"
+      ],
+      "delivers": ["SC-3"],
+      "red": true
+    },
+    {
+      "number": 8,
+      "title": "Stand up a real in-process daemon fixture against a seeded temp DB and replace httpx.Client / cli.extract.APIClient patches across the CLI test tree with calls through the real APIClient",
+      "files": [
+        "cli/tests/conftest.py",
+        "cli/tests/unit/test_extract_entry_unit.py",
+        "cli/tests/unit/test_api_client_search_params.py",
+        "cli/tests/unit/test_extract_command_unit.py"
+      ],
+      "delivers": ["SC-5"],
+      "red": true
+    },
+    {
+      "number": 9,
+      "title": "Add the no-internal-mocks guard test: scan daemon/tests and cli/tests for patch/patch.object/monkeypatch.setattr/attribute-assignment against prismis_daemon or cli outside the llm_core.complete / llm_core.health_check / module-level-constant allowlist, with self-tests for detection and allowlisted pass-through",
+      "files": [
+        "daemon/tests/unit/test_no_internal_mocks_unit.py"
+      ],
+      "depends": [1, 2, 3, 4, 5, 6, 7, 8],
+      "delivers": ["SC-1", "SC-2"],
+      "red": true
+    }
+  ]
+}

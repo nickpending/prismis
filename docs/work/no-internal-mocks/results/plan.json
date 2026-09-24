@@ -1,0 +1,56 @@
+{
+  "artifact": [
+    "docs/work/no-internal-mocks/results/plan-3.json"
+  ],
+  "verified": false,
+  "jobs": [
+    {
+      "number": 1,
+      "title": "Replace internal fakes across the six general daemon test files with real collaborators: real Storage over the sealed test DB, the real CircuitBreaker, the real Config from the sealed XDG config, the real Notifier, and the real Summarizer/Evaluator against the local stub LLM server (llm_core.complete/health_check patches stay)",
+      "files": [
+        "daemon/tests/unit/test_orchestrator_deep_unit.py",
+        "daemon/tests/unit/test_notifier_unit.py",
+        "daemon/tests/unit/test_storage_dict_unit.py",
+        "daemon/tests/unit/test_llm_core_migration_unit.py",
+        "daemon/tests/unit/test_verify_subcommand_unit.py",
+        "daemon/tests/integration/test_context_assistant.py"
+      ],
+      "delivers": ["SC-3"],
+      "red": true
+    },
+    {
+      "number": 2,
+      "title": "Drive ContentDeepExtractor and CircuitBreaker against a real local stub LLM server: extend the shared daemon conftest stub with a deep-schema response and a controllable delay, and remove the _Stub/_Slow/_RaisingExtractor and get_circuit_breaker stand-ins across the deep-extraction test cluster",
+      "files": [
+        "daemon/tests/conftest.py",
+        "daemon/tests/unit/test_deep_extractor_unit.py",
+        "daemon/tests/integration/test_deep_extractor_api_integration.py",
+        "daemon/tests/integration/test_extract_endpoint_race.py"
+      ],
+      "delivers": ["SC-4"],
+      "red": true
+    },
+    {
+      "number": 3,
+      "title": "Stand up a real in-process daemon fixture against a seeded temp DB and replace httpx.Client / cli.extract.APIClient patches across the CLI test tree with calls through the real APIClient",
+      "files": [
+        "cli/tests/conftest.py",
+        "cli/tests/unit/test_extract_entry_unit.py",
+        "cli/tests/unit/test_api_client_search_params.py",
+        "cli/tests/unit/test_extract_command_unit.py"
+      ],
+      "delivers": ["SC-5"],
+      "red": true
+    },
+    {
+      "number": 4,
+      "title": "Add the no-internal-mocks guard test: scan daemon/tests and cli/tests for patch/patch.object/monkeypatch.setattr/attribute-assignment against prismis_daemon or cli outside the llm_core.complete / llm_core.health_check / module-level-constant allowlist, with self-tests for detection and allowlisted pass-through",
+      "files": [
+        "daemon/tests/unit/test_no_internal_mocks_unit.py"
+      ],
+      "depends": [1, 2, 3],
+      "delivers": ["SC-1", "SC-2"],
+      "red": true
+    }
+  ]
+}

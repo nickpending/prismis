@@ -1,0 +1,72 @@
+{
+  "workOrder": "no-internal-mocks",
+  "what": "Replace every test stand-in for prismis's own code with the real collaborator, and add a guard test that fails when a test patches prismis_daemon or cli internals outside an LLM-entry-point allowlist.",
+  "why": "Constitution Principle I: internal code is never mocked; LLM providers are the only permitted fake (.specify/memory/constitution.md, Principle I and Project Constraints). A test against a fake proves the fake, not prismis. The mypy migration (8a99235) left every remaining violation marked in place with `# type: ignore[...]  # internal fake, removed by docs/work/no-internal-mocks`, and the `# claudex-guard: allow-mock` marker is attached to internal patches (get_circuit_breaker, Config.from_file, get_db_connection, Storage methods), so the honor system is not holding. Closes #73 and #62.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "the daemon and cli test trees after this unit",
+      "when": "the guard test scans every test file under daemon/tests and cli/tests",
+      "then": "it passes: no patch, patch.object, monkeypatch.setattr or attribute assignment replaces anything under prismis_daemon or cli except the allowlist (llm_core.complete as imported into a prismis_daemon module, llm_core.health_check, and module-level configuration constants). It can only pass after the other criteria's replacements land, since the scan of the real tree only passes once their violations are gone",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q --no-header tests/unit/test_no_internal_mocks_unit.py 2>&1 | tail -1",
+        "expect": "passed"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "a test file containing a patch of an internal prismis_daemon or cli target",
+      "when": "the guard scans it",
+      "then": "the guard reports that file and target; a self-test plants such a violation in a temp file and asserts detection, and another plants an allowlisted llm_core.complete patch and asserts it passes",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q --no-header tests/unit/test_no_internal_mocks_unit.py -k detects 2>&1 | tail -1",
+        "expect": "passed"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "the daemon tests outside the three deep-extraction files (those are SC-4) and outside test_api_connection_cleanup (a call-through spy, out of scope)",
+      "when": "searched for patches, attribute assignments and injected stand-ins of prismis_daemon internals, and for the markers the mypy migration left on them",
+      "then": "none remain: test_orchestrator_deep_unit, test_notifier_unit, test_storage_dict_unit, test_llm_core_migration_unit, test_verify_subcommand_unit and test_context_assistant drive the real Storage over the sealed test DB, the real CircuitBreaker, the real Config from the sealed XDG config, the real Notifier and the real Summarizer/Evaluator against the local stub LLM server; llm_core.complete and llm_core.health_check patches stay",
+      "observation": {
+        "command": "echo \"count=$(grep -rnE 'internal fake, removed by|\"prismis_daemon\\.[A-Za-z_.]+\"|patch\\.object\\([A-Za-z_]+, \"|\\._send_notification = ' daemon/tests | grep -vE 'test_api_connection_cleanup|test_deep_extractor_unit|test_deep_extractor_api_integration|test_extract_endpoint_race' | grep -vE '\\.complete\"|health_check\"|import_module|logger=' | wc -l | tr -d ' ')\"",
+        "expect": "count=0"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "the deep-extraction tests: daemon/tests/unit/test_deep_extractor_unit.py, daemon/tests/integration/test_deep_extractor_api_integration.py, daemon/tests/integration/test_extract_endpoint_race.py",
+      "when": "searched for stand-ins of ContentDeepExtractor or CircuitBreaker",
+      "then": "none remain: those tests drive the real ContentDeepExtractor against the local stub LLM server and open the real CircuitBreaker with real quota failures; _FakeTokens/_FakeResult (provider result fakes) are allowed",
+      "observation": {
+        "command": "echo \"count=$(grep -cE 'class _(Fake|Stub|Slow|Raising)(Extractor|CircuitBreaker)|get_circuit_breaker\"' daemon/tests/unit/test_deep_extractor_unit.py daemon/tests/integration/test_deep_extractor_api_integration.py daemon/tests/integration/test_extract_endpoint_race.py | awk -F: '{s+=$2} END {print s}')\"",
+        "expect": "count=0"
+      }
+    },
+    {
+      "id": "SC-5",
+      "given": "the cli test tree",
+      "when": "searched for patches of the CLI's own API client or of httpx standing in for the daemon",
+      "then": "none remain: the cli tests call a real in-process daemon against a seeded temp DB through the real APIClient",
+      "observation": {
+        "command": "echo \"count=$(grep -rnE 'patch\\(\"cli\\.|patch\\.object\\(httpx' cli/tests | wc -l | tr -d ' ')\"",
+        "expect": "count=0"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Patches of the LLM provider (llm_core.complete, llm_core.health_check) and the _FakeTokens/_FakeResult provider fakes: permitted by the constitution",
+    "PRAW submission Mocks in test_reddit_fetcher_unit and fixtures/reddit_mocks: Reddit is a third party",
+    "praw class-attribute configuration in test_ambient_config_integration and test_reddit_fetcher_budget_integration: configures the library, fakes nothing",
+    "test_api_connection_cleanup: its Storage wrappers call through to the real methods (a spy, not a fake)",
+    "Restoring the credential-gated live-LLM tests (gh #60) and the openai SDK migration (docs/work/wo-openai-sdk-migration.md)"
+  ],
+  "stakes": [
+    "Every replacement test must be shown to FAIL with the behavior it covers disabled, then restored (CLAUDE.md Learned Patterns). A replacement that passes with the logic removed is the tautology it replaced.",
+    "The gate runs in public CI with no credentials and no network. LLM calls go through local_pipeline_stub / configure_local_services in daemon/tests/conftest.py or a patched llm_core.complete; the deep-extraction and race tests need a stub response shaped for the deep schema, and the race test's slow extraction comes from a delay in that stub server, not a stub extractor.",
+    "Assert at the level each original test's criterion names (CLAUDE.md): turning a composition test into isolated pure-function tests leaves the composition unproven.",
+    "Never weaken, delete or reorder an assertion to make a real collaborator pass. If a real collaborator exposes a real bug, stop and report it.",
+    "mypy is part of the gate now: new code and tests must type-check under `uv run mypy .` in each unit with no new `# type: ignore`.",
+    "The lane runs ./.specify/verify.sh (ruff, mypy, pytest, go checks) after every job; the gate passing is required of every job and is not a criterion or a job of its own."
+  ]
+}

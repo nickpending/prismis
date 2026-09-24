@@ -1,20 +1,17 @@
 """Source validation module for verifying sources before adding to database."""
 
 import re
-import time
-from collections.abc import Mapping
 from urllib.parse import urlparse
 
 import feedparser
 import httpx
 import praw
-import requests
 from prawcore import exceptions as prawcore_exceptions
 from prawcore.sessions import FiniteRetryStrategy
 from praw.models import Subreddit
-from requests.adapters import HTTPAdapter
 
 from .config import REDDIT_NOT_CONFIGURED, Config
+from .http_deadline import deadline_session
 
 
 class _SingleAttemptRetry(FiniteRetryStrategy):
@@ -39,74 +36,6 @@ class _SingleAttemptRetry(FiniteRetryStrategy):
 
     def should_retry_on_failure(self) -> bool:
         return False
-
-
-class _DeadlineAdapter(HTTPAdapter):
-    """A transport adapter holding every request inside one wall-clock deadline.
-
-    prawcore computes its 16-second default at import time and binds it as a default
-    argument value, so neither setting its environment variable at runtime nor replacing
-    the constant reaches a call made afterwards. The transport is the only remaining
-    place the validator's own budget can be imposed on the request itself. The deadline
-    spans the whole probe rather than each request, because one probe costs two calls:
-    the access token, then the subreddit.
-
-    What this guarantees, exactly. No request starts after the deadline — that refusal
-    is absolute. Each socket operation is capped at whatever is left, because requests
-    turns a float timeout into a urllib3 Timeout with connect and read both set to it,
-    so a peer that accepts and never answers is cut off at the budget. What it does not
-    guarantee is total elapsed time: connect and read are separate caps rather than one,
-    and urllib3's read timeout measures the gap between reads rather than the whole
-    response, so a peer trickling bytes can outlive the budget. Bounding that would take
-    a reader that watches the clock, which is a different mechanism from this one; the
-    outer bound at the API call site is what covers it today.
-    """
-
-    def __init__(self, budget: float) -> None:
-        super().__init__()
-        self._deadline = time.monotonic() + budget
-
-    def send(
-        self,
-        request: requests.PreparedRequest,
-        stream: bool = False,
-        timeout: float | tuple[float, float] | tuple[float, None] | None = None,
-        verify: bool | str = True,
-        cert: str | tuple[str, str] | None = None,
-        proxies: Mapping[str, str] | None = None,
-    ) -> requests.Response:
-        """Send a request bounded by whatever is left of the deadline."""
-        remaining = self._deadline - time.monotonic()
-        if remaining <= 0:
-            raise requests.exceptions.ConnectTimeout(
-                "Reddit validation budget exhausted", request=request
-            )
-        if not isinstance(timeout, float | int) or timeout > remaining:
-            timeout = remaining
-        return super().send(
-            request,
-            stream=stream,
-            timeout=timeout,
-            verify=verify,
-            cert=cert,
-            proxies=proxies,
-        )
-
-
-def _deadline_session(budget: float) -> requests.Session:
-    """Build a requests session whose every call shares one wall-clock budget.
-
-    Args:
-        budget: Seconds the whole probe is allowed, across all of its requests
-
-    Returns:
-        A session mounted on the deadline-bounded transport
-    """
-    session = requests.Session()
-    adapter = _DeadlineAdapter(budget)
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-    return session
 
 
 class SourceValidator:
@@ -330,7 +259,7 @@ class SourceValidator:
             client_secret=config.reddit_client_secret,
             user_agent=config.reddit_user_agent,
             check_for_updates=False,
-            requestor_kwargs={"session": _deadline_session(self.timeout)},
+            requestor_kwargs={"session": deadline_session(self.timeout)},
         )
         reddit.read_only = True
 

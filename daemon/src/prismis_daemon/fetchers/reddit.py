@@ -4,15 +4,21 @@ import logging
 import re
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import praw
 
 from ..config import REDDIT_NOT_CONFIGURED, Config
+from ..http_deadline import DeadlineAdapter, deadline_session
 from ..models import ContentItem
 from ..observability import log as obs_log
 
 logger = logging.getLogger(__name__)
+
+# One subreddit fetch is a token, a listing and a comment request per post; a normal
+# one takes a few seconds. Without a budget, prawcore's per-request 16s and three
+# attempts let a stalled Reddit hold the daemon's whole cycle.
+REDDIT_FETCH_BUDGET = 60.0
 
 
 class RedditNotConfiguredError(RuntimeError):
@@ -26,12 +32,18 @@ class RedditFetcher:
     to fetch posts from subreddits and returns standardized ContentItem objects.
     """
 
-    def __init__(self, max_items: int | None = None, config: Config | None = None):
+    def __init__(
+        self,
+        max_items: int | None = None,
+        config: Config | None = None,
+        fetch_budget: float = REDDIT_FETCH_BUDGET,
+    ):
         """Initialize the Reddit fetcher with PRAW client.
 
         Args:
             max_items: Maximum number of posts to fetch per subreddit (uses config if None)
             config: Config instance with Reddit credentials (loads from file if None)
+            fetch_budget: Seconds one fetch_content call may spend on Reddit
         """
         # Load config if not provided
         if config is None:
@@ -50,11 +62,16 @@ class RedditFetcher:
         self.credentials_missing = False
 
         # Initialize PRAW with credentials from config
+        self.fetch_budget = fetch_budget
+        session = deadline_session(self.fetch_budget)
+        self._deadline = cast(DeadlineAdapter, session.get_adapter("https://"))
         try:
             self.reddit = praw.Reddit(
                 client_id=config.reddit_client_id,
                 client_secret=config.reddit_client_secret,
                 user_agent=config.reddit_user_agent,
+                check_for_updates=False,
+                requestor_kwargs={"session": session},
             )
             self.reddit.read_only = True
             logger.info("Reddit fetcher initialized successfully")
@@ -91,6 +108,8 @@ class RedditFetcher:
 
         items = []
 
+        # The client outlives this call, so its deadline is restarted per fetch.
+        self._deadline.rearm(self.fetch_budget)
         start_time = time.time()
 
         try:

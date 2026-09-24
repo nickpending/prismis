@@ -22,9 +22,9 @@ import requests
 from prawcore import exceptions as prawcore_exceptions
 
 from prismis_daemon.config import Config
+from prismis_daemon.http_deadline import DeadlineAdapter
 from prismis_daemon.validator import (
     REDDIT_NOT_CONFIGURED,
-    _DeadlineAdapter,
     _SingleAttemptRetry,
     SourceValidator,
 )
@@ -397,7 +397,7 @@ def test_probe_client_is_bounded_by_the_validators_timeout() -> None:
     )
 
     adapter = core._requestor._http.get_adapter("https://oauth.reddit.com")
-    assert isinstance(adapter, _DeadlineAdapter)
+    assert isinstance(adapter, DeadlineAdapter)
     budget = adapter._deadline - built_at
     assert budget == pytest.approx(validator.timeout, abs=0.5), (
         f"Probe budget is {budget:.2f}s, not the stated {validator.timeout}s"
@@ -410,7 +410,7 @@ def test_deadline_adapter_refuses_a_request_past_its_budget() -> None:
     BREAKS: A probe that has already used its whole budget starts another request, and
             one validation outlives the timeout the class docstring promises
     """
-    adapter = _DeadlineAdapter(-1.0)
+    adapter = DeadlineAdapter(-1.0)
     request = requests.Request("GET", "https://oauth.reddit.com/r/python").prepare()
 
     with pytest.raises(requests.exceptions.ConnectTimeout):

@@ -12,6 +12,7 @@ from praw.models import Subreddit
 
 from .config import REDDIT_NOT_CONFIGURED, Config
 from .http_deadline import deadline_session
+from .praw_defaults import pin_praw_defaults
 
 
 class _SingleAttemptRetry(FiniteRetryStrategy):
@@ -68,9 +69,8 @@ class SourceValidator:
         qualification, so the redaction sits at the point where the message is made
         rather than at the outcomes currently known to carry one.
 
-        Only the values this validator was handed can be removed. A credential arriving
-        by a route the validator cannot see — PRAW reads a praw.ini relative to the
-        process working directory — is not reachable from here.
+        Only the values this validator was handed can be removed; PRAW is pinned to its
+        bundled defaults, so no other file can hand it a credential.
 
         Args:
             message: The message about to be returned to a caller
@@ -254,6 +254,7 @@ class SourceValidator:
         Returns:
             A PRAW client whose every request is held inside the timeout budget
         """
+        pin_praw_defaults()
         reddit = praw.Reddit(
             client_id=config.reddit_client_id,
             client_secret=config.reddit_client_secret,

@@ -172,6 +172,9 @@ class YouTubeFetcher:
         # silently dropped affected videos) while keeping payload tiny (~210B/video).
         cmd = [
             self.yt_dlp_path,
+            # yt-dlp otherwise reads user, home and working-directory config files,
+            # which would change what prismis fetches from outside its config (#69).
+            "--ignore-config",
             "--simulate",  # Get metadata without downloading
             "--playlist-end",
             str(self.max_items),  # Limit videos
@@ -309,6 +312,7 @@ class YouTubeFetcher:
             # Build yt-dlp command for transcript extraction
             cmd = [
                 self.yt_dlp_path,
+                "--ignore-config",  # see _discover_channel_videos
                 "--write-auto-sub",  # Get auto-generated subtitles
                 "--write-sub",  # Also try manual subtitles
                 "--sub-lang",

@@ -10,6 +10,7 @@ import praw
 
 from ..config import REDDIT_NOT_CONFIGURED, Config
 from ..http_deadline import DeadlineAdapter, deadline_session
+from ..praw_defaults import pin_praw_defaults
 from ..models import ContentItem
 from ..observability import log as obs_log
 
@@ -65,6 +66,7 @@ class RedditFetcher:
         self.fetch_budget = fetch_budget
         session = deadline_session(self.fetch_budget)
         self._deadline = cast(DeadlineAdapter, session.get_adapter("https://"))
+        pin_praw_defaults()
         try:
             self.reddit = praw.Reddit(
                 client_id=config.reddit_client_id,

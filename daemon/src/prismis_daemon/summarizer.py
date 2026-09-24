@@ -101,6 +101,12 @@ class ContentSummarizer:
             circuit = get_circuit_breaker(self.service_name)
             if not circuit.check_can_proceed():
                 status = circuit.get_status()
+                obs_log(
+                    "llm.call",
+                    action="summarize",
+                    model=self.service_name,
+                    status="circuit_open",
+                )
                 raise RuntimeError(
                     f"LLM circuit breaker is open (quota exhausted). "
                     f"Recovery in {status.get('recovery_in_seconds', 'unknown')}s"

@@ -38,11 +38,9 @@ from .summarizer import ContentSummarizer
 VALID_SOURCE_TYPES = ("rss", "reddit", "youtube", "file")
 
 # The substring both the summarizer and the evaluator raise when the shared circuit is
-# open. That raise happens before either method reaches its own observability call, so
-# a refused item leaves no llm.call event; the orchestrator's per-item error entry is
-# the only record that the item was turned away, which is what this counts. Whether the
-# circuit opened at all is answered by an event, not by this string — see
-# the helper that counts circuit-open refusals below.
+# open. The orchestrator's per-item error entry carrying it is what the refusal count
+# reads; the llm.call event with status "circuit_open" each refusal also emits is left
+# out of call counts, since no call was made.
 CIRCUIT_OPEN_MARKER = "circuit breaker is open"
 
 # The two error prefixes the orchestrator itself writes into stats["errors"].
@@ -155,10 +153,9 @@ def _circuit_open_refusals(stats: dict[str, Any]) -> int:
     """How many items an open circuit turned away without attempting them.
 
     The orchestrator's per-item error entry is the whole signal, and it is unambiguous
-    on its own. It cannot come from the deep service's separate breaker, whose
-    CircuitOpenError the orchestrator swallows under INV-002 and never records in the
-    returned stats, and it cannot come from another process, because the stats are this
-    run's own return value.
+    on its own. It cannot come from the deep service's separate breaker, whose message
+    does not carry this marker, and it cannot come from another process, because the
+    stats are this run's own return value.
 
     Deliberately NOT also requiring this run to have logged the open transition. A
     circuit that was already open when the run started refuses every item and logs no
@@ -216,7 +213,9 @@ def _llm_link(
     if stats.get("items_processed", 0) == 0:
         return LinkStatus(name, "never-reached", None, "no items reached this link")
 
-    matching = _llm_events(events, action)
+    matching = [
+        e for e in _llm_events(events, action) if e.get("status") != "circuit_open"
+    ]
     refused = _circuit_open_refusals(stats)
     failures = [e for e in matching if e.get("status") == "error"]
     successes = [e for e in matching if e.get("status") == "success"]
@@ -461,6 +460,18 @@ def render_report(
     elif deep_service is None:
         deep = LinkStatus(
             "deep_extract", "skipped", None, "deep service not configured"
+        )
+    elif deep_refused := [
+        e
+        for e in _llm_events(events, "deep_extract")
+        if e.get("status") == "circuit_open"
+    ]:
+        deep = LinkStatus(
+            "deep_extract",
+            "circuit-open",
+            None,
+            f"deep service circuit open; {len(deep_refused)} item(s) kept the light "
+            "summary only",
         )
     else:
         deep = _llm_link(

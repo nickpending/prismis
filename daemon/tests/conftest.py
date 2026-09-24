@@ -346,3 +346,47 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
     monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
     monkeypatch.setenv("NO_PROXY", "")
+
+
+LOCAL_LIGHT_SERVICE = "prismis-verify-stub"
+LOCAL_DEEP_SERVICE = "prismis-verify-stub-deep"
+
+
+def configure_local_services(cfg_home: Path, base_url: str) -> None:
+    """Point the sealed config's light and deep services at `local_pipeline_stub`.
+
+    Two service names on one stub, because circuit breakers are keyed by service name:
+    sharing one would make a deep-circuit test open the light circuit too.
+
+    Deliberately mirrors the deploy host: a deep service IS configured and auto_extract
+    is "high". Disabling the deep service instead would make build_orchestrator return
+    deep_extractor=None whatever the --full flag says, so a regression in that gate
+    could not manifest. Verified: with deep_service off, reverting the gate leaves the
+    local end-to-end test green.
+    """
+    llm_core = cfg_home / "llm-core"
+    llm_core.mkdir(parents=True, exist_ok=True)
+    services = f'default_service = "{LOCAL_LIGHT_SERVICE}"\n'
+    for name in (LOCAL_LIGHT_SERVICE, LOCAL_DEEP_SERVICE):
+        # key_required=false means no secret.
+        services += (
+            f"[services.{name}]\n"
+            'adapter = "openai"\n'
+            f'base_url = "{base_url}/v1"\n'
+            "key_required = false\n"
+            'default_model = "stub-model"\n'
+        )
+    (llm_core / "services.toml").write_text(services)
+
+    path = cfg_home / "prismis" / "config.toml"
+    out = []
+    for line in path.read_text().splitlines():
+        if line.startswith("light_service"):
+            out.append(f'light_service = "{LOCAL_LIGHT_SERVICE}"')
+        elif line.startswith(("deep_service", "# deep_service")):
+            out.append(f'deep_service = "{LOCAL_DEEP_SERVICE}"')
+        elif line.startswith("auto_extract"):
+            out.append('auto_extract = "high"')
+        else:
+            out.append(line)
+    path.write_text("\n".join(out) + "\n")

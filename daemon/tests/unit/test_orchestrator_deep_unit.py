@@ -162,6 +162,9 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
     assert len(stats.get("errors", [])) == 0, (
         f"Deep extraction failure must not appear in pipeline errors: {stats['errors']}"
     )
+    # ...but it is returned, so the degradation is readable without logs (#72).
+    assert len(stats["deep_extract_failures"]) == 1, stats["deep_extract_failures"]
+    assert "rate limit" in stats["deep_extract_failures"][0]
 
     # INV-002 assertion 2: item was stored
     assert len(called_ids) == 1, (

@@ -91,6 +91,13 @@ class ContentDeepExtractor:
         circuit = get_circuit_breaker(self.service_name)
         if not circuit.check_can_proceed():
             status = circuit.get_status()
+            # The refusal is a decision, so it leaves a record like a call does (#72).
+            obs_log(
+                "llm.call",
+                action="deep_extract",
+                model=self.service_name,
+                status="circuit_open",
+            )
             raise CircuitOpenError(
                 f"Deep extract circuit open (quota exhausted). "
                 f"Recovery in {status.get('recovery_in_seconds', 'unknown')}s"

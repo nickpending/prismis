@@ -211,8 +211,12 @@ def test_the_run_really_reaches_the_state_under_test(quota_exhausted_run) -> Non
     assert open_events[0]["reason"] == "threshold_exceeded"
     assert open_events[0]["failure_count"] == 3
 
-    assert not [e for e in events if e["event"] == "llm.call"], (
+    llm_events = [e for e in events if e["event"] == "llm.call"]
+    assert all(e["status"] == "circuit_open" for e in llm_events), (
         "an open circuit must raise before the LLM is called"
+    )
+    assert len(llm_events) == _ITEM_COUNT, (
+        f"each refusal must leave its own record (#72), got {len(llm_events)}"
     )
 
 

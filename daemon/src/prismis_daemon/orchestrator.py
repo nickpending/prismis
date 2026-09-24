@@ -123,6 +123,9 @@ class DaemonOrchestrator:
             "items_updated": 0,
             "errors": [],
             "fetch_error": None,  # Set when the source itself failed, not one item
+            # Items kept at the light summary because deep extraction failed; kept out
+            # of "errors", which counts pipeline failures (INV-002).
+            "deep_extract_failures": [],
             "new_high_priority_items": [],  # Track new HIGH priority items for notifications
         }
 
@@ -330,9 +333,12 @@ class DaemonOrchestrator:
                                 item_dict["analysis"] = merged_analysis
                                 self.console.print("       🧠 Deep extraction added")
                         except Exception as e:
-                            logger.warning(
-                                f"Deep extraction failed for '{item.title}': {e}"
-                            )
+                            # Not raised (INV-002), but returned: without this the
+                            # light-only item is indistinguishable from one that was
+                            # never meant to be deep-extracted (#72).
+                            error_msg = f"Deep extraction failed for '{item.title}': {e}"
+                            stats["deep_extract_failures"].append(error_msg)
+                            logger.warning(error_msg)
                             self.console.print(
                                 f"       ⚠️  Deep extraction failed: {e}",
                                 style="yellow",
@@ -428,6 +434,7 @@ class DaemonOrchestrator:
             "total_new": 0,
             "total_updated": 0,
             "errors": [],
+            "deep_extract_failures": [],
             "new_high_priority_items": [],  # Aggregate new HIGH priority items
         }
 
@@ -480,6 +487,9 @@ class DaemonOrchestrator:
                 stats["total_new"] += source_stats["items_new"]
                 stats["total_updated"] += source_stats["items_updated"]
                 stats["errors"].extend(source_stats["errors"])
+                stats["deep_extract_failures"].extend(
+                    source_stats["deep_extract_failures"]
+                )
                 stats["new_high_priority_items"].extend(
                     source_stats["new_high_priority_items"]
                 )
@@ -526,6 +536,7 @@ class DaemonOrchestrator:
             items_new=stats["total_new"],
             items_updated=stats["total_updated"],
             errors=len(stats["errors"]),
+            deep_extract_failures=len(stats["deep_extract_failures"]),
         )
 
         return stats

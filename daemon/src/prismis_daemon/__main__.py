@@ -35,6 +35,99 @@ scheduler = None  # Global for signal handler
 api_server = None  # Global for API server
 
 
+def build_scheduler(
+    config: Config,
+    orchestrator: DaemonOrchestrator,
+    storage: Storage,
+    test_mode: bool = False,
+) -> tuple[AsyncIOScheduler, str]:
+    """Create the daemon's scheduler with every periodic job registered, not started.
+
+    Returns:
+        The scheduler, and the fetch interval described for the startup message
+    """
+    scheduler = AsyncIOScheduler()
+
+    # Determine interval based on mode
+    if test_mode:
+        interval_trigger = IntervalTrigger(seconds=5)
+        interval_msg = "5 seconds"
+    else:
+        interval_trigger = IntervalTrigger(minutes=config.fetch_interval)
+        interval_msg = f"{config.fetch_interval} minutes"
+
+    # Add job to run periodically
+    scheduler.add_job(
+        func=run_orchestrator_sync,
+        args=(orchestrator,),
+        trigger=interval_trigger,
+        id="fetch_and_analyze",
+        name="Fetch and analyze content",
+        replace_existing=True,
+        max_instances=1,  # Prevent overlapping runs
+    )
+
+    # Also run immediately on startup
+    scheduler.add_job(
+        func=run_orchestrator_sync,
+        args=(orchestrator,),
+        trigger="date",  # Run once immediately
+        id="initial_run",
+        name="Initial fetch on startup",
+    )
+
+    # Add archival policy job (runs every 6 hours)
+    scheduler.add_job(
+        func=run_archival_job_sync,
+        args=(orchestrator,),
+        trigger=IntervalTrigger(hours=6),
+        id="archival_policy",
+        name="Archive old content",
+        replace_existing=True,
+        max_instances=1,
+    )
+
+    # Add embedding backfill job (runs every 6 hours to catch stragglers)
+    scheduler.add_job(
+        func=run_embedding_backfill_sync,
+        args=(orchestrator,),
+        trigger=IntervalTrigger(hours=6),
+        id="embedding_backfill",
+        name="Backfill missing embeddings",
+        replace_existing=True,
+        max_instances=1,
+    )
+
+    # Add observability cleanup job (runs daily to remove old JSONL files)
+    scheduler.add_job(
+        func=run_observability_cleanup_sync,
+        trigger=IntervalTrigger(days=1),
+        id="observability_cleanup",
+        name="Cleanup old observability logs",
+        replace_existing=True,
+        max_instances=1,
+    )
+
+    # Add context auto-update job (runs daily, checks internally if update is needed)
+    if config.context_auto_update_enabled:
+        scheduler.add_job(
+            func=run_context_update_sync,
+            args=(config, storage),
+            trigger=IntervalTrigger(
+                days=1
+            ),  # Check daily, actual update based on config interval
+            id="context_auto_update",
+            name="Auto-update context.md from feedback",
+            replace_existing=True,
+            max_instances=1,
+        )
+        console.print(
+            f"[dim]Context auto-update enabled (every {config.context_auto_update_interval_days} days, min {config.context_auto_update_min_votes} votes)[/dim]"
+        )
+
+    return scheduler, interval_msg
+
+
 async def run_scheduler(config: Config, test_mode: bool = False) -> None:
     """Run the daemon with APScheduler for periodic fetching.
 
@@ -86,85 +179,9 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             deep_extractor=deep_extractor,
         )
 
-        # Create scheduler
-        scheduler = AsyncIOScheduler()
-
-        # Determine interval based on mode
-        if test_mode:
-            interval_trigger = IntervalTrigger(seconds=5)
-            interval_msg = "5 seconds"
-        else:
-            interval_trigger = IntervalTrigger(minutes=30)
-            interval_msg = "30 minutes"
-
-        # Add job to run periodically
-        scheduler.add_job(
-            func=run_orchestrator_sync,
-            args=(orchestrator,),
-            trigger=interval_trigger,
-            id="fetch_and_analyze",
-            name="Fetch and analyze content",
-            replace_existing=True,
-            max_instances=1,  # Prevent overlapping runs
+        scheduler, interval_msg = build_scheduler(
+            config, orchestrator, storage, test_mode
         )
-
-        # Also run immediately on startup
-        scheduler.add_job(
-            func=run_orchestrator_sync,
-            args=(orchestrator,),
-            trigger="date",  # Run once immediately
-            id="initial_run",
-            name="Initial fetch on startup",
-        )
-
-        # Add archival policy job (runs every 6 hours)
-        scheduler.add_job(
-            func=run_archival_job_sync,
-            args=(orchestrator,),
-            trigger=IntervalTrigger(hours=6),
-            id="archival_policy",
-            name="Archive old content",
-            replace_existing=True,
-            max_instances=1,
-        )
-
-        # Add embedding backfill job (runs every 6 hours to catch stragglers)
-        scheduler.add_job(
-            func=run_embedding_backfill_sync,
-            args=(orchestrator,),
-            trigger=IntervalTrigger(hours=6),
-            id="embedding_backfill",
-            name="Backfill missing embeddings",
-            replace_existing=True,
-            max_instances=1,
-        )
-
-        # Add observability cleanup job (runs daily to remove old JSONL files)
-        scheduler.add_job(
-            func=run_observability_cleanup_sync,
-            trigger=IntervalTrigger(days=1),
-            id="observability_cleanup",
-            name="Cleanup old observability logs",
-            replace_existing=True,
-            max_instances=1,
-        )
-
-        # Add context auto-update job (runs daily, checks internally if update is needed)
-        if config.context_auto_update_enabled:
-            scheduler.add_job(
-                func=run_context_update_sync,
-                args=(config, storage),
-                trigger=IntervalTrigger(
-                    days=1
-                ),  # Check daily, actual update based on config interval
-                id="context_auto_update",
-                name="Auto-update context.md from feedback",
-                replace_existing=True,
-                max_instances=1,
-            )
-            console.print(
-                f"[dim]Context auto-update enabled (every {config.context_auto_update_interval_days} days, min {config.context_auto_update_min_votes} votes)[/dim]"
-            )
 
         # Setup async-aware signal handlers for graceful shutdown
         shutdown_event = asyncio.Event()

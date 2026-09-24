@@ -267,7 +267,7 @@ prismis-cli list --priority high --unread --json | llm "Summarize my reading que
 
 ### Running the Daemon
 
-The daemon fetches and analyzes content every 30 minutes:
+The daemon fetches and analyzes content every `fetch_interval` minutes (`[daemon]` in `~/.config/prismis/config.toml`, default 30):
 
 ```bash
 # One-time fetch (testing)

@@ -1,0 +1,39 @@
+{
+  "searched": [
+    "docs/work/no-internal-mocks/work-order.json",
+    "docs/work/no-internal-mocks/results/plan.json",
+    "docs/work/no-internal-mocks/job-1.diff",
+    "docs/work/no-internal-mocks/journal.jsonl",
+    "docs/work/no-internal-mocks/results/built-2-1.json",
+    "daemon/src/prismis_daemon/api.py",
+    "daemon/src/prismis_daemon/api_errors.py",
+    "daemon/src/prismis_daemon/context_analyzer.py",
+    "daemon/src/prismis_daemon/notifier.py",
+    "daemon/src/prismis_daemon/storage.py",
+    "daemon/src/prismis_daemon/circuit_breaker.py",
+    "daemon/src/prismis_daemon/__main__.py",
+    "daemon/src/prismis_daemon/database.py",
+    "daemon/tests/conftest.py",
+    "daemon/tests/integration/test_context_assistant.py",
+    "daemon/tests/unit/test_llm_core_migration_unit.py",
+    "daemon/tests/unit/test_notifier_unit.py",
+    "daemon/tests/unit/test_orchestrator_deep_unit.py",
+    "daemon/tests/unit/test_storage_dict_unit.py",
+    "daemon/tests/unit/test_verify_subcommand_unit.py"
+  ],
+  "exhaustive": false,
+  "findings": [
+    {
+      "file": "daemon/src/prismis_daemon/api.py",
+      "line": 1568,
+      "summary": "Job 1's own plan (results/plan.json, job 1) names only six test files as job 1's artifact; none of them is daemon/src/prismis_daemon/api.py. The diff nonetheless rewrites analyze_context's exception handler (api.py:1568-1578) to stop embedding str(e) in the ServerError response. Tracing the change: test_INVARIANT_no_credentials_in_errors (daemon/tests/integration/test_context_assistant.py) now drives the real Config.from_file() and the real ContextAnalyzer/api_error_handler path instead of mocking Config; with the pre-diff handler (`raise ServerError(f\"Failed to analyze context: {str(e)}\") from e`), the exception message from the LLM call -- which the test itself constructs to contain a fake credential -- would flow straight into api_error_handler's `exc.message` (api.py:163) and into the JSON body, i.e. a real credential-leak bug reachable through the real collaborator this job was supposed to route the test through. The work order's own stakes are explicit: \"Never weaken, delete or reorder an assertion to make a real collaborator pass. If a real collaborator exposes a real bug, stop and report it.\" Instead of stopping and reporting, this diff silently patches the production error path inside a job whose plan authorized only test-file changes -- a security-relevant behavior change to a live endpoint that was never named in the plan, and (see the next finding) never independently gated.",
+      "severity": "high"
+    },
+    {
+      "file": "docs/work/no-internal-mocks/journal.jsonl",
+      "line": 0,
+      "summary": "journal.jsonl contains no `built` or `verified` record for job 1 at all -- grepping the file for `\"job\":1` returns nothing, and results/ holds built-2-1.json and built-3-1.json but no built-1-*.json, even though job-1.diff and this review are being produced. Jobs 2 and 3 each have a `built` entry (with the red command that was run) followed by a `verified` entry recording what ./.specify/verify.sh covered, before their diff was written. Job 1 has neither. The work order's stakes state \"the gate passing is required of every job\" -- for job 1 there is no record that mypy, ruff or pytest ever ran against this diff, which is exactly the scenario that matters most here given the previous finding: a production-code change to a security-sensitive error path (api.py) with no recorded gate run backing it. I did not run the gate myself per instructions; this is a gap in the evidence trail, not a claim that the gate failed.",
+      "severity": "high"
+    }
+  ]
+}

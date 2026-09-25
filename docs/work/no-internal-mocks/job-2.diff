@@ -1,0 +1,981 @@
+diff --git a/daemon/tests/conftest.py b/daemon/tests/conftest.py
+index 29b4dbe..9e743be 100644
+--- a/daemon/tests/conftest.py
++++ b/daemon/tests/conftest.py
+@@ -6,6 +6,7 @@ import re
+ import socket
+ import tempfile
+ import threading
++import time
+ from collections.abc import Iterator
+ from pathlib import Path
+ from typing import Any
+@@ -251,6 +252,21 @@ _STUB_FEED = """<?xml version="1.0" encoding="UTF-8"?>
+ """
+ 
+ 
++# Deep-extraction stub controls -----------------------------------------------------
++# The canned text `local_pipeline_stub` returns for the deep schema, and the marker a
++# caller embeds in the `content` it hands to ContentDeepExtractor.extract() to make the
++# stub's /v1/chat/completions response sleep before answering. Both travel through the
++# real request path (content -> user prompt -> HTTP body), so a test that wants a slow
++# extraction controls it by choosing what real content it feeds the real extractor,
++# rather than a stand-in extractor sleeping in Python instead of on the wire.
++DEEP_EXTRACT_STUB_SYNTHESIS = "A stubbed deep synthesis for the local pipeline stub."
++DEEP_EXTRACT_STUB_MODEL = "stub-model"
++DEEP_EXTRACT_DELAY_PREFIX = "STUB_DELAY_SECONDS="
++_REQUEST_DELAY_PATTERN = re.compile(
++    re.escape(DEEP_EXTRACT_DELAY_PREFIX) + r"(\d+(?:\.\d+)?)"
++)
++
++
+ @pytest.fixture
+ def local_pipeline_stub() -> Iterator[str]:
+     """A local HTTP server standing in for both third parties the chain touches.
+@@ -270,6 +286,15 @@ def local_pipeline_stub() -> Iterator[str]:
+     point a service at this port and need no credential. The LLM is the one collaborator
+     the constitution permits standing in for; nothing else here is faked — real
+     fetchers, real Storage, real Embedder, real orchestrator.
++
++    The completion payload carries both the light-summarizer schema and the deep
++    extraction schema (`synthesis`/`quotables`) in one response, so the same stub
++    serves ContentSummarizer, ContentEvaluator and ContentDeepExtractor without
++    branching on which of them is asking. A caller that needs the response delayed —
++    to drive a real ContentDeepExtractor through a slow-extraction scenario without a
++    stand-in extractor's own `time.sleep()` — embeds
++    `f"{DEEP_EXTRACT_DELAY_PREFIX}<seconds>"` in the content or title it passes in;
++    the marker rides along in the request body this handler reads.
+     """
+     import http.server
+     import json as _json
+@@ -303,11 +328,16 @@ def local_pipeline_stub() -> Iterator[str]:
+                 self.send_error(404)
+                 return
+             length = int(self.headers.get("Content-Length", "0"))
+-            self.rfile.read(length)
++            raw_body = self.rfile.read(length)
++            delay = _REQUEST_DELAY_PATTERN.search(
++                raw_body.decode("utf-8", errors="ignore")
++            )
++            if delay:
++                time.sleep(float(delay.group(1)))
+             payload = {
+                 "id": "stub-completion",
+                 "object": "chat.completion",
+-                "model": "stub-model",
++                "model": DEEP_EXTRACT_STUB_MODEL,
+                 "choices": [
+                     {
+                         "index": 0,
+@@ -326,6 +356,8 @@ def local_pipeline_stub() -> Iterator[str]:
+                                     "priority": "low",
+                                     "matched_interests": [],
+                                     "reasoning": "stubbed",
++                                    "synthesis": DEEP_EXTRACT_STUB_SYNTHESIS,
++                                    "quotables": [],
+                                 }
+                             ),
+                         },
+diff --git a/daemon/tests/integration/test_deep_extractor_api_integration.py b/daemon/tests/integration/test_deep_extractor_api_integration.py
+index 75bd61f..91db07a 100644
+--- a/daemon/tests/integration/test_deep_extractor_api_integration.py
++++ b/daemon/tests/integration/test_deep_extractor_api_integration.py
+@@ -6,15 +6,16 @@ Invariants protected:
+ - SC-3: POST creates extraction and DB row is updated with deep_extraction.
+ - SC-4: Idempotency verified at the API integration level (duplicate of INV-004).
+ 
+-Mocking strategy:
+-- app.state.deep_extractor is replaced with a controlled stub.
+-- LLM (complete()) is NOT called in these tests -- the stub short-circuits it.
+-- auth.py calls Config.from_file() for the real API key from
+-  ~/.config/prismis/config.toml -- real key TEST_API_KEY is used.
++Real collaborators throughout: app.state.deep_extractor is a real ContentDeepExtractor
++talking to the local stub LLM server (conftest.local_pipeline_stub), with the real
++circuit breaker and real llm_core.complete underneath it -- nothing prismis_daemon owns
++is stood in for. auth.py calls the real Config.from_file() for the API key from the
++sealed XDG config; TEST_API_KEY is the key it was written with.
+ """
+ 
+ from __future__ import annotations
+ 
++import os
+ from collections.abc import Generator
+ from pathlib import Path
+ 
+@@ -23,17 +24,20 @@ from fastapi.testclient import TestClient
+ 
+ from prismis_daemon.api import app, get_storage
+ from prismis_daemon.circuit_breaker import reset_circuit_breaker
++from prismis_daemon.deep_extractor import ContentDeepExtractor
+ from prismis_daemon.models import ContentItem
+ from prismis_daemon.storage import Storage
+-from conftest import TEST_API_KEY, add_new_content
++from conftest import (
++    DEEP_EXTRACT_STUB_MODEL,
++    DEEP_EXTRACT_STUB_SYNTHESIS,
++    LOCAL_DEEP_SERVICE,
++    TEST_API_KEY,
++    add_new_content,
++    configure_local_services,
++)
+ 
+ _API_KEY = TEST_API_KEY
+ 
+-# Patch targets -- allow-mock marker for claudex-guard scanner
+-_PATCH_CONFIG_FROM_FILE = (
+-    "prismis_daemon.auth.Config.from_file"  # claudex-guard: allow-mock
+-)
+-
+ 
+ @pytest.fixture(autouse=True)
+ def clean_circuit_registry() -> Generator[None]:
+@@ -43,6 +47,18 @@ def clean_circuit_registry() -> Generator[None]:
+     reset_circuit_breaker()
+ 
+ 
++@pytest.fixture
++def real_deep_extractor(local_pipeline_stub: str) -> ContentDeepExtractor:
++    """A real ContentDeepExtractor wired to the local stub LLM server.
++
++    Not a stand-in: the object under test is production's own ContentDeepExtractor,
++    and every call it makes is a real HTTP round trip to a real server on loopback,
++    through its own real circuit breaker and llm_core.complete.
++    """
++    configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), local_pipeline_stub)
++    return ContentDeepExtractor(LOCAL_DEEP_SERVICE)
++
++
+ def _seed_entry(
+     storage: Storage,
+     analysis: dict | None = None,
+@@ -91,30 +107,21 @@ def storage_with_extracted_entry(test_db: Path) -> tuple[Storage, str, dict]:
+     return storage, content_id, existing_extraction
+ 
+ 
+-class _StubExtractor:
+-    """Controlled deep extractor stub -- returns a canned extraction dict.
++class _CountingExtractor:
++    """Call-through spy around a real ContentDeepExtractor.
+ 
+-    Records call count so tests can assert whether extract() was invoked.
++    Not a stand-in: `extract()` delegates every call to the real extractor and returns
++    exactly what it returns. Only the call count is observed here, the same shape as
++    the Storage spy in test_api_connection_cleanup (out of scope for this file).
+     """
+ 
+-    def __init__(self, result: dict | None) -> None:
+-        self._result = result
++    def __init__(self, real: ContentDeepExtractor) -> None:
++        self._real = real
+         self.call_count = 0
+ 
+     def extract(self, content: str, title: str = "", url: str = "") -> dict | None:
+         self.call_count += 1
+-        return self._result
+-
+-
+-def _make_api_client(storage: Storage) -> TestClient:
+-    """Create TestClient with storage dependency overridden."""
+-
+-    def override_get_storage() -> Generator[Storage]:
+-        yield storage
+-
+-    app.dependency_overrides[get_storage] = override_get_storage
+-    client = TestClient(app)
+-    return client
++        return self._real.extract(content=content, title=title, url=url)
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -124,6 +131,7 @@ def _make_api_client(storage: Storage) -> TestClient:
+ 
+ def test_sc3_post_creates_extraction_and_updates_db(
+     storage_with_entry: tuple[Storage, str],
++    real_deep_extractor: ContentDeepExtractor,
+ ) -> None:
+     """
+     SC-3: POST /api/entries/{id}/extract on an entry with no deep_extraction
+@@ -135,14 +143,8 @@ def test_sc3_post_creates_extraction_and_updates_db(
+     """
+     storage, content_id = storage_with_entry
+ 
+-    canned_extraction = {
+-        "synthesis": "**Counterintuitive:** the market shrank despite headline growth.",
+-        "quotables": ["Revenue grew 22% but profitability fell."],
+-        "model": "gpt-5-mini-2025-08-07",
+-        "extracted_at": "2026-04-27T12:00:00+00:00",
+-    }
+-    stub = _StubExtractor(result=canned_extraction)
+-    app.state.deep_extractor = stub
++    spy = _CountingExtractor(real_deep_extractor)
++    app.state.deep_extractor = spy
+ 
+     def override_get_storage() -> Generator[Storage]:
+         yield storage
+@@ -165,8 +167,8 @@ def test_sc3_post_creates_extraction_and_updates_db(
+             "Response must contain deep_extraction"
+         )
+         returned_extraction = data["data"]["deep_extraction"]
+-        assert returned_extraction["synthesis"] == canned_extraction["synthesis"]
+-        assert returned_extraction["model"] == canned_extraction["model"]
++        assert returned_extraction["synthesis"] == DEEP_EXTRACT_STUB_SYNTHESIS
++        assert returned_extraction["model"] == DEEP_EXTRACT_STUB_MODEL
+ 
+         # SC-3: Verify the DB row was actually updated
+         stored = storage.get_content_by_id(content_id)
+@@ -177,11 +179,11 @@ def test_sc3_post_creates_extraction_and_updates_db(
+         )
+         assert (
+             stored_analysis["deep_extraction"]["synthesis"]
+-            == canned_extraction["synthesis"]
++            == DEEP_EXTRACT_STUB_SYNTHESIS
+         )
+ 
+         # Extractor was called exactly once
+-        assert stub.call_count == 1
++        assert spy.call_count == 1
+     finally:
+         app.dependency_overrides.clear()
+         app.state.deep_extractor = None
+@@ -194,6 +196,7 @@ def test_sc3_post_creates_extraction_and_updates_db(
+ 
+ def test_inv004_sc4_idempotency_returns_existing_without_llm_call(
+     storage_with_extracted_entry: tuple[Storage, str, dict],
++    real_deep_extractor: ContentDeepExtractor,
+ ) -> None:
+     """
+     INV-004 / SC-4: POST when analysis.deep_extraction already exists returns
+@@ -205,9 +208,8 @@ def test_inv004_sc4_idempotency_returns_existing_without_llm_call(
+     """
+     storage, content_id, existing_extraction = storage_with_extracted_entry
+ 
+-    # Stub that would record a call if extract() is invoked
+-    stub = _StubExtractor(result={"synthesis": "NEW synthesis -- should not appear"})
+-    app.state.deep_extractor = stub
++    spy = _CountingExtractor(real_deep_extractor)
++    app.state.deep_extractor = spy
+ 
+     def override_get_storage() -> Generator[Storage]:
+         yield storage
+@@ -233,11 +235,17 @@ def test_inv004_sc4_idempotency_returns_existing_without_llm_call(
+             "INV-004: must return existing synthesis, not re-run extraction"
+         )
+         assert returned["model"] == existing_extraction["model"]
++        # The distinguishing outcome: a real extraction would have overwritten this
++        # with the stub server's canned synthesis, not left the seeded value in place.
++        assert returned["synthesis"] != DEEP_EXTRACT_STUB_SYNTHESIS, (
++            "INV-004: the cached value must not have been replaced by a fresh "
++            "extraction from the stub server"
++        )
+ 
+         # INV-004: extractor must NOT have been called
+-        assert stub.call_count == 0, (
++        assert spy.call_count == 0, (
+             f"INV-004: extractor.extract() must not be called when "
+-            f"deep_extraction already exists; was called {stub.call_count} times"
++            f"deep_extraction already exists; was called {spy.call_count} times"
+         )
+     finally:
+         app.dependency_overrides.clear()
+@@ -249,15 +257,16 @@ def test_inv004_sc4_idempotency_returns_existing_without_llm_call(
+ # ---------------------------------------------------------------------------
+ 
+ 
+-def test_extract_endpoint_returns_404_for_unknown_id(test_db: Path) -> None:
++def test_extract_endpoint_returns_404_for_unknown_id(
++    test_db: Path, real_deep_extractor: ContentDeepExtractor
++) -> None:
+     """
+     POST with an ID that doesn't exist returns 404.
+     BREAKS: Calling update_analysis() on a non-existent ID silently succeeds
+     (rowcount=0 is not checked); caller gets 200 with empty data.
+     """
+     storage = Storage(test_db)
+-    stub = _StubExtractor(result={"synthesis": "irrelevant"})
+-    app.state.deep_extractor = stub
++    app.state.deep_extractor = real_deep_extractor
+ 
+     def override_get_storage() -> Generator[Storage]:
+         yield storage
+diff --git a/daemon/tests/integration/test_extract_endpoint_race.py b/daemon/tests/integration/test_extract_endpoint_race.py
+index 293f175..95ab704 100644
+--- a/daemon/tests/integration/test_extract_endpoint_race.py
++++ b/daemon/tests/integration/test_extract_endpoint_race.py
+@@ -32,17 +32,23 @@ Per-key isolation is verified structurally: for two different content_ids,
+   by content_id).  A global-lock implementation would use one object for all
+   keys; the structural test catches that without relying on wall-clock timing.
+ 
+-IMPORTANT -- time.sleep() vs asyncio.sleep() in stubs:
+-  Stubs must use time.sleep() (blocking sync sleep), NOT asyncio.sleep().
+-  asyncio.sleep() raises RuntimeError("no running event loop") inside a worker
+-  thread that was launched by asyncio.to_thread(), because the worker thread
+-  does not have its own event loop.  time.sleep() is the correct way to
+-  simulate a slow blocking operation inside a sync method.
++Real collaborators throughout: app.state.deep_extractor is a real
++ContentDeepExtractor talking to the local stub LLM server
++(conftest.local_pipeline_stub), through its own real circuit breaker and real
++llm_core.complete. A slow extraction is produced by the stub SERVER sleeping
++before it answers -- driven by embedding
++`f"{DEEP_EXTRACT_DELAY_PREFIX}<seconds>"` in the seeded content, which travels
++through the real request path (content -> user prompt -> HTTP body) -- not by a
++stand-in extractor's own time.sleep(). The server-side sleep is itself a plain
++time.sleep() (see conftest.local_pipeline_stub): it runs inside the HTTP
++handler's own thread, not a coroutine, so asyncio.sleep() would be the wrong
++tool there too.
+ """
+ 
+ from __future__ import annotations
+ 
+ import asyncio
++import os
+ import time
+ from collections.abc import Generator
+ from pathlib import Path
+@@ -52,11 +58,18 @@ from fastapi.testclient import TestClient
+ from httpx import ASGITransport, AsyncClient
+ 
+ from prismis_daemon.api import _extract_locks, _get_extract_lock, app, get_storage
+-from prismis_daemon.circuit_breaker import reset_circuit_breaker
+-from prismis_daemon.deep_extractor import CircuitOpenError
++from prismis_daemon.circuit_breaker import get_circuit_breaker, reset_circuit_breaker
++from prismis_daemon.deep_extractor import ContentDeepExtractor
+ from prismis_daemon.models import ContentItem
+ from prismis_daemon.storage import Storage
+-from conftest import TEST_API_KEY, add_new_content
++from conftest import (
++    DEEP_EXTRACT_DELAY_PREFIX,
++    DEEP_EXTRACT_STUB_SYNTHESIS,
++    LOCAL_DEEP_SERVICE,
++    TEST_API_KEY,
++    add_new_content,
++    configure_local_services,
++)
+ 
+ _API_KEY = TEST_API_KEY
+ 
+@@ -76,22 +89,38 @@ def clean_state() -> Generator[None]:
+     _extract_locks.clear()
+ 
+ 
+-class _StubExtractor:
+-    """Controlled deep extractor stub.  Records call count."""
++@pytest.fixture
++def real_deep_extractor(local_pipeline_stub: str) -> ContentDeepExtractor:
++    """A real ContentDeepExtractor wired to the local stub LLM server.
+ 
+-    def __init__(self, result: dict | None) -> None:
+-        self._result = result
++    Not a stand-in: every call reaches the real ContentDeepExtractor.extract(), the
++    real circuit breaker, and a real HTTP round trip to a server on loopback.
++    """
++    configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), local_pipeline_stub)
++    return ContentDeepExtractor(LOCAL_DEEP_SERVICE)
++
++
++class _CountingExtractor:
++    """Call-through spy around a real ContentDeepExtractor.  Records call count.
++
++    Not a stand-in: `extract()` delegates every call to the real extractor and
++    returns exactly what it returns.
++    """
++
++    def __init__(self, real: ContentDeepExtractor) -> None:
++        self._real = real
+         self.call_count = 0
+ 
+     def extract(self, content: str, title: str = "", url: str = "") -> dict | None:
+         self.call_count += 1
+-        return self._result
++        return self._real.extract(content=content, title=title, url=url)
+ 
+ 
+ def _seed_entry(
+     storage: Storage,
+     analysis: dict | None = None,
+     external_id: str = "race-test-001",
++    content: str = "Article body text for race condition testing.",
+ ) -> str:
+     """Insert a content row and return its string ID."""
+     source_id = storage.add_source("https://example.com/rss", "rss", "Race Test Feed")
+@@ -100,7 +129,7 @@ def _seed_entry(
+         external_id=external_id,
+         title="Race Test Article",
+         url="https://example.com/race-test",
+-        content="Article body text for race condition testing.",
++        content=content,
+         summary="Light summary.",
+         analysis=analysis,
+         priority="high",
+@@ -129,16 +158,17 @@ def _clear_overrides() -> None:
+ @pytest.mark.asyncio
+ async def test_concurrent_posts_same_id_invoke_extractor_once(
+     test_db: Path,
++    real_deep_extractor: ContentDeepExtractor,
+ ) -> None:
+     """
+     INV-EXTRACT-RACE-1 / SC-RACE-1: Two concurrent POSTs for the same content_id
+     must result in exactly one call to extractor.extract().
+ 
+-    Both tasks are scheduled via asyncio.gather + ASGITransport.  extractor.extract()
+-    is synchronous and blocking: Task 1 holds the lock and blocks the event loop
+-    during extract().  Task 2 cannot proceed until Task 1 exits the async with
+-    block.  When Task 2 re-acquires the lock it finds deep_extraction populated
+-    and returns the cached result -- call_count stays 1.
++    Both tasks are scheduled via asyncio.gather + ASGITransport. Task 1 acquires
++    the lock and awaits the real extraction over asyncio.to_thread; Task 2 cannot
++    proceed until Task 1 exits the async with block. When Task 2 re-acquires the
++    lock it finds deep_extraction populated and returns the cached result --
++    call_count stays 1.
+ 
+     BREAKS: Without the asyncio.Lock both tasks would pass the idempotency check
+     before either writes and both would invoke extract() -- call_count == 2.
+@@ -146,14 +176,8 @@ async def test_concurrent_posts_same_id_invoke_extractor_once(
+     storage = Storage(test_db)
+     content_id = _seed_entry(storage, analysis={"metrics": {"score": 80}})
+ 
+-    canned = {
+-        "synthesis": "Race test synthesis.",
+-        "quotables": ["Key quote."],
+-        "model": "gpt-5-mini-2025-08-07",
+-        "extracted_at": "2026-05-21T10:00:00+00:00",
+-    }
+-    stub = _StubExtractor(result=canned)
+-    app.state.deep_extractor = stub
++    spy = _CountingExtractor(real_deep_extractor)
++    app.state.deep_extractor = spy
+     _override_storage(storage)
+ 
+     try:
+@@ -177,9 +201,9 @@ async def test_concurrent_posts_same_id_invoke_extractor_once(
+         assert r2.status_code == 200, (
+             f"r2 expected 200, got {r2.status_code}: {r2.text}"
+         )
+-        assert stub.call_count == 1, (
++        assert spy.call_count == 1, (
+             f"INV-EXTRACT-RACE-1: extractor.extract() must be called exactly once "
+-            f"under concurrent first-extract POSTs; called {stub.call_count} times"
++            f"under concurrent first-extract POSTs; called {spy.call_count} times"
+         )
+     finally:
+         _clear_overrides()
+@@ -194,26 +218,19 @@ async def test_concurrent_posts_same_id_invoke_extractor_once(
+ @pytest.mark.asyncio
+ async def test_concurrent_posts_both_return_identical_extraction(
+     test_db: Path,
++    real_deep_extractor: ContentDeepExtractor,
+ ) -> None:
+     """
+     SC-RACE-1: Both concurrent POSTs must return the same deep_extraction.
+ 
+-    Task 1 performs the extraction and writes it.  Task 2 waits (event-loop
+-    blocked by Task 1's sync extract call), then re-reads the now-populated
+-    analysis and returns via the cached path.  Both responses must carry the
+-    same synthesis value.
++    Task 1 performs the extraction and writes it.  Task 2 waits behind the lock,
++    then re-reads the now-populated analysis and returns via the cached path.
++    Both responses must carry the same synthesis value.
+     """
+     storage = Storage(test_db)
+     content_id = _seed_entry(storage, analysis={"metrics": {"score": 80}})
+ 
+-    canned = {
+-        "synthesis": "Identical extraction result.",
+-        "quotables": ["Shared quote."],
+-        "model": "gpt-5-mini-2025-08-07",
+-        "extracted_at": "2026-05-21T10:00:00+00:00",
+-    }
+-    stub = _StubExtractor(result=canned)
+-    app.state.deep_extractor = stub
++    app.state.deep_extractor = real_deep_extractor
+     _override_storage(storage)
+ 
+     try:
+@@ -240,7 +257,7 @@ async def test_concurrent_posts_both_return_identical_extraction(
+             f"SC-RACE-1: both responses must carry identical synthesis; "
+             f"got {synth1!r} vs {synth2!r}"
+         )
+-        assert synth1 == canned["synthesis"]
++        assert synth1 == DEEP_EXTRACT_STUB_SYNTHESIS
+     finally:
+         _clear_overrides()
+         app.state.deep_extractor = None
+@@ -251,7 +268,10 @@ async def test_concurrent_posts_both_return_identical_extraction(
+ # ---------------------------------------------------------------------------
+ 
+ 
+-def test_cached_return_post_lock_zero_extractor_calls(test_db: Path) -> None:
++def test_cached_return_post_lock_zero_extractor_calls(
++    test_db: Path,
++    real_deep_extractor: ContentDeepExtractor,
++) -> None:
+     """
+     INV-004 / SC-RACE-2: POST on an entry with existing deep_extraction returns
+     the cached value without invoking the extractor.
+@@ -275,8 +295,8 @@ def test_cached_return_post_lock_zero_extractor_calls(test_db: Path) -> None:
+         storage,
+         analysis={"metrics": {"score": 80}, "deep_extraction": existing},
+     )
+-    stub = _StubExtractor(result={"synthesis": "SHOULD NOT APPEAR"})
+-    app.state.deep_extractor = stub
++    spy = _CountingExtractor(real_deep_extractor)
++    app.state.deep_extractor = spy
+     _override_storage(storage)
+ 
+     try:
+@@ -295,9 +315,12 @@ def test_cached_return_post_lock_zero_extractor_calls(test_db: Path) -> None:
+         assert returned["synthesis"] == existing["synthesis"], (
+             "INV-004: must return existing synthesis unchanged"
+         )
+-        assert stub.call_count == 0, (
++        # The distinguishing outcome: a real extraction would have overwritten this
++        # with the stub server's canned synthesis, not left the seeded value in place.
++        assert returned["synthesis"] != DEEP_EXTRACT_STUB_SYNTHESIS
++        assert spy.call_count == 0, (
+             f"INV-004: extractor must NOT be called when deep_extraction already "
+-            f"exists; call_count={stub.call_count}"
++            f"exists; call_count={spy.call_count}"
+         )
+     finally:
+         _clear_overrides()
+@@ -345,7 +368,10 @@ def test_different_content_ids_use_separate_lock_objects(test_db: Path) -> None:
+ # ---------------------------------------------------------------------------
+ 
+ 
+-def test_lock_registry_cleared_after_successful_extraction(test_db: Path) -> None:
++def test_lock_registry_cleared_after_successful_extraction(
++    test_db: Path,
++    real_deep_extractor: ContentDeepExtractor,
++) -> None:
+     """
+     Registry is bounded: after extraction completes, _extract_locks must NOT
+     retain the content_id entry.
+@@ -354,19 +380,14 @@ def test_lock_registry_cleared_after_successful_extraction(test_db: Path) -> Non
+     bound over the daemon's lifetime -- one Lock object per ever-extracted
+     content_id.
+ 
+-    This test verifies the pop()-while-holding-lock cleanup at api.py:1180.
++    This test verifies the pop()-while-holding-lock cleanup in `extract_entry`
++    (src/prismis_daemon/api.py).
+     """
+     storage = Storage(test_db)
+     content_id = _seed_entry(storage, analysis={"metrics": {"score": 80}})
+ 
+-    canned = {
+-        "synthesis": "Registry cleanup test.",
+-        "quotables": [],
+-        "model": "gpt-5-mini-2025-08-07",
+-        "extracted_at": "2026-05-21T10:00:00+00:00",
+-    }
+-    stub = _StubExtractor(result=canned)
+-    app.state.deep_extractor = stub
++    spy = _CountingExtractor(real_deep_extractor)
++    app.state.deep_extractor = spy
+     _override_storage(storage)
+ 
+     try:
+@@ -378,7 +399,7 @@ def test_lock_registry_cleared_after_successful_extraction(test_db: Path) -> Non
+         assert response.status_code == 200, (
+             f"Expected 200, got {response.status_code}: {response.text}"
+         )
+-        assert stub.call_count == 1
++        assert spy.call_count == 1
+ 
+         assert content_id not in _extract_locks, (
+             f"Registry must not retain content_id after extraction completes; "
+@@ -395,28 +416,10 @@ def test_lock_registry_cleared_after_successful_extraction(test_db: Path) -> Non
+ # ---------------------------------------------------------------------------
+ 
+ 
+-class _SlowExtractor:
+-    """Extractor stub that sleeps synchronously to simulate a slow LLM call.
+-
+-    Uses time.sleep() (NOT asyncio.sleep) because this runs inside a worker
+-    thread launched by asyncio.to_thread().  Worker threads have no event loop,
+-    so asyncio.sleep() would raise RuntimeError.
+-    """
+-
+-    def __init__(self, result: dict | None, sleep_seconds: float = 2.0) -> None:
+-        self._result = result
+-        self._sleep_seconds = sleep_seconds
+-        self.call_count = 0
+-
+-    def extract(self, content: str, title: str = "", url: str = "") -> dict | None:
+-        self.call_count += 1
+-        time.sleep(self._sleep_seconds)
+-        return self._result
+-
+-
+ @pytest.mark.asyncio
+ async def test_nonblock_sources_returns_during_inflight_extraction(
+     test_db: Path,
++    real_deep_extractor: ContentDeepExtractor,
+ ) -> None:
+     """
+     INV-EXTRACT-NONBLOCK-1 / SC-NONBLOCK-1: GET /api/sources must return within
+@@ -431,21 +434,26 @@ async def test_nonblock_sources_returns_during_inflight_extraction(
+     Elapsed time for the GET must be well under 0.5s even though the POST is
+     sleeping for 2s in its worker thread.
+ 
++    The 2s sleep is produced by the local stub LLM server (see
++    conftest.local_pipeline_stub), triggered by a delay marker embedded in the
++    seeded content -- not by a stand-in extractor's own time.sleep().
++
+     BREAKS: If asyncio.to_thread() is absent (reverted to direct sync call),
+     the event loop is blocked during extract() and GET /api/sources cannot be
+     served until the 2s sleep completes -- elapsed would be ~2s, far above 0.5s.
+     """
+     storage = Storage(test_db)
+-    content_id = _seed_entry(storage, analysis={"metrics": {"score": 80}})
++    content_id = _seed_entry(
++        storage,
++        analysis={"metrics": {"score": 80}},
++        external_id="race-nonblock-001",
++        content=(
++            "Article body text for race condition testing. "
++            f"{DEEP_EXTRACT_DELAY_PREFIX}2.0"
++        ),
++    )
+ 
+-    canned = {
+-        "synthesis": "Nonblock test synthesis.",
+-        "quotables": [],
+-        "model": "gpt-5-mini-2025-08-07",
+-        "extracted_at": "2026-05-21T10:00:00+00:00",
+-    }
+-    slow_stub = _SlowExtractor(result=canned, sleep_seconds=2.0)
+-    app.state.deep_extractor = slow_stub
++    app.state.deep_extractor = real_deep_extractor
+     _override_storage(storage)
+ 
+     get_elapsed: list[float] = []
+@@ -457,14 +465,18 @@ async def test_nonblock_sources_returns_during_inflight_extraction(
+             timeout=10.0,
+         )
+ 
+-    async def do_get(client: AsyncClient) -> None:
+-        t0 = time.monotonic()
++    async def do_get(client: AsyncClient, start: float) -> None:
+         r = await client.get(
+             "/api/sources",
+             headers={"X-API-Key": _API_KEY},
+             timeout=5.0,
+         )
+-        elapsed = time.monotonic() - t0
++        # Measured from `start`, captured before gather() below, not from entry into
++        # this coroutine: if the event loop is blocked, the 0.1s asyncio.sleep() that
++        # schedules this call and the call itself both stall until the block clears,
++        # so a t0 taken here would silently absorb the whole stall into "time not
++        # measured" and this assertion would pass no matter how blocked the loop was.
++        elapsed = time.monotonic() - start
+         get_elapsed.append(elapsed)
+         assert r.status_code == 200, (
+             f"GET /api/sources expected 200, got {r.status_code}: {r.text}"
+@@ -474,11 +486,13 @@ async def test_nonblock_sources_returns_during_inflight_extraction(
+         async with AsyncClient(
+             transport=ASGITransport(app=app), base_url="http://test"
+         ) as client:
++            start = time.monotonic()
++
+             # Small delay on do_get so the POST is definitely in-flight (lock
+             # acquired, worker thread sleeping) before the GET fires.
+             async def delayed_get() -> None:
+                 await asyncio.sleep(0.1)
+-                await do_get(client)
++                await do_get(client, start)
+ 
+             await asyncio.gather(do_post(client), delayed_get())
+ 
+@@ -502,6 +516,7 @@ async def test_nonblock_sources_returns_during_inflight_extraction(
+ @pytest.mark.asyncio
+ async def test_concurrent_serializes_with_to_thread(
+     test_db: Path,
++    real_deep_extractor: ContentDeepExtractor,
+ ) -> None:
+     """
+     SC-RACE-PRESERVED-1 / INV-EXTRACT-RACE-1: asyncio.to_thread() must NOT
+@@ -518,26 +533,26 @@ async def test_concurrent_serializes_with_to_thread(
+ 
+     BREAKS: If the asyncio.Lock were removed (or accidentally made thread-scoped),
+     both tasks would pass the idempotency check before either writes, and both
+-    would invoke extract() in separate threads -- call_count == 2 (double billing).
++    would invoke extract() -- call_count == 2 (double billing).
+ 
+-    Uses a short sleep (0.2s) in the stub to reliably open the race window: the
+-    event loop is freed during the worker thread sleep, so Task 2 can advance to
+-    the lock acquisition point before Task 1 completes.
++    A short delay (0.2s), produced by the local stub LLM server, reliably opens
++    the race window: the event loop is freed during the worker thread's wait on
++    the stub's response, so Task 2 can advance to the lock acquisition point
++    before Task 1 completes.
+     """
+     storage = Storage(test_db)
+-    content_id = _seed_entry(storage, analysis={"metrics": {"score": 80}})
++    content_id = _seed_entry(
++        storage,
++        analysis={"metrics": {"score": 80}},
++        external_id="race-to-thread-001",
++        content=(
++            "Article body text for race condition testing. "
++            f"{DEEP_EXTRACT_DELAY_PREFIX}0.2"
++        ),
++    )
+ 
+-    canned = {
+-        "synthesis": "Concurrent serializes synthesis.",
+-        "quotables": ["Serialized quote."],
+-        "model": "gpt-5-mini-2025-08-07",
+-        "extracted_at": "2026-05-21T10:00:00+00:00",
+-    }
+-    # 0.2s sleep opens the race window without making the test slow.
+-    # The event loop is freed during the to_thread sleep, ensuring Task 2
+-    # advances to the lock-wait point before Task 1 completes write-back.
+-    slow_stub = _SlowExtractor(result=canned, sleep_seconds=0.2)
+-    app.state.deep_extractor = slow_stub
++    spy = _CountingExtractor(real_deep_extractor)
++    app.state.deep_extractor = spy
+     _override_storage(storage)
+ 
+     try:
+@@ -563,15 +578,15 @@ async def test_concurrent_serializes_with_to_thread(
+         assert r2.status_code == 200, (
+             f"r2 expected 200, got {r2.status_code}: {r2.text}"
+         )
+-        assert slow_stub.call_count == 1, (
++        assert spy.call_count == 1, (
+             f"SC-RACE-PRESERVED-1 / INV-EXTRACT-RACE-1: extractor.extract() must "
+             f"be called exactly once under concurrent first-extract POSTs even with "
+-            f"asyncio.to_thread; called {slow_stub.call_count} times. "
++            f"asyncio.to_thread; called {spy.call_count} times. "
+             f"Lock serialization is broken or the lock was removed."
+         )
+         synth1 = r1.json()["data"]["deep_extraction"]["synthesis"]
+         synth2 = r2.json()["data"]["deep_extraction"]["synthesis"]
+-        assert synth1 == synth2 == canned["synthesis"], (
++        assert synth1 == synth2 == DEEP_EXTRACT_STUB_SYNTHESIS, (
+             f"SC-RACE-PRESERVED-1: both responses must carry the same synthesis; "
+             f"got {synth1!r} vs {synth2!r}"
+         )
+@@ -592,16 +607,6 @@ async def test_concurrent_serializes_with_to_thread(
+ # ---------------------------------------------------------------------------
+ 
+ 
+-class _RaisingExtractor:
+-    """Extractor stub that raises a given exception type on extract()."""
+-
+-    def __init__(self, exc: BaseException) -> None:
+-        self._exc = exc
+-
+-    def extract(self, content: str, title: str = "", url: str = "") -> dict | None:
+-        raise self._exc
+-
+-
+ def test_circuit_open_error_through_to_thread_returns_503(test_db: Path) -> None:
+     """
+     Discovered invariant: CircuitOpenError raised inside asyncio.to_thread()
+@@ -615,6 +620,13 @@ def test_circuit_open_error_through_to_thread_returns_503(test_db: Path) -> None
+     retry later'.  The distinction matters for client retry logic and for
+     understanding whether the circuit breaker is working.
+ 
++    Driven by a real ContentDeepExtractor whose circuit breaker (real, service-keyed
++    registry) is opened with real quota failures beforehand -- the same
++    `record_failure(RuntimeError("insufficient_quota"))` path the constitution's
++    other circuit-open tests use (test_verify_chain_deep_circuit_integration.py),
++    rather than a stand-in extractor that raises on command. No network call is
++    made: extract() raises CircuitOpenError before it ever reaches complete().
++
+     BREAKS: If CircuitOpenError's type were lost in transit (e.g., wrapped in
+     ExceptionGroup or caught by the wrong except branch), the response would be
+     500 with a generic error message instead of 503 with reason=circuit_open.
+@@ -622,10 +634,13 @@ def test_circuit_open_error_through_to_thread_returns_503(test_db: Path) -> None
+     storage = Storage(test_db)
+     content_id = _seed_entry(storage, analysis={"metrics": {"score": 80}})
+ 
+-    raising_stub = _RaisingExtractor(
+-        CircuitOpenError("circuit open -- quota exhausted, recovery in 30s")
+-    )
+-    app.state.deep_extractor = raising_stub
++    breaker = get_circuit_breaker(LOCAL_DEEP_SERVICE)
++    for _ in range(breaker.failure_threshold):
++        breaker.record_failure(RuntimeError("insufficient_quota"))
++    assert breaker.check_can_proceed() is False, "setup: the circuit must be open"
++
++    real_extractor = ContentDeepExtractor(LOCAL_DEEP_SERVICE)
++    app.state.deep_extractor = real_extractor
+     _override_storage(storage)
+ 
+     try:
+diff --git a/daemon/tests/unit/test_deep_extractor_unit.py b/daemon/tests/unit/test_deep_extractor_unit.py
+index 51a70c2..cba358f 100644
+--- a/daemon/tests/unit/test_deep_extractor_unit.py
++++ b/daemon/tests/unit/test_deep_extractor_unit.py
+@@ -1,7 +1,8 @@
+ """Unit tests for ContentDeepExtractor and _should_deep_extract gate -- task 1.2.
+ 
+ Invariants protected:
+-- INV-001: deep_extractor calls get_circuit_breaker with "prismis-openai-deep"
++- INV-001: deep_extractor keys its circuit breaker off its own service_name, not a
++  hardcoded or copy-pasted constant
+ - SC-2: _should_deep_extract(medium, "high") == False (medium item skips)
+ Error cases:
+ - Empty content -> extract() returns None without LLM call
+@@ -17,16 +18,13 @@ from unittest.mock import patch  # claudex-guard: allow-mock
+ 
+ import pytest
+ 
+-from prismis_daemon.circuit_breaker import reset_circuit_breaker
+-from prismis_daemon.deep_extractor import ContentDeepExtractor
++from prismis_daemon.circuit_breaker import get_circuit_breaker, reset_circuit_breaker
++from prismis_daemon.deep_extractor import CircuitOpenError, ContentDeepExtractor
+ from prismis_daemon.orchestrator import DaemonOrchestrator
+ 
+-# Patch targets -- external APIs that cost money or add latency
++# Patch target -- the LLM provider boundary itself, which the constitution permits
++# standing in for (llm_core.complete as imported into a prismis_daemon module).
+ _PATCH_COMPLETE = "prismis_daemon.deep_extractor.complete"  # claudex-guard: allow-mock
+-_PATCH_CIRCUIT = (
+-    "prismis_daemon.deep_extractor.get_circuit_breaker"  # claudex-guard: allow-mock
+-)
+-_PATCH_OBS_LOG = "prismis_daemon.deep_extractor.obs_log"  # claudex-guard: allow-mock
+ 
+ 
+ @pytest.fixture(autouse=True)
+@@ -38,7 +36,8 @@ def clean_circuit_registry() -> Iterator[None]:
+ 
+ 
+ # ---------------------------------------------------------------------------
+-# Lightweight fake objects — no MagicMock, no external deps
++# Lightweight fake objects — no MagicMock, no external deps. Provider result
++# fakes are the constitution's other permitted stand-in (SC-4).
+ # ---------------------------------------------------------------------------
+ 
+ 
+@@ -58,22 +57,6 @@ class _FakeResult:
+         self.duration_ms = 100
+ 
+ 
+-class _FakeCircuitBreaker:
+-    """Circuit breaker that always allows proceeding."""
+-
+-    def check_can_proceed(self) -> bool:
+-        return True
+-
+-    def record_success(self) -> None:
+-        pass
+-
+-    def record_failure(self, exc: Exception) -> None:
+-        pass
+-
+-    def get_status(self) -> dict:
+-        return {}
+-
+-
+ # ---------------------------------------------------------------------------
+ # _should_deep_extract gate -- pure function, tests all branches (SC-2)
+ # ---------------------------------------------------------------------------
+@@ -157,38 +140,44 @@ def test_should_deep_extract_empty_exclude_is_current_behavior() -> None:
+ 
+ 
+ # ---------------------------------------------------------------------------
+-# INV-001: ContentDeepExtractor calls get_circuit_breaker("prismis-openai-deep")
++# INV-001: ContentDeepExtractor keys its circuit breaker off self.service_name
+ # ---------------------------------------------------------------------------
+ 
+ 
+ def test_deep_extractor_uses_deep_circuit_breaker() -> None:
+     """
+-    INV-001: extract() must call get_circuit_breaker with the deep service name.
++    INV-001: extract() must key get_circuit_breaker off self.service_name -- not a
++    hardcoded string, and not the light summarizer's service name.
+     BREAKS: A copy-paste of the service name silently routes circuit state to
+     the light summarizer's circuit; deep failures trip the light pipeline.
+-    """
+-    extractor = ContentDeepExtractor("prismis-openai-deep")
+-    captured_service_names = []
+ 
+-    def fake_get_circuit_breaker(name: str):
+-        captured_service_names.append(name)
+-        return _FakeCircuitBreaker()
++    Driven with two distinct real CircuitBreaker instances from the real
++    service-keyed registry (get_circuit_breaker), the same registry
++    test_circuit_breaker_unit.py exercises directly: open only the breaker keyed to
++    the deep extractor's own service name, and leave the light service's name
++    closed. If extract() mis-keyed its lookup onto the light service's name -- the
++    copy-paste this invariant guards against -- it would find a CLOSED breaker and
++    proceed to call the LLM instead of raising CircuitOpenError.
++    """
++    deep_service = "prismis-openai-deep"
++    light_service = "prismis-openai"
++
++    deep_breaker = get_circuit_breaker(deep_service)
++    for _ in range(deep_breaker.failure_threshold):
++        deep_breaker.record_failure(RuntimeError("insufficient_quota"))
++    assert deep_breaker.check_can_proceed() is False, (
++        "setup: the deep-keyed breaker must be open"
++    )
+ 
+-    fake_result = _FakeResult(
+-        json.dumps({"synthesis": "test synthesis", "quotables": []})
++    light_breaker = get_circuit_breaker(light_service)
++    assert light_breaker.check_can_proceed() is True, (
++        "setup: the light-keyed breaker must stay closed"
+     )
+ 
+-    with (
+-        patch(_PATCH_CIRCUIT, side_effect=fake_get_circuit_breaker),
+-        patch(_PATCH_COMPLETE, return_value=fake_result),
+-        patch(_PATCH_OBS_LOG),
+-    ):
+-        extractor.extract(content="Some article content here.", title="Test")
++    extractor = ContentDeepExtractor(deep_service)
+ 
+-    assert len(captured_service_names) == 1, "get_circuit_breaker should be called once"
+-    assert captured_service_names[0] == "prismis-openai-deep", (
+-        f"INV-001: expected 'prismis-openai-deep', got '{captured_service_names[0]}'"
+-    )
++    with pytest.raises(CircuitOpenError):
++        extractor.extract(content="Some article content here.", title="Test")
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -226,15 +215,15 @@ def test_extract_malformed_json_returns_none() -> None:
+     Malformed JSON from LLM -> extract() returns None; does NOT raise.
+     BREAKS: JSON parse error propagates up; orchestrator's INV-002 catch fires
+     but item stored without any LLM failure logged properly.
++
++    Only the LLM boundary (complete()) is stood in for here, per the constitution;
++    the circuit breaker and observability logging that surround it run for real,
++    closed and unmocked, via the autouse clean_circuit_registry reset above.
+     """
+     extractor = ContentDeepExtractor("prismis-openai-deep")
+     fake_result = _FakeResult("This is not JSON at all")
+ 
+-    with (
+-        patch(_PATCH_CIRCUIT, return_value=_FakeCircuitBreaker()),
+-        patch(_PATCH_COMPLETE, return_value=fake_result),
+-        patch(_PATCH_OBS_LOG),
+-    ):
++    with patch(_PATCH_COMPLETE, return_value=fake_result):
+         result = extractor.extract(content="Actual article content here.")
+ 
+     assert result is None, "Malformed JSON must produce None, not raise"
+@@ -249,16 +238,15 @@ def test_extract_missing_synthesis_key_returns_none() -> None:
+     """
+     LLM returns valid JSON but missing "synthesis" key -> extract() returns None.
+     BREAKS: KeyError propagates; item stored as extraction error vs. clean None.
++
++    Only the LLM boundary (complete()) is stood in for here, per the constitution;
++    the circuit breaker and observability logging that surround it run for real.
+     """
+     extractor = ContentDeepExtractor("prismis-openai-deep")
+     # Valid JSON but no "synthesis" key
+     fake_result = _FakeResult(json.dumps({"quotables": ["a quote"], "model": "gpt-5"}))
+ 
+-    with (
+-        patch(_PATCH_CIRCUIT, return_value=_FakeCircuitBreaker()),
+-        patch(_PATCH_COMPLETE, return_value=fake_result),
+-        patch(_PATCH_OBS_LOG),
+-    ):
++    with patch(_PATCH_COMPLETE, return_value=fake_result):
+         result = extractor.extract(content="Actual article content here.")
+ 
+     assert result is None, "Missing 'synthesis' key must produce None, not raise"

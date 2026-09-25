@@ -25,11 +25,11 @@
     },
     {
       "id": "SC-3",
-      "given": "the daemon tests outside the three deep-extraction files (those are SC-4) and outside test_api_connection_cleanup (a call-through spy, out of scope)",
+      "given": "the daemon tests outside the three deep-extraction files (those are SC-4) and outside test_api_connection_cleanup (a call-through spy, out of scope); also outside the SC-1 guard itself, whose self-tests carry planted violations as string literals",
       "when": "searched for patches, attribute assignments and injected stand-ins of prismis_daemon internals, and for the markers the mypy migration left on them",
       "then": "none remain: test_orchestrator_deep_unit, test_notifier_unit, test_storage_dict_unit, test_llm_core_migration_unit, test_verify_subcommand_unit and test_context_assistant drive the real Storage over the sealed test DB, the real CircuitBreaker, the real Config from the sealed XDG config, the real Notifier and the real Summarizer/Evaluator against the local stub LLM server; llm_core.complete and llm_core.health_check patches stay",
       "observation": {
-        "command": "echo \"count=$(grep -rnE 'internal fake, removed by|\"prismis_daemon\\.[A-Za-z_.]+\"|patch\\.object\\([A-Za-z_]+, \"|\\._send_notification = ' daemon/tests | grep -vE 'test_api_connection_cleanup|test_deep_extractor_unit|test_deep_extractor_api_integration|test_extract_endpoint_race' | grep -vE '\\.complete\"|health_check\"|import_module|logger=' | wc -l | tr -d ' ')\"",
+        "command": "echo \"count=$(grep -rnE 'internal fake, removed by|\"prismis_daemon\\.[A-Za-z_.]+\"|patch\\.object\\([A-Za-z_]+, \"|\\._send_notification = ' daemon/tests | grep -vE 'test_api_connection_cleanup|test_no_internal_mocks_unit|test_deep_extractor_unit|test_deep_extractor_api_integration|test_extract_endpoint_race' | grep -vE '\\.complete\"|health_check\"|import_module|logger=' | wc -l | tr -d ' ')\"",
         "expect": "count=0"
       }
     },

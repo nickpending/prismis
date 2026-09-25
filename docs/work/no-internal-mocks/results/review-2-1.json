@@ -1,0 +1,29 @@
+{
+  "searched": [
+    "docs/work/no-internal-mocks/work-order.json",
+    "docs/work/no-internal-mocks/results/plan.json",
+    "docs/work/no-internal-mocks/job-2.diff",
+    "docs/work/no-internal-mocks/results/built-2-1.json",
+    "docs/work/no-internal-mocks/journal.jsonl",
+    ".claude/worktrees/agent-a3035507bf70a9115/daemon/tests/conftest.py",
+    ".claude/worktrees/agent-a3035507bf70a9115/daemon/tests/unit/test_deep_extractor_unit.py",
+    ".claude/worktrees/agent-a3035507bf70a9115/daemon/tests/integration/test_deep_extractor_api_integration.py",
+    ".claude/worktrees/agent-a3035507bf70a9115/daemon/tests/integration/test_extract_endpoint_race.py",
+    "daemon/tests/conftest.py (pre-job baseline on main)",
+    "daemon/tests/unit/test_deep_extractor_unit.py (pre-job baseline on main)",
+    "daemon/tests/integration/test_deep_extractor_api_integration.py (pre-job baseline on main)",
+    "daemon/tests/integration/test_extract_endpoint_race.py (pre-job baseline on main)",
+    "daemon/src/prismis_daemon/deep_extractor.py",
+    "daemon/src/prismis_daemon/circuit_breaker.py",
+    "daemon/src/prismis_daemon/api.py"
+  ],
+  "exhaustive": false,
+  "findings": [
+    {
+      "file": "docs/work/no-internal-mocks/job-2.diff",
+      "line": 0,
+      "summary": "The diff artifact named as job 2's own deliverable is empty (0 bytes) even though journal.jsonl line 70 records a `diffed` event for job 2 at this exact path, timestamped after the `verified` event. Reading this file in isolation shows no diff at all; the only way to recover job 2's actual changes is to read the four target files directly out of the still-present build worktree at .claude/worktrees/agent-a3035507bf70a9115 (base caf518d), which I did to complete this review. The journal's own record of having written the diff does not match what is on disk, which is exactly the shape of performative evidence: a step that claims to have produced an artifact without the artifact backing it up. Anyone who trusts job-2.diff as the reviewable surface, as this review's brief instructed, gets nothing.",
+      "severity": "medium"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "artifact": [
+    "daemon/tests/conftest.py",
+    "daemon/tests/unit/test_deep_extractor_unit.py",
+    "daemon/tests/integration/test_deep_extractor_api_integration.py",
+    "daemon/tests/integration/test_extract_endpoint_race.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a3035507bf70a9115",
+    "branch": "worktree-agent-a3035507bf70a9115",
+    "base": "caf518d495ffcee36e3f3bef0143931a0317805f"
+  },
+  "red": {
+    "command": "cd daemon && uv run pytest -q tests/unit/test_deep_extractor_unit.py tests/integration/test_deep_extractor_api_integration.py tests/integration/test_extract_endpoint_race.py",
+    "tests": [
+      "daemon/tests/unit/test_deep_extractor_unit.py",
+      "daemon/tests/integration/test_deep_extractor_api_integration.py",
+      "daemon/tests/integration/test_extract_endpoint_race.py"
+    ]
+  }
+}

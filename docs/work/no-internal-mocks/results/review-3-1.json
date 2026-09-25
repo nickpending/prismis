@@ -1,0 +1,34 @@
+{
+  "searched": [
+    "docs/work/no-internal-mocks/work-order.json",
+    "docs/work/no-internal-mocks/results/plan.json",
+    "docs/work/no-internal-mocks/results/plan-3.json",
+    "docs/work/no-internal-mocks/job-3.diff",
+    "docs/work/no-internal-mocks/results/built-3-1.json",
+    "docs/work/no-internal-mocks/journal.jsonl",
+    "cli/tests/conftest.py",
+    "cli/tests/unit/test_extract_entry_unit.py",
+    "cli/tests/unit/test_api_client_search_params.py",
+    "cli/tests/unit/test_extract_command_unit.py",
+    "cli/src/cli/api_client.py",
+    "cli/src/cli/extract.py",
+    "cli/src/cli/remote.py",
+    "cli/pyproject.toml",
+    "cli/uv.lock",
+    "daemon/src/prismis_daemon/api.py (lines 1215-1244)",
+    "daemon/src/prismis_daemon/defaults.py",
+    "daemon/src/prismis_daemon/deep_extractor.py",
+    "daemon/pyproject.toml",
+    "daemon/tests/conftest.py (llm-core / XDG pattern, no_network fixture)",
+    ".specify/verify.sh"
+  ],
+  "exhaustive": true,
+  "findings": [
+    {
+      "file": "cli/pyproject.toml",
+      "line": 1,
+      "summary": "cli/tests/conftest.py now does `import uvicorn` at module scope (line 19) to run a real in-process daemon, but cli/pyproject.toml declares no `uvicorn` dependency anywhere (project deps, optional-dependencies, or dev group). The import only resolves because `prismis-daemon` is a cli dev-dependency (editable path) and daemon/pyproject.toml happens to require uvicorn>=0.35.0, so it lands transitively in cli's venv. The gate's `verified` record for job 3 (journal.jsonl line 72: typecheck(cli), tests(cli) both pass) shows it works today, so this is not a live break, but the cli unit's own manifest does not own the dependency its own test suite now imports directly — if daemon ever stops requiring uvicorn (or the workspace resolution changes), cli's test collection breaks with no signal in cli/pyproject.toml pointing at why. Low severity: not a functional defect proven by the gate, but a real declaration gap worth naming.",
+      "severity": "low"
+    }
+  ]
+}

@@ -1,0 +1,1275 @@
+diff --git a/daemon/src/prismis_daemon/api.py b/daemon/src/prismis_daemon/api.py
+index 818cc7a..a56a3b4 100644
+--- a/daemon/src/prismis_daemon/api.py
++++ b/daemon/src/prismis_daemon/api.py
+@@ -1566,8 +1566,16 @@ async def analyze_context(
+     except ValidationError:
+         raise  # Re-raise validation errors
+     except Exception as e:
++        # The LLM call is the one boundary this endpoint does not control, and its
++        # own client can embed its credential in the exception text (an HTTP error
++        # body echoing the request, for example). The response says only that
++        # analysis failed; the detail goes to the log instead, mirroring auth.py's
++        # CONFIG_UNAVAILABLE_MESSAGE for the same reason -- a secret must never leave
++        # the process in a response body.
+         obs_log("api.error", endpoint="/api/context", error=str(e))
+-        raise ServerError(f"Failed to analyze context: {str(e)}") from e
++        raise ServerError(
++            "Failed to analyze context. Check the daemon log for detail."
++        ) from e
+ 
+ 
+ @app.get("/api/statistics", dependencies=[Depends(verify_api_key)])
+diff --git a/daemon/tests/integration/test_context_assistant.py b/daemon/tests/integration/test_context_assistant.py
+index e231a9b..f8f1387 100644
+--- a/daemon/tests/integration/test_context_assistant.py
++++ b/daemon/tests/integration/test_context_assistant.py
+@@ -3,9 +3,11 @@
+ Tests prune protection invariants AND context suggestion API invariants.
+ """
+ 
++import gc
+ import logging
++import sqlite3
+ from pathlib import Path
+-from unittest.mock import MagicMock, patch
++from unittest.mock import patch
+ 
+ import pytest
+ from fastapi.testclient import TestClient
+@@ -19,10 +21,8 @@ from conftest import TEST_API_KEY, add_new_content
+ 
+ logger = logging.getLogger(__name__)
+ 
+-# Mock targets for external dependencies accessed through prismis wrappers
+-_CONFIG_FROM_FILE_MOCK = (
+-    "prismis_daemon.api.Config.from_file"  # claudex-guard: allow-mock
+-)
++# llm_core.complete as imported into a prismis_daemon module -- the one collaborator
++# the constitution permits standing in for.
+ _LLM_COMPLETE_MOCK = (
+     "prismis_daemon.context_analyzer.complete"  # claudex-guard: allow-mock
+ )
+@@ -286,21 +286,16 @@ def test_INVARIANT_empty_flagged_returns_empty_suggestions(
+     # Get context text from config
+     context_text = full_config.context
+ 
+-    # Create analyzer with llm-core service name (new API)
+-    analyzer = ContextAnalyzer(full_config.llm_light_service)
++    # A service name that resolves to no configured service. If
++    # analyze_flagged_items reached _call_llm despite the empty list, llm_core.complete
++    # would raise "Unknown service" for it and analyze_flagged_items re-raises (it
++    # catches and re-raises everything, per its own docstring) -- so this call proves
++    # the empty-list short-circuit for real, rather than by patching _call_llm out.
++    analyzer = ContextAnalyzer("prismis-no-such-service")
+ 
+-    # Mock _call_llm to verify it's never called
+-    with patch.object(
+-        analyzer, "_call_llm", side_effect=AssertionError("LLM should not be called")
+-    ) as mock_llm:
+-        # Call with empty list
+-        result = analyzer.analyze_flagged_items([], context_text)
++    result = analyzer.analyze_flagged_items([], context_text)
+ 
+-        # Verify no LLM call was made
+-        mock_llm.assert_not_called()
+-
+-        # Verify empty result
+-        assert result == {"suggested_topics": []}
++    assert result == {"suggested_topics": []}
+ 
+ 
+ def test_INVARIANT_no_credentials_in_errors(
+@@ -309,6 +304,11 @@ def test_INVARIANT_no_credentials_in_errors(
+     """
+     INVARIANT: Error messages never contain API keys or credentials
+     BREAKS: Security breach, credential exposure in logs
++
++    Auth and config go through the real Config.from_file(), reading the sealed
++    config.toml the isolated_xdg_env fixture writes -- conftest.TEST_API_KEY is the
++    real key it authenticates with. Only the LLM call itself is stood in for, since
++    that is the one boundary the constitution permits faking.
+     """
+     # Setup: Add flagged items
+     storage = Storage(test_db)
+@@ -326,59 +326,51 @@ def test_INVARIANT_no_credentials_in_errors(
+ 
+     # Fake API key that should never appear in error responses
+     fake_llm_service_key = "sk-test-SENSITIVE-KEY-12345"
+-    # Auth API key - must match what auth.py reads from Config
+-    auth_api_key = "test-api-key-for-cred-test"
+ 
+-    # Mock both auth config and API endpoint config
+-    _AUTH_CONFIG_MOCK = (
+-        "prismis_daemon.auth.Config.from_file"  # claudex-guard: allow-mock
+-    )
+-
+-    with (
+-        patch(_CONFIG_FROM_FILE_MOCK) as mock_api_config,
+-        patch(_AUTH_CONFIG_MOCK) as mock_auth_config,
++    # Mock LLM call to raise error mentioning the sensitive key
++    with patch(
++        _LLM_COMPLETE_MOCK,
++        side_effect=Exception(f"API call failed with key {fake_llm_service_key}"),
+     ):
+-        # Auth config: returns valid API key so auth passes
+-        auth_instance = MagicMock()  # claudex-guard: allow-mock
+-        auth_instance.api_key = auth_api_key
+-        mock_auth_config.return_value = auth_instance
+-
+-        # API config: returns service pointing to fake key (via llm_service)
+-        api_instance = MagicMock()  # claudex-guard: allow-mock
+-        api_instance.llm_service = "prismis-openai"
+-        api_instance.context = "# Test Context"
+-        mock_api_config.return_value = api_instance
+-
+-        # Mock LLM call to raise error mentioning the sensitive key
+-        with patch(
+-            _LLM_COMPLETE_MOCK,
+-            side_effect=Exception(f"API call failed with key {fake_llm_service_key}"),
+-        ):
+-            # Make API call with valid auth key
+-            response = api_client.post(
+-                "/api/context", headers={"X-API-Key": auth_api_key}
+-            )
+-
+-            # Verify error response
+-            assert response.status_code == 500
+-
+-            # Verify sensitive key NOT in response
+-            response_text = response.text
+-            response_json = response.json()
+-
+-            assert fake_llm_service_key not in response_text, (
+-                "LLM service key found in response body"
+-            )
+-            assert fake_llm_service_key not in response_json.get("message", ""), (
+-                "LLM service key found in error message"
+-            )
+-            assert "sk-test" not in response_text, "Partial key found in response"
++        # Make API call with the real sealed API key
++        response = api_client.post(
++            "/api/context", headers={"X-API-Key": TEST_API_KEY}
++        )
++
++        # Verify error response
++        assert response.status_code == 500
++
++        # Verify sensitive key NOT in response
++        response_text = response.text
++        response_json = response.json()
++
++        assert fake_llm_service_key not in response_text, (
++            "LLM service key found in response body"
++        )
++        assert fake_llm_service_key not in response_json.get("message", ""), (
++            "LLM service key found in error message"
++        )
++        assert "sk-test" not in response_text, "Partial key found in response"
+ 
+ 
+ def test_FAILURE_database_locked_during_get_flagged(test_db: Path) -> None:
+     """
+     FAILURE: Database locked during get_flagged_items()
+     GRACEFUL: Must fail with clear error, not corrupt state
++
++    Drives a real SQLite lock. WAL readers do not block on an ordinary writer (that is
++    WAL's whole point) -- proven manually against this schema before writing this test:
++    a plain `BEGIN EXCLUSIVE` write left a concurrent get_flagged_items() call
++    completely unaffected. `locking_mode=EXCLUSIVE` is what actually forces the
++    OS-level exclusive lock a locked-database error needs, and only once every other
++    connection to the file (including this test's own setup connection) has actually
++    released it -- gc.collect() closes the window between Storage.close() and the
++    connection object's real teardown.
++
++    The reader is constructed fresh, after the lock is already held, so it reaches the
++    lock through Storage's own default 5000ms busy_timeout (database.py:139) the same
++    way a real concurrent caller would -- inescapably real time, since that connection
++    does not exist yet for a shorter timeout to be set on.
+     """
+     # Setup: Add flagged items
+     storage = Storage(test_db)
+@@ -393,28 +385,29 @@ def test_FAILURE_database_locked_during_get_flagged(test_db: Path) -> None:
+     )
+     content_id = add_new_content(storage, item)
+     storage.update_content_status(content_id, user_feedback="up")
++    storage.close()
++    gc.collect()
++
++    # Hold a real, OS-level exclusive lock on the database from a second connection.
++    locker = Storage(test_db)
++    locker.conn.execute("PRAGMA locking_mode=EXCLUSIVE")
++    locker.conn.execute("BEGIN EXCLUSIVE")
++    locker.conn.execute(
++        "INSERT INTO sources (id, url, type, name) VALUES (?, ?, ?, ?)",
++        ("lock-holder", "https://lock-holder.example.com", "rss", "Lock Holder"),
++    )
+ 
+-    # Mock get_flagged_items to simulate database lock
+-    original_get_flagged = storage.get_flagged_items
+-
+-    def locked_get_flagged(*args, **kwargs):
+-        raise Exception("database is locked")
+-
+-    with patch.object(storage, "get_flagged_items", side_effect=locked_get_flagged):
+-        # This should raise, not corrupt
+-        try:
+-            # Simulate what API endpoint does
+-            storage.get_flagged_items()
+-            # Should not reach here
+-            raise AssertionError("Should have raised database lock error")
+-        except Exception as e:
+-            if isinstance(e, AssertionError):
+-                raise
+-            # Verify error is clear
+-            assert "locked" in str(e).lower()
++    try:
++        with pytest.raises(sqlite3.Error, match="locked"):
++            reader = Storage(test_db)
++            reader.get_flagged_items()
++    finally:
++        locker.conn.rollback()
++        locker.conn.execute("PRAGMA locking_mode=NORMAL")
++        locker.close()
+ 
+     # Verify database state intact after error
+-    flagged_after = original_get_flagged()
++    flagged_after = storage.get_flagged_items()
+     assert len(flagged_after) == 1, "Database corrupted by lock error"
+ 
+ 
+diff --git a/daemon/tests/unit/test_llm_core_migration_unit.py b/daemon/tests/unit/test_llm_core_migration_unit.py
+index 51addb1..c02cd24 100644
+--- a/daemon/tests/unit/test_llm_core_migration_unit.py
++++ b/daemon/tests/unit/test_llm_core_migration_unit.py
+@@ -15,12 +15,29 @@ import tempfile
+ from pathlib import Path
+ from unittest.mock import MagicMock, patch  # claudex-guard: allow-mock
+ 
++import pytest
++
+ # Add src to path for absolute imports (mirrors conftest.py pattern)
+ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+ 
++from prismis_daemon.circuit_breaker import reset_circuit_breaker
+ from prismis_daemon.evaluator import ContentEvaluator
+ from prismis_daemon.summarizer import ContentSummarizer
+ 
++
++@pytest.fixture(autouse=True)
++def _clean_circuit_registry():
++    """Reset the real circuit breaker registry before and after each test.
++
++    llm_core.complete is the one collaborator the constitution permits standing in
++    for; the circuit breaker in front of it is prismis's own and stays real -- a
++    fresh, closed breaker lets check_can_proceed() return True without patching
++    get_circuit_breaker.
++    """
++    reset_circuit_breaker()
++    yield
++    reset_circuit_breaker()
++
+ # --- INV-001 / SC-13 ---
+ 
+ 
+@@ -95,15 +112,9 @@ def test_SC11_summarizer_calls_llm_core_complete() -> None:
+     fake_result.model = "gpt-4.1-mini"
+     fake_result.duration_ms = 500
+ 
+-    with (
+-        patch(
+-            "prismis_daemon.summarizer.complete"
+-        ) as mock_complete,  # claudex-guard: allow-mock
+-        patch(
+-            "prismis_daemon.summarizer.get_circuit_breaker"
+-        ) as mock_cb,  # claudex-guard: allow-mock
+-    ):
+-        mock_cb.return_value.check_can_proceed.return_value = True
++    with patch(
++        "prismis_daemon.summarizer.complete"
++    ) as mock_complete:  # claudex-guard: allow-mock
+         mock_complete.return_value = fake_result
+ 
+         result = summarizer.summarize_with_analysis(
+@@ -160,15 +171,9 @@ def test_SC12_evaluator_calls_llm_core_complete() -> None:
+     fake_result.model = "gpt-4.1-mini"
+     fake_result.duration_ms = 300
+ 
+-    with (
+-        patch(
+-            "prismis_daemon.evaluator.complete"
+-        ) as mock_complete,  # claudex-guard: allow-mock
+-        patch(
+-            "prismis_daemon.evaluator.get_circuit_breaker"
+-        ) as mock_cb,  # claudex-guard: allow-mock
+-    ):
+-        mock_cb.return_value.check_can_proceed.return_value = True
++    with patch(
++        "prismis_daemon.evaluator.complete"
++    ) as mock_complete:  # claudex-guard: allow-mock
+         mock_complete.return_value = fake_result
+ 
+         result = evaluator.evaluate_content(
+diff --git a/daemon/tests/unit/test_notifier_unit.py b/daemon/tests/unit/test_notifier_unit.py
+index 35d6528..d93d6e6 100644
+--- a/daemon/tests/unit/test_notifier_unit.py
++++ b/daemon/tests/unit/test_notifier_unit.py
+@@ -1,11 +1,45 @@
+-"""Unit tests for Notifier logic functions."""
++"""Unit tests for Notifier logic functions.
++
++Real collaborators throughout: notify_new_content's HIGH-priority filter is driven
++through the real Notifier and the real subprocess call it makes (to `echo`, a real
++binary standing in for terminal-notifier), and proven by the observability record
++that call leaves -- rather than by a patched `_send_notification`.
++"""
++
++import uuid
++
++import pytest
+ 
+ from prismis_daemon.notifier import Notifier
++from prismis_daemon.observability import get_logger, reset_logger, set_run_id
++from prismis_daemon.verify_chain import read_run_events
++
++
++@pytest.fixture(autouse=True)
++def _fresh_observability():
++    """Bind the observability logger to this test's sealed data dir, and unbind after.
++
++    Mirrors test_notifier_observability_unit.py's fixture of the same name -- the
++    logger is a module-level singleton that caches the base directory it resolved
++    when first constructed, and every test gets a different XDG_DATA_HOME.
++    """
++    reset_logger()
++    yield
++    set_run_id(None)
++    reset_logger()
++
++
++def _notification_events(run_id: str) -> list[dict]:
++    events = read_run_events(get_logger().base_dir, run_id)
++    return [e for e in events if e["event"] == "notification.send"]
+ 
+ 
+ def test_notify_filters_high_priority_only() -> None:
+     """Test that notify_new_content only processes HIGH priority items."""
+-    notifier = Notifier({"high_priority_only": True})
++    run_id = str(uuid.uuid4())
++    set_run_id(run_id)
++
++    notifier = Notifier({"high_priority_only": True, "command": "echo"})
+ 
+     # Create mixed priority items
+     items = [
+@@ -15,42 +49,37 @@ def test_notify_filters_high_priority_only() -> None:
+         {"priority": "high", "title": "Security Alert"},
+     ]
+ 
+-    # Mock the _send_notification method to capture what gets called
+-    called_items = []
+-
+-    def mock_send_notification(items):
+-        called_items.extend(items)
+-
+-    notifier._send_notification = mock_send_notification  # type: ignore[method-assign]  # internal fake, removed by docs/work/no-internal-mocks
+-
+     notifier.notify_new_content(items)
+ 
+-    # Should only have called with HIGH priority items
+-    assert len(called_items) == 2
+-    assert all(item["priority"] == "high" for item in called_items)
+-    assert called_items[0]["title"] == "Important AI News"
+-    assert called_items[1]["title"] == "Security Alert"
++    events = _notification_events(run_id)
++    # A record was left at all -- if filtering broke and every item (including
++    # non-HIGH ones) reached _send_notification, the count below would catch it.
++    assert len(events) == 1
++    assert events[0]["status"] == "success"
++    # Only the 2 HIGH priority items reached _send_notification, not all 4.
++    assert events[0]["count"] == 2
+ 
+ 
+ def test_notify_handles_empty_list() -> None:
+     """Test notify_new_content handles empty items list gracefully."""
+-    notifier = Notifier()
++    run_id = str(uuid.uuid4())
++    set_run_id(run_id)
+ 
+-    # Mock to ensure _send_notification is never called
+-    def mock_send_notification(items):
+-        notifier._send_called = True
+-
+-    notifier._send_notification = mock_send_notification  # type: ignore[method-assign]  # internal fake, removed by docs/work/no-internal-mocks
++    notifier = Notifier({"command": "echo"})
+ 
+     notifier.notify_new_content([])
+ 
+-    # Should not have called _send_notification
+-    assert not hasattr(notifier, "_send_called")
++    # notify_new_content returns immediately for an empty list -- no event at all,
++    # distinguishable from the "nothing HIGH priority" skip below.
++    assert _notification_events(run_id) == []
+ 
+ 
+ def test_notify_handles_no_high_priority_items() -> None:
+     """Test notify_new_content when no HIGH priority items exist."""
+-    notifier = Notifier({"high_priority_only": True})
++    run_id = str(uuid.uuid4())
++    set_run_id(run_id)
++
++    notifier = Notifier({"high_priority_only": True, "command": "echo"})
+ 
+     # Only medium and low priority items
+     items = [
+@@ -58,16 +87,12 @@ def test_notify_handles_no_high_priority_items() -> None:
+         {"priority": "low", "title": "Basic Tutorial"},
+     ]
+ 
+-    # Mock to ensure _send_notification is never called
+-    def mock_send_notification(items):
+-        notifier._send_called = True
+-
+-    notifier._send_notification = mock_send_notification  # type: ignore[method-assign]  # internal fake, removed by docs/work/no-internal-mocks
+-
+     notifier.notify_new_content(items)
+ 
+-    # Should not have called _send_notification
+-    assert not hasattr(notifier, "_send_called")
++    events = _notification_events(run_id)
++    assert len(events) == 1
++    assert events[0]["status"] == "skipped"
++    assert events[0]["reason"] == "no_high_priority_items"
+ 
+ 
+ def test_message_formatting_single_item() -> None:
+diff --git a/daemon/tests/unit/test_orchestrator_deep_unit.py b/daemon/tests/unit/test_orchestrator_deep_unit.py
+index d19be55..d11a065 100644
+--- a/daemon/tests/unit/test_orchestrator_deep_unit.py
++++ b/daemon/tests/unit/test_orchestrator_deep_unit.py
+@@ -5,19 +5,129 @@ Item must be stored with light summary only; analysis must have no deep_extracti
+ 
+ SC-5: When deep extraction succeeds, the embedding text fed to Embedder must
+ combine summary + synthesis so search reflects the richer content.
++
++Real collaborators throughout: the real Summarizer and Evaluator drive the real
++llm-core `complete()` against a local HTTP stub standing in for the LLM (the one
++collaborator the constitution permits faking), the real Notifier, and the real Config
++loaded from the sealed XDG config. Storage is real, over the sealed test database --
++what actually landed is read back through Storage's own public methods, not tracked by
++patching create_or_update_content.
++
++The rss_fetcher, deep_extractor and (in the SC-5 test) embedder stay as small,
++constructor-injected stand-ins: they are the seams DaemonOrchestrator's own __init__
++exists to take real-or-substitute collaborators through, not a patch of module or
++instance state, and the deep-extraction and embedding LOGIC these two tests exist to
++prove (INV-002's failure handling, SC-5's text composition) is what they let this file
++control deterministically. Driving deep extraction itself through a real LLM stub is
++SC-4's job, covering the three dedicated deep-extraction test files.
+ """
+ 
+ from __future__ import annotations
+ 
++import http.server
++import json as _json
++import os
++import threading
+ from collections.abc import Iterator
+ from pathlib import Path
+ 
+-from typing import ClassVar
+-
+ import pytest
+ 
+ from prismis_daemon.circuit_breaker import reset_circuit_breaker
++from prismis_daemon.config import Config
++from prismis_daemon.embeddings import Embedder
++from prismis_daemon.evaluator import ContentEvaluator
++from prismis_daemon.notifier import Notifier
+ from prismis_daemon.storage import Storage
++from prismis_daemon.summarizer import ContentSummarizer
++
++from conftest import configure_local_services
++
++_SUMMARY_TEXT = "Light summary text."
++
++
++class _NullFetcher:
++    """A fetcher whose source is never selected by these tests' source dicts."""
++
++    def fetch_content(self, source, **kw):
++        return []
++
++
++def _high_priority_payload(summary: str) -> bytes:
++    """An OpenAI-shaped chat-completion body serving both the summarizer and the
++    evaluator, mirroring conftest.local_pipeline_stub's canned response but with a
++    HIGH priority and a matched interest -- what these tests need to reach the
++    deep-extraction gate, which local_pipeline_stub's own fixed "low" does not.
++    """
++    payload = {
++        "id": "stub-completion",
++        "object": "chat.completion",
++        "model": "stub-model",
++        "choices": [
++            {
++                "index": 0,
++                "message": {
++                    "role": "assistant",
++                    "content": _json.dumps(
++                        {
++                            "summary": summary,
++                            "reading_summary": "Reading summary.",
++                            "alpha_insights": [],
++                            "patterns": [],
++                            "entities": [],
++                            "quotes": [],
++                            "tools": [],
++                            "urls": [],
++                            "priority": "high",
++                            "matched_interests": ["AI"],
++                            "reasoning": "Matches AI interest.",
++                        }
++                    ),
++                },
++                "finish_reason": "stop",
++            }
++        ],
++        "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
++    }
++    return _json.dumps(payload).encode()
++
++
++@pytest.fixture
++def high_priority_llm_stub() -> Iterator[str]:
++    """A local HTTP server answering llm-core's chat-completions call with a fixed
++    HIGH-priority, one-matched-interest result -- these two tests' shared need,
++    isolated here rather than in conftest.py because local_pipeline_stub's own fixed
++    "low" priority serves the rest of the suite and cannot be reused for this.
++    """
++
++    class _Handler(http.server.BaseHTTPRequestHandler):
++        def log_message(self, *_args: object) -> None:
++            return
++
++        def do_POST(self) -> None:
++            if not self.path.endswith("/chat/completions"):
++                self.send_error(404)
++                return
++            length = int(self.headers.get("Content-Length", "0"))
++            self.rfile.read(length)
++            body = _high_priority_payload(_SUMMARY_TEXT)
++            self.send_response(200)
++            self.send_header("Content-Type", "application/json")
++            self.send_header("Content-Length", str(len(body)))
++            self.end_headers()
++            self.wfile.write(body)
++
++    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
++    host, port = server.server_address[0], server.server_address[1]
++    assert isinstance(host, str), "loopback bind always yields a str host"
++    thread = threading.Thread(target=server.serve_forever, daemon=True)
++    thread.start()
++    try:
++        yield f"http://{host}:{port}"
++    finally:
++        server.shutdown()
++        server.server_close()
++        thread.join(timeout=2.0)
+ 
+ 
+ @pytest.fixture(autouse=True)
+@@ -28,7 +138,16 @@ def clean_circuit_registry() -> Iterator[None]:
+     reset_circuit_breaker()
+ 
+ 
+-def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
++def _real_config(base_url: str) -> Config:
++    """Wire the sealed config's light/deep services at the local stub and load it."""
++    cfg_home = Path(os.environ["XDG_CONFIG_HOME"])
++    configure_local_services(cfg_home, base_url)
++    return Config.from_file()
++
++
++def test_inv002_deep_failure_does_not_block_storage(
++    test_db: Path, isolated_xdg_env: Path, high_priority_llm_stub: str
++) -> None:
+     """
+     INV-002: When deep_extractor.extract() raises, the pipeline must still call
+     create_or_update_content and the stored item must have no deep_extraction key.
+@@ -40,6 +159,11 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
+     from prismis_daemon.deep_extractor import ContentDeepExtractor
+     from prismis_daemon.orchestrator import DaemonOrchestrator
+ 
++    config = _real_config(high_priority_llm_stub)
++    assert config.llm_deep_service is not None, (
++        "configure_local_services always sets a deep service"
++    )
++
+     storage = Storage(test_db)
+     source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Test Feed")
+ 
+@@ -48,92 +172,8 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
+         def extract(self, content, title="", url=""):
+             raise RuntimeError("Simulated gpt-5-mini rate limit error")
+ 
+-    failing_extractor = FailingExtractor("prismis-openai-deep")
+-
+-    # Minimal stubs -- only what orchestrator.__init__ needs
+-    class _NullFetcher:
+-        def fetch(self, *a, **kw):
+-            return []
+-
+-    class _FakeSummaryResult:
+-        summary = "Light summary text."
+-        reading_summary = "Reading summary."
+-        alpha_insights: ClassVar[list[str]] = []
+-        patterns: ClassVar[list[str]] = []
+-        entities: ClassVar[list[str]] = []
+-        quotes: ClassVar[list[str]] = []
+-        tools: ClassVar[list[str]] = []
+-        urls: ClassVar[list[str]] = []
+-        metadata: ClassVar = {"summarization_mode": "standard", "word_count": 10}
+-
+-    class _FakeSummarizer:
+-        def summarize_with_analysis(self, **kw):
+-            return _FakeSummaryResult()
+-
+-    class _FakeEvaluationResult:
+-        class _Priority:
+-            value = "high"
+-
+-        priority = _Priority()
+-        matched_interests: ClassVar = ["AI"]
+-        reasoning = "Matches AI interest."
+-        preference_influenced = False
+-
+-    class _FakeEvaluator:
+-        def evaluate_content(self, **kw):
+-            return _FakeEvaluationResult()
+-
+-    class _FakeNotifier:
+-        def send_high_priority_notification(self, *a, **kw):
+-            pass
+-
+-    class _FakeConfig:
+-        auto_extract = "high"
+-        deep_extract_exclude: ClassVar[list[str]] = []
+-        context = "AI, machine learning"
+-        llm_light_service = "prismis-openai"
+-        llm_deep_service = "prismis-openai-deep"
+-
+-        # Make dict-style access safe
+-        def get(self, key, default=None):
+-            return getattr(self, key, default)
+-
+-    # Record whether create_or_update_content is called
+-    called_ids = []
+-    original_create = storage.create_or_update_content
+-
+-    def tracking_create(item_arg):
+-        result = original_create(item_arg)
+-        called_ids.append(result[0])
+-        return result
+-
+-    storage.create_or_update_content = tracking_create  # type: ignore[method-assign]  # internal fake, removed by docs/work/no-internal-mocks
+-
+-    # Build a minimal source dict that matches what orchestrator expects
+-    source_dict = {
+-        "id": source_id,
+-        "url": "https://feeds.example.com/rss",
+-        "type": "rss",
+-        "name": "Test Feed",
+-        "active": True,
+-    }
+-
+-    config = _FakeConfig()
+-    orchestrator = DaemonOrchestrator(
+-        storage=storage,
+-        rss_fetcher=_NullFetcher(),
+-        reddit_fetcher=_NullFetcher(),
+-        youtube_fetcher=_NullFetcher(),
+-        file_fetcher=_NullFetcher(),
+-        summarizer=_FakeSummarizer(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+-        evaluator=_FakeEvaluator(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+-        notifier=_FakeNotifier(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+-        config=config,  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+-        deep_extractor=failing_extractor,
+-    )
++    failing_extractor = FailingExtractor(config.llm_deep_service)
+ 
+-    # Inject the item directly into the pipeline step that processes items
+-    # by patching the fetcher's fetch result for this source
+     from prismis_daemon.models import ContentItem as CI
+ 
+     pipeline_item = CI(
+@@ -149,10 +189,26 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
+         def fetch_content(self, source, **kw):
+             return [pipeline_item]
+ 
+-    orchestrator.rss_fetcher = _StubRSSFetcher()
++    orchestrator = DaemonOrchestrator(
++        storage=storage,
++        rss_fetcher=_StubRSSFetcher(),
++        reddit_fetcher=_NullFetcher(),
++        youtube_fetcher=_NullFetcher(),
++        file_fetcher=_NullFetcher(),
++        summarizer=ContentSummarizer(config.llm_light_service),
++        evaluator=ContentEvaluator(config.llm_light_service),
++        notifier=Notifier(),
++        config=config,
++        deep_extractor=failing_extractor,
++    )
+ 
+-    # Pre-seed existing IDs as empty so deduplication doesn't skip our item
+-    storage.get_existing_external_ids = lambda sid: set()  # type: ignore[method-assign, assignment]  # internal fake, removed by docs/work/no-internal-mocks
++    source_dict = {
++        "id": source_id,
++        "url": "https://feeds.example.com/rss",
++        "type": "rss",
++        "name": "Test Feed",
++        "active": True,
++    }
+ 
+     stats = orchestrator.fetch_source_content(source_dict)
+ 
+@@ -167,13 +223,15 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
+     assert len(stats["deep_extract_failures"]) == 1, stats["deep_extract_failures"]
+     assert "rate limit" in stats["deep_extract_failures"][0]
+ 
+-    # INV-002 assertion 2: item was stored
+-    assert len(called_ids) == 1, (
+-        f"create_or_update_content must be called exactly once; called {len(called_ids)} times"
+-    )
++    # INV-002 assertion 2: item was stored -- read back through Storage's own public
++    # surface rather than a patched create_or_update_content.
++    row = storage.conn.execute(
++        "SELECT id FROM content WHERE external_id = ?", ("deep-fail-001",)
++    ).fetchone()
++    assert row is not None, "create_or_update_content must have stored the item"
+ 
+     # INV-002 assertion 3: stored analysis has no deep_extraction key
+-    stored = storage.get_content_by_id(called_ids[0])
++    stored = storage.get_content_by_id(row["id"])
+     assert stored is not None, "Stored item must be retrievable"
+     stored_analysis = stored.get("analysis") or {}
+     assert "deep_extraction" not in stored_analysis, (
+@@ -181,7 +239,9 @@ def test_inv002_deep_failure_does_not_block_storage(test_db: Path) -> None:
+     )
+ 
+ 
+-def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
++def test_sc5_embedding_combines_summary_and_synthesis(
++    test_db: Path, isolated_xdg_env: Path, high_priority_llm_stub: str
++) -> None:
+     """
+     SC-5: When deep extraction succeeds, text_for_embedding must be
+     summary + "\\n\\n" + synthesis so semantic search reflects the richer content.
+@@ -191,17 +251,23 @@ def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
+     even though the synthesis was stored -- search is blind to the deep content.
+ 
+     Seam used: orchestrator.embedder is set in __init__ as self.embedder = embedder or Embedder().
+-    Injecting a stub Embedder that records text= arguments bypasses the real model
+-    without patching any internal module.
++    Injecting a stub Embedder that records text= arguments bypasses the real (heavy,
++    locally-loaded) sentence-transformers model without patching any internal module --
++    it subclasses Embedder itself, so the constructor's declared type is satisfied
++    exactly, the same technique the deep_extractor stand-ins below use.
+     SEARCHED orchestrator.py for text_for_embedding construction -- found at lines 337-342.
+     VERIFIED: self.embedder is publicly accessible and replaceable post-construction.
+     """
+     from prismis_daemon.deep_extractor import ContentDeepExtractor
+     from prismis_daemon.orchestrator import DaemonOrchestrator
+ 
+-    LIGHT_SUMMARY = "Light summary text."
+     DEEP_SYNTHESIS = "Counterintuitive: revenue shrank despite headline growth figures."
+ 
++    config = _real_config(high_priority_llm_stub)
++    assert config.llm_deep_service is not None, (
++        "configure_local_services always sets a deep service"
++    )
++
+     storage = Storage(test_db)
+     source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Test Feed")
+ 
+@@ -215,65 +281,21 @@ def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
+                 "extracted_at": "2026-04-27T12:00:00+00:00",
+             }
+ 
+-    # Stub Embedder that records the text= argument
+-    class _RecordingEmbedder:
+-        def __init__(self):
+-            self.recorded_texts = []
++    # Embedder subclass that records the text= argument instead of running the real
++    # sentence-transformers model.
++    class _RecordingEmbedder(Embedder):
++        def __init__(self) -> None:
++            super().__init__()
++            self.recorded_texts: list[str] = []
+ 
+-        def generate_embedding(self, text: str, title: str = ""):
++        def generate_embedding(self, text: str, title: str = "") -> list[float]:
+             self.recorded_texts.append(text)
+             # Return a minimal 384-dim zero vector so add_embedding doesn't error
+             return [0.0] * 384
+ 
+-        def get_dimension(self):
++        def get_dimension(self) -> int:
+             return 384
+ 
+-    class _FakeSummaryResult:
+-        summary = LIGHT_SUMMARY
+-        reading_summary = "Reading summary."
+-        alpha_insights: ClassVar[list[str]] = []
+-        patterns: ClassVar[list[str]] = []
+-        entities: ClassVar[list[str]] = []
+-        quotes: ClassVar[list[str]] = []
+-        tools: ClassVar[list[str]] = []
+-        urls: ClassVar[list[str]] = []
+-        metadata: ClassVar = {"summarization_mode": "standard", "word_count": 10}
+-
+-    class _FakeSummarizer:
+-        def summarize_with_analysis(self, **kw):
+-            return _FakeSummaryResult()
+-
+-    class _FakeEvaluationResult:
+-        class _Priority:
+-            value = "high"
+-
+-        priority = _Priority()
+-        matched_interests: ClassVar = ["AI"]
+-        reasoning = "Matches AI interest."
+-        preference_influenced = False
+-
+-    class _FakeEvaluator:
+-        def evaluate_content(self, **kw):
+-            return _FakeEvaluationResult()
+-
+-    class _FakeNotifier:
+-        def send_high_priority_notification(self, *a, **kw):
+-            pass
+-
+-    class _FakeConfig:
+-        auto_extract = "high"
+-        deep_extract_exclude: ClassVar[list[str]] = []
+-        context = "AI, machine learning"
+-        llm_light_service = "prismis-openai"
+-        llm_deep_service = "prismis-openai-deep"
+-
+-        def get(self, key, default=None):
+-            return getattr(self, key, default)
+-
+-    class _NullFetcher:
+-        def fetch(self, *a, **kw):
+-            return []
+-
+     from prismis_daemon.models import ContentItem as CI
+ 
+     pipeline_item = CI(
+@@ -304,15 +326,14 @@ def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
+         reddit_fetcher=_NullFetcher(),
+         youtube_fetcher=_NullFetcher(),
+         file_fetcher=_NullFetcher(),
+-        summarizer=_FakeSummarizer(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+-        evaluator=_FakeEvaluator(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+-        notifier=_FakeNotifier(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+-        config=_FakeConfig(),  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
+-        deep_extractor=_SucceedingExtractor("prismis-openai-deep"),
+-        embedder=recording_embedder,  # type: ignore[arg-type]  # internal fake, removed by docs/work/no-internal-mocks
++        summarizer=ContentSummarizer(config.llm_light_service),
++        evaluator=ContentEvaluator(config.llm_light_service),
++        notifier=Notifier(),
++        config=config,
++        deep_extractor=_SucceedingExtractor(config.llm_deep_service),
++        embedder=recording_embedder,
+     )
+ 
+-    storage.get_existing_external_ids = lambda sid: set()  # type: ignore[method-assign, assignment]  # internal fake, removed by docs/work/no-internal-mocks
+     orchestrator.fetch_source_content(source_dict)
+ 
+     # SC-5: exactly one embedding call was made
+@@ -323,7 +344,7 @@ def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
+     embedded_text = recording_embedder.recorded_texts[0]
+ 
+     # SC-5: text must contain both the light summary and the deep synthesis
+-    assert LIGHT_SUMMARY in embedded_text, (
++    assert _SUMMARY_TEXT in embedded_text, (
+         "SC-5: embedding text must include the light summary"
+     )
+     assert DEEP_SYNTHESIS in embedded_text, (
+@@ -331,7 +352,7 @@ def test_sc5_embedding_combines_summary_and_synthesis(test_db: Path) -> None:
+     )
+ 
+     # SC-5: synthesis comes AFTER summary (summary\\n\\nsynthesis order per orchestrator:342)
+-    summary_pos = embedded_text.index(LIGHT_SUMMARY)
++    summary_pos = embedded_text.index(_SUMMARY_TEXT)
+     synthesis_pos = embedded_text.index(DEEP_SYNTHESIS)
+     assert summary_pos < synthesis_pos, (
+         "SC-5: summary must precede synthesis in embedding text"
+diff --git a/daemon/tests/unit/test_storage_dict_unit.py b/daemon/tests/unit/test_storage_dict_unit.py
+index d6a8162..12c38f5 100644
+--- a/daemon/tests/unit/test_storage_dict_unit.py
++++ b/daemon/tests/unit/test_storage_dict_unit.py
+@@ -1,204 +1,123 @@
+-"""Unit tests for Storage.add_content dict interface logic."""
++"""Unit tests for Storage.add_content dict interface logic.
++
++Real collaborators throughout: a real Storage against a real sealed test database.
++add_content's conversion and source-assignment logic is proven by what actually lands
++in the content table, read back through Storage's own public methods -- no patched
++connection, no patched get_active_sources.
++"""
+ 
+-import tempfile
+ from pathlib import Path
+-from unittest.mock import Mock, patch
++
+ import pytest
+-from prismis_daemon.database import init_db
++
+ from prismis_daemon.storage import Storage
+ 
+ 
+-def test_dict_to_content_item_conversion() -> None:
++def test_dict_to_content_item_conversion(test_db: Path) -> None:
+     """Test that dict is properly converted to ContentItem with all fields."""
+-    # Create temporary test database for unit test
+-    temp_dir = tempfile.mkdtemp()
+-    db_path = Path(temp_dir) / "test.db"
+-    init_db(db_path)
+-
+-    # We'll mock the database operations to test only conversion logic
+-    storage = Storage(db_path)
+-
+-    # Mock get_active_sources to return a fake source
+-    with patch.object(storage, "get_active_sources") as mock_get_sources:
+-        mock_get_sources.return_value = [{"id": "test-source-id"}]
+-
+-        # Mock the actual database execution to test conversion logic
+-        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
+-            mock_conn = Mock()
+-            mock_cursor = Mock()
+-            mock_cursor.fetchone.return_value = None  # No duplicate
+-            mock_conn.execute.return_value = mock_cursor
+-            mock_db.return_value = mock_conn
+-
+-            # Test dict with all fields
+-            test_dict = {
+-                "external_id": "test-123",
+-                "title": "Test Title",
+-                "url": "http://test.com",
+-                "content": "Test content",
+-                "summary": "Test summary",
+-                "priority": "high",
+-                "analysis": {"topics": ["test"]},
+-                "notes": "Test notes",
+-            }
+-
+-            # Call add_content with dict
+-            storage.add_content(test_dict)
+-
+-            # Verify the INSERT was called with converted ContentItem fields
+-            insert_call = mock_conn.execute.call_args_list[-1]
+-            insert_values = insert_call[0][1]
+-
+-            # Check that required fields were set
+-            assert insert_values[2] == "test-123"  # external_id
+-            assert insert_values[3] == "Test Title"  # title
+-            assert insert_values[4] == "http://test.com"  # url
+-            assert insert_values[5] == "Test content"  # content
+-            assert insert_values[6] == "Test summary"  # summary
+-            assert insert_values[8] == "high"  # priority
+-
+-    # Cleanup
+-    import shutil
+-
+-    shutil.rmtree(temp_dir, ignore_errors=True)
+-
+-
+-def test_dict_without_source_id_uses_first_active_source() -> None:
++    storage = Storage(test_db)
++    storage.add_source("https://example.com/feed", "rss", "Test Source")
++
++    test_dict = {
++        "external_id": "test-123",
++        "title": "Test Title",
++        "url": "http://test.com",
++        "content": "Test content",
++        "summary": "Test summary",
++        "priority": "high",
++        "analysis": {"topics": ["test"]},
++        "notes": "Test notes",
++    }
++
++    content_id = storage.add_content(test_dict)
++    assert content_id is not None
++
++    stored = storage.get_content_by_id(content_id)
++    assert stored is not None
++    assert stored["external_id"] == "test-123"
++    assert stored["title"] == "Test Title"
++    assert stored["url"] == "http://test.com"
++    assert stored["content"] == "Test content"
++    assert stored["summary"] == "Test summary"
++    assert stored["priority"] == "high"
++    assert stored["analysis"] == {"topics": ["test"]}
++    assert stored["notes"] == "Test notes"
++
++
++def test_dict_without_source_id_uses_first_active_source(test_db: Path) -> None:
+     """Test that missing source_id is automatically assigned from active sources."""
+-    temp_dir = tempfile.mkdtemp()
+-    db_path = Path(temp_dir) / "test.db"
+-    init_db(db_path)
+-    storage = Storage(db_path)
+-
+-    # Mock get_active_sources to return sources
+-    with patch.object(storage, "get_active_sources") as mock_get_sources:
+-        mock_get_sources.return_value = [
+-            {"id": "source-1", "url": "http://source1.com"},
+-            {"id": "source-2", "url": "http://source2.com"},
+-        ]
+-
+-        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
+-            mock_conn = Mock()
+-            mock_cursor = Mock()
+-            mock_cursor.fetchone.return_value = None
+-            mock_conn.execute.return_value = mock_cursor
+-            mock_db.return_value = mock_conn
+-
+-            # Test dict without source_id
+-            test_dict = {"external_id": "no-source-test", "title": "No Source Test"}
+-
+-            storage.add_content(test_dict)
++    storage = Storage(test_db)
++    storage.add_source("http://source1.com", "rss", "Source One")
++    storage.add_source("http://source2.com", "rss", "Source Two")
+ 
+-            # Verify source_id was set to first active source
+-            insert_call = mock_conn.execute.call_args_list[-1]
+-            insert_values = insert_call[0][1]
+-            assert insert_values[1] == "source-1"  # source_id should be first source
++    # add_content's fallback calls the real get_active_sources() and takes its first
++    # result -- computed here through the same public method so the assertion tracks
++    # the real ordering (get_active_sources sorts by id) instead of insertion order.
++    expected_source_id = storage.get_active_sources()[0]["id"]
+ 
+-            # Verify get_active_sources was called
+-            mock_get_sources.assert_called_once()
++    test_dict = {"external_id": "no-source-test", "title": "No Source Test"}
++    content_id = storage.add_content(test_dict)
++    assert content_id is not None
+ 
+-    # Cleanup
+-    import shutil
++    stored = storage.get_content_by_id(content_id)
++    assert stored is not None
++    assert stored["source_id"] == expected_source_id
+ 
+-    shutil.rmtree(temp_dir, ignore_errors=True)
+ 
+-
+-def test_dict_without_source_id_raises_when_no_active_sources() -> None:
++def test_dict_without_source_id_raises_when_no_active_sources(test_db: Path) -> None:
+     """Test that ValueError is raised when no source_id provided and no active sources."""
+-    temp_dir = tempfile.mkdtemp()
+-    db_path = Path(temp_dir) / "test.db"
+-    init_db(db_path)
+-    storage = Storage(db_path)
+-
+-    # Mock get_active_sources to return empty list
+-    with patch.object(storage, "get_active_sources") as mock_get_sources:
+-        mock_get_sources.return_value = []
+-
+-        # Test dict without source_id
+-        test_dict = {"external_id": "no-source-test", "title": "No Source Test"}
+-
+-        # Should raise ValueError with specific message
+-        with pytest.raises(
+-            ValueError, match="No source_id provided and no active sources available"
+-        ):
+-            storage.add_content(test_dict)
+-
+-    # Cleanup
+-    import shutil
+-
+-    shutil.rmtree(temp_dir, ignore_errors=True)
+-
++    storage = Storage(test_db)
++    # No sources added at all -- get_active_sources() returns [].
+ 
+-def test_dict_with_explicit_source_id_bypasses_lookup() -> None:
+-    """Test that explicit source_id in dict bypasses active source lookup."""
+-    temp_dir = tempfile.mkdtemp()
+-    db_path = Path(temp_dir) / "test.db"
+-    init_db(db_path)
+-    storage = Storage(db_path)
++    test_dict = {"external_id": "no-source-test", "title": "No Source Test"}
+ 
+-    # Mock get_active_sources - should NOT be called
+-    with patch.object(storage, "get_active_sources") as mock_get_sources:
+-        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
+-            mock_conn = Mock()
+-            mock_cursor = Mock()
+-            mock_cursor.fetchone.return_value = None
+-            mock_conn.execute.return_value = mock_cursor
+-            mock_db.return_value = mock_conn
++    with pytest.raises(
++        ValueError, match="No source_id provided and no active sources available"
++    ):
++        storage.add_content(test_dict)
+ 
+-            # Test dict with explicit source_id
+-            test_dict = {
+-                "external_id": "explicit-source-test",
+-                "title": "Explicit Source Test",
+-                "source_id": "explicit-source-123",
+-            }
+ 
+-            storage.add_content(test_dict)
++def test_dict_with_explicit_source_id_bypasses_lookup(test_db: Path) -> None:
++    """Test that explicit source_id in dict bypasses active source lookup.
+ 
+-            # Verify the provided source_id was used
+-            insert_call = mock_conn.execute.call_args_list[-1]
+-            insert_values = insert_call[0][1]
+-            assert insert_values[1] == "explicit-source-123"
++    The source is paused (inactive) after creation, so get_active_sources() returns
++    []. If add_content's explicit-source_id branch fell through to the active-source
++    fallback anyway, this would raise ValueError instead of succeeding -- the same
++    failure test_dict_without_source_id_raises_when_no_active_sources proves above.
++    """
++    storage = Storage(test_db)
++    source_id = storage.add_source(
++        "https://example.com/paused-feed", "rss", "Paused Source"
++    )
++    storage.pause_source(source_id)
++    assert storage.get_active_sources() == []
+ 
+-            # Verify get_active_sources was NOT called
+-            mock_get_sources.assert_not_called()
++    test_dict = {
++        "external_id": "explicit-source-test",
++        "title": "Explicit Source Test",
++        "source_id": source_id,
++    }
+ 
+-    # Cleanup
+-    import shutil
++    content_id = storage.add_content(test_dict)
++    assert content_id is not None
+ 
+-    shutil.rmtree(temp_dir, ignore_errors=True)
++    stored = storage.get_content_by_id(content_id)
++    assert stored is not None
++    assert stored["source_id"] == source_id
+ 
+ 
+-def test_dict_optional_fields_handling() -> None:
++def test_dict_optional_fields_handling(test_db: Path) -> None:
+     """Test that optional fields are properly handled when present or absent."""
+-    temp_dir = tempfile.mkdtemp()
+-    db_path = Path(temp_dir) / "test.db"
+-    init_db(db_path)
+-    storage = Storage(db_path)
+-
+-    with patch.object(storage, "get_active_sources") as mock_get_sources:
+-        mock_get_sources.return_value = [{"id": "test-source"}]
+-
+-        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
+-            mock_conn = Mock()
+-            mock_cursor = Mock()
+-            mock_cursor.fetchone.return_value = None
+-            mock_conn.execute.return_value = mock_cursor
+-            mock_db.return_value = mock_conn
+-
+-            # Test dict with minimal fields
+-            minimal_dict = {"external_id": "minimal-test", "title": "Minimal Test"}
+-
+-            storage.add_content(minimal_dict)
+-
+-            # Verify defaults were used for missing fields
+-            insert_call = mock_conn.execute.call_args_list[-1]
+-            insert_values = insert_call[0][1]
+-            assert insert_values[4] == ""  # url defaults to empty string
+-            assert insert_values[5] == ""  # content defaults to empty string
+-            assert insert_values[6] is None  # summary is None
+-            assert insert_values[8] is None  # priority is None
+-
+-    # Cleanup
+-    import shutil
+-
+-    shutil.rmtree(temp_dir, ignore_errors=True)
++    storage = Storage(test_db)
++    storage.add_source("https://example.com/feed", "rss", "Test Source")
++
++    minimal_dict = {"external_id": "minimal-test", "title": "Minimal Test"}
++    content_id = storage.add_content(minimal_dict)
++    assert content_id is not None
++
++    stored = storage.get_content_by_id(content_id)
++    assert stored is not None
++    assert stored["url"] == ""
++    assert stored["content"] == ""
++    assert stored["summary"] is None
++    assert stored["priority"] is None
+diff --git a/daemon/tests/unit/test_verify_subcommand_unit.py b/daemon/tests/unit/test_verify_subcommand_unit.py
+index a24dd4f..5d8507d 100644
+--- a/daemon/tests/unit/test_verify_subcommand_unit.py
++++ b/daemon/tests/unit/test_verify_subcommand_unit.py
+@@ -290,7 +290,9 @@ def test_verify_zero_active_sources_exits_1(monkeypatch, test_db) -> None:
+ 
+         shutil.rmtree(tmpdir, ignore_errors=True)
+ 
+-def test_verify_continues_all_checks_after_light_failure(monkeypatch, test_db) -> None:
++def test_verify_continues_all_checks_after_light_failure(
++    monkeypatch, test_db, capsys
++) -> None:
+     """
+     INVARIANT (discovered, NOT in task file): Light service failure must NOT
+     short-circuit -- verify() must still run the sources check so operators
+@@ -299,29 +301,33 @@ def test_verify_continues_all_checks_after_light_failure(monkeypatch, test_db) -
+     would be invisible. Operator fixes light service, re-runs verify, THEN discovers
+     the sources problem -- two separate debug cycles for a problem visible in one.
+     This invariant is not mentioned in Task 4.1 Test Considerations or the build report.
++
++    Driven through the real sources check (a real, empty Storage) rather than a
++    patched Storage.get_active_sources -- the sources-check line only appears in the
++    real console output if the real check actually ran.
+     """
+     tmpdir, _ = _make_config_dir(_LIGHT_ONLY_CONFIG)
+     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmpdir))
+     # Empty database -- zero sources -- so sources check will ALSO fail
+     # If the function short-circuited on light failure, sources check would not run
+ 
+-    sources_check_ran = [False]
+-    real_get_active_sources = Storage.get_active_sources
+-
+-    def _patched_get_active_sources(self):
+-        sources_check_ran[0] = True
+-        return real_get_active_sources(self)
+-
+     try:
+         with patch(_HEALTH_CHECK_MOCK, side_effect=Exception("Connection refused")):
+-            with patch.object(Storage, "get_active_sources", _patched_get_active_sources):
+-                with pytest.raises(SystemExit):
+-                    verify()
++            with pytest.raises(SystemExit) as exc_info:
++                verify()
+ 
+-        assert sources_check_ran[0], (
++        out = capsys.readouterr().out
++        assert exc_info.value.code == 1
++        assert "light service unreachable" in out, (
++            "Light service failure must still be reported"
++        )
++        assert "no active sources" in out, (
+             "Sources check must run even when light service fails -- "
+             "verify must not short-circuit on light failure"
+         )
++        assert "2 check(s) failed" in out, (
++            "both checks must contribute to the FAIL rollup, not just the first"
++        )
+     finally:
+         import shutil
+ 

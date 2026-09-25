@@ -1,0 +1,22 @@
+{
+  "artifact": [
+    "cli/tests/conftest.py",
+    "cli/tests/unit/test_extract_entry_unit.py",
+    "cli/tests/unit/test_api_client_search_params.py",
+    "cli/tests/unit/test_extract_command_unit.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a7403e30e281323d6",
+    "branch": "worktree-agent-a7403e30e281323d6",
+    "base": "caf518d495ffcee36e3f3bef0143931a0317805f"
+  },
+  "red": {
+    "command": "cd cli && uv run pytest -q --no-header tests/unit/test_extract_entry_unit.py tests/unit/test_api_client_search_params.py tests/unit/test_extract_command_unit.py",
+    "tests": [
+      "cli/tests/unit/test_extract_entry_unit.py",
+      "cli/tests/unit/test_api_client_search_params.py",
+      "cli/tests/unit/test_extract_command_unit.py"
+    ]
+  }
+}

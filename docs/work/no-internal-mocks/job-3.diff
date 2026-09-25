@@ -1,0 +1,1118 @@
+diff --git a/cli/tests/conftest.py b/cli/tests/conftest.py
+index be1188d..38495be 100644
+--- a/cli/tests/conftest.py
++++ b/cli/tests/conftest.py
+@@ -1,10 +1,22 @@
+ """Shared test fixtures for CLI tests."""
+ 
++import asyncio
++import dataclasses
++import http.server
++import json as _json
+ import os
++import socket
+ import tempfile
++import threading
++import time
++import uuid
+ from collections.abc import Iterator
++from datetime import datetime
+ from pathlib import Path
++from typing import Any
++
+ import pytest
++import uvicorn
+ 
+ # Popped at import, not in the fixture below, and this ordering is the whole point.
+ # Rich resolves a Console's color system once, in its constructor, and caches it — only
+@@ -18,7 +30,24 @@ import pytest
+ os.environ.pop("FORCE_COLOR", None)
+ 
+ 
++from prismis_daemon.circuit_breaker import reset_circuit_breaker
+ from prismis_daemon.database import init_db
++from prismis_daemon.defaults import DEFAULT_CONFIG_TOML, DEFAULT_CONTEXT_MD
++from prismis_daemon.deep_extractor import ContentDeepExtractor
++from prismis_daemon.models import ContentItem
++from prismis_daemon.storage import Storage
++
++# The API key both the sealed daemon config and the sealed [remote] config agree on.
++# One source of truth so a live_daemon test never drifts between the two files it
++# writes into the same sealed config.toml.
++TEST_API_KEY = "prismis-cli-test-key"
++
++# Embedded in seeded content for the one test that needs a real deep-extraction
++# failure (test_per_item_failure_does_not_abort_batch). The stub LLM server below
++# looks for this marker in the prompt it receives and answers with a body that
++# fails ContentDeepExtractor's own JSON parse — a real failure produced by real
++# content, not an injected exception.
++DEEP_EXTRACT_FAILURE_MARKER = "TRIGGER-DEEP-EXTRACT-FAILURE"
+ 
+ 
+ @pytest.fixture(autouse=True)
+@@ -67,3 +96,253 @@ def test_db() -> Iterator[Path]:
+ 
+     shutil.rmtree(temp_dir, ignore_errors=True)
+ 
++
++@dataclasses.dataclass
++class LiveDaemon:
++    """A real prismis_daemon API server, reachable over a real loopback socket.
++
++    `base_url` and `api_key` are also written into the sealed config.toml's
++    [remote] section, so `cli.extract.APIClient()` — which builds its own client
++    from config rather than accepting an injected one — reaches this daemon too.
++    `db_path` is the exact file the daemon's own `Storage()` resolves via
++    XDG_DATA_HOME, so a test seeds content by opening a second `Storage(db_path)`
++    against the same file.
++    """
++
++    base_url: str
++    api_key: str
++    db_path: Path
++
++
++def seed_content(
++    storage: Storage,
++    source_id: str,
++    *,
++    title: str,
++    priority: str = "high",
++    content: str = "Article body long enough to summarize and extract from.",
++    analysis: dict[str, Any] | None = None,
++    published_at: datetime | None = None,
++) -> str:
++    """Insert one content row and narrow the id to `str`.
++
++    `Storage.add_content` returns `str | None` — None on a duplicate external_id.
++    A fresh uuid4 external_id per call means that never happens here; the assert
++    documents the assumption instead of leaving it implicit.
++
++    `published_at` controls the order `GET /api/entries` returns same-priority
++    items in (`ORDER BY c.published_at DESC` — storage.py's
++    `get_content_by_priority`), for a test that needs a deterministic order.
++    """
++    content_id = storage.add_content(
++        ContentItem(
++            source_id=source_id,
++            external_id=str(uuid.uuid4()),
++            title=title,
++            url=f"http://example.com/{uuid.uuid4().hex[:8]}",
++            content=content,
++            priority=priority,
++            analysis=analysis,
++            published_at=published_at,
++        )
++    )
++    assert content_id is not None, "expected a newly inserted content id, got a duplicate"
++    return content_id
++
++
++def _write_remote_config(cfg_dir: Path, base_url: str, api_key: str) -> None:
++    """Point the sealed config.toml's [remote] section at a real daemon.
++
++    `cli.extract.APIClient()` constructs itself from config with no injection
++    point (unlike `_make_client()` in the api_client unit tests), so this is the
++    only way to redirect it onto a fixture's ephemeral port. `is_remote_mode()`
++    (remote.py:64) is keyed off [remote].url alone; `[api]` is left untouched.
++    """
++    config_path = cfg_dir / "config.toml"
++    lines = config_path.read_text().splitlines()
++    out = []
++    in_remote = False
++    for line in lines:
++        if line.strip() == "[remote]":
++            in_remote = True
++            out.append(line)
++            # Real url/key lines go right under the header they belong to —
++            # appending them after the whole-file loop instead would land them
++            # under whatever section happens to be last, and tomllib would
++            # parse them there instead of into [remote].
++            out.append(f'url = "{base_url}"')
++            out.append(f'key = "{api_key}"')
++            continue
++        if in_remote and line.startswith("["):
++            in_remote = False
++        if in_remote and line.startswith(("# url", "# key")):
++            continue
++        out.append(line)
++    config_path.write_text("\n".join(out) + "\n")
++
++
++def _wait_until_started(server: uvicorn.Server, timeout: float = 5.0) -> None:
++    deadline = time.time() + timeout
++    while not server.started and time.time() < deadline:
++        time.sleep(0.01)
++    assert server.started, "uvicorn test server did not start in time"
++
++
++def _run_live_daemon(
++    cfg_dir: Path, deep_service_name: str | None
++) -> Iterator[LiveDaemon]:
++    """Run the real `prismis_daemon.api.app` on a real loopback socket.
++
++    Same shape as `local_pipeline_stub` (daemon/tests/conftest.py): a real
++    server, in a background thread, torn down at the end of the test. Unlike
++    that fixture this serves the daemon's own FastAPI app — real Storage, real
++    Config, real `verify_api_key` — so the CLI's real APIClient talks to a real
++    daemon instead of a mock standing in for one.
++    """
++    cfg_dir.joinpath("config.toml").write_text(
++        DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY)
++    )
++    cfg_dir.joinpath("context.md").write_text(DEFAULT_CONTEXT_MD)
++
++    data_home = Path(os.environ["XDG_DATA_HOME"])
++    db_path = data_home / "prismis" / "prismis.db"
++    db_path.parent.mkdir(parents=True, exist_ok=True)
++    init_db(db_path)
++
++    if deep_service_name:
++        out = []
++        for line in cfg_dir.joinpath("config.toml").read_text().splitlines():
++            if line.startswith(("deep_service", "# deep_service")):
++                out.append(f'deep_service = "{deep_service_name}"')
++            else:
++                out.append(line)
++        cfg_dir.joinpath("config.toml").write_text("\n".join(out) + "\n")
++
++    from prismis_daemon.api import app
++
++    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
++    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
++    sock.bind(("127.0.0.1", 0))
++    sock.listen(128)
++    host, port = sock.getsockname()
++    base_url = f"http://{host}:{port}"
++
++    if deep_service_name:
++        reset_circuit_breaker(deep_service_name)
++        app.state.deep_extractor = ContentDeepExtractor(deep_service_name)
++    else:
++        app.state.deep_extractor = None
++
++    _write_remote_config(cfg_dir, base_url, TEST_API_KEY)
++
++    config = uvicorn.Config(app, log_level="warning")
++    server = uvicorn.Server(config)
++
++    def _run() -> None:
++        asyncio.run(server.serve(sockets=[sock]))
++
++    thread = threading.Thread(target=_run, daemon=True)
++    thread.start()
++    _wait_until_started(server)
++
++    try:
++        yield LiveDaemon(base_url=base_url, api_key=TEST_API_KEY, db_path=db_path)
++    finally:
++        server.should_exit = True
++        thread.join(timeout=5.0)
++        app.state.deep_extractor = None
++        if deep_service_name:
++            reset_circuit_breaker(deep_service_name)
++
++
++@pytest.fixture
++def live_daemon(isolated_xdg_env: Path) -> Iterator[LiveDaemon]:
++    """A real daemon with no deep-extraction service configured.
++
++    `POST /api/entries/{id}/extract` answers 503 "not configured" for this
++    daemon, which is the real shape of the server-side error the extract_entry
++    HTTP-error test needs. Use `live_daemon_deep` for a daemon that can extract.
++    """
++    yield from _run_live_daemon(isolated_xdg_env, deep_service_name=None)
++
++
++@pytest.fixture
++def live_daemon_deep(isolated_xdg_env: Path) -> Iterator[LiveDaemon]:
++    """A real daemon wired to a real (local, stubbed) deep-extraction LLM.
++
++    The LLM is the one collaborator the constitution permits standing in for
++    (Principle I); everything else here is real: real Storage, real Config,
++    real ContentDeepExtractor, real CircuitBreaker keyed to a fresh per-test
++    service name so no test can leak circuit state into another.
++
++    A seeded item's content containing `DEEP_EXTRACT_FAILURE_MARKER` makes the
++    stub answer with a body that fails `ContentDeepExtractor`'s own JSON parse,
++    producing a genuine extraction failure without injecting an exception
++    anywhere — the same real-content-drives-real-branch technique
++    `local_pipeline_stub` uses for its own stub.
++    """
++    service_name = f"prismis-cli-test-deep-{uuid.uuid4().hex[:8]}"
++
++    class _Handler(http.server.BaseHTTPRequestHandler):
++        def log_message(self, *_args: object) -> None:  # keep pytest output clean
++            return
++
++        def do_POST(self) -> None:
++            if not self.path.endswith("/chat/completions"):
++                self.send_error(404)
++                return
++            length = int(self.headers.get("Content-Length", "0"))
++            raw = self.rfile.read(length)
++            if DEEP_EXTRACT_FAILURE_MARKER.encode() in raw:
++                message_content = "not valid json"
++            else:
++                message_content = _json.dumps(
++                    {"synthesis": "Stubbed deep synthesis.", "quotables": []}
++                )
++            payload = {
++                "id": "stub-deep-completion",
++                "object": "chat.completion",
++                "model": "stub-deep-model",
++                "choices": [
++                    {
++                        "index": 0,
++                        "message": {"role": "assistant", "content": message_content},
++                        "finish_reason": "stop",
++                    }
++                ],
++                "usage": {
++                    "prompt_tokens": 5,
++                    "completion_tokens": 5,
++                    "total_tokens": 10,
++                },
++            }
++            body = _json.dumps(payload).encode()
++            self.send_response(200)
++            self.send_header("Content-Type", "application/json")
++            self.send_header("Content-Length", str(len(body)))
++            self.end_headers()
++            self.wfile.write(body)
++
++    llm_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
++    llm_host, llm_port = llm_server.server_address[0], llm_server.server_address[1]
++    assert isinstance(llm_host, str), "loopback bind always yields a str host"
++    llm_thread = threading.Thread(target=llm_server.serve_forever, daemon=True)
++    llm_thread.start()
++
++    llm_core_dir = isolated_xdg_env.parent / "llm-core"
++    llm_core_dir.mkdir(parents=True, exist_ok=True)
++    llm_core_dir.joinpath("services.toml").write_text(
++        f'default_service = "{service_name}"\n'
++        f'[services.{service_name}]\n'
++        'adapter = "openai"\n'
++        f'base_url = "http://{llm_host}:{llm_port}/v1"\n'
++        "key_required = false\n"
++        'default_model = "stub-deep-model"\n'
++    )
++
++    try:
++        yield from _run_live_daemon(isolated_xdg_env, deep_service_name=service_name)
++    finally:
++        llm_server.shutdown()
++        llm_server.server_close()
++        llm_thread.join(timeout=2.0)
+diff --git a/cli/tests/unit/test_api_client_search_params.py b/cli/tests/unit/test_api_client_search_params.py
+index 780f240..73da135 100644
+--- a/cli/tests/unit/test_api_client_search_params.py
++++ b/cli/tests/unit/test_api_client_search_params.py
+@@ -1,43 +1,95 @@
+ """Unit tests for APIClient.search() params construction — CLI wiring invariant.
+ 
+ Protects:
+-- Wiring invariant: min_score=0.0 is included in params (not dropped by falsy guard)
+-- Wiring invariant: min_score=None omits the param (server default applies)
+-- Wiring invariant: explicit min_score value is sent as-is to the API
++- INV: min_score=0.0 is included in params (not dropped by falsy guard)
++- INV: min_score=None omits the param (server default applies)
++- INV: explicit min_score value is sent as-is to the API
+ 
+ The critical line is api_client.py:606 `if min_score is not None:`.
+ A falsy guard `if min_score:` would silently drop 0.0, breaking the override path.
+ 
+-Tests bypass APIClient.__init__ (avoids config-file dependency) and patch
+-httpx.Client.get at the HTTP boundary to capture the params dict.
++Tests bypass APIClient.__init__ (avoids config-file dependency) and drive the real
++APIClient.search() over a real loopback socket against `param_probe`: a real local
++HTTP server (below), not a mock — no httpx or cli internals are patched. The probe
++reports the query string it actually received back to the caller inside the normal
++`items` shape, which `APIClient.search()` returns unmodified (api_client.py's search
++does `data.get("data", {}).get("items", [])` with no per-item transformation), so
++what the test asserts on is exactly what crossed the real HTTP boundary.
++
++A real `prismis_daemon` daemon (see conftest.py's `live_daemon`) would answer this
++too, but only by ranking a seeded item's real embedding against `min_score` — a
++similarity score this suite cannot pin to a side of the 0.0/0.1 boundary without
++depending on the embedding model's actual output. This wiring invariant is about
++what the CLI puts on the wire, not about semantic ranking, so the probe narrows the
++proof to what can be pinned deterministically.
+ """
+ 
+-from unittest.mock import MagicMock, patch
++import http.server
++import json
++import threading
++import urllib.parse
++from collections.abc import Iterator
+ 
+ import httpx
+-
++import pytest
+ 
+ from cli.api_client import APIClient
+ 
+ 
+-def _make_client() -> APIClient:
++class _ParamProbeHandler(http.server.BaseHTTPRequestHandler):
++    """Reports the query params a GET actually carried, inside a normal items list."""
++
++    def log_message(self, *_args: object) -> None:  # keep pytest output clean
++        return
++
++    def do_GET(self) -> None:
++        query = urllib.parse.urlparse(self.path).query
++        params = urllib.parse.parse_qs(query)
++        payload = {
++            "success": True,
++            "data": {
++                "items": [
++                    {
++                        "has_min_score": "min_score" in params,
++                        "min_score_value": params.get("min_score", [None])[0],
++                    }
++                ]
++            },
++        }
++        body = json.dumps(payload).encode()
++        self.send_response(200)
++        self.send_header("Content-Type", "application/json")
++        self.send_header("Content-Length", str(len(body)))
++        self.end_headers()
++        self.wfile.write(body)
++
++
++@pytest.fixture
++def param_probe() -> Iterator[str]:
++    """A real local HTTP server that reports back what query params it received."""
++    server = http.server.HTTPServer(("127.0.0.1", 0), _ParamProbeHandler)
++    thread = threading.Thread(target=server.serve_forever, daemon=True)
++    thread.start()
++    host, port = server.server_address[0], server.server_address[1]
++    assert isinstance(host, str), "loopback bind always yields a str host"
++    try:
++        yield f"http://{host}:{port}"
++    finally:
++        server.shutdown()
++        server.server_close()
++        thread.join(timeout=2.0)
++
++
++def _make_client(base_url: str) -> APIClient:
+     """Construct APIClient bypassing __init__ config-file dependency."""
+     client = object.__new__(APIClient)
+-    client.base_url = "http://localhost:8989"
++    client.base_url = base_url
+     client.api_key = "test-key"
+     client.timeout = httpx.Timeout(30.0)
+     return client
+ 
+ 
+-def _fake_get_ok(*args, **kwargs) -> MagicMock:
+-    """Fake httpx.Client.get returning a minimal success response."""
+-    resp = MagicMock()
+-    resp.status_code = 200
+-    resp.json.return_value = {"success": True, "data": {"items": []}}
+-    return resp
+-
+-
+-def test_min_score_none_omits_param_from_request() -> None:
++def test_min_score_none_omits_param_from_request(param_probe: str) -> None:
+     """
+     INVARIANT: min_score=None does NOT add min_score to the HTTP params dict.
+     BREAKS: Server default (0.1) would be overridden by an explicit None param.
+@@ -45,23 +97,16 @@ def test_min_score_none_omits_param_from_request() -> None:
+     When min_score is None, the caller intends to use the server's default.
+     The params dict must not include min_score so the server default applies.
+     """
+-    client = _make_client()
+-    captured: dict = {}
++    client = _make_client(param_probe)
+ 
+-    def fake_get(*args, **kwargs):
+-        captured.update(kwargs)
+-        return _fake_get_ok()
++    results = client.search("test query", min_score=None)
+ 
+-    with patch.object(httpx.Client, "get", fake_get):
+-        client.search("test query", min_score=None)
+-
+-    params = captured.get("params", {})
+-    assert "min_score" not in params, (
+-        f"min_score=None must not add 'min_score' to params, got: {params}"
++    assert results[0]["has_min_score"] is False, (
++        f"min_score=None must not add 'min_score' to params, got: {results[0]}"
+     )
+ 
+ 
+-def test_min_score_zero_included_in_params() -> None:
++def test_min_score_zero_included_in_params(param_probe: str) -> None:
+     """
+     INVARIANT: min_score=0.0 IS included in params (0.0 is falsy but valid).
+     BREAKS: Users requesting all results (override path) silently get filtered results.
+@@ -69,41 +114,27 @@ def test_min_score_zero_included_in_params() -> None:
+     This is the critical correctness point: `if min_score is not None` must be used,
+     not `if min_score`. The value 0.0 is falsy, so a truthiness check would drop it.
+     """
+-    client = _make_client()
+-    captured: dict = {}
+-
+-    def fake_get(*args, **kwargs):
+-        captured.update(kwargs)
+-        return _fake_get_ok()
++    client = _make_client(param_probe)
+ 
+-    with patch.object(httpx.Client, "get", fake_get):
+-        client.search("test query", min_score=0.0)
++    results = client.search("test query", min_score=0.0)
+ 
+-    params = captured.get("params", {})
+-    assert "min_score" in params, (
+-        f"min_score=0.0 must be included in params (is not None), got: {params}"
++    assert results[0]["has_min_score"] is True, (
++        f"min_score=0.0 must be included in params (is not None), got: {results[0]}"
+     )
+-    assert params["min_score"] == 0.0, (
+-        f"min_score param must be 0.0, got: {params['min_score']}"
++    assert results[0]["min_score_value"] == "0.0", (
++        f"min_score param must carry 0.0, got: {results[0]['min_score_value']}"
+     )
+ 
+ 
+-def test_explicit_min_score_sent_as_is() -> None:
++def test_explicit_min_score_sent_as_is(param_probe: str) -> None:
+     """
+     INVARIANT: Explicit min_score value is passed through to the HTTP request unchanged.
+     BREAKS: Score threshold is silently transformed before reaching the API.
+     """
+-    client = _make_client()
+-    captured: dict = {}
+-
+-    def fake_get(*args, **kwargs):
+-        captured.update(kwargs)
+-        return _fake_get_ok()
++    client = _make_client(param_probe)
+ 
+-    with patch.object(httpx.Client, "get", fake_get):
+-        client.search("test query", min_score=0.15)
++    results = client.search("test query", min_score=0.15)
+ 
+-    params = captured.get("params", {})
+-    assert params.get("min_score") == 0.15, (
+-        f"min_score=0.15 must reach API unchanged, got: {params.get('min_score')}"
++    assert results[0]["min_score_value"] == "0.15", (
++        f"min_score=0.15 must reach API unchanged, got: {results[0]['min_score_value']}"
+     )
+diff --git a/cli/tests/unit/test_extract_command_unit.py b/cli/tests/unit/test_extract_command_unit.py
+index cf306b8..fe33bdf 100644
+--- a/cli/tests/unit/test_extract_command_unit.py
++++ b/cli/tests/unit/test_extract_command_unit.py
+@@ -7,20 +7,33 @@ Protects:
+ - INV: per-item RuntimeError caught without stopping the batch
+ - INV: extract command registered in __main__.py (command discoverable)
+ 
+-Tests wrap the extract() function in a local typer app for invocation,
+-bypassing the full __main__.py app (avoids config-file and service dependencies).
+-APIClient is patched at the cli.extract module boundary to control responses.
++Tests invoke the real `extract()` Typer command, wrapped in a local app for
++CliRunner (bypassing the full __main__.py app, which needs a fuller config than
++this command does). `extract()` constructs its own `cli.extract.APIClient()`
++in-body — there is no injection point — so the guard tests below prove their
++"no API call happened" invariant the way `no_network` does in
++daemon/tests/conftest.py: by leaving no config.toml in place, so a real call
++would surface as a visibly different crash/message rather than passing silently.
++The tests that need a real API call route through `live_daemon` / `live_daemon_deep`
++(conftest.py), which also point the sealed config's [remote] section at the
++fixture's real daemon — `APIClient()` reaches it with no code change needed here.
+ """
+ 
+-from unittest.mock import patch
++import socket
++from datetime import UTC, datetime, timedelta
+ 
+ import typer
+-
+-
+ from typer.testing import CliRunner
+ 
+ from cli.extract import extract
+ 
++from conftest import (
++    DEEP_EXTRACT_FAILURE_MARKER,
++    LiveDaemon,
++    seed_content,
++)
++from prismis_daemon.storage import Storage
++
+ # Wrap the plain function in a local Typer app for test invocation.
+ # CliRunner.invoke() requires a Typer app, not a raw function.
+ _app = typer.Typer()
+@@ -29,43 +42,24 @@ _app.command()(extract)
+ runner = CliRunner()
+ 
+ 
+-def _make_item(
+-    item_id: str = "abc123",
+-    title: str = "Test Article",
+-    has_extraction: bool = False,
+-) -> dict:
+-    """Build a minimal candidate item dict matching the API response shape."""
+-    analysis: dict = {}
+-    if has_extraction:
+-        analysis["deep_extraction"] = {
+-            "synthesis": "test synthesis",
+-            "model": "gpt-5-mini",
+-        }
+-    return {"id": item_id, "title": title, "analysis": analysis}
+-
+-
+ def test_invalid_priority_exits_before_api_call() -> None:
+     """
+     INVARIANT: Invalid --priority value exits code 1 before any API call.
+     BREAKS: Bad requests reach the daemon, causing confusing server errors.
+ 
+-    The validation guard must fire before APIClient() is even constructed.
++    No config.toml exists in the sealed XDG dirs (isolated_xdg_env only creates
++    the directory), so if the validation guard failed to fire, `APIClient()`
++    would raise "Config file not found" instead of printing this message —
++    a real, distinguishable crash rather than a silently-passing test.
+     """
+-    get_content_called = [0]
+-
+-    def fake_get_content(*args, **kwargs):
+-        get_content_called[0] += 1
+-        return []
+-
+-    with patch("cli.extract.APIClient") as MockClient:
+-        MockClient.return_value.get_content.side_effect = fake_get_content
+-        result = runner.invoke(_app, ["--priority", "invalid"])
++    result = runner.invoke(_app, ["--priority", "invalid"])
+ 
+     assert result.exit_code == 1, (
+         f"Expected exit code 1 for invalid priority, got {result.exit_code}"
+     )
+-    assert get_content_called[0] == 0, (
+-        "get_content() must NOT be called when priority is invalid"
++    assert "Invalid --priority" in result.output, (
++        f"get_content() must NOT be reached when priority is invalid — expected "
++        f"the validation message, got: {result.output!r}"
+     )
+ 
+ 
+@@ -76,118 +70,125 @@ def test_limit_zero_short_circuits_without_api_call() -> None:
+ 
+     The server's /api/entries enforces limit >= 1 via Pydantic; without the client-side
+     guard, --limit 0 would surface as a red error message rather than the documented no-op.
++    No config.toml exists, so a bypassed guard would crash instead of matching this output.
+     """
+-    get_content_called = [0]
+-
+-    def fake_get_content(*args, **kwargs):
+-        get_content_called[0] += 1
+-        return []
+-
+-    with patch("cli.extract.APIClient") as MockClient:
+-        MockClient.return_value.get_content.side_effect = fake_get_content
+-        result = runner.invoke(_app, ["--limit", "0"])
++    result = runner.invoke(_app, ["--limit", "0"])
+ 
+     assert result.exit_code == 0, (
+         f"Expected exit code 0 for --limit 0, got {result.exit_code}"
+     )
+-    assert get_content_called[0] == 0, "get_content() must NOT be called when limit < 1"
+     assert "No items need extraction" in result.output, (
+         f"Expected 'No items need extraction' in output, got: {result.output!r}"
+     )
+ 
+ 
+-def test_client_filter_excludes_already_extracted_items() -> None:
++def test_client_filter_excludes_already_extracted_items(
++    live_daemon_deep: LiveDaemon,
++) -> None:
+     """
+     INVARIANT: Items with analysis.deep_extraction are excluded from the pending batch.
+     BREAKS: Every run re-extracts all items (ignoring idempotency), wasting LLM credits.
+ 
+-    get_content() returns 3 items: 2 already extracted, 1 pending.
+-    extract_entry() must be called exactly once (for the pending item).
++    Seeds 3 real HIGH-priority items: 2 already carry `analysis.deep_extraction`,
++    1 does not. The real daemon returns all 3; the CLI's own client-side filter
++    must be what excludes the two already-extracted ones, since the one real
++    extraction attempt this drives (the pending item) must be the only one that
++    happens — a second, unwanted attempt on an already-extracted item would show
++    up as "2 extracted" instead of "1 extracted, 0 failed".
+     """
+-    extracted_a = _make_item("id-a", "Already Extracted A", has_extraction=True)
+-    extracted_b = _make_item("id-b", "Already Extracted B", has_extraction=True)
+-    pending_c = _make_item("id-c", "Pending Article C", has_extraction=False)
+-
+-    extract_calls = []
+-
+-    def fake_extract_entry(entry_id: str) -> dict:
+-        extract_calls.append(entry_id)
+-        return {"deep_extraction": {"synthesis": "done"}}
++    storage = Storage(live_daemon_deep.db_path)
++    source_id = storage.add_source("http://example.com/feed", "rss", "Example")
++    seed_content(
++        storage,
++        source_id,
++        title="Already Extracted A",
++        analysis={"deep_extraction": {"synthesis": "old", "model": "stub"}},
++    )
++    seed_content(
++        storage,
++        source_id,
++        title="Already Extracted B",
++        analysis={"deep_extraction": {"synthesis": "old", "model": "stub"}},
++    )
++    seed_content(storage, source_id, title="Pending Article C")
++    storage.close()
+ 
+-    with patch("cli.extract.APIClient") as MockClient:
+-        MockClient.return_value.get_content.return_value = [
+-            extracted_a,
+-            extracted_b,
+-            pending_c,
+-        ]
+-        MockClient.return_value.extract_entry.side_effect = fake_extract_entry
+-        result = runner.invoke(_app, ["--limit", "10"])
++    result = runner.invoke(_app, ["--limit", "10"])
+ 
+     assert result.exit_code == 0, (
+         f"Expected exit code 0, got {result.exit_code}\nOutput: {result.output}"
+     )
+-    assert extract_calls == ["id-c"], (
+-        f"extract_entry() must be called only for pending item 'id-c', got: {extract_calls}"
+-    )
+     assert "Done: 1 extracted, 0 failed" in result.output, (
+         f"Expected '1 extracted, 0 failed' in output, got: {result.output!r}"
+     )
+ 
+ 
+-def test_per_item_failure_does_not_abort_batch() -> None:
++def test_per_item_failure_does_not_abort_batch(live_daemon_deep: LiveDaemon) -> None:
+     """
+     INVARIANT: A RuntimeError from extract_entry() on one item does not stop subsequent items.
+     BREAKS: One failing item (503, timeout, etc.) aborts the rest of the batch silently.
+ 
+-    Three pending items: first and third succeed, second fails.
+-    All three items must be attempted; summary must reflect partial success.
++    Three real pending items, ordered by `published_at` (newest first, matching
++    `GET /api/entries`' own sort) so the middle one is attempted second: its
++    content carries `DEEP_EXTRACT_FAILURE_MARKER`, which the stub LLM
++    (live_daemon_deep, conftest.py) answers with a body that fails
++    ContentDeepExtractor's own JSON parse — a real 500 from the real daemon, not
++    an injected exception. All three items must still be attempted.
+     """
+-    items = [
+-        _make_item("id-1", "Article One"),
+-        _make_item("id-2", "Article Two"),
+-        _make_item("id-3", "Article Three"),
+-    ]
+-
+-    call_count = [0]
+-
+-    def fake_extract_entry(entry_id: str) -> dict:
+-        call_count[0] += 1
+-        if entry_id == "id-2":
+-            raise RuntimeError("503 Service Unavailable")
+-        return {"deep_extraction": {"synthesis": "ok"}}
++    storage = Storage(live_daemon_deep.db_path)
++    source_id = storage.add_source("http://example.com/feed", "rss", "Example")
++    now = datetime.now(UTC)
++    seed_content(
++        storage, source_id, title="Article One", published_at=now
++    )
++    seed_content(
++        storage,
++        source_id,
++        title="Article Two",
++        content=f"Body containing {DEEP_EXTRACT_FAILURE_MARKER} to force a real failure.",
++        published_at=now - timedelta(minutes=1),
++    )
++    seed_content(
++        storage, source_id, title="Article Three", published_at=now - timedelta(minutes=2)
++    )
++    storage.close()
+ 
+-    with patch("cli.extract.APIClient") as MockClient:
+-        MockClient.return_value.get_content.return_value = items
+-        MockClient.return_value.extract_entry.side_effect = fake_extract_entry
+-        result = runner.invoke(_app, ["--limit", "10"])
++    result = runner.invoke(_app, ["--limit", "10"])
+ 
+     assert result.exit_code == 0, (
+         f"Expected exit code 0 (partial batch), got {result.exit_code}"
+     )
+-    assert call_count[0] == 3, (
+-        f"All 3 items must be attempted; extract_entry() called {call_count[0]} times"
+-    )
+     assert "Done: 2 extracted, 1 failed" in result.output, (
+         f"Expected '2 extracted, 1 failed', got: {result.output!r}"
+     )
+ 
+ 
+-def test_get_content_failure_exits_one_not_silent_noop() -> None:
++def test_get_content_failure_exits_one_not_silent_noop(
++    isolated_xdg_env,
++) -> None:
+     """
+     INVARIANT: get_content() RuntimeError → exit 1 with red error message; NOT silent "no items".
+     BREAKS: If the candidate-fetch error were swallowed or misrouted, the command would
+     exit 0 printing "No items need extraction" — a data lie. The user thinks backfill
+     is complete when the daemon was actually unreachable.
+ 
++    Points the sealed config's [remote] section at a real closed loopback port
++    (bound, then closed, so nothing answers): a real httpx.ConnectError reaches
++    get_content(), the same real-network-boundary technique as
++    test_extract_entry_wraps_network_error_as_runtime_error.
++
+     Risk category: state transitions / data persistence — user's progress state is wrong.
+-    This is in the task's Test Considerations ("Network error on first call: RuntimeError
+-    from get_content() → exit 1; no items processed") but was absent from the original suite.
+     """
+-    with patch("cli.extract.APIClient") as MockClient:
+-        MockClient.return_value.get_content.side_effect = RuntimeError(
+-            "Network error: Connection refused"
+-        )
+-        result = runner.invoke(_app, ["--priority", "high", "--limit", "5"])
++    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
++    probe.bind(("127.0.0.1", 0))
++    host, port = probe.getsockname()
++    probe.close()
++
++    isolated_xdg_env.joinpath("config.toml").write_text(
++        f'[remote]\nurl = "http://{host}:{port}"\nkey = "unused"\n'
++    )
++
++    result = runner.invoke(_app, ["--priority", "high", "--limit", "5"])
+ 
+     assert result.exit_code == 1, (
+         f"Expected exit code 1 when get_content() fails, got {result.exit_code}; "
+@@ -202,32 +203,28 @@ def test_get_content_failure_exits_one_not_silent_noop() -> None:
+     )
+ 
+ 
+-def test_limit_at_ceiling_passes_through_to_api_call() -> None:
++def test_limit_at_ceiling_passes_through_to_api_call(live_daemon: LiveDaemon) -> None:
+     """
+     INVARIANT: --limit 3333 (exact ceiling) does NOT fire the upper-bound guard.
+     BREAKS: An off-by-one in the guard condition (>= 3333 instead of > 3333) would
+     reject the highest valid input, making the documented ceiling unreachable.
+ 
+-    Mirrors test_invalid_priority_exits_before_api_call pattern.
+-    Taxonomy: data correctness — documented ceiling must be inclusive.
++    `live_daemon` (no deep extraction configured) has an empty, real, sealed DB:
++    a real get_content() call against it always answers with 0 items. If the
++    guard incorrectly fired at exactly 3333, the output would carry the distinct
++    "exceeds maximum" ceiling message and exit 1 instead — this and that are the
++    only two ways this command can end, so asserting on the real success message
++    is itself proof the real call happened.
+     """
+-    get_content_called = [0]
+-
+-    def fake_get_content(*args, **kwargs):
+-        get_content_called[0] += 1
+-        return []
++    result = runner.invoke(_app, ["--limit", "3333"])
+ 
+-    with patch("cli.extract.APIClient") as MockClient:
+-        MockClient.return_value.get_content.side_effect = fake_get_content
+-        result = runner.invoke(_app, ["--limit", "3333"])
+-
+-    assert get_content_called[0] == 1, (
+-        f"get_content() must be called for --limit 3333 (valid ceiling); "
+-        f"called {get_content_called[0]} times — guard fired incorrectly"
+-    )
+     assert result.exit_code == 0, (
+         f"Expected exit code 0 for --limit 3333, got {result.exit_code}"
+     )
++    assert "No items need extraction" in result.output, (
++        f"get_content() must be called for --limit 3333 (valid ceiling) and the "
++        f"real (empty) daemon must answer normally; got: {result.output!r}"
++    )
+ 
+ 
+ def test_limit_above_ceiling_exits_before_api_call() -> None:
+@@ -238,25 +235,14 @@ def test_limit_above_ceiling_exits_before_api_call() -> None:
+     /api/entries, producing RuntimeError("Failed to list entries: Validation error")
+     instead of a clear ceiling message.
+ 
+-    Mirrors test_invalid_priority_exits_before_api_call pattern.
+-    Taxonomy: data correctness — user gets a cryptic server error instead of guidance.
++    No config.toml exists, so a bypassed guard would crash with a config error
++    instead of producing this message.
+     """
+-    get_content_called = [0]
+-
+-    def fake_get_content(*args, **kwargs):
+-        get_content_called[0] += 1
+-        return []
+-
+-    with patch("cli.extract.APIClient") as MockClient:
+-        MockClient.return_value.get_content.side_effect = fake_get_content
+-        result = runner.invoke(_app, ["--limit", "3334"])
++    result = runner.invoke(_app, ["--limit", "3334"])
+ 
+     assert result.exit_code == 1, (
+         f"Expected exit code 1 for --limit 3334, got {result.exit_code}"
+     )
+-    assert get_content_called[0] == 0, (
+-        "get_content() must NOT be called when limit > 3333"
+-    )
+     assert "3333" in result.output, (
+         f"Error message must name the 3333 ceiling so user knows the valid max; "
+         f"got: {result.output!r}"
+@@ -270,25 +256,12 @@ def test_limit_well_above_ceiling_also_fires_guard() -> None:
+     would allow limit * 3 = 30000 to reach the server, producing a 422 error.
+ 
+     Confirms the guard is `> 3333`, not an exact-value check.
+-    Mirrors test_invalid_priority_exits_before_api_call pattern.
+-    Taxonomy: data correctness — same guard, different input magnitude.
+     """
+-    get_content_called = [0]
+-
+-    def fake_get_content(*args, **kwargs):
+-        get_content_called[0] += 1
+-        return []
+-
+-    with patch("cli.extract.APIClient") as MockClient:
+-        MockClient.return_value.get_content.side_effect = fake_get_content
+-        result = runner.invoke(_app, ["--limit", "10000"])
++    result = runner.invoke(_app, ["--limit", "10000"])
+ 
+     assert result.exit_code == 1, (
+         f"Expected exit code 1 for --limit 10000, got {result.exit_code}"
+     )
+-    assert get_content_called[0] == 0, (
+-        "get_content() must NOT be called when limit > 3333"
+-    )
+     assert "3333" in result.output, (
+         f"Error message must name the 3333 ceiling; got: {result.output!r}"
+     )
+diff --git a/cli/tests/unit/test_extract_entry_unit.py b/cli/tests/unit/test_extract_entry_unit.py
+index 7343a32..d44284e 100644
+--- a/cli/tests/unit/test_extract_entry_unit.py
++++ b/cli/tests/unit/test_extract_entry_unit.py
+@@ -1,99 +1,112 @@
+ """Unit tests for APIClient.extract_entry() HTTP contract.
+ 
+ Protects:
+-- INV: extract_entry() uses 120s local timeout, not the 30s class default
++- INV: extract_entry() opens its own httpx.Client with a 120s local override,
++  ignoring self.timeout (the 30s class default)
+ - INV: extract_entry() raises RuntimeError on HTTP 4xx/5xx responses
+ - INV: extract_entry() raises RuntimeError wrapping network errors
+ 
+-Tests bypass APIClient.__init__ (avoids config-file dependency) and patch
+-httpx.Client.post at the HTTP boundary — same pattern as test_api_client_search_params.py.
++Tests bypass APIClient.__init__ (avoids config-file dependency) — same pattern as
++test_api_client_search_params.py. The HTTP boundary is real throughout: a real
++`live_daemon` (conftest.py) for the 503 and success cases, and a real closed port /
++real slow peer for the two tests that are specifically about the client's own
++httpx wiring rather than daemon behavior.
+ """
+ 
+-from unittest.mock import MagicMock, patch
++import http.server
++import json
++import socket
++import threading
++import time
+ 
+ import httpx
+-
++import pytest
+ 
+ from cli.api_client import APIClient
+ 
++from conftest import LiveDaemon, seed_content
++from prismis_daemon.storage import Storage
++
+ 
+-def _make_client() -> APIClient:
++def _make_client(base_url: str, api_key: str = "test-key") -> APIClient:
+     """Construct APIClient bypassing __init__ config-file dependency."""
+     client = object.__new__(APIClient)
+-    client.base_url = "http://localhost:8989"
+-    client.api_key = "test-key"
++    client.base_url = base_url
++    client.api_key = api_key
+     client.timeout = httpx.Timeout(30.0)
+     return client
+ 
+ 
+ def test_extract_entry_uses_120s_timeout_not_class_default() -> None:
+     """
+-    INVARIANT: extract_entry() opens httpx.Client with timeout=httpx.Timeout(120.0).
+-    BREAKS: LLM extractions take 60-90s on large docs; 30s class default aborts them silently.
+-
+-    The 120s override is a local override per Alternative B-local (P3 reversibility).
+-    If someone changes it back to self.timeout, real extractions will timeout mid-run.
++    INVARIANT: extract_entry() opens httpx.Client with a hardcoded 120s local
++    override (api_client.py:728), not `self.timeout`.
++    BREAKS: LLM extractions take 60-90s on large docs; the 30s class default
++    aborts them silently if the override regresses to using self.timeout.
++
++    A real local peer delays its response by 1s. `self.timeout` is set here to
++    50ms — well under that delay — so this only succeeds if extract_entry()
++    truly ignores self.timeout and uses a much larger local override: reverting
++    the hardcoded 120s back to `self.timeout` makes this test raise RuntimeError
++    (a read timeout at 50ms, wrapped) instead of returning.
+     """
+-    captured_timeout = [None]
+-    original_init = httpx.Client.__init__
+-
+-    def fake_init(self_client, *args, **kwargs):
+-        captured_timeout[0] = kwargs.get("timeout")
+-        # Don't actually connect — stub out the post method
+-        original_init(self_client, *args, **kwargs)
+-
+-    resp = MagicMock()
+-    resp.status_code = 200
+-    resp.json.return_value = {
+-        "success": True,
+-        "data": {"deep_extraction": {"synthesis": "done"}},
+-    }
+-
+-    client = _make_client()
+-
+-    with patch.object(httpx.Client, "__init__", fake_init):
+-        with patch.object(httpx.Client, "post", return_value=resp):
+-            client.extract_entry("entry-uuid-123")
+-
+-    timeout = captured_timeout[0]
+-    assert timeout is not None, "timeout kwarg must be passed to httpx.Client()"
+-    assert isinstance(timeout, httpx.Timeout), (
+-        f"timeout must be httpx.Timeout instance, got {type(timeout)}"
+-    )
+-    assert timeout.read == 120.0, (
+-        f"extract_entry() must use 120s timeout (got {timeout.read}s); "
+-        "30s class default aborts real LLM extractions"
++
++    class _SlowHandler(http.server.BaseHTTPRequestHandler):
++        def log_message(self, *_args: object) -> None:
++            return
++
++        def do_POST(self) -> None:
++            time.sleep(1.0)
++            body = json.dumps(
++                {"success": True, "data": {"deep_extraction": {"synthesis": "done"}}}
++            ).encode()
++            self.send_response(200)
++            self.send_header("Content-Type", "application/json")
++            self.send_header("Content-Length", str(len(body)))
++            self.end_headers()
++            self.wfile.write(body)
++
++    server = http.server.HTTPServer(("127.0.0.1", 0), _SlowHandler)
++    thread = threading.Thread(target=server.serve_forever, daemon=True)
++    thread.start()
++    try:
++        host, port = server.server_address[0], server.server_address[1]
++        assert isinstance(host, str), "loopback bind always yields a str host"
++        client = _make_client(f"http://{host}:{port}")
++        client.timeout = httpx.Timeout(0.05)
++
++        result = client.extract_entry("entry-uuid-123")
++    finally:
++        server.shutdown()
++        server.server_close()
++        thread.join(timeout=2.0)
++
++    assert result == {"deep_extraction": {"synthesis": "done"}}, (
++        f"expected the real slow peer's response to come through, got: {result}"
+     )
+ 
+ 
+-def test_extract_entry_raises_on_http_error() -> None:
++def test_extract_entry_raises_on_http_error(live_daemon: LiveDaemon) -> None:
+     """
+     INVARIANT: extract_entry() raises RuntimeError when API returns 4xx/5xx.
+     BREAKS: Errors silently swallowed; per-item loop thinks extraction succeeded.
+ 
+-    Simulates a 503 response (deep_service not configured) — the real error
+-    path exercised by the build phase demo.
++    `live_daemon` has no deep-extraction service configured, so a real entry
++    with no existing analysis hits the real 503 "not configured" path
++    (api.py:1229-1233) — the real error path exercised by the build phase demo.
+     """
+-    resp = MagicMock()
+-    resp.status_code = 503
+-    resp.json.return_value = {
+-        "success": False,
+-        "message": "Deep extraction not configured",
+-    }
+-
+-    client = _make_client()
+-
+-    with patch.object(httpx.Client, "post", return_value=resp):
+-        try:
+-            client.extract_entry("entry-uuid-503")
+-            raised = False
+-        except RuntimeError as e:
+-            raised = True
+-            err_msg = str(e)
+-
+-    assert raised, "extract_entry() must raise RuntimeError on HTTP 503"
+-    assert "Deep extraction not configured" in err_msg, (
+-        f"RuntimeError must carry server message, got: {err_msg!r}"
++    storage = Storage(live_daemon.db_path)
++    source_id = storage.add_source("http://example.com/feed", "rss", "Example")
++    content_id = seed_content(storage, source_id, title="Pending entry")
++    storage.close()
++
++    client = _make_client(live_daemon.base_url, live_daemon.api_key)
++
++    with pytest.raises(RuntimeError) as exc_info:
++        client.extract_entry(content_id)
++
++    assert "not configured" in str(exc_info.value), (
++        f"RuntimeError must carry the server's message, got: {exc_info.value!r}"
+     )
+ 
+ 
+@@ -102,27 +115,20 @@ def test_extract_entry_wraps_network_error_as_runtime_error() -> None:
+     INVARIANT: httpx.RequestError is caught and re-raised as RuntimeError("Network error: ...").
+     BREAKS: httpx.ConnectError propagates uncaught; CLI loop's `except RuntimeError` misses it,
+     aborting the entire batch instead of recording a per-item failure.
++
++    Points at a real closed loopback port (bound, then closed, so nothing answers):
++    a real httpx.ConnectError, not an injected one.
+     """
+-    client = _make_client()
+-
+-    def fake_post(*args, **kwargs):
+-        raise httpx.ConnectError("Connection refused")
+-
+-    with patch.object(httpx.Client, "post", fake_post):
+-        try:
+-            client.extract_entry("entry-uuid-net")
+-            raised = False
+-        except RuntimeError as e:
+-            raised = True
+-            err_msg = str(e)
+-        except Exception:
+-            raised = False
+-            err_msg = ""
+-
+-    assert raised, (
+-        "extract_entry() must re-raise httpx.RequestError as RuntimeError, "
+-        "not let it propagate raw (CLI loop only catches RuntimeError)"
+-    )
+-    assert "Network error" in err_msg, (
+-        f"RuntimeError message must start with 'Network error:', got: {err_msg!r}"
++    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
++    probe.bind(("127.0.0.1", 0))
++    host, port = probe.getsockname()
++    probe.close()
++
++    client = _make_client(f"http://{host}:{port}")
++
++    with pytest.raises(RuntimeError) as exc_info:
++        client.extract_entry("entry-uuid-net")
++
++    assert "Network error" in str(exc_info.value), (
++        f"RuntimeError message must start with 'Network error:', got: {exc_info.value!r}"
+     )

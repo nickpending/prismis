@@ -474,6 +474,75 @@ def test_complete_works_inside_running_event_loop_and_plain_thread() -> None:
 
 
 # ---------------------------------------------------------------------------
+# F-1-4: response_format actually reaches the outgoing request when json=True, and is
+# absent when it's not -- the SDK-level mechanism behind all four of SC-6's call
+# sites: the summarizer, evaluator, context_analyzer and deep_extractor modules. Same
+# wire-level technique as the extra_body tests above: patch httpx2.Client.send and
+# assert on the real serialized request body. Every _content_handler-backed test below
+# reads and discards the request body without inspecting it, so on its own the SC-6
+# suite would pass identically with a wrong TypedDict shape, a wrong field name, or an
+# inverted `if json` condition -- these two tests are what actually proves the
+# response_format branch, not just complete()'s parsing of a pre-programmed reply.
+# ---------------------------------------------------------------------------
+
+
+def test_complete_sends_response_format_json_object_when_json_true() -> None:
+    """F-1-4: json=True reaches the real request as
+    response_format={"type": "json_object"}."""
+    llm_client = _llm_client()
+    httpx2_mod = _httpx2()
+    service = "json-true-wire-svc"
+    _write_service(service, "https://wire-check.invalid", default_model="stub-model")
+
+    sent_requests: list[httpx2.Request] = []
+
+    def _fake_send(_self: httpx2.Client, request: httpx2.Request, **_kw: object) -> httpx2.Response:
+        sent_requests.append(request)
+        return httpx2_mod.Response(
+            200,
+            request=request,
+            headers={"content-type": "application/json"},
+            content=_completion_body("{}"),
+        )
+
+    with patch.object(httpx2_mod.Client, "send", _fake_send):
+        llm_client.complete(prompt="hi", service=service, json=True)
+
+    assert len(sent_requests) == 1
+    sent_body = json.loads(sent_requests[0].content)
+    assert sent_body.get("response_format") == {"type": "json_object"}, (
+        "json=True must reach the real outgoing request body as response_format"
+    )
+
+
+def test_complete_omits_response_format_when_json_false() -> None:
+    """Control for the test above: the default json=False sends no response_format
+    key at all -- not merely one the provider happens to ignore."""
+    llm_client = _llm_client()
+    httpx2_mod = _httpx2()
+    service = "json-false-wire-svc"
+    _write_service(service, "https://wire-check.invalid", default_model="stub-model")
+
+    sent_requests: list[httpx2.Request] = []
+
+    def _fake_send(_self: httpx2.Client, request: httpx2.Request, **_kw: object) -> httpx2.Response:
+        sent_requests.append(request)
+        return httpx2_mod.Response(
+            200,
+            request=request,
+            headers={"content-type": "application/json"},
+            content=_completion_body("ok"),
+        )
+
+    with patch.object(httpx2_mod.Client, "send", _fake_send):
+        llm_client.complete(prompt="hi", service=service)
+
+    assert len(sent_requests) == 1
+    sent_body = json.loads(sent_requests[0].content)
+    assert "response_format" not in sent_body
+
+
+# ---------------------------------------------------------------------------
 # SC-6: JSON extraction tolerates a ```json fence, and a no-JSON reply is logged at
 # ERROR with its first 200 chars before each of the four former json=True sites
 # returns None or raises.

@@ -223,7 +223,8 @@ def test_api_content_data_consistency(
 def test_api_content_database_disconnect(test_db: Path) -> None:
     """
     FAILURE: Database disconnection during request processing
-    GRACEFUL: Returns clear error, doesn't crash or corrupt state
+    GRACEFUL: Returns a 500 naming the failed operation, without the database's own
+              error text, and doesn't crash or corrupt state
     """
     # Create storage with valid database but then corrupt it
     corrupted_storage = Storage(test_db)
@@ -249,12 +250,10 @@ def test_api_content_database_disconnect(test_db: Path) -> None:
         assert data["success"] is False
         assert "Failed to get content" in data["message"]
 
-        # Error should be actionable (mention database issue)
-        error_msg = data["message"].lower()
-        assert any(
-            keyword in error_msg
-            for keyword in ["database", "connection", "no such table", "error"]
-        ), f"Error message should indicate database issue: {data['message']}"
+        # The database's own error text stays out of the response (gh #76); the
+        # message points the operator at the log, which is where the detail went.
+        assert "no such table" not in response.text, response.text
+        assert "daemon log" in data["message"]
     finally:
         app.dependency_overrides.clear()
 

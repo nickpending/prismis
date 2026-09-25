@@ -73,6 +73,16 @@ app = FastAPI(
 )
 
 
+def _server_error(message: str, exc: Exception) -> ServerError:
+    """Log an unexpected failure's detail and return a 500 that carries none of it.
+
+    Exception text can hold a credential, a filesystem path or a query (gh #76), so it
+    goes to the observability log and never into a response body.
+    """
+    obs_log("api.error", message=message, error=str(exc), error_type=type(exc).__name__)
+    return ServerError(f"{message}. Check the daemon log for detail.")
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next) -> Response:
     """Log API requests in same style as daemon output."""
@@ -503,7 +513,7 @@ async def add_source(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to add source: {str(e)}") from e
+        raise _server_error("Failed to add source", e) from e
 
 
 @app.get(
@@ -538,7 +548,7 @@ async def get_sources(storage: Storage = Depends(get_storage)) -> dict:
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to get sources: {str(e)}") from e
+        raise _server_error("Failed to get sources", e) from e
 
 
 @app.patch(
@@ -611,7 +621,7 @@ async def update_source(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to update source: {str(e)}") from e
+        raise _server_error("Failed to update source", e) from e
 
 
 @app.delete(
@@ -639,7 +649,7 @@ async def delete_source(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to remove source: {str(e)}") from e
+        raise _server_error("Failed to remove source", e) from e
 
 
 @app.patch(
@@ -706,7 +716,7 @@ async def update_content(
     except ValueError as e:
         raise ValidationError(str(e)) from e
     except Exception as e:
-        raise ServerError(f"Failed to update content: {str(e)}") from e
+        raise _server_error("Failed to update content", e) from e
 
 
 @app.patch(
@@ -736,7 +746,7 @@ async def pause_source(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to pause source: {str(e)}") from e
+        raise _server_error("Failed to pause source", e) from e
 
 
 @app.patch(
@@ -767,7 +777,7 @@ async def resume_source(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to resume source: {str(e)}") from e
+        raise _server_error("Failed to resume source", e) from e
 
 
 @app.get("/api/entries", dependencies=[Depends(verify_api_key)])
@@ -1002,7 +1012,7 @@ async def get_content(
         ).model_dump(mode="json")
 
     except Exception as e:
-        raise ServerError(f"Failed to get content: {str(e)}") from e
+        raise _server_error("Failed to get content", e) from e
 
 
 @app.get("/api/search", dependencies=[Depends(verify_api_key)])
@@ -1088,7 +1098,7 @@ async def semantic_search(
         ).model_dump(mode="json")
 
     except Exception as e:
-        raise ServerError(f"Failed to search content: {str(e)}") from e
+        raise _server_error("Failed to search content", e) from e
 
 
 @app.get("/api/entries/{content_id}", dependencies=[Depends(verify_api_key)])
@@ -1137,7 +1147,7 @@ async def get_entry_summary(
     except APIError:
         raise  # Re-raise our custom errors
     except Exception as e:
-        raise ServerError(f"Failed to get entry: {str(e)}") from e
+        raise _server_error("Failed to get entry", e) from e
 
 
 @app.get("/api/entries/{content_id}/raw", dependencies=[Depends(verify_api_key)])
@@ -1171,8 +1181,9 @@ async def get_entry_raw(
         return PlainTextResponse(content or "")
 
     except Exception as e:
-        # For plain text endpoint, return simple error messages
-        return PlainTextResponse(f"Error: {str(e)}", status_code=500)
+        # Plain text, but the same rule as _server_error: the detail goes to the log.
+        message = _server_error("Failed to get entry content", e).message
+        return PlainTextResponse(f"Error: {message}", status_code=500)
 
 
 @app.post("/api/entries/{content_id}/extract", dependencies=[Depends(verify_api_key)])
@@ -1247,7 +1258,7 @@ async def extract_entry(
                 f"Deep extraction unavailable: {e}", reason="circuit_open"
             ) from e
         except Exception as e:
-            raise ServerError(f"Deep extraction failed: {e}") from e
+            raise _server_error("Deep extraction failed", e) from e
 
         if not extraction:
             raise ServerError("Deep extraction produced no output")
@@ -1298,7 +1309,7 @@ async def health_check(storage: Storage = Depends(get_storage)) -> dict:
         }
     except Exception as e:
         # Let the exception handler format it consistently
-        raise ServerError(f"Health check failed: {str(e)}") from e
+        raise _server_error("Health check failed", e) from e
 
 
 @app.post("/api/prune", dependencies=[Depends(verify_api_key)])
@@ -1348,7 +1359,7 @@ async def prune_unprioritized(
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to prune items: {str(e)}") from e
+        raise _server_error("Failed to prune items", e) from e
 
 
 @app.get("/api/prune/count", dependencies=[Depends(verify_api_key)])
@@ -1384,7 +1395,7 @@ async def count_unprioritized(
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to count unprioritized items: {str(e)}") from e
+        raise _server_error("Failed to count unprioritized items", e) from e
 
 
 @app.post("/api/audio/briefings", dependencies=[Depends(verify_api_key)])
@@ -1471,9 +1482,9 @@ async def generate_audio_briefing(
                 "uv tool install git+https://github.com/nickpending/lspeak.git"
             ) from e
         else:
-            raise ServerError(f"Audio generation failed: {error_msg}") from e
+            raise _server_error("Audio generation failed", e) from e
     except Exception as e:
-        raise ServerError(f"Failed to generate audio briefing: {str(e)}") from e
+        raise _server_error("Failed to generate audio briefing", e) from e
 
 
 @app.get("/api/archive/status", dependencies=[Depends(verify_api_key)])
@@ -1514,7 +1525,7 @@ async def archive_status(
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to get archival status: {str(e)}") from e
+        raise _server_error("Failed to get archival status", e) from e
 
 
 @app.post("/api/context", dependencies=[Depends(verify_api_key)])
@@ -1566,16 +1577,7 @@ async def analyze_context(
     except ValidationError:
         raise  # Re-raise validation errors
     except Exception as e:
-        # The LLM call is the one boundary this endpoint does not control, and its
-        # own client can embed its credential in the exception text (an HTTP error
-        # body echoing the request, for example). The response says only that
-        # analysis failed; the detail goes to the log instead, mirroring auth.py's
-        # CONFIG_UNAVAILABLE_MESSAGE for the same reason -- a secret must never leave
-        # the process in a response body.
-        obs_log("api.error", endpoint="/api/context", error=str(e))
-        raise ServerError(
-            "Failed to analyze context. Check the daemon log for detail."
-        ) from e
+        raise _server_error("Failed to analyze context", e) from e
 
 
 @app.get("/api/statistics", dependencies=[Depends(verify_api_key)])
@@ -1603,7 +1605,7 @@ async def get_statistics(
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to get statistics: {str(e)}") from e
+        raise _server_error("Failed to get statistics", e) from e
 
 
 @app.get("/api/feedback/statistics", dependencies=[Depends(verify_api_key)])
@@ -1636,7 +1638,7 @@ async def get_feedback_statistics(
         }
 
     except Exception as e:
-        raise ServerError(f"Failed to get feedback statistics: {str(e)}") from e
+        raise _server_error("Failed to get feedback statistics", e) from e
 
 
 # Mount audio files directory

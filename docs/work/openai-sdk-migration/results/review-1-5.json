@@ -1,0 +1,22 @@
+{
+  "searched": [
+    "docs/work/openai-sdk-migration/work-order.json",
+    "docs/work/openai-sdk-migration/results/plan.json (plan-1.json)",
+    "docs/work/openai-sdk-migration/job-1.diff (full, 2329 lines, current state after the cli/uv.lock scope-correction cycle)",
+    "docs/work/openai-sdk-migration/journal.jsonl (full, all 34 records: opened, planned, checkpointed, the six built/verified/diffed cycles for job 1, findings F-1-1..F-1-4 and their reviewed records, the two 'slip' red-check failures during the F-1-3 fix, the 'approach' failure for the unlisted cli/uv.lock change, the 'resumed' record moving cli/uv.lock into job 1, and the 'missing-red' built-rejected record before the final successful build)",
+    "docs/work/openai-sdk-migration/results/review-1-1.json (F-1-1 cost-extraction untested, F-1-2 performative 'verified live' comment)",
+    "docs/work/openai-sdk-migration/results/review-1-2.json (F-1-3 finish_reason=length branch untested)",
+    "docs/work/openai-sdk-migration/results/review-1-3.json (F-1-4 response_format never checked at the wire)",
+    "docs/work/openai-sdk-migration/results/review-1-4.json (findings: [] -- reviewed the diff immediately before the cli/uv.lock addition)",
+    "docs/work/openai-sdk-migration/results/built-1-5.json",
+    "daemon/src/prismis_daemon/llm_client.py (new file, full content as captured in job-1.diff, 314 lines -- re-read complete(), health_check(), resolve_service(), _load_api_key(), extract_json())",
+    "daemon/src/prismis_daemon/circuit_breaker.py (diff hunk: typed RateLimitError/APIStatusError classification)",
+    "daemon/src/prismis_daemon/summarizer.py, evaluator.py, context_analyzer.py, context_auto_updater.py, audio.py, deep_extractor.py, llm_validator.py (diff, full)",
+    "daemon/tests/unit/test_llm_client_unit.py (new file, full content as captured in job-1.diff, 741 lines -- confirmed the F-1-1..F-1-4 fix tests are present and unchanged: test_complete_maps_length_finish_reason_to_max_tokens, test_complete_extracts_real_cost_for_an_openrouter_shaped_base_url, test_complete_does_not_send_extra_body_to_a_non_openrouter_base_url, test_complete_sends_response_format_json_object_when_json_true, test_complete_omits_response_format_when_json_false)",
+    "daemon/tests/integration/test_llm_client_live_integration.py (new file, full content as captured in job-1.diff, including test_openai_service_rejects_extra_body_usage_include for F-1-2)",
+    "daemon/tests/unit/test_circuit_breaker_unit.py, test_dual_service_config_unit.py, test_llm_startup_validation_unit.py, test_llm_startup_validation_integration.py, test_evaluator_unit.py, test_summarizer_unit.py (diff hunks, full)",
+    "daemon/pyproject.toml, daemon/uv.lock, cli/uv.lock (diff, full, including the new httpcore2/httpx2/httpx2-jsfetch/idna-bump/jiter/openai/apiconf/truststore package entries added to both lockfiles and the prismis-daemon dependency-block update in cli/uv.lock)"
+  ],
+  "exhaustive": false,
+  "findings": []
+}

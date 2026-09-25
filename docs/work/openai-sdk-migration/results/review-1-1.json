@@ -1,0 +1,39 @@
+{
+  "searched": [
+    "docs/work/openai-sdk-migration/work-order.json",
+    "docs/work/openai-sdk-migration/results/plan.json",
+    "docs/work/openai-sdk-migration/results/plan-1.json",
+    "docs/work/openai-sdk-migration/results/built-1-1.json",
+    "docs/work/openai-sdk-migration/journal.jsonl",
+    "docs/work/openai-sdk-migration/job-1.diff",
+    "docs/work/wo-openai-sdk-migration.md",
+    "daemon/src/prismis_daemon/llm_client.py (worktree agent-ad75d587bc94f6c5a)",
+    "daemon/src/prismis_daemon/circuit_breaker.py (worktree agent-ad75d587bc94f6c5a)",
+    "daemon/tests/unit/test_llm_client_unit.py (worktree agent-ad75d587bc94f6c5a)",
+    "daemon/tests/unit/test_circuit_breaker_unit.py (diff hunk)",
+    "daemon/tests/unit/test_dual_service_config_unit.py (diff hunk + grep)",
+    "daemon/tests/unit/test_llm_startup_validation_unit.py (diff hunk)",
+    "daemon/tests/integration/test_llm_startup_validation_integration.py (diff hunk)",
+    "daemon/tests/integration/test_llm_client_live_integration.py (diff, full)",
+    "daemon/tests/unit/test_evaluator_unit.py (diff hunk)",
+    "daemon/tests/unit/test_summarizer_unit.py (diff hunk)",
+    "daemon/pyproject.toml (main tree and worktree)",
+    "daemon/uv.lock (diff)",
+    "daemon/src/prismis_daemon/summarizer.py, evaluator.py, context_analyzer.py, context_auto_updater.py, audio.py, deep_extractor.py, llm_validator.py (diff, full + main-tree grep for temperature/llm_core residue)"
+  ],
+  "exhaustive": false,
+  "findings": [
+    {
+      "file": "daemon/src/prismis_daemon/llm_client.py",
+      "line": 272,
+      "summary": "The cost-extraction mechanism (`cost = getattr(usage, \"cost\", None) ...`, gated by `_is_openrouter()` at lines 168-169 matching the literal substring \"openrouter.ai\" in base_url) is the explicit reason this migration was commissioned (work-order.json 'why': cost_usd is null for OpenRouter calls). It is unreachable by any test the gate runs: every test in daemon/tests/unit/test_llm_client_unit.py points at a local stub server bound to 127.0.0.1, which can never satisfy `_is_openrouter()`. The test itself acknowledges this at line 157 (\"base_url is not openrouter.ai -- no usage.include extension sent, no cost back\") and asserts `result.cost is None` (line 158), which is trivially true given the stub URL rather than proof the extraction works. The only test that exercises the real path is `test_openrouter_service_returns_real_cost` in daemon/tests/integration/test_llm_client_live_integration.py, gated on PRISMIS_LIVE_LLM_TESTS=1 with real credentials; the journal's verified record for job 1 (journal.jsonl line 5) lists only typecheck/lint/tests per package as covered, with no live-LLM run recorded. Whether openai's CompletionUsage pydantic model even preserves an unmodeled `cost` key from the provider's JSON (versus silently dropping it, pydantic's default extra-field behavior) is asserted nowhere the automated gate reaches.",
+      "severity": "high"
+    },
+    {
+      "file": "daemon/src/prismis_daemon/llm_client.py",
+      "line": 244,
+      "summary": "The comment spanning lines 242-248 asserts two 'verified live' facts. The OpenRouter half (\"verified live 2026-09-03 against prismis-pt-luna\") is traceable to docs/work/wo-openai-sdk-migration.md:69-80, which records the actual probe output. The api.openai.com half at line 244-245 -- \"rejects this as an unrecognized request argument (BadRequestError, verified live against prismis-openai)\" -- has no corroborating record anywhere in the repository; grepping the full tree for BadRequestError finds only this comment. No test exercises this claim either: because extra_body is only ever sent when _is_openrouter() is true, the shipped code path never actually sends it to an api.openai.com host, so this specific rejection could not have been observed through the shipped code -- it can only have come from a one-off manual probe that left no trace. This is performative evidence: a fact asserted in shipped production code as having been checked, with nothing in the tree showing that check happened.",
+      "severity": "medium"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "searched": [
+    "docs/work/openai-sdk-migration/work-order.json",
+    "docs/work/openai-sdk-migration/results/plan.json",
+    "docs/work/openai-sdk-migration/job-1.diff (full, 2035 lines)",
+    "docs/work/openai-sdk-migration/journal.jsonl (full, all 21 records: opened, planned, checkpointed, the five built/verified/diffed cycles for job 1, findings F-1-1/F-1-2/F-1-3 and their reviewed records)",
+    "docs/work/openai-sdk-migration/results/review-1-1.json (prior review: F-1-1 cost-extraction untested, F-1-2 performative 'verified live' comment)",
+    "docs/work/openai-sdk-migration/results/review-1-2.json (prior review: F-1-3 finish_reason=length branch untested)",
+    "docs/work/openai-sdk-migration/results/built-1-3.json, built-1-4.json, built-1-5.json (fix-cycle records for F-1-3, including two 'slip' verified-false red-check failures before the final pass)",
+    "daemon/src/prismis_daemon/llm_client.py (new file, full content as captured in job-1.diff)",
+    "daemon/src/prismis_daemon/circuit_breaker.py (diff hunk, and full current file on disk for is_quota_error/record_failure context -- note: disk copy is pre-migration, job lives in an unmerged worktree, so the diff hunk is authoritative for the migrated behaviour)",
+    "daemon/src/prismis_daemon/summarizer.py, evaluator.py, context_analyzer.py, context_auto_updater.py, audio.py, deep_extractor.py, llm_validator.py (diff, full)",
+    "daemon/src/prismis_daemon/deep_extractor.py on disk (to confirm its unchanged json=True call site, absent from the diff context, is the fourth of SC-6's four json=True sites)",
+    "daemon/tests/unit/test_llm_client_unit.py (new file, full content as captured in job-1.diff, 672 lines)",
+    "daemon/tests/integration/test_llm_client_live_integration.py (new file, full content as captured in job-1.diff)",
+    "daemon/tests/unit/test_circuit_breaker_unit.py, test_dual_service_config_unit.py, test_llm_startup_validation_unit.py, test_llm_startup_validation_integration.py, test_evaluator_unit.py, test_summarizer_unit.py (diff hunks)",
+    "daemon/pyproject.toml, daemon/uv.lock (diff, full)",
+    "daemon/tests/conftest.py (isolated_xdg_env fixture, to confirm llm_client._config_dir()'s XDG_CONFIG_HOME/llm-core resolution matches what tests seal)"
+  ],
+  "exhaustive": false,
+  "findings": [
+    {
+      "file": "daemon/src/prismis_daemon/llm_client.py",
+      "line": 232,
+      "summary": "complete()'s json=True path builds `response_format = ResponseFormatJSONObject(type=\"json_object\") if json else omit` and passes it to client.chat.completions.create(), but no test anywhere in the gate checks that this value actually reaches the outgoing HTTP request. Every local-stub handler in daemon/tests/unit/test_llm_client_unit.py (_content_handler's do_POST, e.g. around the handler used by all four SC-6 json-extraction tests) reads and discards the request body without inspecting it, so a wrong TypedDict shape, wrong field, or an inverted `if json` condition would still pass the entire suite -- every stub response is pre-programmed independent of what was actually sent. The same file already demonstrates the wire-level technique needed (patch httpx2.Client.send, assert on the real serialized request body) for a sibling concern -- test_complete_extracts_real_cost_for_an_openrouter_shaped_base_url and its control test_complete_does_not_send_extra_body_to_a_non_openrouter_base_url both assert on sent_requests[0].content -- but it is applied only to the usage.include/extra_body mechanism, never to response_format, even though json=True is the mechanism behind all four of SC-6's call sites (summarizer.py, evaluator.py, context_analyzer.py, deep_extractor.py). The live-gated daemon/tests/integration/test_llm_client_live_integration.py doesn't exercise this either -- its three complete() calls never pass json=True. No journal 'verified' record for job 1 names this behaviour as covered.",
+      "severity": "medium"
+    }
+  ]
+}

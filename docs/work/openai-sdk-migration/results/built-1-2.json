@@ -1,0 +1,24 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/llm_client.py",
+    "daemon/tests/unit/test_llm_client_unit.py",
+    "daemon/tests/integration/test_llm_client_live_integration.py"
+  ],
+  "verified": true,
+  "findings": [
+    "F-1-1",
+    "F-1-2"
+  ],
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ad75d587bc94f6c5a",
+    "branch": "worktree-agent-ad75d587bc94f6c5a",
+    "base": "d05fda4e3daa3de85cfb127765e247e95124af02"
+  },
+  "red": {
+    "command": "cd daemon && uv run pytest -q --no-header tests/unit/test_llm_client_unit.py tests/unit/test_circuit_breaker_unit.py",
+    "tests": [
+      "daemon/tests/unit/test_llm_client_unit.py",
+      "daemon/tests/unit/test_circuit_breaker_unit.py"
+    ]
+  }
+}

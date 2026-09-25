@@ -1,0 +1,22 @@
+{
+  "searched": [
+    "docs/work/openai-sdk-migration/work-order.json",
+    "docs/work/openai-sdk-migration/results/plan.json (plan-1.json)",
+    "docs/work/openai-sdk-migration/job-1.diff (full, 2104 lines, current state after the F-1-4 fix cycle)",
+    "docs/work/openai-sdk-migration/journal.jsonl (full, all 26 records: opened, planned, checkpointed, five built/verified/diffed cycles for job 1, findings F-1-1, F-1-2, F-1-3, F-1-4 and their reviewed records, ending at the 2026-09-25T16:47:25.529Z diffed record)",
+    "docs/work/openai-sdk-migration/results/review-1-1.json (prior review: F-1-1 cost-extraction untested, F-1-2 performative 'verified live' comment)",
+    "docs/work/openai-sdk-migration/results/review-1-2.json (prior review: F-1-3 finish_reason=length branch untested)",
+    "docs/work/openai-sdk-migration/results/review-1-3.json (prior review: F-1-4 response_format never checked at the wire)",
+    "daemon/src/prismis_daemon/llm_client.py (new file, full content as captured in job-1.diff, 314 lines)",
+    "daemon/src/prismis_daemon/circuit_breaker.py (diff hunk: typed RateLimitError/APIStatusError classification ahead of the substring fallback)",
+    "daemon/src/prismis_daemon/context_analyzer.py (full current content read from the worktree, .claude/worktrees/agent-ad75d587bc94f6c5a/daemon/src/prismis_daemon/context_analyzer.py, to check the extract_json/raise control flow against the removed except json.JSONDecodeError clause)",
+    "daemon/src/prismis_daemon/evaluator.py (full current content read from the same worktree, same check)",
+    "daemon/src/prismis_daemon/summarizer.py, context_auto_updater.py, audio.py, deep_extractor.py, llm_validator.py (diff, full)",
+    "daemon/tests/unit/test_llm_client_unit.py (new file, full content as captured in job-1.diff, 741 lines, including the F-1-1..F-1-4 fix tests: test_complete_maps_length_finish_reason_to_max_tokens, test_complete_extracts_real_cost_for_an_openrouter_shaped_base_url, test_complete_does_not_send_extra_body_to_a_non_openrouter_base_url, test_complete_sends_response_format_json_object_when_json_true, test_complete_omits_response_format_when_json_false)",
+    "daemon/tests/integration/test_llm_client_live_integration.py (new file, full content as captured in job-1.diff, including test_openai_service_rejects_extra_body_usage_include added for F-1-2)",
+    "daemon/tests/unit/test_circuit_breaker_unit.py, test_dual_service_config_unit.py, test_llm_startup_validation_unit.py, test_llm_startup_validation_integration.py, test_evaluator_unit.py, test_summarizer_unit.py (diff hunks)",
+    "daemon/pyproject.toml, daemon/uv.lock (diff, full, including openai/httpx2/httpcore2/apiconf/truststore/idna/jiter entries)"
+  ],
+  "exhaustive": false,
+  "findings": []
+}

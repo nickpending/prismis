@@ -1,0 +1,27 @@
+{
+  "searched": [
+    "docs/work/openai-sdk-migration/work-order.json",
+    "docs/work/openai-sdk-migration/results/plan.json",
+    "docs/work/openai-sdk-migration/job-1.diff (full, 1890 lines)",
+    "docs/work/openai-sdk-migration/journal.jsonl (full)",
+    "docs/work/openai-sdk-migration/results/built-1-1.json",
+    "docs/work/openai-sdk-migration/results/built-1-2.json",
+    "docs/work/openai-sdk-migration/results/review-1-1.json (prior review, findings F-1-1, F-1-2)",
+    "daemon/src/prismis_daemon/llm_client.py (as captured in job-1.diff, full new-file content)",
+    "daemon/src/prismis_daemon/circuit_breaker.py (diff hunk)",
+    "daemon/src/prismis_daemon/summarizer.py, evaluator.py, context_analyzer.py, context_auto_updater.py, audio.py, deep_extractor.py, llm_validator.py (diff, full)",
+    "daemon/tests/unit/test_llm_client_unit.py (as captured in job-1.diff, full new-file content, 565 lines)",
+    "daemon/tests/integration/test_llm_client_live_integration.py (as captured in job-1.diff, full new-file content)",
+    "daemon/tests/unit/test_circuit_breaker_unit.py, test_dual_service_config_unit.py, test_llm_startup_validation_unit.py, test_llm_startup_validation_integration.py, test_evaluator_unit.py, test_summarizer_unit.py (diff hunks)",
+    "daemon/pyproject.toml, daemon/uv.lock (diff, full, including the openai/httpx2/httpcore2/apiconf/truststore/idna/jiter package entries)"
+  ],
+  "exhaustive": false,
+  "findings": [
+    {
+      "file": "daemon/src/prismis_daemon/llm_client.py",
+      "line": 270,
+      "summary": "complete()'s finish_reason mapping (`\"max_tokens\" if choice.finish_reason == \"length\" else \"stop\"`) has only its else-branch exercised anywhere in the gate: every stub handler in daemon/tests/unit/test_llm_client_unit.py and every fake response in the live-gated daemon/tests/integration/test_llm_client_live_integration.py hardcodes `\"finish_reason\": \"stop\"`. CompleteResult.finish_reason is typed as `\"stop\" | \"max_tokens\"` (line 432) and is a field SC-1 names explicitly as part of the public result shape every call site reads, so the branch that actually produces the second of its two documented values is untested by any test the gate runs. Minor: the mapping is a one-line ternary with no surrounding logic, but it is a real, unverified gap rather than a hypothetical one.",
+      "severity": "low"
+    }
+  ]
+}

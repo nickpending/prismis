@@ -1,0 +1,11 @@
+{
+  "artifact": [
+    "cli/uv.lock"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ad75d587bc94f6c5a",
+    "branch": "worktree-agent-ad75d587bc94f6c5a",
+    "base": "d05fda4e3daa3de85cfb127765e247e95124af02"
+  }
+}

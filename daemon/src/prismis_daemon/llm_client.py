@@ -240,12 +240,17 @@ def complete(
         extra_headers["HTTP-Referer"] = svc.app_url
 
     # OpenRouter's `usage.include` extension returns the real billed cost on the
-    # response (SC-3) -- verified live 2026-09-03 against prismis-pt-luna. api.openai.com
-    # rejects this as an unrecognized request argument (BadRequestError, verified live
-    # against prismis-openai), so it is sent only to openrouter.ai. Cost for
-    # api.openai.com services stays None: llm-core's static pricing table is exactly the
-    # broken mechanism this migration removes, and reintroducing a local estimate for
-    # one host only would resurrect the same staleness problem for half the fleet.
+    # response (SC-3; proven without live network by
+    # test_complete_extracts_real_cost_for_an_openrouter_shaped_base_url,
+    # tests/unit/test_llm_client_unit.py). api.openai.com rejects the same extension as
+    # an unrecognized request argument (BadRequestError) -- proven against the real
+    # endpoint, gated on real credentials, by
+    # test_openai_service_rejects_extra_body_usage_include,
+    # tests/integration/test_llm_client_live_integration.py -- so it is sent only to
+    # openrouter.ai. Cost for api.openai.com services stays None: llm-core's static
+    # pricing table is exactly the broken mechanism this migration removes, and
+    # reintroducing a local estimate for one host only would resurrect the same
+    # staleness problem for half the fleet.
     extra_body: dict[str, object] | None = (
         {"usage": {"include": True}} if _is_openrouter(svc.base_url) else None
     )

@@ -19,7 +19,9 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch  # claudex-guard: allow-mock -- httpx2, not prismis_daemon
 
+import httpx2
 import openai
 import pytest
 
@@ -155,6 +157,128 @@ def test_complete_result_shape_matches_call_sites() -> None:
     assert isinstance(result.duration_ms, int)
     assert result.duration_ms >= 0
     # base_url is not openrouter.ai -- no usage.include extension sent, no cost back.
+    # The openrouter-shaped counterpart of this assertion is
+    # test_complete_extracts_real_cost_for_an_openrouter_shaped_base_url below.
+    assert result.cost is None
+
+
+# ---------------------------------------------------------------------------
+# SC-3: OpenRouter's usage.include cost survives the round trip into
+# CompleteResult.cost -- gate-reachable, no network, no live credentials.
+#
+# _is_openrouter() matches the literal substring "openrouter.ai" in base_url, which is
+# also the actual network destination httpx2 would connect to -- a local stub bound to
+# 127.0.0.1 can never satisfy it, so this test drives complete() against a real
+# openrouter.ai-shaped base_url (identical in shape to the real services.toml's
+# prismis-pt-luna entry) and fakes only the wire: httpx2.Client.send, the openai SDK's
+# own vendored httpx, not any prismis_daemon code. resolve_service(), _is_openrouter()
+# and the extra_body branch in complete() all run for real; only the TCP connection is
+# stood in for. This also proves openai's CompletionUsage pydantic model preserves an
+# unmodeled "cost" key from the provider's JSON rather than silently dropping it --
+# nothing here would pass if it didn't.
+# ---------------------------------------------------------------------------
+
+
+def _openrouter_response(request: httpx2.Request, *, cost: float) -> httpx2.Response:
+    payload = {
+        "id": "or-completion",
+        "object": "chat.completion",
+        "model": "openai/gpt-5.6-luna",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 2,
+            "total_tokens": 12,
+            "cost": cost,
+        },
+    }
+    return httpx2.Response(
+        200,
+        request=request,
+        headers={"content-type": "application/json"},
+        content=json.dumps(payload).encode(),
+    )
+
+
+def test_is_openrouter_matches_the_real_services_toml_shape() -> None:
+    """The gate itself, in isolation: matches OpenRouter's real base_url, not
+    api.openai.com's, and not an arbitrary substring collision."""
+    assert llm_client._is_openrouter("https://openrouter.ai/api/v1") is True
+    assert llm_client._is_openrouter("https://api.openai.com/v1") is False
+    assert llm_client._is_openrouter("http://127.0.0.1:8080/v1") is False
+
+
+def test_complete_extracts_real_cost_for_an_openrouter_shaped_base_url() -> None:
+    """SC-3: complete() sends the usage.include extra_body to an openrouter.ai base_url
+    and returns the provider's real cost on CompleteResult.cost -- proven end to end
+    (gate, extra_body, response parsing) without a live network call."""
+    service = "openrouter-shaped-svc"
+    _write_service(
+        service, "https://openrouter.ai/api", default_model="openai/gpt-5.6-luna"
+    )
+
+    sent_requests: list[httpx2.Request] = []
+
+    def _fake_send(_self: httpx2.Client, request: httpx2.Request, **_kw: object) -> httpx2.Response:
+        sent_requests.append(request)
+        return _openrouter_response(request, cost=9.2e-06)
+
+    with patch.object(httpx2.Client, "send", _fake_send):
+        result = llm_client.complete(prompt="hi", service=service)
+
+    assert len(sent_requests) == 1
+    sent_body = json.loads(sent_requests[0].content)
+    assert sent_body.get("usage") == {"include": True}, (
+        "the usage.include extension must reach the real outgoing request body"
+    )
+    assert result.cost == 9.2e-06
+    assert result.text == "ok"
+
+
+def test_complete_does_not_send_extra_body_to_a_non_openrouter_base_url() -> None:
+    """Control for the test above: an api.openai.com-shaped base_url gets no
+    usage.include extension in the request at all -- not merely an ignored one."""
+    service = "openai-shaped-svc"
+    _write_service(
+        service, "https://api.openai.com", default_model="gpt-4.1-mini"
+    )
+
+    sent_requests: list[httpx2.Request] = []
+
+    def _fake_send(_self: httpx2.Client, request: httpx2.Request, **_kw: object) -> httpx2.Response:
+        sent_requests.append(request)
+        payload = {
+            "id": "oa-completion",
+            "object": "chat.completion",
+            "model": "gpt-4.1-mini",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+        }
+        return httpx2.Response(
+            200,
+            request=request,
+            headers={"content-type": "application/json"},
+            content=json.dumps(payload).encode(),
+        )
+
+    with patch.object(httpx2.Client, "send", _fake_send):
+        result = llm_client.complete(prompt="hi", service=service)
+
+    assert len(sent_requests) == 1
+    sent_body = json.loads(sent_requests[0].content)
+    assert "usage" not in sent_body
     assert result.cost is None
 
 

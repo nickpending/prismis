@@ -20,6 +20,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+import openai
 import pytest
 
 from prismis_daemon import llm_client, observability
@@ -74,6 +75,31 @@ def test_openai_service_returns_no_cost() -> None:
     )
     assert result.text
     assert result.cost is None
+
+
+def test_openai_service_rejects_extra_body_usage_include() -> None:
+    """F-1-2 pin: api.openai.com really rejects OpenRouter's usage.include extension.
+
+    complete() itself never sends this to an api.openai.com service -- it gates
+    extra_body on _is_openrouter(base_url), proven without network in
+    tests/unit/test_llm_client_unit.py -- so this is the one place in the tree that
+    checks the underlying fact the gate exists for, against the real endpoint, rather
+    than asserting it in a source comment with no trace anywhere else. Builds the same
+    client llm_client.complete() would (resolve_service + _load_api_key against the
+    real prismis-openai entry) and adds the extension by hand to reach the branch
+    production code deliberately never takes.
+    """
+    svc = llm_client.resolve_service("prismis-openai")
+    api_key = llm_client._load_api_key(svc)
+    client = openai.OpenAI(base_url=svc.base_url, api_key=api_key)
+
+    with pytest.raises(openai.BadRequestError):
+        client.chat.completions.create(
+            model=svc.default_model or "gpt-4.1-mini",
+            messages=[{"role": "user", "content": "Reply with exactly the word: ok"}],
+            max_tokens=5,
+            extra_body={"usage": {"include": True}},
+        )
 
 
 def test_llm_call_observability_event_records_the_real_cost(

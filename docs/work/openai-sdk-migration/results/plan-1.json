@@ -1,0 +1,69 @@
+{
+  "artifact": [
+    "docs/work/openai-sdk-migration/results/plan-1.json"
+  ],
+  "verified": false,
+  "jobs": [
+    {
+      "number": 1,
+      "title": "Build the openai-SDK llm_client module and repoint every content-analysis call site off llm-core",
+      "files": [
+        "daemon/src/prismis_daemon/llm_client.py",
+        "daemon/src/prismis_daemon/circuit_breaker.py",
+        "daemon/src/prismis_daemon/summarizer.py",
+        "daemon/src/prismis_daemon/evaluator.py",
+        "daemon/src/prismis_daemon/context_analyzer.py",
+        "daemon/src/prismis_daemon/context_auto_updater.py",
+        "daemon/src/prismis_daemon/audio.py",
+        "daemon/src/prismis_daemon/deep_extractor.py",
+        "daemon/src/prismis_daemon/llm_validator.py",
+        "daemon/pyproject.toml",
+        "daemon/uv.lock",
+        "daemon/tests/unit/test_llm_client_unit.py",
+        "daemon/tests/integration/test_llm_client_live_integration.py",
+        "daemon/tests/unit/test_dual_service_config_unit.py",
+        "daemon/tests/unit/test_llm_startup_validation_unit.py",
+        "daemon/tests/integration/test_llm_startup_validation_integration.py",
+        "daemon/tests/unit/test_circuit_breaker_unit.py"
+      ],
+      "depends": [],
+      "delivers": ["SC-1", "SC-2", "SC-3", "SC-4", "SC-5", "SC-6", "SC-7", "SC-9"],
+      "red": true
+    },
+    {
+      "number": 2,
+      "title": "Remove llm-core from prismis: __main__ verify/migrate-config off llm_core, dependency pins rewritten, final reference sweep",
+      "files": [
+        "daemon/src/prismis_daemon/__main__.py",
+        "daemon/src/prismis_daemon/api.py",
+        "daemon/src/prismis_daemon/config.py",
+        "daemon/src/prismis_daemon/defaults.py",
+        "daemon/scripts/model_playtest.py",
+        "daemon/pyproject.toml",
+        "daemon/uv.lock",
+        "cli/pyproject.toml",
+        "cli/uv.lock",
+        "daemon/tests/unit/test_dep_pin_unit.py",
+        "daemon/tests/unit/test_verify_subcommand_unit.py",
+        "daemon/tests/unit/test_llm_core_migration_unit.py"
+      ],
+      "depends": [1],
+      "delivers": ["SC-8", "SC-10"],
+      "red": true
+    },
+    {
+      "number": 3,
+      "title": "Bring docs/architecture and README off llm-core, naming the openai-SDK contract",
+      "files": [
+        "docs/architecture/architecture.md",
+        "docs/architecture/boundaries.md",
+        "docs/architecture/components.md",
+        "docs/architecture/decisions.md",
+        "README.md"
+      ],
+      "depends": [1, 2],
+      "delivers": ["SC-11"],
+      "red": false
+    }
+  ]
+}

@@ -77,9 +77,9 @@
       "id": "SC-8",
       "given": "the migrated tree and its daemon venv",
       "when": "searched for llm-core, and llm_core imported",
-      "then": "no reference remains in daemon/src, cli/src, daemon/scripts, the pyproject files or their mypy overrides, and the import fails because the package is no longer installed",
+      "then": "the llm_core module is imported nowhere in daemon/src, cli/src or daemon/scripts and named in neither pyproject's mypy overrides, llm-core is no longer a dependency or uv source in either pyproject, and the import fails because the package is no longer installed. The config path ~/.config/llm-core/services.toml is not the library and stays (SC-9)",
       "observation": {
-        "command": "if git grep -qE 'llm_core|llm-core' -- daemon/src cli/src daemon/scripts daemon/pyproject.toml cli/pyproject.toml; then echo 'SC-8: FAIL (reference)'; elif (cd daemon && uv run python -c 'import llm_core' 2>/dev/null); then echo 'SC-8: FAIL (still installed)'; else echo 'SC-8: PASS'; fi",
+        "command": "if git grep -qE 'llm_core' -- daemon/src cli/src daemon/scripts daemon/pyproject.toml cli/pyproject.toml || git grep -qE '\"llm-core|^llm-core' -- daemon/pyproject.toml cli/pyproject.toml; then echo 'SC-8: FAIL (reference)'; elif (cd daemon && uv run python -c 'import llm_core' 2>/dev/null); then echo 'SC-8: FAIL (still installed)'; else echo 'SC-8: PASS'; fi",
         "expect": "SC-8: PASS"
       }
     },
@@ -107,9 +107,9 @@
       "id": "SC-11",
       "given": "docs/architecture and README.md",
       "when": "searched for llm-core",
-      "then": "no reference remains, and the daemon's LLM contract names the SDK, the result shape, the error contract and where service config lives",
+      "then": "no reference to llm-core as the LLM library remains; the daemon's LLM contract names the SDK, the result shape, the error contract, and where service config lives, which is still ~/.config/llm-core/services.toml",
       "observation": {
-        "command": "echo \"count=$(git grep -lE 'llm_core|llm-core' -- docs/architecture README.md | wc -l | tr -d ' ')\"",
+        "command": "echo \"count=$(git grep -nE 'llm_core|llm-core' -- docs/architecture README.md | grep -v 'config/llm-core/' | wc -l | tr -d ' ')\"",
         "expect": "count=0"
       }
     }

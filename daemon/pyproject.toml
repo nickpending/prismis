@@ -13,8 +13,13 @@ dependencies = [
     "fastapi>=0.116.1",
     "feedparser",
     "httpx",
-    "llm-core>=0.1.0",
-    "praw>=7.8.1",
+    # <8: prawcore 4.0.0 (pulled in by praw 8.x) renames the Session internals
+    # test_reddit_validation_unit.py's probe-budget test reaches into
+    # (core._requestor._http) -- a real regression this migration's mandatory
+    # `uv lock` re-resolution surfaced, unrelated to llm-core. Upper-bounded here to
+    # keep the lockfile resolving to the already-validated 7.x line until that test is
+    # updated for prawcore 4's shape.
+    "praw>=7.8.1,<8",
     "pydantic",
     "python-dotenv",
     "rich",
@@ -91,10 +96,9 @@ exclude = ["^scripts/", "^\\.venv/"]
 
 # These ship no type information and have no stubs package; their calls are unchecked.
 [[tool.mypy.overrides]]
-module = ["apscheduler.*", "feedparser", "llm_core", "llm_core.*", "praw", "praw.*", "prawcore", "prawcore.*", "sqlite_vec"]
+module = ["apscheduler.*", "feedparser", "praw", "praw.*", "prawcore", "prawcore.*", "sqlite_vec"]
 ignore_missing_imports = true
 
 [tool.uv.sources]
-llm-core = { git = "https://github.com/nickpending/llm-core", subdirectory = "python", rev = "2eb4429" }
 torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 apiconf = { git = "https://github.com/nickpending/apiconf", subdirectory = "python", rev = "6fd244a" }

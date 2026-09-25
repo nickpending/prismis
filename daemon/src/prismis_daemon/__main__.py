@@ -15,6 +15,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
 from rich.console import Console
 
+from . import llm_client
 from .config import Config
 from .context_auto_updater import run_context_update
 from .defaults import ensure_config
@@ -594,11 +595,12 @@ def migrate_config() -> None:
 
     console.print(f"Found old config format: provider={old_provider}")
 
-    # Step 2: Create ~/.config/llm-core/services.toml
-    llm_core_dir = Path(config_home) / "llm-core"
-    llm_core_dir.mkdir(parents=True, exist_ok=True)
+    # Step 2: Create ~/.config/llm-core/services.toml -- the shared config path
+    # (SC-9), not the llm-core library itself.
+    services_config_dir = Path(config_home) / "llm-core"
+    services_config_dir.mkdir(parents=True, exist_ok=True)
 
-    services_path = llm_core_dir / "services.toml"
+    services_path = services_config_dir / "services.toml"
     if services_path.exists():
         console.print(f"[dim]Skipping {services_path} (already exists)[/dim]")
     else:
@@ -656,28 +658,15 @@ value = "{resolved_key}"
     if key_warning:
         console.print(f"[yellow]Warning: {key_warning}[/yellow]")
 
-    # Step 4: Write pricing.toml if not exists
-    pricing_path = llm_core_dir / "pricing.toml"
-    if pricing_path.exists():
-        console.print(f"[dim]Skipping {pricing_path} (already exists)[/dim]")
-    else:
-        try:
-            from llm_core import update_pricing
-
-            count = update_pricing()
-            console.print(f"[green]Created {pricing_path} ({count} models)[/green]")
-        except Exception as e:
-            console.print(
-                f"[yellow]Warning: Could not fetch pricing data: {e}[/yellow]"
-            )
-            console.print(
-                "[yellow]Run 'python -c \"from llm_core import update_pricing; update_pricing()\"' later to populate pricing.[/yellow]"
-            )
-
-    # Step 4b: Append [services.prismis-openai-deep] to services.toml (idempotent).
-    # Mirrors the post-llm-core branch's check-before-append pattern (lines ~479-505)
-    # so a single run of migrate-config on a pre-llm-core config converges to the
-    # full dual-service shape — no intermediate unloadable state between runs.
+    # Step 4: Append [services.prismis-openai-deep] to services.toml (idempotent).
+    # No pricing.toml step here: the openai-SDK migration (wo-openai-sdk-migration.md)
+    # reads billed cost straight off the provider's response (llm_client.py's complete()),
+    # not a locally maintained pricing table, so prismis has nothing left to populate
+    # pricing.toml for. Mirrors the check-before-append pattern in the "service ->
+    # light_service" rename branch above (the [services.prismis-openai-deep] append
+    # right after new_config_text is built there) so a single run of migrate-config on
+    # a pre-llm-core config converges to the full dual-service shape — no intermediate
+    # unloadable state between runs.
     services_text = services_path.read_text()
     if "[services.prismis-openai-deep]" in services_text:
         console.print("[dim]Skipping prismis-openai-deep entry (already exists)[/dim]")
@@ -757,8 +746,6 @@ def verify(
             sys.exit(1)
         sys.exit(run_chain(source, source_type, full, console))
 
-    import llm_core
-
     failures = 0
 
     # 1. Config
@@ -771,7 +758,7 @@ def verify(
 
     # 2. Light service
     try:
-        llm_core.health_check(service=config.llm_light_service)
+        llm_client.health_check(service=config.llm_light_service)
         console.print(
             f"[green]✓ light service reachable ({config.llm_light_service})[/green]"
         )
@@ -786,7 +773,7 @@ def verify(
         console.print("[yellow]○ deep service: not configured[/yellow]")
     else:
         try:
-            llm_core.health_check(service=config.llm_deep_service)
+            llm_client.health_check(service=config.llm_deep_service)
             console.print(
                 f"[green]✓ deep service reachable ({config.llm_deep_service})[/green]"
             )

@@ -21,8 +21,11 @@ import pytest
 from prismis_daemon.__main__ import verify
 from prismis_daemon.storage import Storage
 
-# External API boundary -- llm_core.health_check is a third-party network call
-_HEALTH_CHECK_MOCK = "llm_core.health_check"  # claudex-guard: allow-mock
+# External API boundary -- llm_client.health_check is a third-party network call.
+# Patched where verify() looks it up (module attribute, not the imported symbol) --
+# same pattern as test_dual_service_config_unit.py's
+# "prismis_daemon.llm_validator.llm_client.health_check".
+_HEALTH_CHECK_MOCK = "prismis_daemon.__main__.llm_client.health_check"  # claudex-guard: allow-mock
 
 # --- TOML fixtures ------------------------------------------------------------
 

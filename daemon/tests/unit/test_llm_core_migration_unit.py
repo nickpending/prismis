@@ -1,11 +1,18 @@
 """Tests for task 3.2: litellm-to-llm-core consumer migration invariants.
 
+llm-core itself is gone now (work-order openai-sdk-migration); the invariants this
+file guards -- no litellm, and complete() reached through a service_name constructor
+-- outlived the library that originally motivated them, so the file stays under its
+original name with its original litellm-focused scope.
+
 Covers:
 - INV-001: Zero litellm imports in daemon/src/prismis_daemon/
-- SC-11: Summarizer uses llm_core.complete() via service_name constructor
-- SC-12: Evaluator uses llm_core.complete() via service_name constructor
+- SC-11: Summarizer uses llm_client.complete() via service_name constructor
+- SC-12: Evaluator uses llm_client.complete() via service_name constructor
 - SC-13: Zero litellm references in daemon/src/ and pyproject.toml
-- SC-15: migrate_config creates services.toml, apiconf, pricing.toml, updates config
+- SC-15: migrate_config creates services.toml and apiconf, and updates config
+  (pricing.toml is deliberately no longer part of this contract -- see the
+  disposition note on test_SC15_migrate_config_creates_services_and_updates_config)
 - SC-16: __main__.py passes config.llm_service to consumer constructors
 """
 
@@ -242,7 +249,14 @@ backup_count = 3
 
 def test_SC15_migrate_config_creates_services_and_updates_config() -> None:
     """
-    SC-15: migrate_config must create services.toml, apiconf, pricing.toml, update config
+    SC-15: migrate_config must create services.toml and apiconf, and update config.
+
+    Disposition (openai-SDK migration, work-order openai-sdk-migration SC-10): this
+    test's original pricing.toml assertion is removed here, deliberately, not softened
+    or skipped. migrate_config() no longer writes pricing.toml -- llm_core.update_pricing
+    populated a static local cost table, and llm_client.complete() now reads the real
+    billed cost straight off the provider's response instead (llm_client.py's complete()),
+    so prismis has nothing left to populate that file for.
     BREAKS: Cost tracking and LLM routing silently broken after migration
     """
     temp_dir = tempfile.mkdtemp()
@@ -275,10 +289,14 @@ def test_SC15_migrate_config_creates_services_and_updates_config() -> None:
         assert "[keys.openai]" in apiconf_content
         assert "sk-test-key-1234" in apiconf_content
 
-        # Verify pricing.toml was created with model entries
+        # migrate_config() no longer writes pricing.toml (see the docstring above) --
+        # assert its absence so a reintroduced llm_core.update_pricing() call would
+        # turn this test red again rather than passing silently.
         pricing_path = Path(temp_dir) / "llm-core" / "pricing.toml"
-        assert pricing_path.exists(), "pricing.toml was not created"
-        assert "gpt-4.1-mini" in pricing_path.read_text()
+        assert not pricing_path.exists(), (
+            "pricing.toml was created -- migrate_config() should no longer populate a "
+            "local cost table now that cost comes from the provider's own response"
+        )
 
         # Verify config.toml [llm] section was updated to light_service= format (Fix 3:
         # pre-llm-core path now converges to dual-service shape in a single run)

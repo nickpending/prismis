@@ -1,9 +1,9 @@
 ---
 type: manifest
 project: prismis
-generated: "2026-09-24"
+generated: "2026-09-25"
 source: /Users/rudy/development/projects/prismis/docs/architecture
-reconciled_at: 8a992358c138117877358d73882d1f644a69b3cf
+reconciled_at: 35e20220c319bcff14577e37d15782d8eb595575
 ---
 
 ## Components

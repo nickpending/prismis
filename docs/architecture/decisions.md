@@ -4,14 +4,26 @@ subtype: decisions
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-24"
-last_change: "mypy replaces pyright as the Python type-checker across cli/ and daemon/ (commit 8a99235); RedditFetcher closes its PRAW-construction divergence from the validator and PRAW/yt-dlp are pinned off ambient config (#67, #68, #69, #72, commits 7f8000a/b22569f/128efa3/b93df96)"
+updated: "2026-09-25"
+last_change: "Every unexpected API failure returns a generic 500 with detail redacted to the log (#76, commit 66cb94e); internal collaborators are no longer mocked in daemon or CLI tests, enforced by a structural guard test (no-internal-mocks, #73, #62)"
 tags: [architecture, decisions]
 ---
 
 # Decisions
 
 Architectural decisions and their rationale. Most recent first.
+
+## [2026-09-24]: Every unexpected API failure returns a generic 500; the exception detail goes to the observability log (#76)
+
+**Context:** The [2026-09-07] Reddit-validation decision's retraction record already found `verify_api_key`'s blanket `str(e)` leaking the absolute config path and structural detail into a 500 body, and fixed that one handler. Per the new integration test's docstring: "Exception text can hold a credential, a filesystem path or a query. `/api/context` was proven to return an API key this way; every other handler had the same shape." `api.py` had 20-plus `except Exception as e: raise ServerError(f"...: {str(e)}") from e` sites, each capable of putting a credential, a filesystem path or a query into a client-visible response.
+**Choice:** New `_server_error(message: str, exc: Exception) -> ServerError` helper in `api.py`: `obs_log("api.error", message=message, error=str(exc), error_type=type(exc).__name__)` then returns `ServerError(f"{message}. Check the daemon log for detail.")` — the exception text never reaches the return value. Every generic-exception handler in `api.py` (add/get/update/delete source, update_content, pause/resume_source, get_content, semantic_search, get_entry_summary, get_entry_raw, extract_entry, health_check, prune, audio briefing generation, archive_status, analyze_context, statistics, feedback_statistics) now routes through it instead of inlining `str(e)`; `analyze_context`'s pre-existing standalone `obs_log` call was folded into the helper rather than kept as a duplicate. New `daemon/tests/integration/test_api_error_redaction_integration.py` drives a real failure (the `sources` table dropped from the sealed test database, so the real query raises sqlite's own error inside the handler) through a real endpoint and asserts no exception text reaches the response body, plus a structural AST test over every handler in `api.py`, since only one handler can be forced to fail for real from a test.
+**Why:** The `auth.py` fix closed one instance of the leak; this closes the pattern everywhere it recurred, under the same failure-reporting principle already cited for the `auth.py` case. Centralizing in one helper (P15) means a future handler inherits the redaction by construction instead of each author having to remember to avoid `str(e)`.
+
+## [2026-09-24]: Internal collaborators are no longer mocked in daemon or CLI tests; a structural guard test enforces it (no-internal-mocks, #73, #62)
+
+**Context:** Per the work order: "The mypy migration (8a99235) left every remaining violation marked in place with `# type: ignore[...]  # internal fake, removed by docs/work/no-internal-mocks`, and the `# claudex-guard: allow-mock` marker is attached to internal patches (get_circuit_breaker, Config.from_file, get_db_connection, Storage methods), so the honor system is not holding." Constitution Principle I permits faking only the LLM provider boundary; daemon and CLI tests had accumulated patches of `prismis_daemon`'s own `CircuitBreaker`, `ContentDeepExtractor`, `Config`, `Storage`, and the CLI's own `APIClient`/`httpx` — each proving the fake rather than prismis.
+**Choice:** Real collaborators replace the stand-ins across `test_orchestrator_deep_unit`, `test_notifier_unit`, `test_storage_dict_unit`, `test_llm_core_migration_unit`, `test_verify_subcommand_unit`, `test_context_assistant`, the three deep-extraction test files, and the CLI suite. The CLI suite gained `cli/tests/conftest.py`'s `live_daemon`/`live_daemon_deep` fixtures, which start a real `uvicorn.Server` in a thread against a seeded temp database and reach it through the real `APIClient`, rather than a patched client — `uvicorn` was added as a `cli/pyproject.toml` dev dependency for this. `daemon/tests/conftest.py`'s `local_pipeline_stub` gained a `DEEP_EXTRACT_DELAY_PREFIX` marker so a slow-extraction scenario comes from a real delayed HTTP response instead of a stand-in extractor's `time.sleep()`. New `daemon/tests/unit/test_no_internal_mocks_unit.py` is a permanent guard: an AST scan over every file under `daemon/tests` and `cli/tests` that fails, naming the file, line and target, if anything patches `prismis_daemon` or `cli` outside an allowlist of `llm_core.complete`, `llm_core.health_check`, and module-level constants. PRAW/`yt-dlp` third-party mocks and the LLM provider boundary remain permitted and out of scope.
+**Why:** Constitution Principle I — a test against a fake proves the fake, not prismis; the guard test makes the honor-system markers left by the mypy migration mechanically enforced instead of advisory. P15 — the in-process daemon reuses the daemon's own real `app`/`Storage`/`init_db` rather than a hand-written stand-in server.
 
 ## [2026-09-24]: mypy replaces pyright as the Python type-checker across `cli/` and `daemon/` (commit `8a99235`)
 

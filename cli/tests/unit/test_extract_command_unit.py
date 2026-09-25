@@ -7,19 +7,32 @@ Protects:
 - INV: per-item RuntimeError caught without stopping the batch
 - INV: extract command registered in __main__.py (command discoverable)
 
-Tests wrap the extract() function in a local typer app for invocation,
-bypassing the full __main__.py app (avoids config-file and service dependencies).
-APIClient is patched at the cli.extract module boundary to control responses.
+Tests invoke the real `extract()` Typer command, wrapped in a local app for
+CliRunner (bypassing the full __main__.py app, which needs a fuller config than
+this command does). `extract()` constructs its own `cli.extract.APIClient()`
+in-body — there is no injection point — so the guard tests below prove their
+"no API call happened" invariant the way `no_network` does in
+daemon/tests/conftest.py: by leaving no config.toml in place, so a real call
+would surface as a visibly different crash/message rather than passing silently.
+The tests that need a real API call route through `live_daemon` / `live_daemon_deep`
+(conftest.py), which also point the sealed config's [remote] section at the
+fixture's real daemon — `APIClient()` reaches it with no code change needed here.
 """
 
-from unittest.mock import patch
+import socket
+from datetime import UTC, datetime, timedelta
 
 import typer
-
-
 from typer.testing import CliRunner
 
 from cli.extract import extract
+
+from conftest import (
+    DEEP_EXTRACT_FAILURE_MARKER,
+    LiveDaemon,
+    seed_content,
+)
+from prismis_daemon.storage import Storage
 
 # Wrap the plain function in a local Typer app for test invocation.
 # CliRunner.invoke() requires a Typer app, not a raw function.
@@ -29,43 +42,24 @@ _app.command()(extract)
 runner = CliRunner()
 
 
-def _make_item(
-    item_id: str = "abc123",
-    title: str = "Test Article",
-    has_extraction: bool = False,
-) -> dict:
-    """Build a minimal candidate item dict matching the API response shape."""
-    analysis: dict = {}
-    if has_extraction:
-        analysis["deep_extraction"] = {
-            "synthesis": "test synthesis",
-            "model": "gpt-5-mini",
-        }
-    return {"id": item_id, "title": title, "analysis": analysis}
-
-
 def test_invalid_priority_exits_before_api_call() -> None:
     """
     INVARIANT: Invalid --priority value exits code 1 before any API call.
     BREAKS: Bad requests reach the daemon, causing confusing server errors.
 
-    The validation guard must fire before APIClient() is even constructed.
+    No config.toml exists in the sealed XDG dirs (isolated_xdg_env only creates
+    the directory), so if the validation guard failed to fire, `APIClient()`
+    would raise "Config file not found" instead of printing this message —
+    a real, distinguishable crash rather than a silently-passing test.
     """
-    get_content_called = [0]
-
-    def fake_get_content(*args, **kwargs):
-        get_content_called[0] += 1
-        return []
-
-    with patch("cli.extract.APIClient") as MockClient:
-        MockClient.return_value.get_content.side_effect = fake_get_content
-        result = runner.invoke(_app, ["--priority", "invalid"])
+    result = runner.invoke(_app, ["--priority", "invalid"])
 
     assert result.exit_code == 1, (
         f"Expected exit code 1 for invalid priority, got {result.exit_code}"
     )
-    assert get_content_called[0] == 0, (
-        "get_content() must NOT be called when priority is invalid"
+    assert "Invalid --priority" in result.output, (
+        f"get_content() must NOT be reached when priority is invalid — expected "
+        f"the validation message, got: {result.output!r}"
     )
 
 
@@ -76,118 +70,125 @@ def test_limit_zero_short_circuits_without_api_call() -> None:
 
     The server's /api/entries enforces limit >= 1 via Pydantic; without the client-side
     guard, --limit 0 would surface as a red error message rather than the documented no-op.
+    No config.toml exists, so a bypassed guard would crash instead of matching this output.
     """
-    get_content_called = [0]
-
-    def fake_get_content(*args, **kwargs):
-        get_content_called[0] += 1
-        return []
-
-    with patch("cli.extract.APIClient") as MockClient:
-        MockClient.return_value.get_content.side_effect = fake_get_content
-        result = runner.invoke(_app, ["--limit", "0"])
+    result = runner.invoke(_app, ["--limit", "0"])
 
     assert result.exit_code == 0, (
         f"Expected exit code 0 for --limit 0, got {result.exit_code}"
     )
-    assert get_content_called[0] == 0, "get_content() must NOT be called when limit < 1"
     assert "No items need extraction" in result.output, (
         f"Expected 'No items need extraction' in output, got: {result.output!r}"
     )
 
 
-def test_client_filter_excludes_already_extracted_items() -> None:
+def test_client_filter_excludes_already_extracted_items(
+    live_daemon_deep: LiveDaemon,
+) -> None:
     """
     INVARIANT: Items with analysis.deep_extraction are excluded from the pending batch.
     BREAKS: Every run re-extracts all items (ignoring idempotency), wasting LLM credits.
 
-    get_content() returns 3 items: 2 already extracted, 1 pending.
-    extract_entry() must be called exactly once (for the pending item).
+    Seeds 3 real HIGH-priority items: 2 already carry `analysis.deep_extraction`,
+    1 does not. The real daemon returns all 3; the CLI's own client-side filter
+    must be what excludes the two already-extracted ones, since the one real
+    extraction attempt this drives (the pending item) must be the only one that
+    happens — a second, unwanted attempt on an already-extracted item would show
+    up as "2 extracted" instead of "1 extracted, 0 failed".
     """
-    extracted_a = _make_item("id-a", "Already Extracted A", has_extraction=True)
-    extracted_b = _make_item("id-b", "Already Extracted B", has_extraction=True)
-    pending_c = _make_item("id-c", "Pending Article C", has_extraction=False)
+    storage = Storage(live_daemon_deep.db_path)
+    source_id = storage.add_source("http://example.com/feed", "rss", "Example")
+    seed_content(
+        storage,
+        source_id,
+        title="Already Extracted A",
+        analysis={"deep_extraction": {"synthesis": "old", "model": "stub"}},
+    )
+    seed_content(
+        storage,
+        source_id,
+        title="Already Extracted B",
+        analysis={"deep_extraction": {"synthesis": "old", "model": "stub"}},
+    )
+    seed_content(storage, source_id, title="Pending Article C")
+    storage.close()
 
-    extract_calls = []
-
-    def fake_extract_entry(entry_id: str) -> dict:
-        extract_calls.append(entry_id)
-        return {"deep_extraction": {"synthesis": "done"}}
-
-    with patch("cli.extract.APIClient") as MockClient:
-        MockClient.return_value.get_content.return_value = [
-            extracted_a,
-            extracted_b,
-            pending_c,
-        ]
-        MockClient.return_value.extract_entry.side_effect = fake_extract_entry
-        result = runner.invoke(_app, ["--limit", "10"])
+    result = runner.invoke(_app, ["--limit", "10"])
 
     assert result.exit_code == 0, (
         f"Expected exit code 0, got {result.exit_code}\nOutput: {result.output}"
-    )
-    assert extract_calls == ["id-c"], (
-        f"extract_entry() must be called only for pending item 'id-c', got: {extract_calls}"
     )
     assert "Done: 1 extracted, 0 failed" in result.output, (
         f"Expected '1 extracted, 0 failed' in output, got: {result.output!r}"
     )
 
 
-def test_per_item_failure_does_not_abort_batch() -> None:
+def test_per_item_failure_does_not_abort_batch(live_daemon_deep: LiveDaemon) -> None:
     """
     INVARIANT: A RuntimeError from extract_entry() on one item does not stop subsequent items.
     BREAKS: One failing item (503, timeout, etc.) aborts the rest of the batch silently.
 
-    Three pending items: first and third succeed, second fails.
-    All three items must be attempted; summary must reflect partial success.
+    Three real pending items, ordered by `published_at` (newest first, matching
+    `GET /api/entries`' own sort) so the middle one is attempted second: its
+    content carries `DEEP_EXTRACT_FAILURE_MARKER`, which the stub LLM
+    (live_daemon_deep, conftest.py) answers with a body that fails
+    ContentDeepExtractor's own JSON parse — a real 500 from the real daemon, not
+    an injected exception. All three items must still be attempted.
     """
-    items = [
-        _make_item("id-1", "Article One"),
-        _make_item("id-2", "Article Two"),
-        _make_item("id-3", "Article Three"),
-    ]
+    storage = Storage(live_daemon_deep.db_path)
+    source_id = storage.add_source("http://example.com/feed", "rss", "Example")
+    now = datetime.now(UTC)
+    seed_content(
+        storage, source_id, title="Article One", published_at=now
+    )
+    seed_content(
+        storage,
+        source_id,
+        title="Article Two",
+        content=f"Body containing {DEEP_EXTRACT_FAILURE_MARKER} to force a real failure.",
+        published_at=now - timedelta(minutes=1),
+    )
+    seed_content(
+        storage, source_id, title="Article Three", published_at=now - timedelta(minutes=2)
+    )
+    storage.close()
 
-    call_count = [0]
-
-    def fake_extract_entry(entry_id: str) -> dict:
-        call_count[0] += 1
-        if entry_id == "id-2":
-            raise RuntimeError("503 Service Unavailable")
-        return {"deep_extraction": {"synthesis": "ok"}}
-
-    with patch("cli.extract.APIClient") as MockClient:
-        MockClient.return_value.get_content.return_value = items
-        MockClient.return_value.extract_entry.side_effect = fake_extract_entry
-        result = runner.invoke(_app, ["--limit", "10"])
+    result = runner.invoke(_app, ["--limit", "10"])
 
     assert result.exit_code == 0, (
         f"Expected exit code 0 (partial batch), got {result.exit_code}"
-    )
-    assert call_count[0] == 3, (
-        f"All 3 items must be attempted; extract_entry() called {call_count[0]} times"
     )
     assert "Done: 2 extracted, 1 failed" in result.output, (
         f"Expected '2 extracted, 1 failed', got: {result.output!r}"
     )
 
 
-def test_get_content_failure_exits_one_not_silent_noop() -> None:
+def test_get_content_failure_exits_one_not_silent_noop(
+    isolated_xdg_env,
+) -> None:
     """
     INVARIANT: get_content() RuntimeError → exit 1 with red error message; NOT silent "no items".
     BREAKS: If the candidate-fetch error were swallowed or misrouted, the command would
     exit 0 printing "No items need extraction" — a data lie. The user thinks backfill
     is complete when the daemon was actually unreachable.
 
+    Points the sealed config's [remote] section at a real closed loopback port
+    (bound, then closed, so nothing answers): a real httpx.ConnectError reaches
+    get_content(), the same real-network-boundary technique as
+    test_extract_entry_wraps_network_error_as_runtime_error.
+
     Risk category: state transitions / data persistence — user's progress state is wrong.
-    This is in the task's Test Considerations ("Network error on first call: RuntimeError
-    from get_content() → exit 1; no items processed") but was absent from the original suite.
     """
-    with patch("cli.extract.APIClient") as MockClient:
-        MockClient.return_value.get_content.side_effect = RuntimeError(
-            "Network error: Connection refused"
-        )
-        result = runner.invoke(_app, ["--priority", "high", "--limit", "5"])
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    host, port = probe.getsockname()
+    probe.close()
+
+    isolated_xdg_env.joinpath("config.toml").write_text(
+        f'[remote]\nurl = "http://{host}:{port}"\nkey = "unused"\n'
+    )
+
+    result = runner.invoke(_app, ["--priority", "high", "--limit", "5"])
 
     assert result.exit_code == 1, (
         f"Expected exit code 1 when get_content() fails, got {result.exit_code}; "
@@ -202,31 +203,27 @@ def test_get_content_failure_exits_one_not_silent_noop() -> None:
     )
 
 
-def test_limit_at_ceiling_passes_through_to_api_call() -> None:
+def test_limit_at_ceiling_passes_through_to_api_call(live_daemon: LiveDaemon) -> None:
     """
     INVARIANT: --limit 3333 (exact ceiling) does NOT fire the upper-bound guard.
     BREAKS: An off-by-one in the guard condition (>= 3333 instead of > 3333) would
     reject the highest valid input, making the documented ceiling unreachable.
 
-    Mirrors test_invalid_priority_exits_before_api_call pattern.
-    Taxonomy: data correctness — documented ceiling must be inclusive.
+    `live_daemon` (no deep extraction configured) has an empty, real, sealed DB:
+    a real get_content() call against it always answers with 0 items. If the
+    guard incorrectly fired at exactly 3333, the output would carry the distinct
+    "exceeds maximum" ceiling message and exit 1 instead — this and that are the
+    only two ways this command can end, so asserting on the real success message
+    is itself proof the real call happened.
     """
-    get_content_called = [0]
+    result = runner.invoke(_app, ["--limit", "3333"])
 
-    def fake_get_content(*args, **kwargs):
-        get_content_called[0] += 1
-        return []
-
-    with patch("cli.extract.APIClient") as MockClient:
-        MockClient.return_value.get_content.side_effect = fake_get_content
-        result = runner.invoke(_app, ["--limit", "3333"])
-
-    assert get_content_called[0] == 1, (
-        f"get_content() must be called for --limit 3333 (valid ceiling); "
-        f"called {get_content_called[0]} times — guard fired incorrectly"
-    )
     assert result.exit_code == 0, (
         f"Expected exit code 0 for --limit 3333, got {result.exit_code}"
+    )
+    assert "No items need extraction" in result.output, (
+        f"get_content() must be called for --limit 3333 (valid ceiling) and the "
+        f"real (empty) daemon must answer normally; got: {result.output!r}"
     )
 
 
@@ -238,24 +235,13 @@ def test_limit_above_ceiling_exits_before_api_call() -> None:
     /api/entries, producing RuntimeError("Failed to list entries: Validation error")
     instead of a clear ceiling message.
 
-    Mirrors test_invalid_priority_exits_before_api_call pattern.
-    Taxonomy: data correctness — user gets a cryptic server error instead of guidance.
+    No config.toml exists, so a bypassed guard would crash with a config error
+    instead of producing this message.
     """
-    get_content_called = [0]
-
-    def fake_get_content(*args, **kwargs):
-        get_content_called[0] += 1
-        return []
-
-    with patch("cli.extract.APIClient") as MockClient:
-        MockClient.return_value.get_content.side_effect = fake_get_content
-        result = runner.invoke(_app, ["--limit", "3334"])
+    result = runner.invoke(_app, ["--limit", "3334"])
 
     assert result.exit_code == 1, (
         f"Expected exit code 1 for --limit 3334, got {result.exit_code}"
-    )
-    assert get_content_called[0] == 0, (
-        "get_content() must NOT be called when limit > 3333"
     )
     assert "3333" in result.output, (
         f"Error message must name the 3333 ceiling so user knows the valid max; "
@@ -270,24 +256,11 @@ def test_limit_well_above_ceiling_also_fires_guard() -> None:
     would allow limit * 3 = 30000 to reach the server, producing a 422 error.
 
     Confirms the guard is `> 3333`, not an exact-value check.
-    Mirrors test_invalid_priority_exits_before_api_call pattern.
-    Taxonomy: data correctness — same guard, different input magnitude.
     """
-    get_content_called = [0]
-
-    def fake_get_content(*args, **kwargs):
-        get_content_called[0] += 1
-        return []
-
-    with patch("cli.extract.APIClient") as MockClient:
-        MockClient.return_value.get_content.side_effect = fake_get_content
-        result = runner.invoke(_app, ["--limit", "10000"])
+    result = runner.invoke(_app, ["--limit", "10000"])
 
     assert result.exit_code == 1, (
         f"Expected exit code 1 for --limit 10000, got {result.exit_code}"
-    )
-    assert get_content_called[0] == 0, (
-        "get_content() must NOT be called when limit > 3333"
     )
     assert "3333" in result.output, (
         f"Error message must name the 3333 ceiling; got: {result.output!r}"

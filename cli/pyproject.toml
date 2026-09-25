@@ -26,6 +26,7 @@ dev = [
     "mypy",
     "types-requests",
     "ruff",
+    "uvicorn>=0.35.0",
 ]
 
 [tool.pytest.ini_options]

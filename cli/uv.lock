@@ -973,6 +973,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "types-requests" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
@@ -993,6 +994,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=6.2.1" },
     { name = "ruff" },
     { name = "types-requests" },
+    { name = "uvicorn", specifier = ">=0.35.0" },
 ]
 
 [[package]]

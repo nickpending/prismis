@@ -15,11 +15,28 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch  # claudex-guard: allow-mock
 
+import pytest
+
 # Add src to path for absolute imports (mirrors conftest.py pattern)
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
+from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.summarizer import ContentSummarizer
+
+
+@pytest.fixture(autouse=True)
+def _clean_circuit_registry():
+    """Reset the real circuit breaker registry before and after each test.
+
+    llm_core.complete is the one collaborator the constitution permits standing in
+    for; the circuit breaker in front of it is prismis's own and stays real -- a
+    fresh, closed breaker lets check_can_proceed() return True without patching
+    get_circuit_breaker.
+    """
+    reset_circuit_breaker()
+    yield
+    reset_circuit_breaker()
 
 # --- INV-001 / SC-13 ---
 
@@ -95,15 +112,9 @@ def test_SC11_summarizer_calls_llm_core_complete() -> None:
     fake_result.model = "gpt-4.1-mini"
     fake_result.duration_ms = 500
 
-    with (
-        patch(
-            "prismis_daemon.summarizer.complete"
-        ) as mock_complete,  # claudex-guard: allow-mock
-        patch(
-            "prismis_daemon.summarizer.get_circuit_breaker"
-        ) as mock_cb,  # claudex-guard: allow-mock
-    ):
-        mock_cb.return_value.check_can_proceed.return_value = True
+    with patch(
+        "prismis_daemon.summarizer.complete"
+    ) as mock_complete:  # claudex-guard: allow-mock
         mock_complete.return_value = fake_result
 
         result = summarizer.summarize_with_analysis(
@@ -160,15 +171,9 @@ def test_SC12_evaluator_calls_llm_core_complete() -> None:
     fake_result.model = "gpt-4.1-mini"
     fake_result.duration_ms = 300
 
-    with (
-        patch(
-            "prismis_daemon.evaluator.complete"
-        ) as mock_complete,  # claudex-guard: allow-mock
-        patch(
-            "prismis_daemon.evaluator.get_circuit_breaker"
-        ) as mock_cb,  # claudex-guard: allow-mock
-    ):
-        mock_cb.return_value.check_can_proceed.return_value = True
+    with patch(
+        "prismis_daemon.evaluator.complete"
+    ) as mock_complete:  # claudex-guard: allow-mock
         mock_complete.return_value = fake_result
 
         result = evaluator.evaluate_content(

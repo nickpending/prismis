@@ -1,11 +1,45 @@
-"""Unit tests for Notifier logic functions."""
+"""Unit tests for Notifier logic functions.
+
+Real collaborators throughout: notify_new_content's HIGH-priority filter is driven
+through the real Notifier and the real subprocess call it makes (to `echo`, a real
+binary standing in for terminal-notifier), and proven by the observability record
+that call leaves -- rather than by a patched `_send_notification`.
+"""
+
+import uuid
+
+import pytest
 
 from prismis_daemon.notifier import Notifier
+from prismis_daemon.observability import get_logger, reset_logger, set_run_id
+from prismis_daemon.verify_chain import read_run_events
+
+
+@pytest.fixture(autouse=True)
+def _fresh_observability():
+    """Bind the observability logger to this test's sealed data dir, and unbind after.
+
+    Mirrors test_notifier_observability_unit.py's fixture of the same name -- the
+    logger is a module-level singleton that caches the base directory it resolved
+    when first constructed, and every test gets a different XDG_DATA_HOME.
+    """
+    reset_logger()
+    yield
+    set_run_id(None)
+    reset_logger()
+
+
+def _notification_events(run_id: str) -> list[dict]:
+    events = read_run_events(get_logger().base_dir, run_id)
+    return [e for e in events if e["event"] == "notification.send"]
 
 
 def test_notify_filters_high_priority_only() -> None:
     """Test that notify_new_content only processes HIGH priority items."""
-    notifier = Notifier({"high_priority_only": True})
+    run_id = str(uuid.uuid4())
+    set_run_id(run_id)
+
+    notifier = Notifier({"high_priority_only": True, "command": "echo"})
 
     # Create mixed priority items
     items = [
@@ -15,42 +49,37 @@ def test_notify_filters_high_priority_only() -> None:
         {"priority": "high", "title": "Security Alert"},
     ]
 
-    # Mock the _send_notification method to capture what gets called
-    called_items = []
-
-    def mock_send_notification(items):
-        called_items.extend(items)
-
-    notifier._send_notification = mock_send_notification  # type: ignore[method-assign]  # internal fake, removed by docs/work/no-internal-mocks
-
     notifier.notify_new_content(items)
 
-    # Should only have called with HIGH priority items
-    assert len(called_items) == 2
-    assert all(item["priority"] == "high" for item in called_items)
-    assert called_items[0]["title"] == "Important AI News"
-    assert called_items[1]["title"] == "Security Alert"
+    events = _notification_events(run_id)
+    # A record was left at all -- if filtering broke and every item (including
+    # non-HIGH ones) reached _send_notification, the count below would catch it.
+    assert len(events) == 1
+    assert events[0]["status"] == "success"
+    # Only the 2 HIGH priority items reached _send_notification, not all 4.
+    assert events[0]["count"] == 2
 
 
 def test_notify_handles_empty_list() -> None:
     """Test notify_new_content handles empty items list gracefully."""
-    notifier = Notifier()
+    run_id = str(uuid.uuid4())
+    set_run_id(run_id)
 
-    # Mock to ensure _send_notification is never called
-    def mock_send_notification(items):
-        notifier._send_called = True
-
-    notifier._send_notification = mock_send_notification  # type: ignore[method-assign]  # internal fake, removed by docs/work/no-internal-mocks
+    notifier = Notifier({"command": "echo"})
 
     notifier.notify_new_content([])
 
-    # Should not have called _send_notification
-    assert not hasattr(notifier, "_send_called")
+    # notify_new_content returns immediately for an empty list -- no event at all,
+    # distinguishable from the "nothing HIGH priority" skip below.
+    assert _notification_events(run_id) == []
 
 
 def test_notify_handles_no_high_priority_items() -> None:
     """Test notify_new_content when no HIGH priority items exist."""
-    notifier = Notifier({"high_priority_only": True})
+    run_id = str(uuid.uuid4())
+    set_run_id(run_id)
+
+    notifier = Notifier({"high_priority_only": True, "command": "echo"})
 
     # Only medium and low priority items
     items = [
@@ -58,16 +87,12 @@ def test_notify_handles_no_high_priority_items() -> None:
         {"priority": "low", "title": "Basic Tutorial"},
     ]
 
-    # Mock to ensure _send_notification is never called
-    def mock_send_notification(items):
-        notifier._send_called = True
-
-    notifier._send_notification = mock_send_notification  # type: ignore[method-assign]  # internal fake, removed by docs/work/no-internal-mocks
-
     notifier.notify_new_content(items)
 
-    # Should not have called _send_notification
-    assert not hasattr(notifier, "_send_called")
+    events = _notification_events(run_id)
+    assert len(events) == 1
+    assert events[0]["status"] == "skipped"
+    assert events[0]["reason"] == "no_high_priority_items"
 
 
 def test_message_formatting_single_item() -> None:

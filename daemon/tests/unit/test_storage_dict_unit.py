@@ -1,204 +1,123 @@
-"""Unit tests for Storage.add_content dict interface logic."""
+"""Unit tests for Storage.add_content dict interface logic.
 
-import tempfile
+Real collaborators throughout: a real Storage against a real sealed test database.
+add_content's conversion and source-assignment logic is proven by what actually lands
+in the content table, read back through Storage's own public methods -- no patched
+connection, no patched get_active_sources.
+"""
+
 from pathlib import Path
-from unittest.mock import Mock, patch
+
 import pytest
-from prismis_daemon.database import init_db
+
 from prismis_daemon.storage import Storage
 
 
-def test_dict_to_content_item_conversion() -> None:
+def test_dict_to_content_item_conversion(test_db: Path) -> None:
     """Test that dict is properly converted to ContentItem with all fields."""
-    # Create temporary test database for unit test
-    temp_dir = tempfile.mkdtemp()
-    db_path = Path(temp_dir) / "test.db"
-    init_db(db_path)
+    storage = Storage(test_db)
+    storage.add_source("https://example.com/feed", "rss", "Test Source")
 
-    # We'll mock the database operations to test only conversion logic
-    storage = Storage(db_path)
+    test_dict = {
+        "external_id": "test-123",
+        "title": "Test Title",
+        "url": "http://test.com",
+        "content": "Test content",
+        "summary": "Test summary",
+        "priority": "high",
+        "analysis": {"topics": ["test"]},
+        "notes": "Test notes",
+    }
 
-    # Mock get_active_sources to return a fake source
-    with patch.object(storage, "get_active_sources") as mock_get_sources:
-        mock_get_sources.return_value = [{"id": "test-source-id"}]
+    content_id = storage.add_content(test_dict)
+    assert content_id is not None
 
-        # Mock the actual database execution to test conversion logic
-        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
-            mock_conn = Mock()
-            mock_cursor = Mock()
-            mock_cursor.fetchone.return_value = None  # No duplicate
-            mock_conn.execute.return_value = mock_cursor
-            mock_db.return_value = mock_conn
-
-            # Test dict with all fields
-            test_dict = {
-                "external_id": "test-123",
-                "title": "Test Title",
-                "url": "http://test.com",
-                "content": "Test content",
-                "summary": "Test summary",
-                "priority": "high",
-                "analysis": {"topics": ["test"]},
-                "notes": "Test notes",
-            }
-
-            # Call add_content with dict
-            storage.add_content(test_dict)
-
-            # Verify the INSERT was called with converted ContentItem fields
-            insert_call = mock_conn.execute.call_args_list[-1]
-            insert_values = insert_call[0][1]
-
-            # Check that required fields were set
-            assert insert_values[2] == "test-123"  # external_id
-            assert insert_values[3] == "Test Title"  # title
-            assert insert_values[4] == "http://test.com"  # url
-            assert insert_values[5] == "Test content"  # content
-            assert insert_values[6] == "Test summary"  # summary
-            assert insert_values[8] == "high"  # priority
-
-    # Cleanup
-    import shutil
-
-    shutil.rmtree(temp_dir, ignore_errors=True)
+    stored = storage.get_content_by_id(content_id)
+    assert stored is not None
+    assert stored["external_id"] == "test-123"
+    assert stored["title"] == "Test Title"
+    assert stored["url"] == "http://test.com"
+    assert stored["content"] == "Test content"
+    assert stored["summary"] == "Test summary"
+    assert stored["priority"] == "high"
+    assert stored["analysis"] == {"topics": ["test"]}
+    assert stored["notes"] == "Test notes"
 
 
-def test_dict_without_source_id_uses_first_active_source() -> None:
+def test_dict_without_source_id_uses_first_active_source(test_db: Path) -> None:
     """Test that missing source_id is automatically assigned from active sources."""
-    temp_dir = tempfile.mkdtemp()
-    db_path = Path(temp_dir) / "test.db"
-    init_db(db_path)
-    storage = Storage(db_path)
+    storage = Storage(test_db)
+    storage.add_source("http://source1.com", "rss", "Source One")
+    storage.add_source("http://source2.com", "rss", "Source Two")
 
-    # Mock get_active_sources to return sources
-    with patch.object(storage, "get_active_sources") as mock_get_sources:
-        mock_get_sources.return_value = [
-            {"id": "source-1", "url": "http://source1.com"},
-            {"id": "source-2", "url": "http://source2.com"},
-        ]
+    # add_content's fallback calls the real get_active_sources() and takes its first
+    # result -- computed here through the same public method so the assertion tracks
+    # the real ordering (get_active_sources sorts by id) instead of insertion order.
+    expected_source_id = storage.get_active_sources()[0]["id"]
 
-        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
-            mock_conn = Mock()
-            mock_cursor = Mock()
-            mock_cursor.fetchone.return_value = None
-            mock_conn.execute.return_value = mock_cursor
-            mock_db.return_value = mock_conn
+    test_dict = {"external_id": "no-source-test", "title": "No Source Test"}
+    content_id = storage.add_content(test_dict)
+    assert content_id is not None
 
-            # Test dict without source_id
-            test_dict = {"external_id": "no-source-test", "title": "No Source Test"}
-
-            storage.add_content(test_dict)
-
-            # Verify source_id was set to first active source
-            insert_call = mock_conn.execute.call_args_list[-1]
-            insert_values = insert_call[0][1]
-            assert insert_values[1] == "source-1"  # source_id should be first source
-
-            # Verify get_active_sources was called
-            mock_get_sources.assert_called_once()
-
-    # Cleanup
-    import shutil
-
-    shutil.rmtree(temp_dir, ignore_errors=True)
+    stored = storage.get_content_by_id(content_id)
+    assert stored is not None
+    assert stored["source_id"] == expected_source_id
 
 
-def test_dict_without_source_id_raises_when_no_active_sources() -> None:
+def test_dict_without_source_id_raises_when_no_active_sources(test_db: Path) -> None:
     """Test that ValueError is raised when no source_id provided and no active sources."""
-    temp_dir = tempfile.mkdtemp()
-    db_path = Path(temp_dir) / "test.db"
-    init_db(db_path)
-    storage = Storage(db_path)
+    storage = Storage(test_db)
+    # No sources added at all -- get_active_sources() returns [].
 
-    # Mock get_active_sources to return empty list
-    with patch.object(storage, "get_active_sources") as mock_get_sources:
-        mock_get_sources.return_value = []
+    test_dict = {"external_id": "no-source-test", "title": "No Source Test"}
 
-        # Test dict without source_id
-        test_dict = {"external_id": "no-source-test", "title": "No Source Test"}
-
-        # Should raise ValueError with specific message
-        with pytest.raises(
-            ValueError, match="No source_id provided and no active sources available"
-        ):
-            storage.add_content(test_dict)
-
-    # Cleanup
-    import shutil
-
-    shutil.rmtree(temp_dir, ignore_errors=True)
+    with pytest.raises(
+        ValueError, match="No source_id provided and no active sources available"
+    ):
+        storage.add_content(test_dict)
 
 
-def test_dict_with_explicit_source_id_bypasses_lookup() -> None:
-    """Test that explicit source_id in dict bypasses active source lookup."""
-    temp_dir = tempfile.mkdtemp()
-    db_path = Path(temp_dir) / "test.db"
-    init_db(db_path)
-    storage = Storage(db_path)
+def test_dict_with_explicit_source_id_bypasses_lookup(test_db: Path) -> None:
+    """Test that explicit source_id in dict bypasses active source lookup.
 
-    # Mock get_active_sources - should NOT be called
-    with patch.object(storage, "get_active_sources") as mock_get_sources:
-        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
-            mock_conn = Mock()
-            mock_cursor = Mock()
-            mock_cursor.fetchone.return_value = None
-            mock_conn.execute.return_value = mock_cursor
-            mock_db.return_value = mock_conn
+    The source is paused (inactive) after creation, so get_active_sources() returns
+    []. If add_content's explicit-source_id branch fell through to the active-source
+    fallback anyway, this would raise ValueError instead of succeeding -- the same
+    failure test_dict_without_source_id_raises_when_no_active_sources proves above.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source(
+        "https://example.com/paused-feed", "rss", "Paused Source"
+    )
+    storage.pause_source(source_id)
+    assert storage.get_active_sources() == []
 
-            # Test dict with explicit source_id
-            test_dict = {
-                "external_id": "explicit-source-test",
-                "title": "Explicit Source Test",
-                "source_id": "explicit-source-123",
-            }
+    test_dict = {
+        "external_id": "explicit-source-test",
+        "title": "Explicit Source Test",
+        "source_id": source_id,
+    }
 
-            storage.add_content(test_dict)
+    content_id = storage.add_content(test_dict)
+    assert content_id is not None
 
-            # Verify the provided source_id was used
-            insert_call = mock_conn.execute.call_args_list[-1]
-            insert_values = insert_call[0][1]
-            assert insert_values[1] == "explicit-source-123"
-
-            # Verify get_active_sources was NOT called
-            mock_get_sources.assert_not_called()
-
-    # Cleanup
-    import shutil
-
-    shutil.rmtree(temp_dir, ignore_errors=True)
+    stored = storage.get_content_by_id(content_id)
+    assert stored is not None
+    assert stored["source_id"] == source_id
 
 
-def test_dict_optional_fields_handling() -> None:
+def test_dict_optional_fields_handling(test_db: Path) -> None:
     """Test that optional fields are properly handled when present or absent."""
-    temp_dir = tempfile.mkdtemp()
-    db_path = Path(temp_dir) / "test.db"
-    init_db(db_path)
-    storage = Storage(db_path)
+    storage = Storage(test_db)
+    storage.add_source("https://example.com/feed", "rss", "Test Source")
 
-    with patch.object(storage, "get_active_sources") as mock_get_sources:
-        mock_get_sources.return_value = [{"id": "test-source"}]
+    minimal_dict = {"external_id": "minimal-test", "title": "Minimal Test"}
+    content_id = storage.add_content(minimal_dict)
+    assert content_id is not None
 
-        with patch("prismis_daemon.storage.get_db_connection") as mock_db:
-            mock_conn = Mock()
-            mock_cursor = Mock()
-            mock_cursor.fetchone.return_value = None
-            mock_conn.execute.return_value = mock_cursor
-            mock_db.return_value = mock_conn
-
-            # Test dict with minimal fields
-            minimal_dict = {"external_id": "minimal-test", "title": "Minimal Test"}
-
-            storage.add_content(minimal_dict)
-
-            # Verify defaults were used for missing fields
-            insert_call = mock_conn.execute.call_args_list[-1]
-            insert_values = insert_call[0][1]
-            assert insert_values[4] == ""  # url defaults to empty string
-            assert insert_values[5] == ""  # content defaults to empty string
-            assert insert_values[6] is None  # summary is None
-            assert insert_values[8] is None  # priority is None
-
-    # Cleanup
-    import shutil
-
-    shutil.rmtree(temp_dir, ignore_errors=True)
+    stored = storage.get_content_by_id(content_id)
+    assert stored is not None
+    assert stored["url"] == ""
+    assert stored["content"] == ""
+    assert stored["summary"] is None
+    assert stored["priority"] is None

@@ -3,9 +3,11 @@
 Tests prune protection invariants AND context suggestion API invariants.
 """
 
+import gc
 import logging
+import sqlite3
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,10 +21,8 @@ from conftest import TEST_API_KEY, add_new_content
 
 logger = logging.getLogger(__name__)
 
-# Mock targets for external dependencies accessed through prismis wrappers
-_CONFIG_FROM_FILE_MOCK = (
-    "prismis_daemon.api.Config.from_file"  # claudex-guard: allow-mock
-)
+# llm_core.complete as imported into a prismis_daemon module -- the one collaborator
+# the constitution permits standing in for.
 _LLM_COMPLETE_MOCK = (
     "prismis_daemon.context_analyzer.complete"  # claudex-guard: allow-mock
 )
@@ -286,21 +286,16 @@ def test_INVARIANT_empty_flagged_returns_empty_suggestions(
     # Get context text from config
     context_text = full_config.context
 
-    # Create analyzer with llm-core service name (new API)
-    analyzer = ContextAnalyzer(full_config.llm_light_service)
+    # A service name that resolves to no configured service. If
+    # analyze_flagged_items reached _call_llm despite the empty list, llm_core.complete
+    # would raise "Unknown service" for it and analyze_flagged_items re-raises (it
+    # catches and re-raises everything, per its own docstring) -- so this call proves
+    # the empty-list short-circuit for real, rather than by patching _call_llm out.
+    analyzer = ContextAnalyzer("prismis-no-such-service")
 
-    # Mock _call_llm to verify it's never called
-    with patch.object(
-        analyzer, "_call_llm", side_effect=AssertionError("LLM should not be called")
-    ) as mock_llm:
-        # Call with empty list
-        result = analyzer.analyze_flagged_items([], context_text)
+    result = analyzer.analyze_flagged_items([], context_text)
 
-        # Verify no LLM call was made
-        mock_llm.assert_not_called()
-
-        # Verify empty result
-        assert result == {"suggested_topics": []}
+    assert result == {"suggested_topics": []}
 
 
 def test_INVARIANT_no_credentials_in_errors(
@@ -309,6 +304,11 @@ def test_INVARIANT_no_credentials_in_errors(
     """
     INVARIANT: Error messages never contain API keys or credentials
     BREAKS: Security breach, credential exposure in logs
+
+    Auth and config go through the real Config.from_file(), reading the sealed
+    config.toml the isolated_xdg_env fixture writes -- conftest.TEST_API_KEY is the
+    real key it authenticates with. Only the LLM call itself is stood in for, since
+    that is the one boundary the constitution permits faking.
     """
     # Setup: Add flagged items
     storage = Storage(test_db)
@@ -326,59 +326,51 @@ def test_INVARIANT_no_credentials_in_errors(
 
     # Fake API key that should never appear in error responses
     fake_llm_service_key = "sk-test-SENSITIVE-KEY-12345"
-    # Auth API key - must match what auth.py reads from Config
-    auth_api_key = "test-api-key-for-cred-test"
 
-    # Mock both auth config and API endpoint config
-    _AUTH_CONFIG_MOCK = (
-        "prismis_daemon.auth.Config.from_file"  # claudex-guard: allow-mock
-    )
-
-    with (
-        patch(_CONFIG_FROM_FILE_MOCK) as mock_api_config,
-        patch(_AUTH_CONFIG_MOCK) as mock_auth_config,
+    # Mock LLM call to raise error mentioning the sensitive key
+    with patch(
+        _LLM_COMPLETE_MOCK,
+        side_effect=Exception(f"API call failed with key {fake_llm_service_key}"),
     ):
-        # Auth config: returns valid API key so auth passes
-        auth_instance = MagicMock()  # claudex-guard: allow-mock
-        auth_instance.api_key = auth_api_key
-        mock_auth_config.return_value = auth_instance
+        # Make API call with the real sealed API key
+        response = api_client.post(
+            "/api/context", headers={"X-API-Key": TEST_API_KEY}
+        )
 
-        # API config: returns service pointing to fake key (via llm_service)
-        api_instance = MagicMock()  # claudex-guard: allow-mock
-        api_instance.llm_service = "prismis-openai"
-        api_instance.context = "# Test Context"
-        mock_api_config.return_value = api_instance
+        # Verify error response
+        assert response.status_code == 500
 
-        # Mock LLM call to raise error mentioning the sensitive key
-        with patch(
-            _LLM_COMPLETE_MOCK,
-            side_effect=Exception(f"API call failed with key {fake_llm_service_key}"),
-        ):
-            # Make API call with valid auth key
-            response = api_client.post(
-                "/api/context", headers={"X-API-Key": auth_api_key}
-            )
+        # Verify sensitive key NOT in response
+        response_text = response.text
+        response_json = response.json()
 
-            # Verify error response
-            assert response.status_code == 500
-
-            # Verify sensitive key NOT in response
-            response_text = response.text
-            response_json = response.json()
-
-            assert fake_llm_service_key not in response_text, (
-                "LLM service key found in response body"
-            )
-            assert fake_llm_service_key not in response_json.get("message", ""), (
-                "LLM service key found in error message"
-            )
-            assert "sk-test" not in response_text, "Partial key found in response"
+        assert fake_llm_service_key not in response_text, (
+            "LLM service key found in response body"
+        )
+        assert fake_llm_service_key not in response_json.get("message", ""), (
+            "LLM service key found in error message"
+        )
+        assert "sk-test" not in response_text, "Partial key found in response"
 
 
 def test_FAILURE_database_locked_during_get_flagged(test_db: Path) -> None:
     """
     FAILURE: Database locked during get_flagged_items()
     GRACEFUL: Must fail with clear error, not corrupt state
+
+    Drives a real SQLite lock. WAL readers do not block on an ordinary writer (that is
+    WAL's whole point) -- proven manually against this schema before writing this test:
+    a plain `BEGIN EXCLUSIVE` write left a concurrent get_flagged_items() call
+    completely unaffected. `locking_mode=EXCLUSIVE` is what actually forces the
+    OS-level exclusive lock a locked-database error needs, and only once every other
+    connection to the file (including this test's own setup connection) has actually
+    released it -- gc.collect() closes the window between Storage.close() and the
+    connection object's real teardown.
+
+    The reader is constructed fresh, after the lock is already held, so it reaches the
+    lock through Storage's own default 5000ms busy_timeout (database.py:139) the same
+    way a real concurrent caller would -- inescapably real time, since that connection
+    does not exist yet for a shorter timeout to be set on.
     """
     # Setup: Add flagged items
     storage = Storage(test_db)
@@ -393,28 +385,29 @@ def test_FAILURE_database_locked_during_get_flagged(test_db: Path) -> None:
     )
     content_id = add_new_content(storage, item)
     storage.update_content_status(content_id, user_feedback="up")
+    storage.close()
+    gc.collect()
 
-    # Mock get_flagged_items to simulate database lock
-    original_get_flagged = storage.get_flagged_items
+    # Hold a real, OS-level exclusive lock on the database from a second connection.
+    locker = Storage(test_db)
+    locker.conn.execute("PRAGMA locking_mode=EXCLUSIVE")
+    locker.conn.execute("BEGIN EXCLUSIVE")
+    locker.conn.execute(
+        "INSERT INTO sources (id, url, type, name) VALUES (?, ?, ?, ?)",
+        ("lock-holder", "https://lock-holder.example.com", "rss", "Lock Holder"),
+    )
 
-    def locked_get_flagged(*args, **kwargs):
-        raise Exception("database is locked")
-
-    with patch.object(storage, "get_flagged_items", side_effect=locked_get_flagged):
-        # This should raise, not corrupt
-        try:
-            # Simulate what API endpoint does
-            storage.get_flagged_items()
-            # Should not reach here
-            raise AssertionError("Should have raised database lock error")
-        except Exception as e:
-            if isinstance(e, AssertionError):
-                raise
-            # Verify error is clear
-            assert "locked" in str(e).lower()
+    try:
+        with pytest.raises(sqlite3.Error, match="locked"):
+            reader = Storage(test_db)
+            reader.get_flagged_items()
+    finally:
+        locker.conn.rollback()
+        locker.conn.execute("PRAGMA locking_mode=NORMAL")
+        locker.close()
 
     # Verify database state intact after error
-    flagged_after = original_get_flagged()
+    flagged_after = storage.get_flagged_items()
     assert len(flagged_after) == 1, "Database corrupted by lock error"
 
 

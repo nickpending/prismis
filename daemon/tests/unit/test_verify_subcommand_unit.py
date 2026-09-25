@@ -290,7 +290,9 @@ def test_verify_zero_active_sources_exits_1(monkeypatch, test_db) -> None:
 
         shutil.rmtree(tmpdir, ignore_errors=True)
 
-def test_verify_continues_all_checks_after_light_failure(monkeypatch, test_db) -> None:
+def test_verify_continues_all_checks_after_light_failure(
+    monkeypatch, test_db, capsys
+) -> None:
     """
     INVARIANT (discovered, NOT in task file): Light service failure must NOT
     short-circuit -- verify() must still run the sources check so operators
@@ -299,28 +301,32 @@ def test_verify_continues_all_checks_after_light_failure(monkeypatch, test_db) -
     would be invisible. Operator fixes light service, re-runs verify, THEN discovers
     the sources problem -- two separate debug cycles for a problem visible in one.
     This invariant is not mentioned in Task 4.1 Test Considerations or the build report.
+
+    Driven through the real sources check (a real, empty Storage) rather than a
+    patched Storage.get_active_sources -- the sources-check line only appears in the
+    real console output if the real check actually ran.
     """
     tmpdir, _ = _make_config_dir(_LIGHT_ONLY_CONFIG)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmpdir))
     # Empty database -- zero sources -- so sources check will ALSO fail
     # If the function short-circuited on light failure, sources check would not run
 
-    sources_check_ran = [False]
-    real_get_active_sources = Storage.get_active_sources
-
-    def _patched_get_active_sources(self):
-        sources_check_ran[0] = True
-        return real_get_active_sources(self)
-
     try:
         with patch(_HEALTH_CHECK_MOCK, side_effect=Exception("Connection refused")):
-            with patch.object(Storage, "get_active_sources", _patched_get_active_sources):
-                with pytest.raises(SystemExit):
-                    verify()
+            with pytest.raises(SystemExit) as exc_info:
+                verify()
 
-        assert sources_check_ran[0], (
+        out = capsys.readouterr().out
+        assert exc_info.value.code == 1
+        assert "light service unreachable" in out, (
+            "Light service failure must still be reported"
+        )
+        assert "no active sources" in out, (
             "Sources check must run even when light service fails -- "
             "verify must not short-circuit on light failure"
+        )
+        assert "2 check(s) failed" in out, (
+            "both checks must contribute to the FAIL rollup, not just the first"
         )
     finally:
         import shutil

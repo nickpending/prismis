@@ -1566,8 +1566,16 @@ async def analyze_context(
     except ValidationError:
         raise  # Re-raise validation errors
     except Exception as e:
+        # The LLM call is the one boundary this endpoint does not control, and its
+        # own client can embed its credential in the exception text (an HTTP error
+        # body echoing the request, for example). The response says only that
+        # analysis failed; the detail goes to the log instead, mirroring auth.py's
+        # CONFIG_UNAVAILABLE_MESSAGE for the same reason -- a secret must never leave
+        # the process in a response body.
         obs_log("api.error", endpoint="/api/context", error=str(e))
-        raise ServerError(f"Failed to analyze context: {str(e)}") from e
+        raise ServerError(
+            "Failed to analyze context. Check the daemon log for detail."
+        ) from e
 
 
 @app.get("/api/statistics", dependencies=[Depends(verify_api_key)])

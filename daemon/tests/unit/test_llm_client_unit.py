@@ -19,18 +19,80 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch  # claudex-guard: allow-mock -- httpx2, not prismis_daemon
 
-import httpx2
-import openai
 import pytest
 
-from prismis_daemon import llm_client
 from prismis_daemon.circuit_breaker import get_circuit_breaker, reset_circuit_breaker
-from prismis_daemon.context_analyzer import ContextAnalyzer
-from prismis_daemon.deep_extractor import ContentDeepExtractor
-from prismis_daemon.evaluator import ContentEvaluator
-from prismis_daemon.summarizer import ContentSummarizer
+
+if TYPE_CHECKING:
+    # Only for mypy (never executed -- TYPE_CHECKING is False at runtime), so this
+    # doesn't reintroduce the module-level imports the helpers below exist to avoid.
+    # httpx2 is named in several annotations below (httpx2.Request/Response/Client);
+    # openai never is (only its exception types, used in runtime code, not
+    # annotations), so it has no entry here -- see _openai() below instead.
+    import httpx2
+    from prismis_daemon.llm_client import CompleteResult
+
+# ---------------------------------------------------------------------------
+# Deferred imports -- llm_client and every call site that does `from .llm_client
+# import ...` at its own module level (summarizer, evaluator, context_analyzer,
+# deep_extractor), plus httpx2 and openai themselves, which daemon/pyproject.toml
+# declares (this same job's own dependency addition). A module-level import here
+# would make a missing or broken llm_client.py -- or a reverted pyproject.toml/
+# uv.lock that no longer installs httpx2/openai at all -- fail collection for this
+# WHOLE file: pytest reports that as one collection ERROR, not a per-test FAILURE --
+# a real, weaker proof than a red/green check needs, since it says the file is broken
+# rather than which assertion the reverted code fails. Each test that needs one of
+# these calls the matching helper as its first line, shadowing the name locally, so
+# the same failure surfaces as a normal, per-test FAILED instead
+# (get_circuit_breaker/reset_circuit_breaker above don't import llm_client, httpx2 or
+# openai, so they stay safe at module level).
+# ---------------------------------------------------------------------------
+
+
+def _llm_client() -> Any:  # noqa: ANN401 -- the return really is a module, not a value
+    from prismis_daemon import llm_client as _mod
+
+    return _mod
+
+
+def _httpx2() -> Any:  # noqa: ANN401 -- see _llm_client() above
+    import httpx2 as _mod
+
+    return _mod
+
+
+def _openai() -> Any:  # noqa: ANN401 -- see _llm_client() above
+    import openai as _mod
+
+    return _mod
+
+
+def _content_summarizer_cls() -> Any:  # noqa: ANN401 -- see _llm_client() above
+    from prismis_daemon.summarizer import ContentSummarizer as _cls
+
+    return _cls
+
+
+def _content_evaluator_cls() -> Any:  # noqa: ANN401 -- see _llm_client() above
+    from prismis_daemon.evaluator import ContentEvaluator as _cls
+
+    return _cls
+
+
+def _context_analyzer_cls() -> Any:  # noqa: ANN401 -- see _llm_client() above
+    from prismis_daemon.context_analyzer import ContextAnalyzer as _cls
+
+    return _cls
+
+
+def _content_deep_extractor_cls() -> Any:  # noqa: ANN401 -- see _llm_client() above
+    from prismis_daemon.deep_extractor import ContentDeepExtractor as _cls
+
+    return _cls
+
 
 # ---------------------------------------------------------------------------
 # services.toml plumbing -- every test points its own named service at its own
@@ -92,7 +154,7 @@ def _running(handler_cls: type[http.server.BaseHTTPRequestHandler]) -> Iterator[
         thread.join(timeout=2.0)
 
 
-def _completion_body(content: str) -> bytes:
+def _completion_body(content: str, *, finish_reason: str = "stop") -> bytes:
     payload = {
         "id": "stub-completion",
         "object": "chat.completion",
@@ -101,7 +163,7 @@ def _completion_body(content: str) -> bytes:
             {
                 "index": 0,
                 "message": {"role": "assistant", "content": content},
-                "finish_reason": "stop",
+                "finish_reason": finish_reason,
             }
         ],
         "usage": {"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
@@ -109,8 +171,11 @@ def _completion_body(content: str) -> bytes:
     return json.dumps(payload).encode()
 
 
-def _content_handler(content: str) -> type[http.server.BaseHTTPRequestHandler]:
-    """A handler answering every chat-completions POST with a fixed `content` string."""
+def _content_handler(
+    content: str, *, finish_reason: str = "stop"
+) -> type[http.server.BaseHTTPRequestHandler]:
+    """A handler answering every chat-completions POST with a fixed `content` string
+    and `finish_reason` (the provider's raw value, e.g. "stop" or "length")."""
 
     class _Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *_args: object) -> None:
@@ -122,7 +187,7 @@ def _content_handler(content: str) -> type[http.server.BaseHTTPRequestHandler]:
                 return
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
-            body = _completion_body(content)
+            body = _completion_body(content, finish_reason=finish_reason)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -140,6 +205,7 @@ def _content_handler(content: str) -> type[http.server.BaseHTTPRequestHandler]:
 def test_complete_result_shape_matches_call_sites() -> None:
     """SC-1: complete() exposes text, model, provider, tokens.input/output,
     finish_reason, duration_ms, cost -- the attribute paths every call site reads."""
+    llm_client = _llm_client()
     with _running(_content_handler("Hello from the stub.")) as base_url:
         _write_service("result-shape-svc", base_url)
         result = llm_client.complete(
@@ -162,6 +228,21 @@ def test_complete_result_shape_matches_call_sites() -> None:
     assert result.cost is None
 
 
+def test_complete_maps_length_finish_reason_to_max_tokens() -> None:
+    """SC-1 / F-1-3: the provider's raw "length" finish_reason -- what it sends when a
+    response is truncated by max_tokens -- maps to CompleteResult.finish_reason's other
+    documented value, "max_tokens". Every other test in this file stubs "stop"; this is
+    the one place the gate exercises the ternary's if-branch, not only its else."""
+    llm_client = _llm_client()
+    with _running(
+        _content_handler("Truncated output...", finish_reason="length")
+    ) as base_url:
+        _write_service("length-finish-reason-svc", base_url)
+        result = llm_client.complete(prompt="Say a lot", service="length-finish-reason-svc")
+
+    assert result.finish_reason == "max_tokens"
+
+
 # ---------------------------------------------------------------------------
 # SC-3: OpenRouter's usage.include cost survives the round trip into
 # CompleteResult.cost -- gate-reachable, no network, no live credentials.
@@ -180,6 +261,7 @@ def test_complete_result_shape_matches_call_sites() -> None:
 
 
 def _openrouter_response(request: httpx2.Request, *, cost: float) -> httpx2.Response:
+    httpx2 = _httpx2()
     payload = {
         "id": "or-completion",
         "object": "chat.completion",
@@ -209,6 +291,7 @@ def _openrouter_response(request: httpx2.Request, *, cost: float) -> httpx2.Resp
 def test_is_openrouter_matches_the_real_services_toml_shape() -> None:
     """The gate itself, in isolation: matches OpenRouter's real base_url, not
     api.openai.com's, and not an arbitrary substring collision."""
+    llm_client = _llm_client()
     assert llm_client._is_openrouter("https://openrouter.ai/api/v1") is True
     assert llm_client._is_openrouter("https://api.openai.com/v1") is False
     assert llm_client._is_openrouter("http://127.0.0.1:8080/v1") is False
@@ -218,6 +301,13 @@ def test_complete_extracts_real_cost_for_an_openrouter_shaped_base_url() -> None
     """SC-3: complete() sends the usage.include extra_body to an openrouter.ai base_url
     and returns the provider's real cost on CompleteResult.cost -- proven end to end
     (gate, extra_body, response parsing) without a live network call."""
+    llm_client = _llm_client()
+    # Named httpx2_mod, not httpx2: this function's own nested _fake_send below is
+    # annotated httpx2.Client/Request/Response (resolved via the module-level
+    # TYPE_CHECKING import, PEP 563-deferred, never evaluated at runtime) -- a local
+    # `httpx2 = _httpx2()` here would shadow that name for the nested function's
+    # annotations too, and mypy would no longer see httpx2 as the module.
+    httpx2_mod = _httpx2()
     service = "openrouter-shaped-svc"
     _write_service(
         service, "https://openrouter.ai/api", default_model="openai/gpt-5.6-luna"
@@ -229,7 +319,7 @@ def test_complete_extracts_real_cost_for_an_openrouter_shaped_base_url() -> None
         sent_requests.append(request)
         return _openrouter_response(request, cost=9.2e-06)
 
-    with patch.object(httpx2.Client, "send", _fake_send):
+    with patch.object(httpx2_mod.Client, "send", _fake_send):
         result = llm_client.complete(prompt="hi", service=service)
 
     assert len(sent_requests) == 1
@@ -244,6 +334,9 @@ def test_complete_extracts_real_cost_for_an_openrouter_shaped_base_url() -> None
 def test_complete_does_not_send_extra_body_to_a_non_openrouter_base_url() -> None:
     """Control for the test above: an api.openai.com-shaped base_url gets no
     usage.include extension in the request at all -- not merely an ignored one."""
+    llm_client = _llm_client()
+    # httpx2_mod, not httpx2 -- see the sibling test above for why.
+    httpx2_mod = _httpx2()
     service = "openai-shaped-svc"
     _write_service(
         service, "https://api.openai.com", default_model="gpt-4.1-mini"
@@ -266,14 +359,14 @@ def test_complete_does_not_send_extra_body_to_a_non_openrouter_base_url() -> Non
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
         }
-        return httpx2.Response(
+        return httpx2_mod.Response(
             200,
             request=request,
             headers={"content-type": "application/json"},
             content=json.dumps(payload).encode(),
         )
 
-    with patch.object(httpx2.Client, "send", _fake_send):
+    with patch.object(httpx2_mod.Client, "send", _fake_send):
         result = llm_client.complete(prompt="hi", service=service)
 
     assert len(sent_requests) == 1
@@ -319,6 +412,8 @@ def _rate_limited_handler() -> type[http.server.BaseHTTPRequestHandler]:
 
 def test_quota_error_raises_and_opens_circuit_after_third_call() -> None:
     """SC-4: three 429s each raise, is_quota_error recognizes them, breaker opens."""
+    ContentSummarizer = _content_summarizer_cls()
+    openai = _openai()
     service = "quota-svc"
     raised: list[Exception] = []
 
@@ -351,17 +446,18 @@ def test_quota_error_raises_and_opens_circuit_after_third_call() -> None:
 
 def test_complete_works_inside_running_event_loop_and_plain_thread() -> None:
     """SC-5: neither call site raises "cannot be called from a running event loop"."""
+    llm_client = _llm_client()
     with _running(_content_handler("ok from stub")) as base_url:
         _write_service("event-loop-svc", base_url)
 
-        async def _call_inside_loop() -> llm_client.CompleteResult:
+        async def _call_inside_loop() -> CompleteResult:
             # Mirrors api.py's async handlers calling the LLM synchronously from
             # inside a running loop (F-ASYNC) -- complete() is a plain sync call.
             return llm_client.complete(prompt="hi", service="event-loop-svc")
 
         result_from_loop = asyncio.run(_call_inside_loop())
 
-        thread_results: list[llm_client.CompleteResult] = []
+        thread_results: list[CompleteResult] = []
 
         def _call_in_thread() -> None:
             thread_results.append(
@@ -385,6 +481,7 @@ def test_complete_works_inside_running_event_loop_and_plain_thread() -> None:
 
 
 def test_json_extraction_extract_json_strips_fence() -> None:
+    llm_client = _llm_client()
     fenced = 'Here is the analysis:\n```json\n{"a": 1, "b": [2, 3]}\n```\n'
     assert llm_client.extract_json(fenced) == {"a": 1, "b": [2, 3]}
     assert llm_client.extract_json('{"a": 1}') == {"a": 1}
@@ -402,6 +499,7 @@ _SUMMARIZER_PAYLOAD = {
 
 
 def test_json_extraction_summarizer_parses_fenced_reply() -> None:
+    ContentSummarizer = _content_summarizer_cls()
     fenced = "Here you go:\n```json\n" + json.dumps(_SUMMARIZER_PAYLOAD) + "\n```\n"
     with _running(_content_handler(fenced)) as base_url:
         _write_service("json-summarizer-ok", base_url)
@@ -417,6 +515,7 @@ def test_json_extraction_summarizer_parses_fenced_reply() -> None:
 def test_json_extraction_summarizer_no_json_logs_and_returns_none(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    ContentSummarizer = _content_summarizer_cls()
     with _running(_content_handler("Sorry, I can't help with that.")) as base_url:
         _write_service("json-summarizer-fail", base_url)
         with caplog.at_level(logging.ERROR):
@@ -429,6 +528,7 @@ def test_json_extraction_summarizer_no_json_logs_and_returns_none(
 
 
 def test_json_extraction_evaluator_parses_fenced_reply() -> None:
+    ContentEvaluator = _content_evaluator_cls()
     payload: dict[str, object] = {
         "priority": None,
         "matched_interests": [],
@@ -448,6 +548,7 @@ def test_json_extraction_evaluator_parses_fenced_reply() -> None:
 def test_json_extraction_evaluator_no_json_logs_and_raises(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    ContentEvaluator = _content_evaluator_cls()
     with _running(_content_handler("This is not JSON, sorry.")) as base_url:
         _write_service("json-evaluator-fail", base_url)
         with caplog.at_level(logging.ERROR), pytest.raises(ValueError):
@@ -459,6 +560,7 @@ def test_json_extraction_evaluator_no_json_logs_and_raises(
 
 
 def test_json_extraction_context_analyzer_parses_fenced_reply() -> None:
+    ContextAnalyzer = _context_analyzer_cls()
     payload: dict[str, object] = {"suggested_topics": []}
     fenced = "```json\n" + json.dumps(payload) + "\n```"
     with _running(_content_handler(fenced)) as base_url:
@@ -474,6 +576,7 @@ def test_json_extraction_context_analyzer_parses_fenced_reply() -> None:
 def test_json_extraction_context_analyzer_no_json_logs_and_raises(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    ContextAnalyzer = _context_analyzer_cls()
     with _running(_content_handler("Nope, no JSON here.")) as base_url:
         _write_service("json-context-fail", base_url)
         with caplog.at_level(logging.ERROR), pytest.raises(ValueError):
@@ -486,6 +589,7 @@ def test_json_extraction_context_analyzer_no_json_logs_and_raises(
 
 
 def test_json_extraction_deep_extractor_parses_fenced_reply() -> None:
+    ContentDeepExtractor = _content_deep_extractor_cls()
     payload = {"synthesis": "Deep synthesis text.", "quotables": []}
     fenced = "```json\n" + json.dumps(payload) + "\n```"
     with _running(_content_handler(fenced)) as base_url:
@@ -501,6 +605,7 @@ def test_json_extraction_deep_extractor_parses_fenced_reply() -> None:
 def test_json_extraction_deep_extractor_no_json_logs_and_returns_none(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    ContentDeepExtractor = _content_deep_extractor_cls()
     with _running(_content_handler("No JSON in this reply.")) as base_url:
         _write_service("json-deep-fail", base_url)
         with caplog.at_level(logging.ERROR):
@@ -544,6 +649,7 @@ def _models_handler(
 
 def test_health_check_missing_model_fails_naming_service_and_model() -> None:
     """SC-7: a reachable service whose configured model is absent fails, naming both."""
+    llm_client = _llm_client()
     service = "missing-model-svc"
     with _running(_models_handler(["some-other-model"])) as base_url:
         _write_service(service, base_url, default_model="the-configured-model")
@@ -558,6 +664,7 @@ def test_health_check_missing_model_fails_naming_service_and_model() -> None:
 
 def test_health_check_passes_when_model_is_listed() -> None:
     """Control for the test above: health_check() is silent when the model exists."""
+    llm_client = _llm_client()
     service = "present-model-svc"
     with _running(_models_handler(["present-model", "another-model"])) as base_url:
         _write_service(service, base_url, default_model="present-model")

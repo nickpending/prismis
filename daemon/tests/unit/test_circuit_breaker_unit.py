@@ -1,9 +1,10 @@
 """Unit tests for circuit breaker service-keyed registry — SC-14."""
 
-from collections.abc import Iterator
+from __future__ import annotations
 
-import httpx2
-import openai
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
+
 import pytest
 
 from prismis_daemon.circuit_breaker import (
@@ -12,6 +13,29 @@ from prismis_daemon.circuit_breaker import (
     get_circuit_breaker,
     reset_circuit_breaker,
 )
+
+if TYPE_CHECKING:
+    # Only for mypy (never executed -- TYPE_CHECKING is False at runtime). See
+    # test_llm_client_unit.py's own _httpx2()/_openai() for why the module-level
+    # import these annotations would otherwise need stays out of this file: a
+    # reverted daemon/pyproject.toml/uv.lock (this job's own dependency addition)
+    # uninstalls httpx2/openai, and a module-level import turns that into one
+    # collection ERROR for the whole file instead of a per-test FAILURE. openai is
+    # named in an annotation below (_status_error's `cls`); httpx2 never is (only
+    # runtime code, inside _status_error's body), so it has no entry here.
+    import openai
+
+
+def _httpx2() -> Any:  # noqa: ANN401 -- the return really is a module, not a value
+    import httpx2 as _mod
+
+    return _mod
+
+
+def _openai() -> Any:  # noqa: ANN401 -- see _httpx2() above
+    import openai as _mod
+
+    return _mod
 
 
 @pytest.fixture(autouse=True)
@@ -23,14 +47,20 @@ def clean_registry() -> Iterator[None]:
 
 
 def _status_error(
-    status_code: int, cls: type[openai.APIStatusError] = openai.APIStatusError
+    status_code: int, cls: type[openai.APIStatusError] | None = None
 ) -> openai.APIStatusError:
     """Build a real openai SDK status error via its own constructor -- no network call.
 
     httpx2 is the openai SDK's own vendored httpx; APIStatusError.__init__ reads
     response.status_code directly off it, so this produces the exact object shape
-    circuit_breaker.is_quota_error sees from a real provider failure.
+    circuit_breaker.is_quota_error sees from a real provider failure. `cls` defaults
+    to openai.APIStatusError itself, resolved here rather than in the signature so
+    that importing openai stays deferred to call time (see the module docstring).
     """
+    httpx2 = _httpx2()
+    openai = _openai()
+    if cls is None:
+        cls = openai.APIStatusError
     request = httpx2.Request("POST", "https://example.test/v1/chat/completions")
     response = httpx2.Response(
         status_code, request=request, json={"error": {"message": "stub"}}
@@ -46,6 +76,7 @@ def test_is_quota_error_recognizes_rate_limit_error_type() -> None:
     (a terse provider message) is never counted, and the circuit never opens.
     """
     cb = CircuitBreaker()
+    openai = _openai()
     err = _status_error(429, openai.RateLimitError)
     assert cb.is_quota_error(err) is True
 

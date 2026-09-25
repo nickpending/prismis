@@ -182,16 +182,11 @@ Manifests (3): `daemon/pyproject.toml`, `daemon/uv.lock`, `cli/uv.lock`
 
 Docs (5): `docs/architecture/{architecture,boundaries,components,decisions}.md`, `README.md`
 
-**Excluded and why:** `daemon/scripts/model_playtest.py` imports `llm_core` but is rudy's
-uncommitted in-flight work (`?? daemon/scripts/`). Do not modify it. It will break on the swap
-and that is rudy's call to make separately.
+**Superseded 2026-09-24:** the file set above is from 2026-09-03. `daemon/scripts/model_playtest.py` is now tracked (808c86e) and is in scope; it must keep working. The build input is `docs/work/openai-sdk-migration/work-order.json`, whose criteria and stakes win where this document differs.
 
-### Prerequisite — blocks the build, not this order
+### Prerequisite — met
 
-`.specify/` does not exist in this repo: no `verify.sh`, no constitution. The build lane
-requires that gate and must not route around it. `/bootstrap` step 6 authors one first. The
-toolchain is already declared in `daemon/pyproject.toml`: `ruff`, `pyright`, `pytest` +
-`pytest-asyncio`, tests under `daemon/tests/{unit,integration}`.
+`.specify/verify.sh` exists and is the gate; the Python typechecker is mypy (8a99235), not pyright.
 
 ## Success Criteria
 
@@ -303,7 +298,7 @@ toolchain is already declared in `daemon/pyproject.toml`: `ruff`, `pyright`, `py
 ```bash
 cd /Users/rudy/development/projects/prismis/daemon
 uv run ruff check .
-uv run pyright
+uv run mypy .
 uv run pytest
 ```
 

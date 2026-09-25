@@ -1,0 +1,135 @@
+{
+  "workOrder": "openai-sdk-migration",
+  "what": "Replace llm-core in the prismis daemon with the official openai Python SDK, called directly: one small module owning complete(), a services.toml reader, an apiconf key fetch and a JSON extractor; every call site repointed; llm-core removed from prismis.",
+  "why": "Cost tracking is silently broken: llm-core estimates cost from a static pricing table that has no entry for four of the six prismis services, so cost_usd is null for every OpenRouter call, and refreshing the table cannot fix it (docs/work/wo-openai-sdk-migration.md, Why). The provider already returns billed cost when asked. All six prismis services speak one wire format (openai adapter; api.openai.com or openrouter.ai as base_url). The design, the rejected alternatives (tau, litellm, keeping llm-core) and D-TEMP are settled in docs/work/wo-openai-sdk-migration.md and are not re-opened here.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a service resolved from ~/.config/llm-core/services.toml (the test writes its own services.toml under the sealed XDG_CONFIG_HOME, pointing at a local stub server)",
+      "when": "complete(prompt=..., system_prompt=..., service=...) runs",
+      "then": "the result exposes text, model, provider, tokens.input, tokens.output, finish_reason, duration_ms and cost, the attribute paths call sites read today; no call site's result handling changed beyond the import",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q --no-header tests/unit/test_llm_client_unit.py -k result_shape 2>&1 | tail -1",
+        "expect": "passed"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "the migrated daemon source",
+      "when": "searched for temperature outside comments",
+      "then": "nothing matches (D-TEMP), and complete() carries a comment saying why",
+      "observation": {
+        "command": "hits=$(grep -rnE '^[^#]*\\btemperature\\b' --include='*.py' daemon/src || true); if [ -n \"$hits\" ]; then echo \"$hits\"; echo 'SC-2: FAIL'; else echo 'SC-2: PASS'; fi",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "the real prismis-pt-luna service on OpenRouter, with its key from apiconf",
+      "when": "one completion runs through the live, credential-gated test",
+      "then": "result.cost is a non-null float taken from the provider's usage cost, and the llm.call observability event records it; for api.openai.com services, which return no cost, the plan states explicitly whether cost is None or computed, and the test pins that choice",
+      "observation": {
+        "command": "cd daemon && PRISMIS_LIVE_LLM_TESTS=1 uv run pytest -q --no-header tests/integration/test_llm_client_live_integration.py 2>&1 | tail -1",
+        "expect": "passed"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "a local stub server answering HTTP 429",
+      "when": "summarize_with_analysis runs three times against it",
+      "then": "each call raises, circuit_breaker.is_quota_error recognises the error, and the service's breaker is open after the third",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q --no-header tests/unit/test_llm_client_unit.py -k quota 2>&1 | tail -1",
+        "expect": "passed"
+      }
+    },
+    {
+      "id": "SC-5",
+      "given": "a running asyncio event loop, as in the api.py handlers that call the LLM synchronously",
+      "when": "complete() is called from inside a coroutine, and again from a plain worker thread",
+      "then": "both return or raise a provider error the same way; neither raises 'cannot be called from a running event loop'",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q --no-header tests/unit/test_llm_client_unit.py -k event_loop 2>&1 | tail -1",
+        "expect": "passed"
+      }
+    },
+    {
+      "id": "SC-6",
+      "given": "a reply that wraps its JSON in prose and a ```json fence, and a reply with no JSON at all",
+      "when": "each former json=True call site parses it",
+      "then": "the fenced reply yields the same dict as bare JSON, and the no-JSON reply is logged at ERROR with its first 200 characters before the site returns None or raises",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q --no-header tests/unit/test_llm_client_unit.py -k json_extraction 2>&1 | tail -1",
+        "expect": "passed"
+      }
+    },
+    {
+      "id": "SC-7",
+      "given": "a reachable service whose configured model is not in the provider's model list",
+      "when": "startup validation runs",
+      "then": "it fails naming the service and the missing model; an unreachable deep service stays non-fatal (test_validate_llm_services_deep_failure_is_non_fatal)",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q --no-header tests/unit/test_llm_client_unit.py -k missing_model 2>&1 | tail -1",
+        "expect": "passed"
+      }
+    },
+    {
+      "id": "SC-8",
+      "given": "the migrated tree and its daemon venv",
+      "when": "searched for llm-core, and llm_core imported",
+      "then": "no reference remains in daemon/src, cli/src, daemon/scripts, the pyproject files or their mypy overrides, and the import fails because the package is no longer installed",
+      "observation": {
+        "command": "if git grep -qE 'llm_core|llm-core' -- daemon/src cli/src daemon/scripts daemon/pyproject.toml cli/pyproject.toml; then echo 'SC-8: FAIL (reference)'; elif (cd daemon && uv run python -c 'import llm_core' 2>/dev/null); then echo 'SC-8: FAIL (still installed)'; else echo 'SC-8: PASS'; fi",
+        "expect": "SC-8: PASS"
+      }
+    },
+    {
+      "id": "SC-9",
+      "given": "the operator's ~/.config/llm-core/services.toml, shared with eight other apps",
+      "when": "the migration is done",
+      "then": "it is byte-identical: prismis reads it in place, and neither its path nor its schema changed",
+      "observation": {
+        "command": "shasum -a 256 ~/.config/llm-core/services.toml | cut -d' ' -f1",
+        "expect": "724489f3475409fb822aa35454f123f23fe3bf48155a188f0963128c270b09ad"
+      }
+    },
+    {
+      "id": "SC-10",
+      "given": "daemon/pyproject.toml after the swap",
+      "when": "tests/unit/test_dep_pin_unit.py runs",
+      "then": "it passes, and with llm-core gone its assertions state the openai and apiconf pins explicitly instead of checking nothing",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q --no-header tests/unit/test_dep_pin_unit.py 2>&1 | tail -1",
+        "expect": "passed"
+      }
+    },
+    {
+      "id": "SC-11",
+      "given": "docs/architecture and README.md",
+      "when": "searched for llm-core",
+      "then": "no reference remains, and the daemon's LLM contract names the SDK, the result shape, the error contract and where service config lives",
+      "observation": {
+        "command": "echo \"count=$(git grep -lE 'llm_core|llm-core' -- docs/architecture README.md | wc -l | tr -d ' ')\"",
+        "expect": "count=0"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Deleting llm-core from the machine or changing services.toml: eight other apps depend on both",
+    "Re-opening the SDK choice, D-TEMP, or the rejected alternatives",
+    "Splitting the summarizer prompt (gh #79), content-kind classification (gh #77), tool extraction (gh #78)",
+    "Restoring the credential-gated live-LLM tests beyond SC-3's own (gh #60)"
+  ],
+  "stakes": [
+    "Bad output still looks like output. The wrapper must raise the SDK's typed exceptions, never catch and return empty text; a JSON failure must be logged, never swallowed into a stored summary.",
+    "Use the sync OpenAI client, not AsyncOpenAI (F-ASYNC in the markdown work order): the API handlers call the LLM synchronously inside the event loop and the orchestrator runs on APScheduler's threadpool.",
+    "The circuit breaker stays and should classify the SDK's typed exceptions (RateLimitError, APIStatusError status 429/402) rather than only substring-matching str(error).",
+    "The public result shape stays llm-core's (text, model, provider, tokens.input, tokens.output, finish_reason, duration_ms, cost). Config keys llm.light_service / llm.deep_service keep working unchanged.",
+    "Tests run in public CI with no credentials and no network: LLM calls go to a local stub HTTP server (daemon/tests/conftest.py local_pipeline_stub / configure_local_services already write services.toml under the sealed XDG_CONFIG_HOME). Only SC-3 is live, gated on PRISMIS_LIVE_LLM_TESTS, skipped in CI.",
+    "Patching prismis internals is forbidden and guarded (tests/unit/test_no_internal_mocks_unit.py). Its allowlist names complete and health_check; if the new module's functions are renamed, the allowlist follows by decision, not by loosening.",
+    "test_dual_service_config_unit and test_llm_core_migration_unit carry tests that only assert the setup wizard writes services.toml/pricing.toml; give each a deliberate disposition. INV-003 (the service -> light_service rename) is unrelated to llm-core and must survive.",
+    "daemon/scripts/model_playtest.py is tracked now (808c86e) and runs the real summarize/evaluate path; it must keep working after the swap.",
+    "mypy is the gate's typechecker; the llm_core entries in both pyproject [[tool.mypy.overrides]] go, and the new module type-checks without new ignores.",
+    "Every new or rewritten test must be shown to fail with the behaviour it covers removed (CLAUDE.md Learned Patterns)."
+  ]
+}

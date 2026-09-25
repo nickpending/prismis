@@ -225,4 +225,5 @@ __marimo__/
 playtest-runs/
 .claude/worktrees/
 docs/work/*/review.diff
+docs/work/*/job-*.diff
 docs/work/*/.journal.lock

@@ -5,7 +5,7 @@ project: "prismis"
 status: active
 created: "2026-04-07"
 updated: "2026-09-25"
-last_change: "#76 redacts exception detail from every generic-500 handler in api.py via a shared _server_error() helper, extending auth.py's existing redaction fix to the whole API Server. #67/#68/#69 closed RedditFetcher's divergence from the validator's PRAW construction — bounded, rearmable transport and check_for_updates=False (shared http_deadline.py), credential-gate via Config.has_reddit_credentials, and PRAW/yt-dlp config-file isolation via the new praw_defaults.py. #72 closed the deep-extract circuit-open observability gap in verify_chain.py's render_report (now reports 'circuit-open', not 'empty')."
+last_change: "openai-sdk-migration: new LLM Client entry for llm_client.py, and every Summarizer/Evaluator/Deep Extractor/Audio/LLM Validator connection updated off the daemon's prior LLM library (see decisions.md [2026-09-25]). #76 redacts exception detail from every generic-500 handler in api.py via a shared _server_error() helper, extending auth.py's existing redaction fix to the whole API Server. #67/#68/#69 closed RedditFetcher's divergence from the validator's PRAW construction — bounded, rearmable transport and check_for_updates=False (shared http_deadline.py), credential-gate via Config.has_reddit_credentials, and PRAW/yt-dlp config-file isolation via the new praw_defaults.py. #72 closed the deep-extract circuit-open observability gap in verify_chain.py's render_report (now reports 'circuit-open', not 'empty')."
 tags: [architecture, components]
 ---
 
@@ -17,7 +17,7 @@ Registry of all system components. Each entry links to a detail doc when the com
 
 **Purpose:** Python daemon that fetches content from multiple sources, summarizes and evaluates it via LLM, stores results in SQLite, and serves a REST API.
 **Key files:** `daemon/src/prismis_daemon/` — orchestrator.py (fetch loop + deep-extract gate), summarizer.py, evaluator.py, deep_extractor.py, storage.py, api.py (`/audio` now mounted unconditionally with `StaticFiles(..., check_dir=False)` — the route table no longer depends on the audio dir existing at import time), config.py (incl. `deep_extract_exclude` field), defaults.py (config template defaults, incl. `deep_extract_exclude = ["reddit"]`), __main__.py (`_load_ambient_env()` loads `~/.config/prismis/.env` explicitly from the Typer callback instead of at module import; the background API-server task from `asyncio.create_task()` is now held in `api_task` and awaited — bounded 0.5s — on shutdown, since an unreferenced task is only weakly held by the event loop and can be GC'd mid-flight)
-**Connections:** Depends on llm-core (Python) for all LLM calls. Depends on apiconf for API key resolution. TUI and CLI connect via REST API (api.py) and shared SQLite DB.
+**Connections:** Depends on the openai Python SDK directly for all LLM calls, via the daemon's own `llm_client.py` (see boundaries.md). Depends on apiconf for API key resolution. TUI and CLI connect via REST API (api.py) and shared SQLite DB.
 **Detail:** [components/daemon.md](components/daemon.md)
 
 ## Fetchers
@@ -32,13 +32,13 @@ Registry of all system components. Each entry links to a detail doc when the com
 
 **Purpose:** LLM-powered content summarization producing structured summaries with insights, entities, patterns.
 **Key files:** `daemon/src/prismis_daemon/summarizer.py`
-**Connections:** Receives service_name from __main__.py. Calls llm_core.complete(). Uses circuit_breaker for quota protection. Logs via observability.
+**Connections:** Receives service_name from __main__.py. Calls llm_client.complete(). Uses circuit_breaker for quota protection. Logs via observability.
 
 ## Evaluator
 
 **Purpose:** LLM-powered content prioritization — scores items by relevance to user interests defined in context.md.
 **Key files:** `daemon/src/prismis_daemon/evaluator.py`
-**Connections:** Same pattern as Summarizer. Receives service_name, calls llm_core.complete(), uses circuit_breaker.
+**Connections:** Same pattern as Summarizer. Receives service_name, calls llm_client.complete(), uses circuit_breaker.
 
 ## Deep Extractor
 
@@ -51,6 +51,12 @@ Registry of all system components. Each entry links to a detail doc when the com
 **Purpose:** User interest profile (context.md) and LLM-driven auto-update from feedback patterns.
 **Key files:** `daemon/src/prismis_daemon/context_analyzer.py`, `context_auto_updater.py`
 **Connections:** context_analyzer suggests new topics from flagged items. context_auto_updater runs on daily schedule via APScheduler.
+
+## LLM Client
+
+**Purpose:** Direct openai-SDK client for every daemon LLM call — the one module that imports `openai` or reads `services.toml`.
+**Key files:** `daemon/src/prismis_daemon/llm_client.py` (`complete()`, `health_check()`, `resolve_service()`, `extract_json()`, `ConfigError`, `CompleteResult`/`TokenUsage` dataclasses)
+**Connections:** Called by Summarizer, Evaluator, Deep Extractor, Context System, Audio Briefings, and LLM Validator — every call site that used to reach a separate LLM library's `complete()`/`health_check()` calls the same names on this module instead. Resolves API keys via apiconf. Replaces the daemon's prior LLM abstraction package entirely (see decisions.md, boundaries.md).
 
 ## Circuit Breaker
 
@@ -74,7 +80,7 @@ Registry of all system components. Each entry links to a detail doc when the com
 
 **Purpose:** Generate spoken audio briefings from daily high-priority content.
 **Key files:** `daemon/src/prismis_daemon/audio.py`, `reports.py`
-**Connections:** Uses llm_core.complete() for script generation (no circuit breaker). Uses lspeak for TTS.
+**Connections:** Uses llm_client.complete() for script generation (no circuit breaker). Uses lspeak for TTS.
 
 ## TUI
 
@@ -99,7 +105,7 @@ Registry of all system components. Each entry links to a detail doc when the com
 
 **Purpose:** Startup health check for the dual-service configuration — light service fatal on failure, deep service non-fatal (graceful degradation).
 **Key files:** `daemon/src/prismis_daemon/llm_validator.py`
-**Connections:** `validate_llm_services(light_service, deep_service)` calls `llm_core.health_check(service=)` for light (raises on failure) and optionally for deep (wrapped in try/except, returns `unreachable` on failure). Called by `__main__.py:validate_llm_config()` at startup. The legacy single-service `validate_llm_config(service_name)` remains for callers that only need one service.
+**Connections:** `validate_llm_services(light_service, deep_service)` calls `llm_client.health_check(service=)`, which now also verifies the configured model exists in the provider's model list (SC-7, not just that the endpoint answers), for light (raises on failure) and optionally for deep (wrapped in try/except, returns `unreachable` on failure). Called by `__main__.py:validate_llm_config()` at startup. The legacy single-service `validate_llm_config(service_name)` remains for callers that only need one service.
 
 ## Embeddings
 
@@ -137,4 +143,4 @@ Nine outcomes are told apart where one message served before (Principle II): suc
 
 **Purpose:** `prismis-daemon verify --chain --source <url>` drives one source through the real `DaemonOrchestrator` pipeline against a throwaway temp-XDG database and reports per-link status/duration/cost/model — the only place the daemon's actual production classes run end to end before `make install-daemon` replaces the running cerebro daemon.
 **Key files:** `daemon/src/prismis_daemon/verify_chain.py` (`LinkStatus` dataclass; `build_source`/`setup_isolated_run` construct a synthetic source row via `init_db()` then `Storage()` — that order is load-bearing, `Storage.__init__` opens a connection eagerly despite a "lazy" comment and raises against a schema-less temp dir otherwise; `render_report` is pure aggregation classifying fetch/dedup/summarize/evaluate/deep_extract/store/embed/notify into `ran | empty | never-reached | skipped-by-flag | skipped | circuit-open | error`; `run_chain` is the CLI entry point and now just calls `execute_chain(...)[0]` for its exit code; `execute_chain(source_url, source_type, full, console) -> tuple[int, list[LinkStatus]]` holds the actual body and additionally returns the per-link list, so a test can assert on link outcomes instead of collapsing them into one exit-code bit; its absolute imports are mechanically restricted to a stdlib+rich allowlist so it cannot quietly grow a reimplementation of any link). `daemon/src/prismis_daemon/__main__.py` — `verify()` gained `chain`/`source`/`source_type`/`full` params via `Annotated[bool, typer.Option(...)] = False` (not the plain-default form, which leaves a truthy `OptionInfo` object that would make a bare `verify()` call always take the chain branch); dispatches to `verify_chain.run_chain` and leaves the pre-existing zero-flag behavior byte-for-byte unchanged. `daemon/tests/conftest.py`'s `local_pipeline_stub` fixture stands up a `ThreadingHTTPServer` serving an RSS feed at `/feed.xml` plus an OpenAI-shaped `/v1/chat/completions`, so `daemon/tests/integration/test_verify_chain_local_end_to_end.py` drives `execute_chain` through every default link with no credentials, no network and no spend — the LLM endpoint is the one collaborator the constitution permits standing in for.
-**Connections:** `build_orchestrator` constructs the real `DaemonOrchestrator` with real fetchers/summarizer/evaluator/embedder/notifier and, only under `--full`, a real `ContentDeepExtractor` — it reimplements no link. Attribution is solved at the Observability layer, not here: `run_chain` calls `observability.set_run_id()` before constructing anything and clears it in a `finally`, so `read_run_events` selects exactly this run's JSONL lines even when a live daemon cycle writes to the same file concurrently. One deliberate exception to reading events: a circuit-open refusal is read from `fetch_source_content`'s returned `stats["errors"]` instead, because `summarizer.py`/`evaluator.py` raise before their own `obs_log` call — see decisions.md. **Closed (#72):** the deep-extractor's own circuit-open path used to be swallowed by the orchestrator's INV-002 catch, invisible to both the JSONL and stats — indistinguishable from deep extraction simply being off, reported as `deep_extract: "empty"`. All three LLM callers (summarizer, evaluator, deep extractor) now emit an `llm.call` event with `status="circuit_open"` at the refusal, before raising; the orchestrator also returns refusals in a new `stats["deep_extract_failures"]`, kept out of `stats["errors"]` (which counts pipeline failures under INV-002) since the item still stores with its light summary. `verify_chain._llm_link` excludes `circuit_open` events from call counts, and `render_report` now reports `deep_extract` as `"circuit-open"` (not `"empty"`) when refusal events are present. Never calls `get_active_sources()`; the source under test comes only from `--source`, though `build_source` inserts one throwaway row via `Storage.add_source` to satisfy the `content` table's FK. The local-stub test points `light_service`/`deep_service` at the stub server via `llm-core`'s `services.toml` with `key_required = false`, and deliberately configures a real deep service + `auto_extract = "high"` (not a disabled deep service) — the first live cerebro run of this chain reported `deep_extract: skipped-by-flag` while the deep service had actually billed, because `build_orchestrator` built `ContentDeepExtractor` whenever a deep service was configured without consulting `full`; that gate is now structurally guarded by a unit test, and a world where the deep service is off can't exercise a regression in it.
+**Connections:** `build_orchestrator` constructs the real `DaemonOrchestrator` with real fetchers/summarizer/evaluator/embedder/notifier and, only under `--full`, a real `ContentDeepExtractor` — it reimplements no link. Attribution is solved at the Observability layer, not here: `run_chain` calls `observability.set_run_id()` before constructing anything and clears it in a `finally`, so `read_run_events` selects exactly this run's JSONL lines even when a live daemon cycle writes to the same file concurrently. One deliberate exception to reading events: a circuit-open refusal is read from `fetch_source_content`'s returned `stats["errors"]` instead, because `summarizer.py`/`evaluator.py` raise before their own `obs_log` call — see decisions.md. **Closed (#72):** the deep-extractor's own circuit-open path used to be swallowed by the orchestrator's INV-002 catch, invisible to both the JSONL and stats — indistinguishable from deep extraction simply being off, reported as `deep_extract: "empty"`. All three LLM callers (summarizer, evaluator, deep extractor) now emit an `llm.call` event with `status="circuit_open"` at the refusal, before raising; the orchestrator also returns refusals in a new `stats["deep_extract_failures"]`, kept out of `stats["errors"]` (which counts pipeline failures under INV-002) since the item still stores with its light summary. `verify_chain._llm_link` excludes `circuit_open` events from call counts, and `render_report` now reports `deep_extract` as `"circuit-open"` (not `"empty"`) when refusal events are present. Never calls `get_active_sources()`; the source under test comes only from `--source`, though `build_source` inserts one throwaway row via `Storage.add_source` to satisfy the `content` table's FK. The local-stub test points `light_service`/`deep_service` at the stub server via `services.toml`'s `key_required = false`, and deliberately configures a real deep service + `auto_extract = "high"` (not a disabled deep service) — the first live cerebro run of this chain reported `deep_extract: skipped-by-flag` while the deep service had actually billed, because `build_orchestrator` built `ContentDeepExtractor` whenever a deep service was configured without consulting `full`; that gate is now structurally guarded by a unit test, and a world where the deep service is off can't exercise a regression in it.

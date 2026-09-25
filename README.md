@@ -347,7 +347,7 @@ Prismis follows XDG standards:
 
 ### LLM Configuration (Dual-Service)
 
-Prismis routes LLM calls through two services so routine work and deep synthesis can use different models. Provider routing is handled by `llm-core` via `~/.config/llm-core/services.toml`; the daemon only references service names.
+Prismis routes LLM calls through two services so routine work and deep synthesis can use different models. The daemon talks to every service through the openai Python SDK directly (`daemon/src/prismis_daemon/llm_client.py`) — one client for both `api.openai.com` and `openrouter.ai`, since both speak the same chat-completions wire format. Service routing is resolved from `~/.config/llm-core/services.toml`; the daemon only references service names.
 
 ```toml
 # ~/.config/prismis/config.toml
@@ -359,32 +359,36 @@ auto_extract  = "high"                  # "high" | "medium" | "none" — gate fo
 
 The light service handles every routine call (fetch-cycle priority, summarization, context analyzer). The deep service runs the second-tier synthesis prompt that produces the Counterintuitive / Buried lede / So what / Pushback sections plus quotables. When `deep_service` is unset, the daemon runs in light-only mode (graceful degradation — deep extraction failures never block storage).
 
-Service definitions live in `~/.config/llm-core/services.toml`, where you map service names to providers, models, and API keys. Examples:
+Service definitions live in `~/.config/llm-core/services.toml` — shared with other apps on this machine and unchanged in path or schema by this migration (see decisions.md). Map service names to an adapter, base URL, default model, and API key. Examples:
 
 ```toml
 # ~/.config/llm-core/services.toml
 [services.prismis-openai]
-provider = "openai"
-model    = "gpt-4o-mini"
-key      = "openai"
+adapter       = "openai"
+base_url      = "https://api.openai.com/v1"
+default_model = "gpt-4.1-mini"
+key           = "openai"
 
 [services.prismis-openai-deep]
-provider = "openai"
-model    = "gpt-5-mini"        # reasoning-class model recommended for deep synthesis
-key      = "openai"
+adapter       = "openai"
+base_url      = "https://api.openai.com/v1"
+default_model = "gpt-5-mini"        # reasoning-class model recommended for deep synthesis
+key           = "openai"
 
-[services.prismis-anthropic]
-provider = "anthropic"
-model    = "claude-3-haiku-20240307"
-key      = "anthropic"
+[services.prismis-openrouter]
+adapter       = "openai"
+base_url      = "https://openrouter.ai/api/v1"
+default_model = "anthropic/claude-3-haiku"
+key           = "openrouter"
 
-[services.prismis-ollama]
-provider = "ollama"
-model    = "llama2"
-base_url = "http://localhost:11434"
+[services.prismis-local]
+adapter       = "openai"
+base_url      = "http://localhost:8080/v1"   # any OpenAI-compatible local server
+key_required  = false
+default_model = "llama2"
 ```
 
-API keys are resolved by `apiconf` from `~/.config/apiconf/config.toml`; `key = "openai"` references the entry named `openai` there. Run `prismis-daemon migrate-config` once after upgrading from a pre-iter-12 install — it idempotently rewrites the config to dual-service shape and adds the `[services.prismis-openai-deep]` stub.
+Every prismis service must speak the OpenAI chat-completions wire format (`adapter = "openai"`) — the daemon's client talks to `base_url` directly, with no per-provider translation. API keys are resolved by `apiconf` from `~/.config/apiconf/config.toml`; `key = "openai"` references the entry named `openai` there. `key_required = false` skips apiconf entirely, for a server that takes no key. Run `prismis-daemon migrate-config` once after upgrading from a pre-iter-12 install — it idempotently rewrites the config to dual-service shape and adds the `[services.prismis-openai-deep]` stub.
 
 **Reddit API** (optional - improves reliability):
 ```bash
@@ -560,7 +564,7 @@ Some areas we'd love help with:
 
 Built with amazing tools:
 - [Bubbletea](https://github.com/charmbracelet/bubbletea) - Delightful TUI framework
-- [llm-core](https://github.com/nickpending/llm-core) - Single-turn LLM abstraction with service-based routing
+- [openai-python](https://github.com/openai/openai-python) - Official OpenAI SDK, called directly for every LLM completion
 - [uv](https://github.com/astral-sh/uv) - Blazing fast Python package manager
 
 ---

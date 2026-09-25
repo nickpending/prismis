@@ -4,8 +4,8 @@ subtype: boundaries
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-24"
-last_change: "mypy replaces pyright as the Python type-checker for verify.sh and the INV-OL encoder-narrowing contract (commit 8a99235, decisions.md [2026-09-24])"
+updated: "2026-09-25"
+last_change: "openai-sdk-migration: the daemon's LLM boundary is now a direct openai-SDK client (llm_client.py), not a separate library; see decisions.md [2026-09-25]"
 tags: [architecture, boundaries]
 ---
 
@@ -31,16 +31,16 @@ Interface contracts between components and external systems.
 **Contract:** The chain never opens the live database in either direction — `XDG_DATA_HOME` points at a fresh temp dir before `Storage` or `init_db()` is touched, and `observability.py` (as of this work) resolves under the same `XDG_DATA_HOME`, so the run's JSONL also lands in the temp tree, not the operator's real observability history. Credentials and LLM config are the operator's real ones (`XDG_CONFIG_HOME`, untouched) — only data-plane state is isolated. The chain never calls `get_active_sources()`; the source under test comes only from `--source`, though `build_source` inserts one throwaway row into the temp DB's `sources` table to satisfy the `content` table's `FOREIGN KEY (source_id)`.
 **Constraints:** `Storage.__init__` opens a connection eagerly (despite a "lazy" comment), so `init_db()` must run before `Storage()` is constructed — reversing the order raises against a genuinely empty temp dir. `--full` overrides only `auto_extract` to `"all"` (via `dataclasses.replace`) so the report is deterministic regardless of the operator's configured threshold; the LLM services it calls are still the operator's real configured ones, not a simulated deployment.
 
-## Daemon ↔ llm-core
+## Daemon ↔ openai SDK (via `llm_client`)
 
-**Between:** Daemon consumers ↔ llm-core Python package
-**Contract:** Consumers call `complete(prompt=, system_prompt=, service=, temperature=, json=)` and receive `CompleteResult` with `.text`, `.tokens.input`, `.tokens.output`, `.cost`, `.model`, `.duration_ms`. Health check via `health_check(service=)`. All LLM errors surface as `ProviderError`.
-**Constraints:** Single-turn only — no messages array, no chat. Service name must exist in ~/.config/llm-core/services.toml. Cost may be None if pricing.toml missing for model.
+**Between:** Daemon consumers ↔ `daemon/src/prismis_daemon/llm_client.py`, which owns the whole surface the daemon used to reach through a separate LLM library — a `services.toml` reader, an apiconf key fetch, `complete()`, `health_check()`, and a JSON extractor — calling the openai Python SDK directly. No other daemon module imports `openai` or reads `services.toml`.
+**Contract:** Consumers call `complete(prompt=, system_prompt=, service=, model=, max_tokens=, json=)` and receive a `CompleteResult` with `.text`, `.model`, `.provider`, `.tokens.input`, `.tokens.output`, `.finish_reason`, `.duration_ms`, `.cost` — the same shape and attribute paths call sites already read; no call site's result handling changed beyond the import. Health check via `health_check(service=)`, which lists the provider's models and raises `ConfigError` naming the service and the missing model if the configured `default_model` is absent from that list (SC-7) — strictly more than confirming the endpoint answers. All provider failures surface as the openai SDK's own typed exceptions (`RateLimitError`, `APIStatusError`, ...), never caught and swallowed into empty text. `complete()` never accepts or sends a `temperature` argument, to any service, ever (D-TEMP — see decisions.md): a controlled probe found no effect on the reasoning-class models prismis runs, and one served model rejects the parameter outright with HTTP 400.
+**Constraints:** Single-turn only — no messages array, no chat. The sync `OpenAI` client is used throughout, not `AsyncOpenAI`: the API handlers call `complete()` synchronously from inside a running event loop, and the orchestrator runs it from APScheduler's threadpool — a sync client needs no event-loop bridge for either caller (F-ASYNC). Service name must exist in ~/.config/llm-core/services.toml — the config path and its schema are unchanged by this migration (SC-9); only the code reading it moved in-house. Cost is the provider's own billed figure, read off OpenRouter's `usage.include` request extension, not a locally estimated one — `None` for api.openai.com services, which reject that extension (see decisions.md).
 
-## Daemon ↔ apiconf
+## `llm_client` ↔ apiconf
 
-**Between:** llm-core (via daemon) ↔ apiconf
-**Contract:** llm-core calls `load_api_key(key_name)` which reads from ~/.config/apiconf/config.toml [keys.{name}].value.
+**Between:** `llm_client.py` (via daemon) ↔ apiconf
+**Contract:** `llm_client` calls apiconf's `get_key(key_name)`, which reads from ~/.config/apiconf/config.toml [keys.{name}].value. A service with `key_required = false` in services.toml skips apiconf entirely (a local model server that takes no key).
 **Constraints:** No env var override for apiconf config path. Tests must use real config or skip.
 
 ## TUI ↔ Daemon API
@@ -86,7 +86,7 @@ Interface contracts between components and external systems.
 ## Config Migration Contract
 
 **Between:** migrate-config command ↔ filesystem
-**Contract:** Reads ~/.config/prismis/config.toml, detects one of three states — already dual-service (no-op), post-llm-core stale (`service =` → rename to `light_service =`), or pre-llm-core (`provider/model/api_key` → rewrite to `light_service = "{service_name}"`). In every non-no-op branch, idempotently appends `[services.prismis-openai-deep]` to ~/.config/llm-core/services.toml so the final state of a single run is a loadable dual-service config.toml plus a services.toml with both light and deep entries. Atomic temp-file writes for config.toml (`.toml.tmp` → rename). Also creates ~/.config/apiconf/config.toml and ~/.config/llm-core/pricing.toml on first run if missing.
+**Contract:** Reads ~/.config/prismis/config.toml, detects one of three states — already dual-service (no-op), post-llm-core stale (`service =` → rename to `light_service =`), or pre-llm-core (`provider/model/api_key` → rewrite to `light_service = "{service_name}"`). In every non-no-op branch, idempotently appends `[services.prismis-openai-deep]` to ~/.config/llm-core/services.toml so the final state of a single run is a loadable dual-service config.toml plus a services.toml with both light and deep entries. Atomic temp-file writes for config.toml (`.toml.tmp` → rename). Also creates ~/.config/apiconf/config.toml on first run if missing. No longer creates a pricing.toml: cost now comes straight off the provider's billed response (llm_client.py's `complete()`), not a locally maintained pricing table, so migrate-config has nothing left to populate one for (see decisions.md).
 **Constraints:** Idempotent on re-run — existing files and existing section headers are preserved and reported as skipped. Never overwrites user-customized content outside the target `[llm]` section or target service entry. A single invocation from any starting format converges to the final dual-service shape; users never need to run migrate-config twice. Old api_key with "env:" prefix resolved from environment at migration time. migrate-config bypasses startup config validation via the typer callback subcommand guard.
 
 ## Daemon ↔ Dual-Service LLM Config
@@ -98,7 +98,7 @@ Interface contracts between components and external systems.
 ## Daemon ↔ Deep Extractor
 
 **Between:** Orchestrator / API server ↔ ContentDeepExtractor instance
-**Contract:** `ContentDeepExtractor(service_name: str)` constructor takes the deep service name. `extract(content: str, title: str, url: str) -> dict | None` returns `{synthesis: str, quotables: list[str], model: str, extracted_at: str}` on success, `None` on empty content or malformed JSON. Raises `CircuitOpenError(RuntimeError)` when the deep circuit is open. Raises generic exceptions on LLM/provider failures. Reasoning-class models (gpt-5-mini and o-series) require omitting the `temperature` argument from `complete()` — passed via `llm_core/providers/openai.py:40` guard `if request.temperature is not None`.
+**Contract:** `ContentDeepExtractor(service_name: str)` constructor takes the deep service name. `extract(content: str, title: str, url: str) -> dict | None` returns `{synthesis: str, quotables: list[str], model: str, extracted_at: str}` on success, `None` on empty content or malformed JSON. Raises `CircuitOpenError(RuntimeError)` when the deep circuit is open. Raises generic exceptions on LLM/provider failures. No call ever passes a `temperature` argument to `complete()` (D-TEMP; see decisions.md and the `Daemon ↔ openai SDK` contract above) — `complete()`'s signature carries no such parameter, so reasoning-class models (gpt-5-mini and o-series) that reject it need no special-casing.
 **Constraints:** Single instance shared between orchestrator (constructor injection) and API endpoint (`app.state.deep_extractor`). `None` instance means deep extraction disabled — orchestrator skips the gate, API returns 503 `ServiceUnavailableError`. Deep extraction failure must NEVER block item storage in the pipeline path (orchestrator's outer try/except enforces INV-002). Synthesis text combined with light summary for embedding generation when present. Skepticism is source-internal only — no external knowledge, no reader-verification asks.
 
 ## API Server — Deep Extraction Endpoint

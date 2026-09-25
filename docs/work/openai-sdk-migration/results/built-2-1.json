@@ -1,0 +1,26 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/__main__.py",
+    "daemon/pyproject.toml",
+    "daemon/uv.lock",
+    "cli/pyproject.toml",
+    "cli/uv.lock",
+    "daemon/tests/unit/test_dep_pin_unit.py",
+    "daemon/tests/unit/test_verify_subcommand_unit.py",
+    "daemon/tests/unit/test_llm_core_migration_unit.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a1d5ef7bfb1e23a9f",
+    "branch": "worktree-agent-a1d5ef7bfb1e23a9f",
+    "base": "a09a9cc4f7a83025760256c4461922225a8b5e3d"
+  },
+  "red": {
+    "command": "cd daemon && uv run pytest -q --no-header tests/unit/test_dep_pin_unit.py tests/unit/test_verify_subcommand_unit.py tests/unit/test_llm_core_migration_unit.py",
+    "tests": [
+      "daemon/tests/unit/test_dep_pin_unit.py",
+      "daemon/tests/unit/test_verify_subcommand_unit.py",
+      "daemon/tests/unit/test_llm_core_migration_unit.py"
+    ]
+  }
+}

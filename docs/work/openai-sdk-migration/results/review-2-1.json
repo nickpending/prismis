@@ -1,0 +1,17 @@
+{
+  "searched": [
+    "docs/work/openai-sdk-migration/work-order.json",
+    "docs/work/openai-sdk-migration/results/plan.json",
+    "docs/work/openai-sdk-migration/job-2.diff",
+    "docs/work/openai-sdk-migration/journal.jsonl (job-1 and job-2 built/verified/reviewed/diffed records)",
+    "daemon/src/prismis_daemon/__main__.py (current, pre-job-2 state, to check the diff applies against it cleanly)",
+    "daemon/pyproject.toml, cli/pyproject.toml (current state)",
+    "cli/uv.lock, daemon/uv.lock (llm-core/apiconf/openai stanzas, via diff and grep)",
+    "daemon/src/prismis_daemon/api.py, config.py, defaults.py, daemon/scripts/model_playtest.py (grepped for llm_core to check why the plan's job-2 file list named them but job-2's built/diff did not touch them)",
+    "cli/src (grepped for llm_core)",
+    "daemon/tests/unit/test_reddit_validation_unit.py:399 (to check the praw<8 pin comment's citation)",
+    "daemon/tests/unit/test_verify_subcommand_unit.py (full file, to check every _HEALTH_CHECK_MOCK use site)"
+  ],
+  "exhaustive": false,
+  "findings": []
+}

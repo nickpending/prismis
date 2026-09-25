@@ -6,6 +6,7 @@ import re
 import socket
 import tempfile
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -251,6 +252,21 @@ _STUB_FEED = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+# Deep-extraction stub controls -----------------------------------------------------
+# The canned text `local_pipeline_stub` returns for the deep schema, and the marker a
+# caller embeds in the `content` it hands to ContentDeepExtractor.extract() to make the
+# stub's /v1/chat/completions response sleep before answering. Both travel through the
+# real request path (content -> user prompt -> HTTP body), so a test that wants a slow
+# extraction controls it by choosing what real content it feeds the real extractor,
+# rather than a stand-in extractor sleeping in Python instead of on the wire.
+DEEP_EXTRACT_STUB_SYNTHESIS = "A stubbed deep synthesis for the local pipeline stub."
+DEEP_EXTRACT_STUB_MODEL = "stub-model"
+DEEP_EXTRACT_DELAY_PREFIX = "STUB_DELAY_SECONDS="
+_REQUEST_DELAY_PATTERN = re.compile(
+    re.escape(DEEP_EXTRACT_DELAY_PREFIX) + r"(\d+(?:\.\d+)?)"
+)
+
+
 @pytest.fixture
 def local_pipeline_stub() -> Iterator[str]:
     """A local HTTP server standing in for both third parties the chain touches.
@@ -270,6 +286,15 @@ def local_pipeline_stub() -> Iterator[str]:
     point a service at this port and need no credential. The LLM is the one collaborator
     the constitution permits standing in for; nothing else here is faked — real
     fetchers, real Storage, real Embedder, real orchestrator.
+
+    The completion payload carries both the light-summarizer schema and the deep
+    extraction schema (`synthesis`/`quotables`) in one response, so the same stub
+    serves ContentSummarizer, ContentEvaluator and ContentDeepExtractor without
+    branching on which of them is asking. A caller that needs the response delayed —
+    to drive a real ContentDeepExtractor through a slow-extraction scenario without a
+    stand-in extractor's own `time.sleep()` — embeds
+    `f"{DEEP_EXTRACT_DELAY_PREFIX}<seconds>"` in the content or title it passes in;
+    the marker rides along in the request body this handler reads.
     """
     import http.server
     import json as _json
@@ -303,11 +328,16 @@ def local_pipeline_stub() -> Iterator[str]:
                 self.send_error(404)
                 return
             length = int(self.headers.get("Content-Length", "0"))
-            self.rfile.read(length)
+            raw_body = self.rfile.read(length)
+            delay = _REQUEST_DELAY_PATTERN.search(
+                raw_body.decode("utf-8", errors="ignore")
+            )
+            if delay:
+                time.sleep(float(delay.group(1)))
             payload = {
                 "id": "stub-completion",
                 "object": "chat.completion",
-                "model": "stub-model",
+                "model": DEEP_EXTRACT_STUB_MODEL,
                 "choices": [
                     {
                         "index": 0,
@@ -326,6 +356,8 @@ def local_pipeline_stub() -> Iterator[str]:
                                     "priority": "low",
                                     "matched_interests": [],
                                     "reasoning": "stubbed",
+                                    "synthesis": DEEP_EXTRACT_STUB_SYNTHESIS,
+                                    "quotables": [],
                                 }
                             ),
                         },

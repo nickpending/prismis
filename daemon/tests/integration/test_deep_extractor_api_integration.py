@@ -6,15 +6,16 @@ Invariants protected:
 - SC-3: POST creates extraction and DB row is updated with deep_extraction.
 - SC-4: Idempotency verified at the API integration level (duplicate of INV-004).
 
-Mocking strategy:
-- app.state.deep_extractor is replaced with a controlled stub.
-- LLM (complete()) is NOT called in these tests -- the stub short-circuits it.
-- auth.py calls Config.from_file() for the real API key from
-  ~/.config/prismis/config.toml -- real key TEST_API_KEY is used.
+Real collaborators throughout: app.state.deep_extractor is a real ContentDeepExtractor
+talking to the local stub LLM server (conftest.local_pipeline_stub), with the real
+circuit breaker and real llm_core.complete underneath it -- nothing prismis_daemon owns
+is stood in for. auth.py calls the real Config.from_file() for the API key from the
+sealed XDG config; TEST_API_KEY is the key it was written with.
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import Generator
 from pathlib import Path
 
@@ -23,16 +24,19 @@ from fastapi.testclient import TestClient
 
 from prismis_daemon.api import app, get_storage
 from prismis_daemon.circuit_breaker import reset_circuit_breaker
+from prismis_daemon.deep_extractor import ContentDeepExtractor
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
-from conftest import TEST_API_KEY, add_new_content
+from conftest import (
+    DEEP_EXTRACT_STUB_MODEL,
+    DEEP_EXTRACT_STUB_SYNTHESIS,
+    LOCAL_DEEP_SERVICE,
+    TEST_API_KEY,
+    add_new_content,
+    configure_local_services,
+)
 
 _API_KEY = TEST_API_KEY
-
-# Patch targets -- allow-mock marker for claudex-guard scanner
-_PATCH_CONFIG_FROM_FILE = (
-    "prismis_daemon.auth.Config.from_file"  # claudex-guard: allow-mock
-)
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +45,18 @@ def clean_circuit_registry() -> Generator[None]:
     reset_circuit_breaker()
     yield
     reset_circuit_breaker()
+
+
+@pytest.fixture
+def real_deep_extractor(local_pipeline_stub: str) -> ContentDeepExtractor:
+    """A real ContentDeepExtractor wired to the local stub LLM server.
+
+    Not a stand-in: the object under test is production's own ContentDeepExtractor,
+    and every call it makes is a real HTTP round trip to a real server on loopback,
+    through its own real circuit breaker and llm_core.complete.
+    """
+    configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), local_pipeline_stub)
+    return ContentDeepExtractor(LOCAL_DEEP_SERVICE)
 
 
 def _seed_entry(
@@ -91,30 +107,21 @@ def storage_with_extracted_entry(test_db: Path) -> tuple[Storage, str, dict]:
     return storage, content_id, existing_extraction
 
 
-class _StubExtractor:
-    """Controlled deep extractor stub -- returns a canned extraction dict.
+class _CountingExtractor:
+    """Call-through spy around a real ContentDeepExtractor.
 
-    Records call count so tests can assert whether extract() was invoked.
+    Not a stand-in: `extract()` delegates every call to the real extractor and returns
+    exactly what it returns. Only the call count is observed here, the same shape as
+    the Storage spy in test_api_connection_cleanup (out of scope for this file).
     """
 
-    def __init__(self, result: dict | None) -> None:
-        self._result = result
+    def __init__(self, real: ContentDeepExtractor) -> None:
+        self._real = real
         self.call_count = 0
 
     def extract(self, content: str, title: str = "", url: str = "") -> dict | None:
         self.call_count += 1
-        return self._result
-
-
-def _make_api_client(storage: Storage) -> TestClient:
-    """Create TestClient with storage dependency overridden."""
-
-    def override_get_storage() -> Generator[Storage]:
-        yield storage
-
-    app.dependency_overrides[get_storage] = override_get_storage
-    client = TestClient(app)
-    return client
+        return self._real.extract(content=content, title=title, url=url)
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +131,7 @@ def _make_api_client(storage: Storage) -> TestClient:
 
 def test_sc3_post_creates_extraction_and_updates_db(
     storage_with_entry: tuple[Storage, str],
+    real_deep_extractor: ContentDeepExtractor,
 ) -> None:
     """
     SC-3: POST /api/entries/{id}/extract on an entry with no deep_extraction
@@ -135,14 +143,8 @@ def test_sc3_post_creates_extraction_and_updates_db(
     """
     storage, content_id = storage_with_entry
 
-    canned_extraction = {
-        "synthesis": "**Counterintuitive:** the market shrank despite headline growth.",
-        "quotables": ["Revenue grew 22% but profitability fell."],
-        "model": "gpt-5-mini-2025-08-07",
-        "extracted_at": "2026-04-27T12:00:00+00:00",
-    }
-    stub = _StubExtractor(result=canned_extraction)
-    app.state.deep_extractor = stub
+    spy = _CountingExtractor(real_deep_extractor)
+    app.state.deep_extractor = spy
 
     def override_get_storage() -> Generator[Storage]:
         yield storage
@@ -165,8 +167,8 @@ def test_sc3_post_creates_extraction_and_updates_db(
             "Response must contain deep_extraction"
         )
         returned_extraction = data["data"]["deep_extraction"]
-        assert returned_extraction["synthesis"] == canned_extraction["synthesis"]
-        assert returned_extraction["model"] == canned_extraction["model"]
+        assert returned_extraction["synthesis"] == DEEP_EXTRACT_STUB_SYNTHESIS
+        assert returned_extraction["model"] == DEEP_EXTRACT_STUB_MODEL
 
         # SC-3: Verify the DB row was actually updated
         stored = storage.get_content_by_id(content_id)
@@ -177,11 +179,11 @@ def test_sc3_post_creates_extraction_and_updates_db(
         )
         assert (
             stored_analysis["deep_extraction"]["synthesis"]
-            == canned_extraction["synthesis"]
+            == DEEP_EXTRACT_STUB_SYNTHESIS
         )
 
         # Extractor was called exactly once
-        assert stub.call_count == 1
+        assert spy.call_count == 1
     finally:
         app.dependency_overrides.clear()
         app.state.deep_extractor = None
@@ -194,6 +196,7 @@ def test_sc3_post_creates_extraction_and_updates_db(
 
 def test_inv004_sc4_idempotency_returns_existing_without_llm_call(
     storage_with_extracted_entry: tuple[Storage, str, dict],
+    real_deep_extractor: ContentDeepExtractor,
 ) -> None:
     """
     INV-004 / SC-4: POST when analysis.deep_extraction already exists returns
@@ -205,9 +208,8 @@ def test_inv004_sc4_idempotency_returns_existing_without_llm_call(
     """
     storage, content_id, existing_extraction = storage_with_extracted_entry
 
-    # Stub that would record a call if extract() is invoked
-    stub = _StubExtractor(result={"synthesis": "NEW synthesis -- should not appear"})
-    app.state.deep_extractor = stub
+    spy = _CountingExtractor(real_deep_extractor)
+    app.state.deep_extractor = spy
 
     def override_get_storage() -> Generator[Storage]:
         yield storage
@@ -233,11 +235,17 @@ def test_inv004_sc4_idempotency_returns_existing_without_llm_call(
             "INV-004: must return existing synthesis, not re-run extraction"
         )
         assert returned["model"] == existing_extraction["model"]
+        # The distinguishing outcome: a real extraction would have overwritten this
+        # with the stub server's canned synthesis, not left the seeded value in place.
+        assert returned["synthesis"] != DEEP_EXTRACT_STUB_SYNTHESIS, (
+            "INV-004: the cached value must not have been replaced by a fresh "
+            "extraction from the stub server"
+        )
 
         # INV-004: extractor must NOT have been called
-        assert stub.call_count == 0, (
+        assert spy.call_count == 0, (
             f"INV-004: extractor.extract() must not be called when "
-            f"deep_extraction already exists; was called {stub.call_count} times"
+            f"deep_extraction already exists; was called {spy.call_count} times"
         )
     finally:
         app.dependency_overrides.clear()
@@ -249,15 +257,16 @@ def test_inv004_sc4_idempotency_returns_existing_without_llm_call(
 # ---------------------------------------------------------------------------
 
 
-def test_extract_endpoint_returns_404_for_unknown_id(test_db: Path) -> None:
+def test_extract_endpoint_returns_404_for_unknown_id(
+    test_db: Path, real_deep_extractor: ContentDeepExtractor
+) -> None:
     """
     POST with an ID that doesn't exist returns 404.
     BREAKS: Calling update_analysis() on a non-existent ID silently succeeds
     (rowcount=0 is not checked); caller gets 200 with empty data.
     """
     storage = Storage(test_db)
-    stub = _StubExtractor(result={"synthesis": "irrelevant"})
-    app.state.deep_extractor = stub
+    app.state.deep_extractor = real_deep_extractor
 
     def override_get_storage() -> Generator[Storage]:
         yield storage

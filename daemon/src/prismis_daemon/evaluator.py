@@ -1,14 +1,12 @@
 """Content interest evaluation against user context using LLM."""
 
-import json
 import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from llm_core import complete
-
 from .circuit_breaker import get_circuit_breaker
+from .llm_client import complete, extract_json
 from .observability import log as obs_log
 
 logger = logging.getLogger(__name__)
@@ -44,7 +42,6 @@ class ContentEvaluator:
             service_name: Service name from ~/.config/llm-core/services.toml
         """
         self.service_name = service_name
-        self.temperature = 0.3  # Fixed for evaluation
 
         logger.info(f"ContentEvaluator initialized with service: {self.service_name}")
 
@@ -167,7 +164,7 @@ Evaluate this content and respond with the JSON format specified."""
         ]
 
     def _call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
-        """Call llm-core with the evaluation prompt.
+        """Call the LLM with the evaluation prompt.
 
         Args:
             messages: Messages to send to the LLM
@@ -180,7 +177,7 @@ Evaluate this content and respond with the JSON format specified."""
         """
         try:
             logger.debug(
-                f"Calling llm-core service {self.service_name} for content evaluation"
+                f"Calling LLM service {self.service_name} for content evaluation"
             )
 
             # Extract system and user prompts from messages
@@ -207,7 +204,6 @@ Evaluate this content and respond with the JSON format specified."""
                     prompt=user_prompt,
                     system_prompt=system_prompt,
                     service=self.service_name,
-                    temperature=self.temperature,
                     json=True,
                 )
 
@@ -218,7 +214,8 @@ Evaluate this content and respond with the JSON format specified."""
                     "total": result.tokens.input + result.tokens.output,
                 }
 
-                # Cost already estimated by llm_core
+                # Real billed cost for OpenRouter services; None for api.openai.com
+                # services, which return no cost (see llm_client.py's complete()).
                 cost_usd = result.cost
 
                 # Log successful LLM call
@@ -252,12 +249,18 @@ Evaluate this content and respond with the JSON format specified."""
             # Extract and parse response
             response_text = result.text
 
-            # Parse JSON response
-            return json.loads(response_text)
+            # Parse JSON response (tolerates a ```json-fenced reply)
+            parsed = extract_json(response_text)
+            if parsed is None:
+                logger.error(
+                    f"Failed to parse LLM response as JSON. "
+                    f"First 200 chars: {response_text[:200]!r}"
+                )
+                raise ValueError(
+                    f"Invalid JSON response from LLM: {response_text[:200]!r}"
+                )
+            return parsed
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM response as JSON: {e}")
-            raise ValueError(f"Invalid JSON response from LLM: {e}") from e
         except Exception as e:
             logger.error(f"LLM evaluation failed: {e}")
             raise

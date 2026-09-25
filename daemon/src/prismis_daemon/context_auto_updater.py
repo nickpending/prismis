@@ -8,9 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from llm_core import complete
-
 from .config import Config
+from .llm_client import complete
 from .observability import log as obs_log
 from .storage import Storage
 
@@ -36,7 +35,6 @@ class ContextAutoUpdater:
 
         # LLM settings from config
         self.service_name = config.llm_light_service
-        self.temperature = 0.3
 
         logger.info(f"ContextAutoUpdater initialized with service: {self.service_name}")
 
@@ -325,7 +323,7 @@ Generate the complete updated context.md."""
         return True, "Valid"
 
     def _call_llm(self, messages: list[dict[str, str]]) -> str:
-        """Call llm-core to generate updated context.
+        """Call the LLM to generate updated context.
 
         Args:
             messages: Messages to send to the LLM
@@ -336,7 +334,7 @@ Generate the complete updated context.md."""
         Raises:
             Exception: If LLM call fails
         """
-        logger.debug(f"Calling llm-core service {self.service_name} for context update")
+        logger.debug(f"Calling LLM service {self.service_name} for context update")
 
         # Extract system and user prompts from messages
         system_prompt = messages[0]["content"]
@@ -347,7 +345,6 @@ Generate the complete updated context.md."""
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 service=self.service_name,
-                temperature=self.temperature,
             )
 
             # Extract content

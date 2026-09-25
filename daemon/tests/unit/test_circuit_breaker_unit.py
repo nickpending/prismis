@@ -2,6 +2,8 @@
 
 from collections.abc import Iterator
 
+import httpx2
+import openai
 import pytest
 
 from prismis_daemon.circuit_breaker import (
@@ -18,6 +20,57 @@ def clean_registry() -> Iterator[None]:
     reset_circuit_breaker()
     yield
     reset_circuit_breaker()
+
+
+def _status_error(
+    status_code: int, cls: type[openai.APIStatusError] = openai.APIStatusError
+) -> openai.APIStatusError:
+    """Build a real openai SDK status error via its own constructor -- no network call.
+
+    httpx2 is the openai SDK's own vendored httpx; APIStatusError.__init__ reads
+    response.status_code directly off it, so this produces the exact object shape
+    circuit_breaker.is_quota_error sees from a real provider failure.
+    """
+    request = httpx2.Request("POST", "https://example.test/v1/chat/completions")
+    response = httpx2.Response(
+        status_code, request=request, json={"error": {"message": "stub"}}
+    )
+    return cls("stub error", response=response, body={"message": "stub"})
+
+
+def test_is_quota_error_recognizes_rate_limit_error_type() -> None:
+    """
+    SC-4: is_quota_error must recognize the openai SDK's own RateLimitError by type,
+    not only by matching a substring in str(error).
+    BREAKS: A RateLimitError whose message text happens not to contain a quota keyword
+    (a terse provider message) is never counted, and the circuit never opens.
+    """
+    cb = CircuitBreaker()
+    err = _status_error(429, openai.RateLimitError)
+    assert cb.is_quota_error(err) is True
+
+
+def test_is_quota_error_recognizes_402_payment_required_status() -> None:
+    """
+    SC-4: is_quota_error must recognize APIStatusError(status_code=402) -- OpenRouter's
+    shape for "out of credit" -- by its real status_code, not by string matching.
+    BREAKS: An out-of-credit response whose message text doesn't literally contain
+    "payment_required" (OpenRouter's own wording varies) is never counted.
+    """
+    cb = CircuitBreaker()
+    err = _status_error(402)
+    assert cb.is_quota_error(err) is True
+
+
+def test_is_quota_error_typed_status_error_other_code_falls_through() -> None:
+    """
+    A non-quota APIStatusError (500) is not misclassified as a quota error by type
+    alone -- with a message carrying none of the substring patterns either, it must
+    read as not-a-quota-error, same as before typed classification was added.
+    """
+    cb = CircuitBreaker()
+    err = _status_error(500)
+    assert cb.is_quota_error(err) is False
 
 
 def test_different_service_names_return_different_instances() -> None:

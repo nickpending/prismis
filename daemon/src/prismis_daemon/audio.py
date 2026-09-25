@@ -9,9 +9,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from llm_core import complete
-
 from .config import Config
+from .llm_client import complete
 from .reports import DailyReport
 
 logger = logging.getLogger(__name__)
@@ -93,7 +92,6 @@ Generate the briefing script:"""
             result = complete(
                 prompt=prompt,
                 service=self.service_name,
-                temperature=0.7,  # Higher creativity for personality
             )
 
             script = result.text.strip()

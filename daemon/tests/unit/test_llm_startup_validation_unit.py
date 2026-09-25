@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 from prismis_daemon.__main__ import validate_llm_config
 from prismis_daemon.config import Config
 
-# llm_validator.py IS the wrapper around llm_core — mocking through it is correct
+# llm_validator.py IS the wrapper around llm_client — mocking through it is correct
 _HEALTH_CHECK_MOCK = (
-    "prismis_daemon.llm_validator.llm_core.health_check"  # claudex-guard: allow-mock
+    "prismis_daemon.llm_validator.llm_client.health_check"  # claudex-guard: allow-mock
 )
 
 # Valid dual-service config TOML — uses light_service= (task 1.1 format)

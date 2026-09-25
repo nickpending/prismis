@@ -1,13 +1,11 @@
 """Content summarization with rich analysis extraction using LLM."""
 
-import json
 import logging
 from dataclasses import dataclass
 from typing import Any
 
-from llm_core import complete
-
 from .circuit_breaker import get_circuit_breaker
+from .llm_client import complete, extract_json
 from .observability import log as obs_log
 
 logger = logging.getLogger(__name__)
@@ -37,13 +35,12 @@ class ContentSummarizer:
     """Generate summaries and extract structured insights from content."""
 
     def __init__(self, service_name: str):
-        """Initialize the summarizer with llm-core service.
+        """Initialize the summarizer with the LLM service.
 
         Args:
             service_name: Service name from ~/.config/llm-core/services.toml
         """
         self.service_name = service_name
-        self.temperature = 0.3  # Lower temperature for consistent analysis
 
         logger.info(f"ContentSummarizer initialized with service: {self.service_name}")
 
@@ -94,7 +91,7 @@ class ContentSummarizer:
 
             # Call LLM
             logger.debug(
-                f"Calling llm-core service {self.service_name} for content analysis"
+                f"Calling LLM service {self.service_name} for content analysis"
             )
 
             # Check circuit breaker before LLM call
@@ -117,7 +114,6 @@ class ContentSummarizer:
                     prompt=prompt,
                     system_prompt=system_prompt,
                     service=self.service_name,
-                    temperature=self.temperature,
                     json=True,
                 )
 
@@ -128,7 +124,8 @@ class ContentSummarizer:
                     "total": result.tokens.input + result.tokens.output,
                 }
 
-                # Cost already estimated by llm_core
+                # Real billed cost for OpenRouter services; None for api.openai.com
+                # services, which return no cost (see llm_client.py's complete()).
                 cost_usd = result.cost
 
                 # Log successful LLM call
@@ -163,11 +160,13 @@ class ContentSummarizer:
             response_text = result.text
             logger.debug("Received structured response from LLM")
 
-            # Parse JSON response
-            try:
-                parsed = json.loads(response_text)
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse LLM JSON response: {e}")
+            # Parse JSON response (tolerates a ```json-fenced reply)
+            parsed = extract_json(response_text)
+            if parsed is None:
+                logger.error(
+                    f"Failed to parse LLM JSON response. "
+                    f"First 200 chars: {response_text[:200]!r}"
+                )
                 return None
 
             # Validate required fields

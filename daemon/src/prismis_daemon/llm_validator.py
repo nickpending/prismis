@@ -2,7 +2,7 @@
 
 import logging
 
-import llm_core
+from . import llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ def validate_llm_config(service_name: str) -> None:
     Raises:
         Exception: If health check fails
     """
-    llm_core.health_check(service=service_name)
+    llm_client.health_check(service=service_name)
 
 
 def validate_llm_services(light_service: str, deep_service: str | None) -> dict:
@@ -33,7 +33,7 @@ def validate_llm_services(light_service: str, deep_service: str | None) -> dict:
         {"light": "ok", "deep": "ok" | "unreachable" | "not_configured"}
     """
     # Light: fatal on failure
-    llm_core.health_check(service=light_service)
+    llm_client.health_check(service=light_service)
     result = {"light": "ok"}
 
     # Deep: non-fatal  # noqa: ERA001 - prose, not code
@@ -41,7 +41,7 @@ def validate_llm_services(light_service: str, deep_service: str | None) -> dict:
         result["deep"] = "not_configured"
         return result
     try:
-        llm_core.health_check(service=deep_service)
+        llm_client.health_check(service=deep_service)
         result["deep"] = "ok"
     except Exception as e:
         logger.warning(

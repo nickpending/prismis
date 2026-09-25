@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from llm_core import complete
-
 from .circuit_breaker import get_circuit_breaker
+from .llm_client import complete, extract_json
 from .observability import log as obs_log
 
 logger = logging.getLogger(__name__)
@@ -48,7 +46,7 @@ class ContentDeepExtractor:
     second-tier LLM. Separate circuit breaker from the light summarizer."""
 
     def __init__(self, service_name: str):
-        """Initialize the deep extractor with llm-core service.
+        """Initialize the deep extractor with the LLM service.
 
         Args:
             service_name: Service name from ~/.config/llm-core/services.toml
@@ -104,11 +102,10 @@ class ContentDeepExtractor:
             )
 
         try:
-            # No temperature kwarg: gpt-5-mini (and other reasoning-class models
-            # routed through prismis-openai-deep) reject custom temperature with
-            # ProviderError 400. llm_core only attaches `temperature` to the API
-            # body when non-None (providers/openai.py:40), so omitting it here
-            # keeps the deep service compatible. Do not reintroduce.
+            # gpt-5-mini (and other reasoning-class models routed through
+            # prismis-openai-deep) reject a sampling-warmth kwarg with a 400 error, and
+            # llm_client.complete() has no such parameter at all (D-TEMP) -- nothing to
+            # omit here anymore, but the reasoning is why it must stay that way.
             result = complete(
                 prompt=prompt,
                 system_prompt=system_prompt,
@@ -146,10 +143,12 @@ class ContentDeepExtractor:
             )
             raise
 
-        try:
-            parsed = json.loads(result.text)
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse deep extraction JSON: {e}")
+        parsed = extract_json(result.text)
+        if parsed is None:
+            logger.error(
+                f"Failed to parse deep extraction JSON. "
+                f"First 200 chars: {result.text[:200]!r}"
+            )
             return None
 
         if "synthesis" not in parsed:

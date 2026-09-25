@@ -12,7 +12,6 @@ def test_evaluator_initialization_with_service_name() -> None:
     evaluator = ContentEvaluator(SERVICE)
 
     assert evaluator.service_name == SERVICE
-    assert evaluator.temperature == 0.3
 
 
 def test_parse_evaluation_response_with_valid_data() -> None:

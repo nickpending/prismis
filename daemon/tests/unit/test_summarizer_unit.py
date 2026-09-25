@@ -12,7 +12,6 @@ def test_summarizer_initialization_with_service_name() -> None:
     summarizer = ContentSummarizer(SERVICE)
 
     assert summarizer.service_name == SERVICE
-    assert summarizer.temperature == 0.3
 
 
 def test_build_prompt_includes_all_fields() -> None:

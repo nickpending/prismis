@@ -5,6 +5,8 @@ import time
 from datetime import datetime
 from enum import Enum
 
+import openai
+
 from .observability import log as obs_log
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,17 @@ class CircuitBreaker:
         Returns:
             True if error indicates quota exhaustion
         """
+        # The openai SDK's typed exceptions are strictly better input than a substring
+        # match on str(error): RateLimitError is always HTTP 429, and APIStatusError
+        # carries the real status_code the provider sent, including 402 (payment
+        # required) -- OpenRouter's shape for "out of credit". Checked first; the
+        # substring patterns below stay as a fallback for anything that reaches this
+        # method as a plain Exception (tests, or a non-SDK error path).
+        if isinstance(error, openai.RateLimitError):
+            return True
+        if isinstance(error, openai.APIStatusError) and error.status_code in (429, 402):
+            return True
+
         error_str = str(error).lower()
 
         quota_patterns = [

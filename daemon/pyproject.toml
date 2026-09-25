@@ -29,6 +29,8 @@ dependencies = [
     # fetchers/youtube.py:39-42 hard-requires the yt-dlp binary on PATH and raises
     # without it, so it is a runtime dependency, not an optional extra.
     "yt-dlp",
+    "openai>=3.19.2",
+    "apiconf",
 ]
 
 # CPU-only torch on Linux, where PyPI's default wheel carries ~4GB of CUDA libraries.
@@ -95,3 +97,4 @@ ignore_missing_imports = true
 [tool.uv.sources]
 llm-core = { git = "https://github.com/nickpending/llm-core", subdirectory = "python", rev = "2eb4429" }
 torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+apiconf = { git = "https://github.com/nickpending/apiconf", subdirectory = "python", rev = "6fd244a" }

@@ -1,12 +1,10 @@
 """Context analysis with LLM to suggest topics for user's context.md."""
 
-import json
 import logging
 import re
 from typing import Any
 
-from llm_core import complete
-
+from .llm_client import complete, extract_json
 from .observability import log as obs_log
 
 logger = logging.getLogger(__name__)
@@ -22,7 +20,6 @@ class ContextAnalyzer:
             service_name: Service name from ~/.config/llm-core/services.toml
         """
         self.service_name = service_name
-        self.temperature = 0.3  # Fixed for consistent analysis
 
         logger.info(f"ContextAnalyzer initialized with service: {self.service_name}")
 
@@ -252,7 +249,7 @@ Analyze each item and recommend context.md improvements."""
         ]
 
     def _call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
-        """Call llm-core with the analysis prompt.
+        """Call the LLM with the analysis prompt.
 
         Args:
             messages: Messages to send to the LLM
@@ -265,7 +262,7 @@ Analyze each item and recommend context.md improvements."""
         """
         try:
             logger.debug(
-                f"Calling llm-core service {self.service_name} for context analysis"
+                f"Calling LLM service {self.service_name} for context analysis"
             )
 
             # Extract system and user prompts from messages
@@ -277,7 +274,6 @@ Analyze each item and recommend context.md improvements."""
                     prompt=user_prompt,
                     system_prompt=system_prompt,
                     service=self.service_name,
-                    temperature=self.temperature,
                     json=True,
                 )
 
@@ -288,7 +284,8 @@ Analyze each item and recommend context.md improvements."""
                     "total": result.tokens.input + result.tokens.output,
                 }
 
-                # Cost already estimated by llm_core
+                # Real billed cost for OpenRouter services; None for api.openai.com
+                # services, which return no cost (see llm_client.py's complete()).
                 cost_usd = result.cost
 
                 # Log successful LLM call
@@ -316,13 +313,18 @@ Analyze each item and recommend context.md improvements."""
             # Extract and parse response
             response_text = result.text
 
-            # Parse JSON response
-            return json.loads(response_text)
+            # Parse JSON response (tolerates a ```json-fenced reply)
+            parsed = extract_json(response_text)
+            if parsed is None:
+                logger.error(
+                    f"Failed to parse LLM response as JSON. "
+                    f"First 200 chars: {response_text[:200]!r}"
+                )
+                raise ValueError(
+                    f"Invalid JSON response from LLM: {response_text[:200]!r}"
+                )
+            return parsed
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM response as JSON: {e}")
-            logger.error(f"Response text (first 200 chars): {response_text[:200]}")
-            raise ValueError(f"Invalid JSON response from LLM: {e}") from e
         except Exception as e:
             logger.error(f"LLM context analysis failed: {e}")
             raise

@@ -26,9 +26,9 @@ from prismis_daemon.__main__ import (
 from prismis_daemon.config import Config
 from prismis_daemon.llm_validator import validate_llm_services
 
-# Mock path for llm_core.health_check inside the validator module
+# Mock path for llm_client.health_check inside the validator module
 _HEALTH_CHECK_MOCK = (
-    "prismis_daemon.llm_validator.llm_core.health_check"  # claudex-guard: allow-mock
+    "prismis_daemon.llm_validator.llm_client.health_check"  # claudex-guard: allow-mock
 )
 
 # ─── TOML fixtures ────────────────────────────────────────────────────────────

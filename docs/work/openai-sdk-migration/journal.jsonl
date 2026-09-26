@@ -102,3 +102,13 @@
 {"kind":"reviewed","job":2,"findings":[],"sha":"98f9e307e6d7e8d0aae47fbffd3716e08e3989cdf6b59eec69b21553369509cc","ts":"2026-09-25T18:03:43.753Z"}
 {"kind":"merged","job":2,"sha":"5dc71014085f970b364ef204bac045b50f0e3e47","ts":"2026-09-25T18:07:26.037Z"}
 {"kind":"checkpointed","sha":"5dc71014085f970b364ef204bac045b50f0e3e47","ts":"2026-09-25T18:07:26.088Z"}
+{"kind":"built","job":3,"files":["README.md","docs/architecture/architecture.md","docs/architecture/boundaries.md","docs/architecture/components.md","docs/architecture/decisions.md"],"worktree":{"path":"/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ae23ae130b09d10d2","branch":"worktree-agent-ae23ae130b09d10d2","base":"78bd9242b5e50cb24dc67d6b33504ee9c75c748f"},"sha":"c96f40131878662bac5c3c88547c048c353c6c2a0afc497f2988f3bd49010443","ts":"2026-09-25T18:17:13.636Z"}
+{"kind":"verified","job":3,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)"],"uncovered":[".sh(8 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-09-25T18:21:17.538Z"}
+{"kind":"diffed","job":3,"path":"docs/work/openai-sdk-migration/job-3.diff","ts":"2026-09-25T18:21:17.695Z"}
+{"kind":"reviewed","job":3,"findings":[],"sha":"0e215b9456c3e9aad5833a3ab268f7c00396a050b4a92fb0b97926bc04877387","ts":"2026-09-25T18:24:00.401Z"}
+{"kind":"merged","job":3,"sha":"16e3251288bb2dbae13da24557a14f4fd13f1ff9","ts":"2026-09-25T18:26:25.915Z"}
+{"kind":"criteria-checked","ran":11,"passed":["SC-1","SC-2","SC-3","SC-4","SC-5","SC-6","SC-7","SC-9","SC-10","SC-11"],"failed":["SC-8"],"ts":"2026-09-25T18:26:54.136Z"}
+{"kind":"trapdoor","trapdoor":"verification","attempts":1,"report":"criteria SC-8 failed their observations","ts":"2026-09-26T20:50:28.703Z"}
+{"kind":"resumed","reason":"SC-8 failed only because the main checkout's daemon venv still had llm-core installed (uv run never removes packages); no llm_core reference remains in the code, and the re-check runs in a fresh checkout of HEAD","ts":"2026-09-26T21:06:18.137Z"}
+{"kind":"criteria-checked","ran":11,"passed":["SC-1","SC-2","SC-3","SC-4","SC-5","SC-6","SC-7","SC-8","SC-9","SC-10","SC-11"],"failed":[],"ts":"2026-09-26T21:06:50.038Z"}
+{"kind":"closed","sha":"a917599ac6069ff68b4578e87785d4fbebb7580b","ts":"2026-09-26T21:06:50.087Z"}

@@ -1,0 +1,24 @@
+{
+  "searched": [
+    "docs/work/openai-sdk-migration/work-order.json",
+    "docs/work/openai-sdk-migration/results/plan.json",
+    "docs/work/openai-sdk-migration/job-3.diff",
+    "docs/work/openai-sdk-migration/journal.jsonl",
+    "docs/work/openai-sdk-migration/results/built-3-1.json",
+    "README.md",
+    "docs/architecture/architecture.md",
+    "docs/architecture/boundaries.md",
+    "docs/architecture/components.md",
+    "docs/architecture/decisions.md",
+    "daemon/src/prismis_daemon/llm_client.py",
+    "daemon/src/prismis_daemon/circuit_breaker.py",
+    "daemon/pyproject.toml",
+    "daemon/src/prismis_daemon/audio.py",
+    "daemon/src/prismis_daemon/context_auto_updater.py",
+    "daemon/src/prismis_daemon/summarizer.py",
+    "daemon/tests/unit/test_no_internal_mocks_unit.py",
+    "daemon/tests (grep sweep for residual llm_core/llm-core references)"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

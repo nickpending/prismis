@@ -1,0 +1,15 @@
+{
+  "artifact": [
+    "README.md",
+    "docs/architecture/architecture.md",
+    "docs/architecture/boundaries.md",
+    "docs/architecture/components.md",
+    "docs/architecture/decisions.md"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ae23ae130b09d10d2",
+    "branch": "worktree-agent-ae23ae130b09d10d2",
+    "base": "78bd9242b5e50cb24dc67d6b33504ee9c75c748f"
+  }
+}

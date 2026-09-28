@@ -1,0 +1,86 @@
+{
+  "artifact": [
+    "docs/work/content-kind/results/plan-1.json"
+  ],
+  "verified": false,
+  "jobs": [
+    {
+      "number": 1,
+      "title": "kind_classifier module: the ten kinds declared once, a bounded decisions-endpoint request, threshold gating, fail-closed parsing — plus the no-internal-mocks allowlist entry for its new provider-boundary call",
+      "files": [
+        "daemon/src/prismis_daemon/kind_classifier.py",
+        "daemon/tests/unit/test_kind_classifier_unit.py",
+        "daemon/tests/unit/test_no_internal_mocks_unit.py"
+      ],
+      "depends": [],
+      "delivers": ["SC-1", "SC-2"],
+      "red": true
+    },
+    {
+      "number": 2,
+      "title": "Orchestrator/config pipeline integration: optional [llm] kind_service, a classifier call after the light pass that merges kind + kind_confidence into analysis and logs llm.call(action=classify_kind), INV-002 failure handling (item still stored, failure recorded in stats not raised), no call at all when kind_service is unset — wired in both --once and scheduler paths",
+      "files": [
+        "daemon/src/prismis_daemon/config.py",
+        "daemon/src/prismis_daemon/orchestrator.py",
+        "daemon/src/prismis_daemon/__main__.py",
+        "daemon/tests/integration/test_kind_pipeline_integration.py",
+        "daemon/tests/unit/test_kind_not_configured_unit.py"
+      ],
+      "depends": [1],
+      "delivers": ["SC-3", "SC-4", "SC-8"],
+      "red": true
+    },
+    {
+      "number": 3,
+      "title": "/api/entries kind filter and validation: single or comma-separated kind query param, 422 naming the ten valid kinds imported from kind_classifier's single declaration, and a top-level kind field on each returned item (mirrored from analysis.kind, the same convenience priority already gets)",
+      "files": [
+        "daemon/src/prismis_daemon/api.py",
+        "daemon/src/prismis_daemon/api_models.py",
+        "daemon/tests/integration/test_api_kind_filter_integration.py"
+      ],
+      "depends": [1],
+      "delivers": ["SC-5"],
+      "red": true
+    },
+    {
+      "number": 4,
+      "title": "verify --chain kind link: report status/cost/model mined from the classify_kind observability events like the other LLM-backed links, and report not-configured when [llm] kind_service is unset",
+      "files": [
+        "daemon/src/prismis_daemon/verify_chain.py",
+        "daemon/tests/integration/test_verify_chain_kind_integration.py"
+      ],
+      "depends": [1, 2],
+      "delivers": ["SC-9"],
+      "red": true
+    },
+    {
+      "number": 5,
+      "title": "CLI: prismis-cli list --kind with one or more kinds, carried onto the request, and the listed items show their kind (top-level kind field, same convention api.py exposes for priority)",
+      "files": [
+        "cli/src/cli/list.py",
+        "cli/src/cli/api_client.py",
+        "cli/tests/unit/test_list_kind_filter_unit.py"
+      ],
+      "depends": [],
+      "delivers": ["SC-6"],
+      "red": true
+    },
+    {
+      "number": 6,
+      "title": "TUI: kind shown in the feed row and reader (read from content.analysis.kind, unclassified items show no label), feed filterable to one kind, filter choices drawn from the kinds actually present in the database rather than a second hardcoded copy of the ten",
+      "files": [
+        "tui/internal/db/queries.go",
+        "tui/internal/ui/model.go",
+        "tui/internal/ui/feed.go",
+        "tui/internal/ui/reader.go",
+        "tui/internal/commands/registry.go",
+        "tui/internal/db/queries_test.go",
+        "tui/internal/ui/feed_test.go",
+        "tui/internal/ui/model_test.go"
+      ],
+      "depends": [],
+      "delivers": ["SC-7"],
+      "red": true
+    }
+  ]
+}

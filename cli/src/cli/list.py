@@ -29,6 +29,12 @@ def list(
         "-s",
         help="Filter by source name (case-insensitive substring)",
     ),
+    kind: Optional[str] = typer.Option(
+        None,
+        "--kind",
+        "-k",
+        help="Filter by kind (single or comma-separated, e.g. release,question)",
+    ),
     compact: bool = typer.Option(
         False, "--compact", help="Compact format (excludes content and analysis)"
     ),
@@ -46,6 +52,7 @@ def list(
         include_archived: If True, include archived items with non-archived
         limit: Maximum number of items to display (1-100)
         source: Filter by source name (case-insensitive substring)
+        kind: Filter by kind (single or comma-separated, e.g. "release,question")
         compact: Return compact format
         since_hours: Only show items from last N hours
         output_json: If True, output raw JSON instead of formatted table
@@ -78,6 +85,7 @@ def list(
             source=source,
             compact=compact,
             since_hours=since_hours,
+            kind=kind,
         )
 
         if output_json:
@@ -97,6 +105,7 @@ def list(
         table.add_column("ID", style="dim", width=10)
         table.add_column("Title", style="bold", width=60)
         table.add_column("Priority", justify="center", width=8)
+        table.add_column("Kind", justify="center", width=10)
         table.add_column("Published", style="dim", width=19)
 
         # Add entries to table
@@ -120,10 +129,14 @@ def list(
             else:
                 priority_display = priority_val
 
+            # Format kind (unclassified items carry no kind; show a dash)
+            kind_val = entry.get("kind")
+            kind_display = kind_val if kind_val else "-"
+
             # Format published date (already formatted from API)
             published = entry.get("published", "N/A")
 
-            table.add_row(entry_id, title, priority_display, published)
+            table.add_row(entry_id, title, priority_display, kind_display, published)
 
         # Display table
         console.print("\n")

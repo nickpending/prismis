@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/nickpending/prismis/internal/commands"
 	"github.com/nickpending/prismis/internal/db"
 )
 
@@ -261,6 +262,117 @@ func TestModelUpdateItemsLoaded(t *testing.T) {
 
 	if updated.err != nil {
 		t.Errorf("Expected no error, got %v", updated.err)
+	}
+}
+
+// TestApplyFiltersClientSide_KindFilter verifies the kind filter narrows items to
+// those whose analysis.kind matches, and that "all" leaves every item (classified or
+// not) in place.
+func TestApplyFiltersClientSide_KindFilter(t *testing.T) {
+	items := []db.ContentItem{
+		{ID: "1", Title: "Release Item", Priority: "high", Analysis: `{"kind":"release"}`},
+		{ID: "2", Title: "News Item", Priority: "high", Analysis: `{"kind":"news"}`},
+		{ID: "3", Title: "Unclassified Item", Priority: "high", Analysis: `{"kind":null}`},
+	}
+
+	base := Model{priority: "all", showAll: true, showUnprioritized: true, filterType: "all"}
+
+	all := base
+	all.kindFilter = "all"
+	if got := len(applyFiltersClientSide(items, all)); got != 3 {
+		t.Errorf("kindFilter 'all' should keep every item, got %d", got)
+	}
+
+	release := base
+	release.kindFilter = "release"
+	filtered := applyFiltersClientSide(items, release)
+	if len(filtered) != 1 || filtered[0].ID != "1" {
+		t.Errorf("kindFilter 'release' should keep only item 1, got %+v", filtered)
+	}
+
+	// Unclassified items never match a specific kind filter
+	unclassifiedFilter := base
+	unclassifiedFilter.kindFilter = "release"
+	for _, item := range applyFiltersClientSide(items, unclassifiedFilter) {
+		if item.ID == "3" {
+			t.Error("Unclassified item must not match a specific kindFilter")
+		}
+	}
+}
+
+// TestDistinctKindsFromItems verifies the sorted, deduplicated kind set mined from a
+// slice of items (the remote-mode path, since it has no direct DB access).
+func TestDistinctKindsFromItems(t *testing.T) {
+	items := []db.ContentItem{
+		{ID: "1", Analysis: `{"kind":"release"}`},
+		{ID: "2", Analysis: `{"kind":"news"}`},
+		{ID: "3", Analysis: `{"kind":"release"}`}, // duplicate
+		{ID: "4", Analysis: `{"kind":null}`},      // unclassified - excluded
+		{ID: "5", Analysis: ``},                   // no analysis - excluded
+	}
+
+	kinds := distinctKindsFromItems(items)
+	expected := []string{"news", "release"}
+	if len(kinds) != len(expected) {
+		t.Fatalf("Expected %d kinds, got %d: %v", len(expected), len(kinds), kinds)
+	}
+	for i, k := range expected {
+		if kinds[i] != k {
+			t.Errorf("Expected kinds[%d] = %q, got %q (full: %v)", i, k, kinds[i], kinds)
+		}
+	}
+}
+
+// TestKindFilterCycling verifies pressing 'K' cycles kindFilter through "all" plus
+// whatever kinds are present (m.availableKinds) - never a hardcoded copy of the ten.
+func TestKindFilterCycling(t *testing.T) {
+	m := Model{
+		view:           "list",
+		focusedPane:    "content",
+		kindFilter:     "all",
+		availableKinds: []string{"news", "release"},
+	}
+
+	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'K'}})
+	m = updatedModel.(Model)
+	if m.kindFilter != "news" {
+		t.Errorf("Expected kindFilter 'news' after first cycle, got %q", m.kindFilter)
+	}
+	if !m.loading {
+		t.Error("Expected loading to be true after cycling kind filter")
+	}
+
+	m.loading = false
+	updatedModel, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'K'}})
+	m = updatedModel.(Model)
+	if m.kindFilter != "release" {
+		t.Errorf("Expected kindFilter 'release' after second cycle, got %q", m.kindFilter)
+	}
+
+	m.loading = false
+	updatedModel, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'K'}})
+	m = updatedModel.(Model)
+	if m.kindFilter != "all" {
+		t.Errorf("Expected kindFilter to wrap back to 'all', got %q", m.kindFilter)
+	}
+}
+
+// TestModelUpdate_KindMsg verifies commands.KindMsg (the :kind command) sets the kind
+// filter and triggers a reload, mirroring how commands.ArchivedMsg is handled.
+func TestModelUpdate_KindMsg(t *testing.T) {
+	m := Model{view: "list", focusedPane: "content", kindFilter: "all"}
+
+	updatedModel, cmd := m.Update(commands.KindMsg{Kind: "incident"})
+	updated := updatedModel.(Model)
+
+	if updated.kindFilter != "incident" {
+		t.Errorf("Expected kindFilter 'incident', got %q", updated.kindFilter)
+	}
+	if !updated.loading {
+		t.Error("Expected loading to be true after KindMsg")
+	}
+	if cmd == nil {
+		t.Error("Expected a command to reload items after KindMsg")
 	}
 }
 

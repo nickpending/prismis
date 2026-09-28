@@ -12,6 +12,7 @@ type ContentMetadata struct {
 	Quotes         []string `json:"quotes"`
 	Tools          []string `json:"tools"`
 	URLs           []string `json:"urls"`
+	Kind           string   `json:"kind"`
 	DeepExtraction *DeepExtraction
 }
 
@@ -70,6 +71,14 @@ func parseMetadata(analysisJSON string) ContentMetadata {
 				metadata.URLs = append(metadata.URLs, str)
 			}
 		}
+	}
+
+	// Extract kind (the primary kind the classifier assigned). A JSON null - the
+	// unclassified case, confidence below threshold or an unrecognised choice - fails
+	// the type assertion and leaves Kind at its zero value "", so callers can treat "" as
+	// "no label" without a separate presence check.
+	if kind, ok := analysis["kind"].(string); ok {
+		metadata.Kind = kind
 	}
 
 	// Extract deep_extraction (HIGH-priority synthesis from second-tier LLM call)

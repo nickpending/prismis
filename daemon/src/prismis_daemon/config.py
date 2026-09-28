@@ -76,6 +76,11 @@ class Config:
         default_factory=list
     )  # source types to skip for deep extraction (e.g. ["reddit"])
 
+    # Kind classification (gh #77): optional decisions-endpoint service naming an
+    # entry in services.toml. None = disabled -- no request is ever made and items
+    # are stored without a kind, the same as an install that predates this feature.
+    llm_kind_service: str | None = None
+
     @property
     def has_reddit_credentials(self) -> bool:
         """Whether both Reddit credentials hold a value Reddit could accept.
@@ -267,6 +272,7 @@ class Config:
                 llm_deep_service=llm.get("deep_service"),
                 auto_extract=llm.get("auto_extract", "none"),
                 deep_extract_exclude=llm.get("deep_extract_exclude", []),
+                llm_kind_service=llm.get("kind_service"),
                 reddit_client_id=reddit_client_id,
                 reddit_client_secret=reddit_client_secret,
                 reddit_user_agent=reddit["user_agent"],

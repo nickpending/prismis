@@ -1,0 +1,19 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/kind_classifier.py",
+    "daemon/tests/unit/test_kind_classifier_unit.py",
+    "daemon/tests/unit/test_no_internal_mocks_unit.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ad5e8a1e0d8671301",
+    "branch": "worktree-agent-ad5e8a1e0d8671301",
+    "base": "738aa94faac2cc2afb46935ba244e2d848fe8402"
+  },
+  "red": {
+    "command": "cd daemon && uv run pytest -q tests/unit/test_kind_classifier_unit.py",
+    "tests": [
+      "daemon/tests/unit/test_kind_classifier_unit.py"
+    ]
+  }
+}

@@ -738,6 +738,146 @@ func TestGetAllContent_ReturnsAllNonArchived(t *testing.T) {
 	}
 }
 
+// TestGetDistinctKinds verifies GetDistinctKinds returns the sorted, deduplicated set of
+// kind values present in content.analysis, skipping unclassified (null kind), malformed
+// JSON and empty analysis blobs rather than erroring the whole query on them.
+func TestGetDistinctKinds(t *testing.T) {
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = originalDBPathFunc
+		CloseDB()
+	}()
+
+	poolDB, err := GetDB()
+	if err != nil {
+		t.Fatalf("Failed to get DB: %v", err)
+	}
+
+	// Seed analysis across the fixture's 6 items: two distinct kinds (one duplicated),
+	// one unclassified (null kind), one malformed JSON blob, one empty string. The
+	// malformed and empty rows must not error the query - they're exactly what a
+	// classifier failure or a pre-classifier item looks like (INV-002).
+	updates := []struct {
+		id       string
+		analysis string
+	}{
+		{"1", `{"kind":"release","kind_confidence":0.91}`},
+		{"2", `{"kind":"news","kind_confidence":0.75}`},
+		{"3", `{"kind":"release","kind_confidence":0.80}`}, // duplicate kind - must dedupe
+		{"4", `{"kind":null,"kind_confidence":0.4}`},       // below threshold - unclassified
+		{"5", `not valid json`},                            // malformed - must not error
+		{"6", ``},                                          // empty - must not error
+	}
+	for _, u := range updates {
+		if _, err := poolDB.Exec("UPDATE content SET analysis = ? WHERE id = ?", u.analysis, u.id); err != nil {
+			t.Fatalf("Failed to seed analysis for item %s: %v", u.id, err)
+		}
+	}
+
+	kinds, err := GetDistinctKinds(false)
+	if err != nil {
+		t.Fatalf("GetDistinctKinds failed: %v", err)
+	}
+
+	expected := []string{"news", "release"}
+	if len(kinds) != len(expected) {
+		t.Fatalf("Expected %d distinct kinds, got %d: %v", len(expected), len(kinds), kinds)
+	}
+	for i, k := range expected {
+		if kinds[i] != k {
+			t.Errorf("Expected kinds[%d] = %q, got %q (full: %v)", i, k, kinds[i], kinds)
+		}
+	}
+}
+
+// TestGetDistinctKinds_EmptyDatabase verifies no kinds (and no error) come back when
+// nothing has ever carried a kind - e.g. before the classifier has run, or when
+// [llm] kind_service is unset (SC-4).
+func TestGetDistinctKinds_EmptyDatabase(t *testing.T) {
+	resetDBForTest(t)
+	// createTestDB leaves every row's analysis column NULL by default.
+	dbPath := createTestDB(t)
+
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = originalDBPathFunc
+		CloseDB()
+	}()
+
+	kinds, err := GetDistinctKinds(false)
+	if err != nil {
+		t.Fatalf("GetDistinctKinds failed: %v", err)
+	}
+	if len(kinds) != 0 {
+		t.Errorf("Expected no kinds from an unclassified fixture, got %v", kinds)
+	}
+}
+
+// TestGetDistinctKinds_ArchivedScoping verifies GetDistinctKinds scopes by archive
+// state like every sibling content query (GetAllContent, queryContentWithFilter,
+// CountUpvotedItems) - a kind that exists only on an archived item must not appear in
+// the non-archived view's filter choices, and vice versa. Without this, cycling the
+// kind filter in the default (non-archived) list view could select a kind no visible
+// item can match, silently emptying the list with no indication why.
+func TestGetDistinctKinds_ArchivedScoping(t *testing.T) {
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = originalDBPathFunc
+		CloseDB()
+	}()
+
+	poolDB, err := GetDB()
+	if err != nil {
+		t.Fatalf("Failed to get DB: %v", err)
+	}
+
+	// Item 1 stays non-archived with kind "release"; item 2 is archived with a
+	// different kind ("incident") that must not leak into the non-archived choices.
+	if _, err := poolDB.Exec(`UPDATE content SET analysis = ? WHERE id = ?`, `{"kind":"release"}`, "1"); err != nil {
+		t.Fatalf("Failed to seed analysis for item 1: %v", err)
+	}
+	if _, err := poolDB.Exec(`UPDATE content SET analysis = ?, archived_at = ? WHERE id = ?`,
+		`{"kind":"incident"}`, time.Now().Format(time.RFC3339), "2"); err != nil {
+		t.Fatalf("Failed to seed archived item 2: %v", err)
+	}
+
+	nonArchived, err := GetDistinctKinds(false)
+	if err != nil {
+		t.Fatalf("GetDistinctKinds(false) failed: %v", err)
+	}
+	if len(nonArchived) != 1 || nonArchived[0] != "release" {
+		t.Errorf("Expected non-archived kinds [release], got %v", nonArchived)
+	}
+	for _, k := range nonArchived {
+		if k == "incident" {
+			t.Error("Non-archived kind list must not include a kind that exists only on an archived item")
+		}
+	}
+
+	archived, err := GetDistinctKinds(true)
+	if err != nil {
+		t.Fatalf("GetDistinctKinds(true) failed: %v", err)
+	}
+	if len(archived) != 1 || archived[0] != "incident" {
+		t.Errorf("Expected archived kinds [incident], got %v", archived)
+	}
+}
+
 // TestGetAllContent_ArchivedFilter tests that showArchived correctly filters
 func TestGetAllContent_ArchivedFilter(t *testing.T) {
 	/*

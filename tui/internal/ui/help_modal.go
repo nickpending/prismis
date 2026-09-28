@@ -170,6 +170,8 @@ func (m HelpModal) View(theme StyleTheme) string {
 	content.WriteString(format2Col("1/2/3/4", "Priority/Favorites", "0/i", "Unprioritized/Interesting"))
 	content.WriteString("\n")
 	content.WriteString(format2Col("a/u/v", "All/Unread/Archived", "d/s", "Date sort/Sources"))
+	content.WriteString("\n")
+	content.WriteString(format2Col("K", "Cycle kind filter", ":kind <kind>", "Filter by kind"))
 	content.WriteString("\n\n")
 
 	// ARTICLE COMMANDS section

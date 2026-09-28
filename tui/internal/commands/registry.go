@@ -61,6 +61,9 @@ func NewRegistry() *Registry {
 	// Archive toggle
 	r.Register("archived", cmdArchived)
 
+	// Kind filter
+	r.Register("kind", cmdKind)
+
 	// Context commands
 	r.Register("context", cmdContext)
 
@@ -420,6 +423,18 @@ func cmdArchived(args []string) tea.Cmd {
 	}
 }
 
+// cmdKind filters the feed to one kind, or clears the filter back to "all" when no
+// argument is given
+func cmdKind(args []string) tea.Cmd {
+	return func() tea.Msg {
+		kind := "all"
+		if len(args) > 0 {
+			kind = args[0]
+		}
+		return KindMsg{Kind: kind}
+	}
+}
+
 // cmdContext handles context commands
 func cmdContext(args []string) tea.Cmd {
 	return func() tea.Msg {
@@ -545,6 +560,11 @@ type ExportSourcesMsg struct{}
 
 // ArchivedMsg signals to toggle archived view
 type ArchivedMsg struct{}
+
+// KindMsg signals to filter the feed to one kind, or clear the filter with "all"
+type KindMsg struct {
+	Kind string
+}
 
 // ContextReviewMsg signals to review flagged items
 type ContextReviewMsg struct{}

@@ -83,6 +83,80 @@ func TestFeedPriorityDisplay(t *testing.T) {
 	}
 }
 
+// TestFeedKindDisplay_ClassifiedItem verifies the feed row shows the item's kind
+// (mined from analysis.kind) in uppercase.
+func TestFeedKindDisplay_ClassifiedItem(t *testing.T) {
+	items := []db.ContentItem{
+		{ID: "1", Title: "Classified Item", Priority: "high", Analysis: `{"kind":"release","kind_confidence":0.91}`},
+	}
+
+	model := Model{
+		items:    items,
+		cursor:   0,
+		view:     "list",
+		priority: "all",
+		loading:  false,
+		width:    100,
+		height:   30,
+		viewport: viewport.New(100, 30),
+	}
+
+	output := model.View()
+	if !strings.Contains(output, "RELEASE") {
+		t.Errorf("Expected feed row to show kind 'RELEASE'. Got: %s", output)
+	}
+}
+
+// TestFeedKindDisplay_UnclassifiedItem verifies an unclassified item (no kind in
+// analysis) shows no kind label at all.
+func TestFeedKindDisplay_UnclassifiedItem(t *testing.T) {
+	items := []db.ContentItem{
+		{ID: "1", Title: "Unclassified Item", Priority: "high", Analysis: `{"kind":null,"kind_confidence":0.4}`},
+		{ID: "2", Title: "No Analysis Item", Priority: "medium", Analysis: ""},
+	}
+
+	model := Model{
+		items:    items,
+		cursor:   0,
+		view:     "list",
+		priority: "all",
+		loading:  false,
+		width:    100,
+		height:   30,
+		viewport: viewport.New(100, 30),
+	}
+
+	output := model.View()
+	for _, kind := range []string{"RELEASE", "EXPERIENCE", "QUESTION", "ANALYSIS", "NEWS", "INCIDENT", "RESEARCH", "VULNERABILITY", "HUMOR", "TUTORIAL"} {
+		if strings.Contains(output, kind) {
+			t.Errorf("Unclassified items must show no kind label, but found %q. Got: %s", kind, output)
+		}
+	}
+}
+
+// TestReaderKindDisplay verifies the reader header shows the item's kind.
+func TestReaderKindDisplay(t *testing.T) {
+	items := []db.ContentItem{
+		{ID: "1", Title: "Reader Article", Content: "Body.", Analysis: `{"kind":"tutorial","kind_confidence":0.85}`},
+	}
+
+	model := Model{
+		items:    items,
+		cursor:   0,
+		view:     "reader",
+		loading:  false,
+		width:    100,
+		height:   30,
+		viewport: viewport.New(100, 30),
+	}
+	model.updateReaderContent()
+
+	output := model.View()
+	if !strings.Contains(output, "TUTORIAL") {
+		t.Errorf("Expected reader header to show kind 'TUTORIAL'. Got: %s", output)
+	}
+}
+
 // TestFeedEmptyStates tests that empty states render correctly
 func TestFeedEmptyStates(t *testing.T) {
 	model := Model{

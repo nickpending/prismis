@@ -40,6 +40,7 @@ from .config import Config
 from .context_analyzer import ContextAnalyzer
 from .deep_extractor import CircuitOpenError
 from .embeddings import Embedder
+from .kind_classifier import KINDS
 from .observability import log as obs_log
 from .reports import ReportGenerator
 from .storage import Storage
@@ -390,6 +391,18 @@ def title_similarity(title1: str, title2: str) -> float:
     if not norm1 or not norm2:
         return 0.0
     return SequenceMatcher(None, norm1, norm2).ratio()
+
+
+def _item_kind(item: dict) -> str | None:
+    """The item's kind, mirrored out of analysis (SC-5).
+
+    Unlike priority, kind has no column of its own -- the classifier (job 1/2 of
+    this work order) stores it only inside the analysis JSON blob -- so getting it
+    onto the top level, the same convenience priority already gets, means pulling
+    it out here rather than reading a column.
+    """
+    analysis = item.get("analysis")
+    return analysis.get("kind") if isinstance(analysis, dict) else None
 
 
 def deduplicate_content(
@@ -786,6 +799,10 @@ async def get_content(
         None,
         description="Filter by priority level(s). Single: 'high' or comma-separated: 'high,medium,low'",
     ),
+    kind: str | None = Query(
+        None,
+        description="Filter by kind(s). Single: 'release' or comma-separated: 'release,question'",
+    ),
     unread_only: bool = Query(False),
     include_archived: bool = Query(False),
     interesting_override: bool | None = Query(
@@ -817,6 +834,8 @@ async def get_content(
     Args:
         priority: Filter by priority level(s). Single value ('high', 'medium', 'low') or
                  comma-separated ('high,medium,low')
+        kind: Filter by kind(s) (SC-5). Single value or comma-separated, from the ten
+              kinds declared in kind_classifier.KINDS
         unread_only: Only return unread items (default: False)
         include_archived: Include archived content (default: False)
         interesting_override: Filter by interesting_override flag (default: None)
@@ -841,6 +860,19 @@ async def get_content(
         if invalid:
             raise ValidationError(
                 f"Invalid priority value(s): {', '.join(invalid)}. Must be one of: high, medium, low"
+            )
+
+    # Parse and validate kind parameter (supports comma-separated values, SC-5).
+    # Kept outside the try/except below like the priority check above it, so a bad
+    # value reaches the client as its own 422 rather than a generic 500.
+    kinds: list[str] = []
+    if kind:
+        kinds = [k.strip() for k in kind.split(",")]
+        invalid_kinds = [k for k in kinds if k not in KINDS]
+        if invalid_kinds:
+            raise ValidationError(
+                f"Invalid kind value(s): {', '.join(invalid_kinds)}. Must be one of: "
+                f"{', '.join(KINDS)}"
             )
 
     # Validate sort_by parameter
@@ -935,6 +967,15 @@ async def get_content(
                 )
                 content_items = all_content
 
+        # SC-5: mirror kind onto the top level the way priority already is, then
+        # filter by it. Kind has no storage-layer filter (unlike priority, it isn't
+        # a column), so both steps happen here in Python over the items already
+        # fetched.
+        for item in content_items:
+            item["kind"] = _item_kind(item)
+        if kinds:
+            content_items = [item for item in content_items if item["kind"] in kinds]
+
         # Apply sorting based on sort_by parameter
         # Helper to get sortable date (ISO strings sort correctly alphabetically)
         def get_date(item: dict) -> str:
@@ -975,6 +1016,7 @@ async def get_content(
                 "title",
                 "url",
                 "priority",
+                "kind",
                 "published_at",
                 "source_name",
                 "summary",
@@ -998,6 +1040,7 @@ async def get_content(
                 total=len(content_items),
                 filters_applied={
                     "priority": priority,
+                    "kind": kind,
                     "unread_only": unread_only,
                     "include_archived": include_archived,
                     "interesting_override": interesting_override,
@@ -1129,6 +1172,9 @@ async def get_entry_summary(
 
         if not entry:
             raise NotFoundError("Entry", content_id)
+
+        # SC-5: same top-level kind convenience as the /api/entries list.
+        entry["kind"] = _item_kind(entry)
 
         # INV-API-TS-4: route through ContentItemModel so @field_serializer emits RFC3339 datetimes
         if include == "content":

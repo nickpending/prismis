@@ -1,0 +1,20 @@
+{
+  "searched": [
+    "docs/work/content-kind/work-order.json",
+    "docs/work/content-kind/results/plan.json",
+    "docs/work/content-kind/job-2.diff",
+    "docs/work/content-kind/journal.jsonl (job 1, 2, 3, 6 entries: built/verified/diffed/reviewed/merged records)",
+    ".claude/worktrees/agent-a2ce1d4da3b94d62e/daemon/src/prismis_daemon/orchestrator.py (full pipeline, kind classification block, run_once aggregation, _merge_analysis)",
+    ".claude/worktrees/agent-a2ce1d4da3b94d62e/daemon/src/prismis_daemon/__main__.py (both run_scheduler and --once wiring, validate_llm_config)",
+    ".claude/worktrees/agent-a2ce1d4da3b94d62e/daemon/src/prismis_daemon/config.py (llm_kind_service field and from_file mapping)",
+    ".claude/worktrees/agent-a2ce1d4da3b94d62e/daemon/src/prismis_daemon/kind_classifier.py (job 1's classify()/submit_decision/obs_log shape, for consistency)",
+    ".claude/worktrees/agent-a2ce1d4da3b94d62e/daemon/tests/integration/test_kind_pipeline_integration.py (full contents)",
+    ".claude/worktrees/agent-a2ce1d4da3b94d62e/daemon/tests/unit/test_kind_not_configured_unit.py (full contents)",
+    ".claude/worktrees/agent-a2ce1d4da3b94d62e/daemon/tests/unit/test_no_internal_mocks_unit.py (allowlist for submit_decision)",
+    ".claude/worktrees/agent-a2ce1d4da3b94d62e/daemon/tests/conftest.py (configure_local_services, test_db, isolated_xdg_env, local_pipeline_stub, TEST_API_KEY fixtures the new tests depend on)",
+    ".claude/worktrees/agent-a2ce1d4da3b94d62e/daemon/tests/unit/test_orchestrator_deep_unit.py (deep_extract_failures precedent, to compare job 2's kind_classify_failures test coverage against the established analogous pattern)",
+    ".claude/worktrees/agent-a2ce1d4da3b94d62e/daemon/src/prismis_daemon/summarizer.py (obs_log action=\"summarize\" shape, to confirm parity claim in SC-3)"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

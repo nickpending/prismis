@@ -1,0 +1,22 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/config.py",
+    "daemon/src/prismis_daemon/orchestrator.py",
+    "daemon/src/prismis_daemon/__main__.py",
+    "daemon/tests/integration/test_kind_pipeline_integration.py",
+    "daemon/tests/unit/test_kind_not_configured_unit.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a2ce1d4da3b94d62e",
+    "branch": "worktree-agent-a2ce1d4da3b94d62e",
+    "base": "ef16483480a2d3ecf3d04d188b0d0e8128691ebe"
+  },
+  "red": {
+    "command": "cd daemon && uv run pytest -q tests -k 'kind and pipeline' && uv run pytest -q tests -k 'kind and not_configured'",
+    "tests": [
+      "daemon/tests/integration/test_kind_pipeline_integration.py",
+      "daemon/tests/unit/test_kind_not_configured_unit.py"
+    ]
+  }
+}

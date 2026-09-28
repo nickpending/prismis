@@ -1,0 +1,23 @@
+{
+  "searched": [
+    "docs/work/content-kind/work-order.json",
+    "docs/work/content-kind/results/plan.json",
+    "docs/work/content-kind/job-3.diff",
+    "docs/work/content-kind/journal.jsonl",
+    "daemon/src/prismis_daemon/kind_classifier.py",
+    "daemon/src/prismis_daemon/api_errors.py",
+    "daemon/src/prismis_daemon/models.py",
+    "daemon/src/prismis_daemon/storage.py (add_content, get_content_since, get_content_by_priority, get_flagged_items, analysis json.loads/json.dumps sites)",
+    "daemon/src/prismis_daemon/api_models.py (ContentItemModel)",
+    "daemon/tests/conftest.py (TEST_API_KEY, test_db)"
+  ],
+  "exhaustive": true,
+  "findings": [
+    {
+      "file": "daemon/src/prismis_daemon/api.py",
+      "line": 108,
+      "summary": "The diff adds `entry[\"kind\"] = _item_kind(entry)` to `get_entry_summary` (the single-entry `GET /api/entries/{content_id}` endpoint), mirroring kind the same way the list endpoint does. This is a real behavior change beyond what SC-5 asks for (SC-5's given/when/then and its observation command both name only `/api/entries`, the list endpoint), and the new test file `test_api_kind_filter_integration.py` exercises only `/api/entries` -- no test in the diff calls `GET /api/entries/{content_id}` and asserts a `kind` field appears there. The underlying `_item_kind` helper is well covered through the list endpoint, so the risk is low, but the single-entry path itself is an untested addition with no journal record covering it either.",
+      "severity": "low"
+    }
+  ]
+}

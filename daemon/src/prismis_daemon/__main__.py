@@ -165,6 +165,13 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
 
             deep_extractor = ContentDeepExtractor(config.llm_deep_service)
 
+        # Optional kind classifier (gh #77) — only when llm_kind_service is configured.
+        kind_classifier = None
+        if config.llm_kind_service:
+            from .kind_classifier import KindClassifier
+
+            kind_classifier = KindClassifier(config.llm_kind_service)
+
         # Create orchestrator with all dependencies
         orchestrator = DaemonOrchestrator(
             storage=storage,
@@ -178,6 +185,7 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
             config=config,
             console=console,
             deep_extractor=deep_extractor,
+            kind_classifier=kind_classifier,
         )
 
         scheduler, interval_msg = build_scheduler(
@@ -448,6 +456,14 @@ def main(
 
                     deep_extractor = ContentDeepExtractor(config.llm_deep_service)
 
+                # Optional kind classifier (gh #77) — only when llm_kind_service is
+                # configured.
+                kind_classifier = None
+                if config.llm_kind_service:
+                    from .kind_classifier import KindClassifier
+
+                    kind_classifier = KindClassifier(config.llm_kind_service)
+
                 # Create and run orchestrator with all dependencies
                 orchestrator = DaemonOrchestrator(
                     storage=storage,
@@ -461,6 +477,7 @@ def main(
                     config=config,
                     console=console,
                     deep_extractor=deep_extractor,
+                    kind_classifier=kind_classifier,
                 )
 
                 stats = orchestrator.run_once()

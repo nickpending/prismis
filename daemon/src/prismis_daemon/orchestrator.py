@@ -10,6 +10,7 @@ from .config import Config
 from .deep_extractor import ContentDeepExtractor
 from .embeddings import Embedder
 from .evaluator import ContentEvaluator
+from .kind_classifier import KindClassifier
 from .notifier import Notifier
 from .observability import log as obs_log
 from .storage import Storage
@@ -36,6 +37,7 @@ class DaemonOrchestrator:
         console: Console | None = None,
         embedder: Embedder | None = None,
         deep_extractor: ContentDeepExtractor | None = None,
+        kind_classifier: KindClassifier | None = None,
     ):
         """Initialize orchestrator with dependencies.
 
@@ -53,6 +55,8 @@ class DaemonOrchestrator:
             embedder: Optional Embedder instance for semantic search (created if not provided)
             deep_extractor: Optional ContentDeepExtractor for deep synthesis on
                 HIGH-priority items. None disables deep extraction.
+            kind_classifier: Optional KindClassifier for tagging each item's primary
+                kind (gh #77). None disables kind classification.
         """
         self.storage = storage
         self.rss_fetcher = rss_fetcher
@@ -66,6 +70,7 @@ class DaemonOrchestrator:
         self.console = console or Console()
         self.embedder = embedder or Embedder()
         self.deep_extractor = deep_extractor
+        self.kind_classifier = kind_classifier
 
     @staticmethod
     def _should_deep_extract(
@@ -126,6 +131,9 @@ class DaemonOrchestrator:
             # Items kept at the light summary because deep extraction failed; kept out
             # of "errors", which counts pipeline failures (INV-002).
             "deep_extract_failures": [],
+            # Items stored without a kind because the classifier call itself failed;
+            # kept out of "errors" for the same reason (INV-002).
+            "kind_classify_failures": [],
             "new_high_priority_items": [],  # Track new HIGH priority items for notifications
         }
 
@@ -295,6 +303,36 @@ class DaemonOrchestrator:
                         existing_analysis, llm_analysis
                     )
 
+                    # Step 3d-bis: Kind classification (gh #77), after the light pass.
+                    # Failure must NEVER raise into the pipeline (INV-002): the except
+                    # clause records the failure in stats and continues -- the item is
+                    # still stored with its light summary and priority, just with no
+                    # kind key in its analysis. No classifier configured means no call
+                    # at all (SC-4).
+                    if self.kind_classifier:
+                        try:
+                            kind_result = self.kind_classifier.classify(
+                                title=item.title,
+                                source_type=source.get("type", "rss"),
+                                source_name=source.get("name", ""),
+                                summary=summary_result.summary or "",
+                                reading_summary=summary_result.reading_summary or "",
+                                raw_content=item.content or "",
+                            )
+                            merged_analysis["kind"] = kind_result.kind
+                            merged_analysis["kind_confidence"] = kind_result.confidence
+                        except Exception as e:
+                            error_msg = (
+                                f"Kind classification failed for '{item.title}': {e}"
+                            )
+                            stats["kind_classify_failures"].append(error_msg)
+                            logger.warning(error_msg)
+                            self.console.print(
+                                f"       ⚠️  Kind classification failed: {e}",
+                                style="yellow",
+                            )
+                            # Do NOT re-raise — pipeline continues without a kind (INV-002)
+
                     # Step 3e: Convert ContentItem to dict and add merged analysis
                     item_dict = item.to_dict()
                     # File sources always HIGH priority (user explicitly added)
@@ -435,6 +473,7 @@ class DaemonOrchestrator:
             "total_updated": 0,
             "errors": [],
             "deep_extract_failures": [],
+            "kind_classify_failures": [],
             "new_high_priority_items": [],  # Aggregate new HIGH priority items
         }
 
@@ -490,6 +529,9 @@ class DaemonOrchestrator:
                 stats["deep_extract_failures"].extend(
                     source_stats["deep_extract_failures"]
                 )
+                stats["kind_classify_failures"].extend(
+                    source_stats["kind_classify_failures"]
+                )
                 stats["new_high_priority_items"].extend(
                     source_stats["new_high_priority_items"]
                 )
@@ -537,6 +579,7 @@ class DaemonOrchestrator:
             items_updated=stats["total_updated"],
             errors=len(stats["errors"]),
             deep_extract_failures=len(stats["deep_extract_failures"]),
+            kind_classify_failures=len(stats["kind_classify_failures"]),
         )
 
         return stats

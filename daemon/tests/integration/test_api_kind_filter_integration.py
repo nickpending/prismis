@@ -202,3 +202,50 @@ def test_one_unknown_kind_in_a_comma_separated_list_rejects_the_whole_request(
     )
     assert response.status_code == 422, response.text
     assert "bogus" in response.json()["message"]
+
+
+def _content_id_for(storage: Storage, external_id: str) -> str:
+    """The UUID storage assigned a fixture row, looked up the way other tests in this
+    suite (e.g. test_api_integration.py's vote tests) already do."""
+    row = storage.conn.execute(
+        "SELECT id FROM content WHERE external_id = ?", (external_id,)
+    ).fetchone()
+    return row[0]
+
+
+def test_single_entry_endpoint_carries_kind_for_a_classified_item(
+    api_client: TestClient, kind_populated_storage: Storage
+) -> None:
+    """
+    INVARIANT: GET /api/entries/{id} carries the same top-level kind mirror the list
+               endpoint does, for a classified item
+    BREAKS: ContentItemModel.kind defaults to None, so without the mirror this
+            endpoint reports every entry as unclassified -- including ones the
+            classifier answered confidently -- a false value on a live endpoint the
+            CLI's single-entry path (cli/src/cli/api_client.py) calls.
+    """
+    content_id = _content_id_for(kind_populated_storage, "release-1")
+
+    response = api_client.get(
+        f"/api/entries/{content_id}", headers={"X-API-Key": TEST_API_KEY}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["kind"] == "release"
+
+
+def test_single_entry_endpoint_reports_null_kind_for_an_unclassified_item(
+    api_client: TestClient, kind_populated_storage: Storage
+) -> None:
+    """
+    INVARIANT: GET /api/entries/{id} reports kind: null for an item the classifier
+               never confidently kinded
+    BREAKS: An unclassified item on this endpoint gets confused with a real answer,
+            or the mirror is only wired for the list endpoint and drifts from it here
+    """
+    content_id = _content_id_for(kind_populated_storage, "unclassified-1")
+
+    response = api_client.get(
+        f"/api/entries/{content_id}", headers={"X-API-Key": TEST_API_KEY}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["kind"] is None

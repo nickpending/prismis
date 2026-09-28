@@ -1173,7 +1173,9 @@ async def get_entry_summary(
         if not entry:
             raise NotFoundError("Entry", content_id)
 
-        # SC-5: same top-level kind convenience as the /api/entries list.
+        # SC-5: same top-level kind convenience as the /api/entries list -- without
+        # this, ContentItemModel's kind field (which defaults to None) would report
+        # every entry as unclassified, including ones the classifier actually kinded.
         entry["kind"] = _item_kind(entry)
 
         # INV-API-TS-4: route through ContentItemModel so @field_serializer emits RFC3339 datetimes

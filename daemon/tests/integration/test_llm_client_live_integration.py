@@ -85,12 +85,12 @@ def test_openai_service_rejects_extra_body_usage_include() -> None:
     tests/unit/test_llm_client_unit.py -- so this is the one place in the tree that
     checks the underlying fact the gate exists for, against the real endpoint, rather
     than asserting it in a source comment with no trace anywhere else. Builds the same
-    client llm_client.complete() would (resolve_service + _load_api_key against the
+    client llm_client.complete() would (resolve_service + load_api_key against the
     real prismis-openai entry) and adds the extension by hand to reach the branch
     production code deliberately never takes.
     """
     svc = llm_client.resolve_service("prismis-openai")
-    api_key = llm_client._load_api_key(svc)
+    api_key = llm_client.load_api_key(svc)
     client = openai.OpenAI(base_url=svc.base_url, api_key=api_key)
 
     with pytest.raises(openai.BadRequestError):

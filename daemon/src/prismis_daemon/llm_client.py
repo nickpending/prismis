@@ -131,10 +131,13 @@ def resolve_service(name: str) -> ServiceConfig:
     )
 
 
-def _load_api_key(service: ServiceConfig) -> str | None:
+def load_api_key(service: ServiceConfig) -> str | None:
     """Load the API key for a service using apiconf.
 
     Returns None if the service does not require a key (e.g. a local model server).
+    Public (not the chat-completions path's private detail): kind_classifier.py
+    resolves the same way for its own, differently-shaped provider call, and this is
+    the one apiconf key-loading mechanism prismis has (work-order.json's stakes).
     """
     if service.key_required is False:
         return None
@@ -215,7 +218,7 @@ def complete(
     start = time.monotonic()
 
     svc = resolve_service(service)
-    api_key = _load_api_key(svc)
+    api_key = load_api_key(svc)
     resolved_model = model or svc.default_model
     if not resolved_model:
         raise ValueError(
@@ -301,7 +304,7 @@ def health_check(service: str) -> None:
     unreachable or auth fails.
     """
     svc = resolve_service(service)
-    api_key = _load_api_key(svc)
+    api_key = load_api_key(svc)
     client = _client_for(svc, api_key)
 
     models = client.models.list()

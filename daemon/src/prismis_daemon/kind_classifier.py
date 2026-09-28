@@ -25,10 +25,9 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from apiconf import ConfigNotFoundError, KeyNotFoundError, get_key
 
 from .circuit_breaker import get_circuit_breaker
-from .llm_client import ConfigError, ServiceConfig, resolve_service
+from .llm_client import load_api_key, resolve_service
 from .observability import log as obs_log
 
 logger = logging.getLogger(__name__)
@@ -112,31 +111,6 @@ def _build_state(
     }
 
 
-def _load_api_key(service: ServiceConfig) -> str | None:
-    """Load the decisions-endpoint API key via apiconf.
-
-    The same resolve_service + apiconf mechanism llm_client.py uses for every other
-    service (stakes: "no second key, endpoint or model mechanism"), reimplemented here
-    rather than imported because llm_client's own loader is a private helper scoped to
-    the chat-completions path.
-    """
-    if service.key_required is False:
-        return None
-    if not service.key:
-        raise ConfigError("Service requires an API key but no 'key' field configured.")
-    try:
-        return get_key(service.key)
-    except KeyNotFoundError as e:
-        raise ConfigError(
-            f"API key '{service.key}' not found in apiconf. "
-            "Add it to ~/.config/apiconf/config.toml"
-        ) from e
-    except ConfigNotFoundError as e:
-        raise ConfigError(
-            "apiconf config not found. Create ~/.config/apiconf/config.toml"
-        ) from e
-
-
 def submit_decision(
     state: dict[str, str], *, service: str, model: str | None = None
 ) -> DecisionCall:
@@ -148,7 +122,7 @@ def submit_decision(
     not this function's problem: it is handed back as-is and classify() fails closed.
     """
     svc = resolve_service(service)
-    api_key = _load_api_key(svc)
+    api_key = load_api_key(svc)
     resolved_model = model or svc.default_model
     if not resolved_model:
         raise ValueError(

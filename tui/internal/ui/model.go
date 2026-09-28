@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -35,11 +36,15 @@ type Model struct {
 	showUnprioritized bool           // Show items with null/empty priority (default false)
 	hiddenCount       int            // Count of hidden unprioritized items
 	// View state fields for header display
-	showAll         bool   // Show all items vs unread only (default false - unread only)
-	showArchived    bool   // Show archived items only (default false - exclude archived)
-	showInteresting bool   // Show only items flagged as interesting (default false)
-	sortNewest      bool   // Sort by newest first vs oldest first (default true - newest)
-	filterType      string // Source type filter: "all", "rss", "reddit", "youtube", "file" (default "all")
+	showAll         bool     // Show all items vs unread only (default false - unread only)
+	showArchived    bool     // Show archived items only (default false - exclude archived)
+	showInteresting bool     // Show only items flagged as interesting (default false)
+	sortNewest      bool     // Sort by newest first vs oldest first (default true - newest)
+	filterType      string   // Source type filter: "all", "rss", "reddit", "youtube", "file" (default "all")
+	kindFilter      string   // Kind filter: "all" or one kind value present in the data (default "all")
+	availableKinds  []string // Kind values currently present in the data, mined from the database (or, in
+	// remote mode, from the fetched items) rather than a second hardcoded copy of the ten kinds; used to
+	// populate the kind filter cycle
 	// Status message for user feedback
 	statusMessage string // Temporary status message to display
 	flashItem     int    // Index of item to flash (-1 for none)
@@ -66,7 +71,8 @@ type Model struct {
 // itemsLoadedMsg represents content items loaded from database
 type itemsLoadedMsg struct {
 	items          []db.ContentItem
-	hiddenCount    int // Count of unprioritized items that were filtered out
+	hiddenCount    int      // Count of unprioritized items that were filtered out
+	availableKinds []string // Kind values present in the data, for the kind filter cycle
 	err            error
 	preserveCursor bool   // If true, try to preserve cursor position
 	targetItemID   string // Item ID to position cursor on (if preserveCursor is true)
@@ -129,6 +135,7 @@ func newModel(remoteURL string) Model {
 		showAll:       false,            // Show unread only by default
 		sortNewest:    true,             // Show newest first by default
 		filterType:    "all",            // Show all source types by default
+		kindFilter:    "all",            // Show all kinds by default
 		statusMessage: "",               // No status message initially
 		flashItem:     -1,               // No item flashing initially
 		sourceModal:   NewSourceModal(), // Initialize source modal
@@ -275,10 +282,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if err != nil {
 						result = itemsLoadedMsg{err: err}
 					} else {
+						kinds, kErr := db.GetDistinctKinds()
+						if kErr != nil {
+							// Don't fail the whole refresh if kind enumeration fails
+							kinds = nil
+						}
 						result = itemsLoadedMsg{
-							items:       applyFiltersClientSide(allItems, m),
-							hiddenCount: countHiddenUnprioritized(allItems, m),
-							err:         nil,
+							items:          applyFiltersClientSide(allItems, m),
+							hiddenCount:    countHiddenUnprioritized(allItems, m),
+							availableKinds: kinds,
+							err:            nil,
 						}
 					}
 				}
@@ -378,6 +391,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Toggle archived view (same as hotkey 5)
 		if m.view == "list" {
 			m.showArchived = !m.showArchived
+			m.cursor = 0
+			m.loading = true
+			return m, fetchItemsWithState(m, false)
+		}
+
+	case commands.KindMsg:
+		// Filter feed to one kind (or clear the filter with "all"), same as hotkey K
+		if m.view == "list" {
+			m.kindFilter = msg.Kind
 			m.cursor = 0
 			m.loading = true
 			return m, fetchItemsWithState(m, false)
@@ -700,6 +722,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showArchived = false
 				m.showUnprioritized = false
 				m.filterType = "all"
+				m.kindFilter = "all"
 				m.sortNewest = true
 				m.cursor = 0
 				m.loading = true
@@ -759,6 +782,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				return m, fetchItemsWithState(m, false)
 			}
+		// Cycle kind filter - choices come from the kinds actually present in the data
+		// (m.availableKinds), not a second hardcoded copy of the ten
+		case "K":
+			if m.view == "list" {
+				kindChoices := append([]string{"all"}, m.availableKinds...)
+				currentIdx := 0
+				for i, k := range kindChoices {
+					if k == m.kindFilter {
+						currentIdx = i
+						break
+					}
+				}
+				m.kindFilter = kindChoices[(currentIdx+1)%len(kindChoices)]
+				m.cursor = 0
+				m.loading = true
+				return m, fetchItemsWithState(m, false)
+			}
 		// Upvote current item (+)
 		case "+", "=":
 			if len(m.items) > 0 && m.cursor < len(m.items) {
@@ -812,6 +852,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			previousCount := len(m.items)
 			m.items = msg.items
 			m.hiddenCount = msg.hiddenCount
+			m.availableKinds = msg.availableKinds
 
 			// Update cache and lastSync for remote mode
 			if msg.updateCache && m.remoteURL != "" {
@@ -916,10 +957,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if err != nil {
 						result = itemsLoadedMsg{err: err}
 					} else {
+						kinds, kErr := db.GetDistinctKinds()
+						if kErr != nil {
+							// Don't fail the whole refresh if kind enumeration fails
+							kinds = nil
+						}
 						result = itemsLoadedMsg{
-							items:       applyFiltersClientSide(allItems, m),
-							hiddenCount: countHiddenUnprioritized(allItems, m),
-							err:         nil,
+							items:          applyFiltersClientSide(allItems, m),
+							hiddenCount:    countHiddenUnprioritized(allItems, m),
+							availableKinds: kinds,
+							err:            nil,
 						}
 					}
 				}
@@ -1189,9 +1236,10 @@ func fetchItemsWithState(m Model, refreshData bool) tea.Cmd {
 				// Just re-filter cached data (instant)
 				filtered := applyFiltersClientSide(m.itemsCache, m)
 				return itemsLoadedMsg{
-					items:       filtered,
-					hiddenCount: countHiddenUnprioritized(m.itemsCache, m),
-					err:         nil,
+					items:          filtered,
+					hiddenCount:    countHiddenUnprioritized(m.itemsCache, m),
+					availableKinds: distinctKindsFromItems(m.itemsCache),
+					err:            nil,
 				}
 			}
 		}
@@ -1201,10 +1249,16 @@ func fetchItemsWithState(m Model, refreshData bool) tea.Cmd {
 		if err != nil {
 			return itemsLoadedMsg{err: err}
 		}
+		kinds, kErr := db.GetDistinctKinds()
+		if kErr != nil {
+			// Don't fail the whole content load if kind enumeration fails
+			kinds = nil
+		}
 		return itemsLoadedMsg{
-			items:       applyFiltersClientSide(allItems, m),
-			hiddenCount: countHiddenUnprioritized(allItems, m),
-			err:         nil,
+			items:          applyFiltersClientSide(allItems, m),
+			hiddenCount:    countHiddenUnprioritized(allItems, m),
+			availableKinds: kinds,
+			err:            nil,
 		}
 	}
 }
@@ -1234,9 +1288,10 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 		if err != nil {
 			// On error, show cached data
 			return itemsLoadedMsg{
-				items:       applyFiltersClientSide(m.itemsCache, m),
-				hiddenCount: countHiddenUnprioritized(m.itemsCache, m),
-				err:         err,
+				items:          applyFiltersClientSide(m.itemsCache, m),
+				hiddenCount:    countHiddenUnprioritized(m.itemsCache, m),
+				availableKinds: distinctKindsFromItems(m.itemsCache),
+				err:            err,
 			}
 		}
 
@@ -1301,12 +1356,13 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 
 	// Return both filtered items (for display) and all items (for caching)
 	return itemsLoadedMsg{
-		items:       filtered,
-		hiddenCount: countHiddenUnprioritized(allItems, m),
-		allItems:    allItems,
-		updateCache: true,
-		newLastSync: newestFetchedAt,
-		err:         nil,
+		items:          filtered,
+		hiddenCount:    countHiddenUnprioritized(allItems, m),
+		availableKinds: distinctKindsFromItems(allItems),
+		allItems:       allItems,
+		updateCache:    true,
+		newLastSync:    newestFetchedAt,
+		err:            nil,
 	}
 }
 
@@ -1368,6 +1424,12 @@ func applyFiltersClientSide(items []db.ContentItem, m Model) []db.ContentItem {
 			continue
 		}
 
+		// Filter by kind (read from analysis JSON, so unclassified items - empty kind -
+		// only match the unfiltered "all" state)
+		if m.kindFilter != "" && m.kindFilter != "all" && parseMetadata(item.Analysis).Kind != m.kindFilter {
+			continue
+		}
+
 		// Note: archived filter is applied at query level (GetAllContent), not here
 
 		filtered = append(filtered, item)
@@ -1377,6 +1439,24 @@ func applyFiltersClientSide(items []db.ContentItem, m Model) []db.ContentItem {
 	sortItemsByDate(filtered, m.sortNewest)
 
 	return filtered
+}
+
+// distinctKindsFromItems returns the sorted, deduplicated set of kind values present
+// across items. Remote mode has no direct database access, so the kind filter's choices
+// are mined from the already-fetched item set instead of db.GetDistinctKinds.
+func distinctKindsFromItems(items []db.ContentItem) []string {
+	seen := make(map[string]bool)
+	var kinds []string
+	for _, item := range items {
+		kind := parseMetadata(item.Analysis).Kind
+		if kind == "" || seen[kind] {
+			continue
+		}
+		seen[kind] = true
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
 }
 
 // sortItemsByDate sorts items in place by published date

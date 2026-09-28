@@ -65,6 +65,11 @@ func buildViewStateString(m Model) string {
 		states = append(states, "Filter: ALL")
 	}
 
+	// Kind filter (only shown when one is active, "all" is the unfiltered default)
+	if m.kindFilter != "" && m.kindFilter != "all" {
+		states = append(states, "Kind: "+strings.ToUpper(m.kindFilter))
+	}
+
 	// Add hidden count if applicable
 	if m.hiddenCount > 0 && !m.showUnprioritized {
 		states = append(states, fmt.Sprintf("Hidden: %d", m.hiddenCount))
@@ -498,6 +503,11 @@ func renderContentList(m Model, width, height int, theme StyleTheme) string {
 			metaParts = append(metaParts, tags)
 		}
 
+		// Kind if classified (empty for unclassified items - no label shown)
+		if kind := parseMetadata(item.Analysis).Kind; kind != "" {
+			metaParts = append(metaParts, lipgloss.NewStyle().Foreground(theme.Cyan).Render(strings.ToUpper(kind)))
+		}
+
 		// User feedback indicator (prepend so it's visible)
 		var feedbackIndicator string
 		switch item.UserFeedback {
@@ -797,6 +807,11 @@ func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
 		if redditMetrics.numComments > 0 {
 			metaParts = append(metaParts, metaStyle.Render(fmt.Sprintf("%dc", redditMetrics.numComments)))
 		}
+	}
+
+	// Kind if classified (empty for unclassified items - no label shown)
+	if kind := parseMetadata(item.Analysis).Kind; kind != "" {
+		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(theme.Cyan).Render(strings.ToUpper(kind)))
 	}
 
 	// Title and metadata on same line with bold grey brackets

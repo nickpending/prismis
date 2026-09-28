@@ -771,3 +771,44 @@ func CountUpvotedItems() (int, error) {
 
 	return count, nil
 }
+
+// GetDistinctKinds returns the sorted, deduplicated set of kind values present in
+// content.analysis, so the TUI's kind filter is populated from what's actually been
+// classified rather than a second hardcoded copy of the ten kinds. json_valid guards
+// json_extract against rows whose analysis is empty or not JSON at all (a classifier
+// failure or a pre-classification item, per INV-002) - without it, one such row would
+// error the whole query instead of just being skipped. A null or missing "kind" key
+// (unclassified) is excluded by the IS NOT NULL check.
+func GetDistinctKinds() ([]string, error) {
+	db, err := GetDB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	rows, err := db.Query(`
+		SELECT DISTINCT json_extract(analysis, '$.kind') AS kind
+		FROM content
+		WHERE json_valid(analysis) AND json_extract(analysis, '$.kind') IS NOT NULL
+		ORDER BY kind
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query distinct kinds: %w", err)
+	}
+	defer rows.Close()
+
+	var kinds []string
+	for rows.Next() {
+		var kind sql.NullString
+		if err := rows.Scan(&kind); err != nil {
+			return nil, fmt.Errorf("failed to scan kind: %w", err)
+		}
+		if kind.Valid && kind.String != "" {
+			kinds = append(kinds, kind.String)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return kinds, nil
+}

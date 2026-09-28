@@ -1,0 +1,113 @@
+{
+  "workOrder": "content-kind",
+  "what": "Tag every newly analysed item with the kind of information it is (one of ten kinds), using Jev, a decision model on OpenRouter's decisions endpoint, called after the light pass. Store the kind in the item's analysis and let the API, CLI and TUI show it and filter by it (gh #77).",
+  "why": "Priority says how much an item matters and topics say what it is about; neither says whether it is a release, a question, an incident or a joke. The kinds were derived from 100 hand-labelled cerebro items, and Jev picked the primary kind with 89% accuracy on the 72% it was confident about (threshold 0.7), for about $0.00007 per item. Items below the threshold stay unclassified instead of being forced into a wrong bucket. The evidence is on gh #77.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "an item and a stubbed decisions endpoint (the provider is the one boundary the constitution lets a test fake) that returns a choice with a confidence",
+      "when": "the kind classifier classifies the item",
+      "then": "it returns that kind when the confidence is at least 0.7, and returns no kind (unclassified) when the confidence is below 0.7 or the choice is not one of the ten kinds; the ten kinds and their definitions are declared once, in the classifier module, and are exactly: release, experience, question, analysis, news, incident, research, vulnerability, humor, tutorial",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'kind_classifier and threshold' && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "items whose raw content ranges from empty to several hundred thousand characters",
+      "when": "the classifier builds the request it sends",
+      "then": "the state contains the title, the source type and name, the light summary, the reading summary truncated to 4000 characters and the first 1000 characters of the raw content, so its size is bounded regardless of how long the content is",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'kind_classifier and bounded' && echo 'SC-2: PASS'",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "a running orchestrator with the classifier configured",
+      "when": "a new item is summarised and evaluated",
+      "then": "the stored item's analysis carries kind (or null when unclassified) and kind_confidence, and the call is logged as an llm.call observability event with action classify_kind and its billed cost, like the summarize and evaluate calls; when the classifier call fails, the item is still stored with its summary and priority, the kind is absent, and the failure is recorded in the run's stats rather than raised",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'kind and pipeline' && echo 'SC-3: PASS'",
+        "expect": "SC-3: PASS"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "a config whose [llm] section sets no kind_service",
+      "when": "items are analysed",
+      "then": "no request is made to the decisions endpoint and items are stored without a kind, so installs without a Jev key behave exactly as before",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'kind and not_configured' && echo 'SC-4: PASS'",
+        "expect": "SC-4: PASS"
+      }
+    },
+    {
+      "id": "SC-5",
+      "given": "stored items of several kinds and some unclassified",
+      "when": "a client requests /api/entries with kind set to one kind or a comma-separated list",
+      "then": "only items of those kinds are returned, the kind appears on each returned item, and an unknown kind is rejected with a 422 naming the ten valid kinds",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'kind and api' && echo 'SC-5: PASS'",
+        "expect": "SC-5: PASS"
+      }
+    },
+    {
+      "id": "SC-6",
+      "given": "the prismis CLI",
+      "when": "the user runs prismis-cli list --kind with one or more kinds",
+      "then": "the request carries the kind filter and the listed items show their kind",
+      "observation": {
+        "command": "cd cli && uv run pytest -q tests -k kind && echo 'SC-6: PASS'",
+        "expect": "SC-6: PASS"
+      }
+    },
+    {
+      "id": "SC-7",
+      "given": "the TUI reading the database",
+      "when": "the user views the feed and opens an item",
+      "then": "the item's kind is shown in the feed row and the reader, and the feed can be filtered to one kind, with the filter's choices taken from the kinds present in the database rather than a second hardcoded copy of the ten; unclassified items show no kind label",
+      "observation": {
+        "command": "cd tui && go test ./... -run Kind && echo 'SC-7: PASS'",
+        "expect": "SC-7: PASS"
+      }
+    },
+    {
+      "id": "SC-9",
+      "given": "a real source and the classifier configured",
+      "when": "prismis-daemon verify --chain runs",
+      "then": "the report has a kind link with its status and cost, mined from the observability events like the other LLM-backed links, and reports it as not configured when [llm] kind_service is unset",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'verify_chain and kind' && echo 'SC-9: PASS'",
+        "expect": "SC-9: PASS"
+      }
+    },
+    {
+      "id": "SC-8",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Secondary kinds: the classifier stores only the primary kind and its confidence. Deriving secondary kinds from Jev's probabilities is untested.",
+    "Backfilling kinds for items analysed before this change.",
+    "Showing or filtering kind in the web UI.",
+    "Feeding kind into priority, and correcting a wrong kind through the feedback path.",
+    "Items with no readable content (gh #80); they flow through unchanged and mostly come back unclassified or classified from title and summary.",
+    "Tool extraction (gh #78) and splitting the summariser prompt (gh #79)."
+  ],
+  "stakes": [
+    "Principle I: tests fake only the decisions endpoint (the provider), never prismis's own code, and the no-internal-mocks guard must stay green.",
+    "INV-002: a classifier failure never blocks an item from being stored; it mirrors how deep extraction failures are handled in the orchestrator.",
+    "The threshold (0.7) and the ten kinds are fixed by the measured evidence on gh #77. Changing either needs a new measurement, not a code edit.",
+    "The classifier is configured the way the deep service is: an optional [llm] kind_service naming an entry in services.toml (for example adapter \"decisions\", base_url for OpenRouter's decisions endpoint, key prismis-openrouter, default_model typesafe/jev-1.13), resolved through llm_client's existing resolve_service and apiconf key loading. No second key, endpoint or model mechanism, and no key value in code, tests or logs.",
+    "The classifier uses the existing service-keyed circuit breaker (get_circuit_breaker) like the other LLM-backed steps.",
+    "The decisions endpoint is OpenRouter alpha; its request and response shape (model typesafe/jev-1.13, questions with type choice, answers.<name>.choice, confidence, probabilities) is taken from the measured runs, and the code must fail closed (unclassified) on any response it cannot parse."
+  ]
+}

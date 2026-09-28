@@ -1,0 +1,14 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/kind_classifier.py",
+    "daemon/src/prismis_daemon/llm_client.py",
+    "daemon/tests/integration/test_llm_client_live_integration.py"
+  ],
+  "verified": true,
+  "findings": ["F-1-1"],
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ad5e8a1e0d8671301",
+    "branch": "worktree-agent-ad5e8a1e0d8671301",
+    "base": "738aa94faac2cc2afb46935ba244e2d848fe8402"
+  }
+}

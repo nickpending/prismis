@@ -21,8 +21,10 @@ _REPO = Path(__file__).resolve().parents[3]
 _TEST_ROOTS = (_REPO / "daemon" / "tests", _REPO / "cli" / "tests")
 _OWN_PACKAGES = ("prismis_daemon", "cli")
 
-# The LLM provider is the one boundary Principle I permits faking.
-_ALLOWED_ATTRS = frozenset({"complete", "health_check"})
+# The LLM provider is the one boundary Principle I permits faking. submit_decision is
+# kind_classifier's own provider-boundary call -- the decisions endpoint isn't
+# chat-completions shaped, so it doesn't go through llm_client.complete().
+_ALLOWED_ATTRS = frozenset({"complete", "health_check", "submit_decision"})
 
 # Call-through spies that only count calls to the real object (work order outOfScope).
 _EXEMPT_FILES = frozenset({"test_api_connection_cleanup.py"})

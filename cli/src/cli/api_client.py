@@ -469,6 +469,7 @@ class APIClient:
         source: str | None = None,
         compact: bool = False,
         since_hours: int | None = None,
+        kind: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get content items with optional filtering.
 
@@ -480,6 +481,7 @@ class APIClient:
             source: Filter by source name (case-insensitive substring match)
             compact: Return compact format (excludes content and analysis)
             since_hours: Only return items from last N hours
+            kind: Filter by kind, single value or comma-separated list
 
         Returns:
             List of content item dictionaries
@@ -501,6 +503,8 @@ class APIClient:
                     params["compact"] = True
                 if since_hours:
                     params["since_hours"] = since_hours
+                if kind:
+                    params["kind"] = kind
 
                 # Map archive_filter to API parameters
                 if archive_filter == "only":

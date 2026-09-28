@@ -1,0 +1,27 @@
+{
+  "searched": [
+    "docs/work/content-kind/work-order.json",
+    "docs/work/content-kind/results/plan.json",
+    "docs/work/content-kind/job-6.diff",
+    "docs/work/content-kind/journal.jsonl",
+    "tui/internal/db/queries.go (live tree, for sibling-query conventions: GetAllContent, queryContentWithFilter, CountUpvotedItems)",
+    "tui/internal/ui/help_modal.go (live tree, unchanged by this diff)",
+    "tui/internal/ui/model.go (live tree, for pre-existing keybinding map, to check the new \"K\" case for collisions)",
+    "tui/internal/commands/registry.go (live tree, for cmdContext's validation pattern, to compare against the new cmdKind)"
+  ],
+  "exhaustive": true,
+  "findings": [
+    {
+      "file": "tui/internal/db/queries.go",
+      "line": 791,
+      "summary": "GetDistinctKinds' query (`SELECT DISTINCT json_extract(analysis, '$.kind') ... FROM content WHERE json_valid(analysis) AND json_extract(analysis, '$.kind') IS NOT NULL ORDER BY kind`, added at queries.go:782-793 per the diff) has no `archived_at` scoping, unlike every sibling content query in the same file: GetAllContent (queries.go:339, `showArchived bool` parameter, filters `c.archived_at IS NOT NULL`/`IS NULL`) and queryContentWithFilter (queries.go:198-202) both scope by archive state, and CountUpvotedItems (queries.go:767, right above the new function) filters `archived_at IS NULL` even for a simple count. GetDistinctKinds takes no such parameter and reads across every row regardless of archive state. Consequence: in local (non-remote) mode, the model.go call sites (`db.GetDistinctKinds()`, no argument) populate `m.availableKinds` from kinds that may exist only on archived items, which the default (non-archived) list view never shows. Cycling the \"K\" hotkey to that kind (model.go's cycling reads `m.availableKinds`) sets `m.kindFilter` to a value no visible item can match, and `applyFiltersClientSide`'s kind check (model.go, the block added right after the archived-view note in the same function) silently returns zero items with no indication why. This is asymmetric with the remote-mode path, where `distinctKindsFromItems` derives kinds from the already-fetched (and therefore already archive-filtered) item slice, so only the local-DB path has this gap. No test in queries_test.go's TestGetDistinctKinds/TestGetDistinctKinds_EmptyDatabase seeds an archived row, so the gap is untested as well as unhandled.",
+      "severity": "medium"
+    },
+    {
+      "file": "tui/internal/ui/help_modal.go",
+      "line": 172,
+      "summary": "The FILTERS & SORTING section of the help modal (help_modal.go:167-173, untouched by job-6.diff) lists every other list-view filter/toggle this job's sibling filters share a row with -- `1/2/3/4` priority, `0/i` unprioritized/interesting, `a/u/v` all/unread/archived, `d/s` date-sort/source-type -- but the diff adds neither the new `K` hotkey (model.go, the cycling case added after the `s` source-type-cycle case) nor the new `:kind` command (registry.go's `cmdKind`) to this list. Both are new user-facing controls with no other in-app discovery path (no completion/autocomplete for `:` commands is evident in this diff), so a user pressing `?` for help will not learn either exists.",
+      "severity": "low"
+    }
+  ]
+}

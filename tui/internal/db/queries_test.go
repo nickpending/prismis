@@ -780,7 +780,7 @@ func TestGetDistinctKinds(t *testing.T) {
 		}
 	}
 
-	kinds, err := GetDistinctKinds()
+	kinds, err := GetDistinctKinds(false)
 	if err != nil {
 		t.Fatalf("GetDistinctKinds failed: %v", err)
 	}
@@ -813,12 +813,68 @@ func TestGetDistinctKinds_EmptyDatabase(t *testing.T) {
 		CloseDB()
 	}()
 
-	kinds, err := GetDistinctKinds()
+	kinds, err := GetDistinctKinds(false)
 	if err != nil {
 		t.Fatalf("GetDistinctKinds failed: %v", err)
 	}
 	if len(kinds) != 0 {
 		t.Errorf("Expected no kinds from an unclassified fixture, got %v", kinds)
+	}
+}
+
+// TestGetDistinctKinds_ArchivedScoping verifies GetDistinctKinds scopes by archive
+// state like every sibling content query (GetAllContent, queryContentWithFilter,
+// CountUpvotedItems) - a kind that exists only on an archived item must not appear in
+// the non-archived view's filter choices, and vice versa. Without this, cycling the
+// kind filter in the default (non-archived) list view could select a kind no visible
+// item can match, silently emptying the list with no indication why.
+func TestGetDistinctKinds_ArchivedScoping(t *testing.T) {
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+
+	originalDBPathFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = originalDBPathFunc
+		CloseDB()
+	}()
+
+	poolDB, err := GetDB()
+	if err != nil {
+		t.Fatalf("Failed to get DB: %v", err)
+	}
+
+	// Item 1 stays non-archived with kind "release"; item 2 is archived with a
+	// different kind ("incident") that must not leak into the non-archived choices.
+	if _, err := poolDB.Exec(`UPDATE content SET analysis = ? WHERE id = ?`, `{"kind":"release"}`, "1"); err != nil {
+		t.Fatalf("Failed to seed analysis for item 1: %v", err)
+	}
+	if _, err := poolDB.Exec(`UPDATE content SET analysis = ?, archived_at = ? WHERE id = ?`,
+		`{"kind":"incident"}`, time.Now().Format(time.RFC3339), "2"); err != nil {
+		t.Fatalf("Failed to seed archived item 2: %v", err)
+	}
+
+	nonArchived, err := GetDistinctKinds(false)
+	if err != nil {
+		t.Fatalf("GetDistinctKinds(false) failed: %v", err)
+	}
+	if len(nonArchived) != 1 || nonArchived[0] != "release" {
+		t.Errorf("Expected non-archived kinds [release], got %v", nonArchived)
+	}
+	for _, k := range nonArchived {
+		if k == "incident" {
+			t.Error("Non-archived kind list must not include a kind that exists only on an archived item")
+		}
+	}
+
+	archived, err := GetDistinctKinds(true)
+	if err != nil {
+		t.Fatalf("GetDistinctKinds(true) failed: %v", err)
+	}
+	if len(archived) != 1 || archived[0] != "incident" {
+		t.Errorf("Expected archived kinds [incident], got %v", archived)
 	}
 }
 

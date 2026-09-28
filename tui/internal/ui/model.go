@@ -282,7 +282,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if err != nil {
 						result = itemsLoadedMsg{err: err}
 					} else {
-						kinds, kErr := db.GetDistinctKinds()
+						kinds, kErr := db.GetDistinctKinds(m.showArchived)
 						if kErr != nil {
 							// Don't fail the whole refresh if kind enumeration fails
 							kinds = nil
@@ -957,7 +957,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if err != nil {
 						result = itemsLoadedMsg{err: err}
 					} else {
-						kinds, kErr := db.GetDistinctKinds()
+						kinds, kErr := db.GetDistinctKinds(m.showArchived)
 						if kErr != nil {
 							// Don't fail the whole refresh if kind enumeration fails
 							kinds = nil
@@ -1249,7 +1249,7 @@ func fetchItemsWithState(m Model, refreshData bool) tea.Cmd {
 		if err != nil {
 			return itemsLoadedMsg{err: err}
 		}
-		kinds, kErr := db.GetDistinctKinds()
+		kinds, kErr := db.GetDistinctKinds(m.showArchived)
 		if kErr != nil {
 			// Don't fail the whole content load if kind enumeration fails
 			kinds = nil

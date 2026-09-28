@@ -779,18 +779,30 @@ func CountUpvotedItems() (int, error) {
 // failure or a pre-classification item, per INV-002) - without it, one such row would
 // error the whole query instead of just being skipped. A null or missing "kind" key
 // (unclassified) is excluded by the IS NOT NULL check.
-func GetDistinctKinds() ([]string, error) {
+//
+// showArchived scopes by archive state the same way every sibling content query does
+// (GetAllContent, queryContentWithFilter, CountUpvotedItems): without it, a kind that
+// exists only on an archived item would leak into the non-archived list view's filter
+// choices, and cycling to it would silently empty the list.
+func GetDistinctKinds(showArchived bool) ([]string, error) {
 	db, err := GetDB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database connection: %w", err)
 	}
 
-	rows, err := db.Query(`
+	query := `
 		SELECT DISTINCT json_extract(analysis, '$.kind') AS kind
 		FROM content
 		WHERE json_valid(analysis) AND json_extract(analysis, '$.kind') IS NOT NULL
-		ORDER BY kind
-	`)
+	`
+	if showArchived {
+		query += " AND archived_at IS NOT NULL"
+	} else {
+		query += " AND archived_at IS NULL"
+	}
+	query += " ORDER BY kind"
+
+	rows, err := db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query distinct kinds: %w", err)
 	}

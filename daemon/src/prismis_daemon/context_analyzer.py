@@ -4,8 +4,8 @@ import logging
 import re
 from typing import Any
 
-from .llm_client import complete, extract_json
-from .observability import log as obs_log
+from .llm_call import build_messages, call_llm_with_circuit_breaker
+from .llm_client import extract_json
 
 logger = logging.getLogger(__name__)
 
@@ -243,10 +243,7 @@ UPVOTED ITEMS (content user found valuable):
 
 Analyze each item and recommend context.md improvements."""
 
-        return [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
+        return build_messages(system_prompt, user_prompt)
 
     def _call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
         """Call the LLM with the analysis prompt.
@@ -258,6 +255,7 @@ Analyze each item and recommend context.md improvements."""
             Parsed JSON response from the LLM
 
         Raises:
+            RuntimeError: If the service's circuit breaker is open
             Exception: If LLM call fails
         """
         try:
@@ -269,46 +267,9 @@ Analyze each item and recommend context.md improvements."""
             system_prompt = messages[0]["content"]
             user_prompt = messages[1]["content"]
 
-            try:
-                result = complete(
-                    prompt=user_prompt,
-                    system_prompt=system_prompt,
-                    service=self.service_name,
-                    json=True,
-                )
-
-                # Extract token usage
-                tokens = {
-                    "prompt": result.tokens.input,
-                    "completion": result.tokens.output,
-                    "total": result.tokens.input + result.tokens.output,
-                }
-
-                # Real billed cost for OpenRouter services; None for api.openai.com
-                # services, which return no cost (see llm_client.py's complete()).
-                cost_usd = result.cost
-
-                # Log successful LLM call
-                obs_log(
-                    "llm.call",
-                    action="context_analysis",
-                    model=result.model,
-                    tokens=tokens,
-                    cost_usd=cost_usd,
-                    duration_ms=result.duration_ms,
-                    status="success",
-                )
-
-            except Exception as e:
-                # Log failed LLM call
-                obs_log(
-                    "llm.call",
-                    action="context_analysis",
-                    model=self.service_name,
-                    status="error",
-                    error=str(e),
-                )
-                raise  # Re-raise to preserve existing error handling
+            result = call_llm_with_circuit_breaker(
+                self.service_name, system_prompt, user_prompt, "context_analysis"
+            )
 
             # Extract and parse response
             response_text = result.text

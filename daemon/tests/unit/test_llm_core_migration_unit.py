@@ -120,7 +120,9 @@ def test_SC11_summarizer_calls_llm_core_complete() -> None:
     fake_result.duration_ms = 500
 
     with patch(
-        "prismis_daemon.summarizer.complete"
+        # dedup (cluster 11): summarizer.py no longer imports complete directly --
+        # the call moved into the shared call_llm_with_circuit_breaker helper.
+        "prismis_daemon.llm_call.complete"
     ) as mock_complete:  # claudex-guard: allow-mock
         mock_complete.return_value = fake_result
 
@@ -179,7 +181,9 @@ def test_SC12_evaluator_calls_llm_core_complete() -> None:
     fake_result.duration_ms = 300
 
     with patch(
-        "prismis_daemon.evaluator.complete"
+        # dedup (cluster 11): evaluator.py no longer imports complete directly --
+        # the call moved into the shared call_llm_with_circuit_breaker helper.
+        "prismis_daemon.llm_call.complete"
     ) as mock_complete:  # claudex-guard: allow-mock
         mock_complete.return_value = fake_result
 

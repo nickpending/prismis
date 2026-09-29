@@ -1,0 +1,69 @@
+{
+  "workOrder": "search-kind-filter",
+  "what": "Add a kind filter to semantic search (`GET /api/search?kind=`, `prismis-cli search --kind`), and make every kind filter select before any limit is applied: search's kind and source filters constrain the KNN candidate query itself instead of filtering the global top 100, and /api/entries' kind filter moves from a Python pass over already-limited storage results into the storage queries. Search results also carry the top-level `kind` mirror /api/entries already has, including in compact mode.",
+  "why": "rudy wants content kind usable for research, which runs through search. Search has no kind filter today; only /api/entries, `list --kind` and the TUI do. Search also takes the 100 nearest items across the whole corpus (the vec_content KNN query in the `search_content` method in storage.py) and only then applies the source filter, so a filter on anything uncommon returns nothing. Measured on cerebro's live database (38,059 embeddings, sqlite-vec 0.1.9) for the query 'prompt injection in coding agents' filtered to kind=tutorial: filtering the top 100 found 0 of the 46 tutorial items, while a KNN query constrained with `content_id IN (<ids matching the filter>)` returned all 46 in 0.25s. The same filter-after-limit defect exists in /api/entries: its kind filter runs in Python after the unread_only branches have already fetched `limit` items per priority, so on cerebro /api/entries?kind=question&unread_only=true&limit=20 returns 0 items while the same call with limit=10000 returns 108.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a real sqlite-vec database where the items of one kind (or one source) all rank outside the 100 nearest neighbours of the query across the whole corpus",
+      "when": "search_content runs with that kind (or that source) as a filter",
+      "then": "it returns those items ranked by the existing relevance formula. The filter constrains the KNN candidate query itself; it is not applied to the global top 100 afterwards. With no filter, results are identical to today's",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'search and filtered_knn' && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "a real database where the newest `limit` items (overall and per priority) contain none of one kind, but older matching items exist",
+      "when": "GET /api/entries runs with that kind, with and without unread_only and priority",
+      "then": "it returns up to `limit` items of that kind. The kind filter is part of the storage query, applied before the limit; the Python post-filter over fetched items is removed rather than kept alongside it",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'entries and kind_before_limit' && echo 'SC-2: PASS'",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "the running API with a seeded database",
+      "when": "GET /api/search is called with kind=<one or comma-separated kinds>, with an unknown kind, and in compact mode",
+      "then": "matching results only, each carrying a top-level kind; an unknown kind is a 422 naming the valid kinds, with exactly the same validation /api/entries uses (one shared helper, not a second copy); compact results include kind",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'search and kind' && echo 'SC-3: PASS'",
+        "expect": "SC-3: PASS"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "the CLI pointed at a server",
+      "when": "`prismis-cli search <query> --kind release,question` runs",
+      "then": "the request carries kind=release,question and the results table shows each item's kind",
+      "observation": {
+        "command": "cd cli && uv run pytest -q tests -k 'search and kind' && echo 'SC-4: PASS'",
+        "expect": "SC-4: PASS"
+      }
+    },
+    {
+      "id": "SC-5",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "The web UI (gh #84).",
+    "Changing the ranking formula, the 100-candidate pool size, or min_score behaviour.",
+    "Adding kind as a vec0 metadata column or any schema change; the filter is a content_id constraint on the existing table."
+  ],
+  "stakes": [
+    "sqlite-vec's KNN query accepts a `content_id IN (subquery)` constraint on the locked 0.1.6 (checked: it returned exactly the 9 filtered rows ranked outside the global top 100 on a 300-row table) and on cerebro's 0.1.9. Raise the daemon/pyproject.toml floor from >=0.1.0 to >=0.1.6 so no install resolves a version that is untested. Never fall back to post-filtering.",
+    "Principle I: tests use a real sqlite-vec database and real Storage; only the LLM provider may be faked, and search needs none.",
+    "Search results today include archived items; keep that behaviour unchanged.",
+    "API.md documents /api/search; update it for the kind parameter.",
+    "The TUI filters kind in memory over its full item load (model.go, the filtered-items loop) with no limit before it, so it does not have this defect and is not touched."
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "searched": [
+    "docs/work/drop-entity-tags/work-order.json",
+    "docs/work/drop-entity-tags/results/plan.json",
+    "docs/work/drop-entity-tags/job-1.diff",
+    "docs/work/drop-entity-tags/journal.jsonl",
+    "docs/work/drop-entity-tags/results/built-1-1.json",
+    "daemon/src/prismis_daemon/summarizer.py",
+    "daemon/src/prismis_daemon/orchestrator.py",
+    "daemon/src/prismis_daemon/reports.py",
+    "cli/src/cli/analyze.py",
+    "daemon/scripts/model_playtest.py",
+    "daemon/tests/unit/test_summarizer_unit.py",
+    "daemon/tests/unit/test_no_internal_mocks_unit.py",
+    "daemon/tests/integration/test_summarizer_evaluator_integration.py",
+    "daemon/tests/integration/test_content_aware_summarization_integration.py",
+    ".specify/verify.sh",
+    "repo-wide grep for 'entities' in daemon/src, cli/src, daemon/scripts, daemon/tests"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

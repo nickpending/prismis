@@ -195,51 +195,241 @@ func NewClientWithURL(baseURL string) (*APIClient, error) {
 	}, nil
 }
 
-// AddSource adds a new content source via the API
-func (c *APIClient) AddSource(request SourceRequest) (*APIResponse, error) {
-	// Marshal request to JSON
-	jsonData, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+// doRequest builds an *http.Request for method+path against c.baseURL, sets
+// X-API-Key (and Content-Type when body is non-nil), sends it, and reads the
+// response body. It returns the raw status code and bytes; every caller keeps
+// its own status-code branching and JSON decoding exactly as before — only
+// the mechanical build/send/read step lives here (docs/work/dedup-triage.md
+// cluster 1). When timeout > 0 the request is sent through a one-off
+// *http.Client with that timeout instead of c.httpClient, matching the
+// pre-extraction behavior of the three callers that need a longer deadline
+// than c.httpClient's tuned transport provides — c.httpClient's connection
+// pooling is intentionally not reused for them, not lost by accident.
+func (c *APIClient) doRequest(method, path string, body []byte, timeout time.Duration) (int, []byte, error) {
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = bytes.NewBuffer(body)
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequest("POST", c.baseURL+"/api/sources", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest(method, c.baseURL+path, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return 0, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Key", c.apiKey)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
-	// Send request
-	resp, err := c.httpClient.Do(req)
+	httpClient := c.httpClient
+	if timeout > 0 {
+		httpClient = &http.Client{Timeout: timeout}
+	}
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
+		return 0, nil, fmt.Errorf("network error: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return 0, nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Parse response
+	return resp.StatusCode, respBody, nil
+}
+
+// decodeAPIResponse unmarshals the standard {success, message, data} envelope.
+// Every method that decodes into the plain APIResponse type (as opposed to a
+// method-specific anonymous struct) does this exact unmarshal-and-wrap step —
+// a second literally-identical fact within cluster 1, distinct from doRequest
+// itself. Callers still decide their own zero-value return and, where one
+// exists, their own wrapped message on failure (GetSources's "(body: %s)"
+// suffix keeps its inline form for that reason).
+func decodeAPIResponse(body []byte) (APIResponse, error) {
 	var apiResp APIResponse
 	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return apiResp, fmt.Errorf("failed to parse response: %w", err)
+	}
+	return apiResp, nil
+}
+
+// authFailedIfForbidden reports the one status-code check whose message never
+// varies by caller: every method that checks resp.StatusCode at all (as
+// opposed to only apiResp.Success — see the triage's behavior risk for
+// PauseSource/ResumeSource/PruneCount/PruneUnprioritized) reports the same
+// "authentication failed" error on 403. Callers that skip status-code
+// checking entirely never call this, preserving that documented difference.
+func authFailedIfForbidden(status int) error {
+	if status == 403 {
+		return fmt.Errorf("authentication failed: invalid API key")
+	}
+	return nil
+}
+
+// decodeAndCheckAuth decodes body and applies authFailedIfForbidden in one
+// step — the two-call sequence every status-checking, plain-APIResponse
+// method above makes back to back, immediately after doRequest returns.
+func decodeAndCheckAuth(status int, body []byte) (APIResponse, error) {
+	apiResp, err := decodeAPIResponse(body)
+	if err != nil {
+		return apiResp, err
+	}
+	if err := authFailedIfForbidden(status); err != nil {
+		return apiResp, err
+	}
+	return apiResp, nil
+}
+
+// sendJSON marshals request and sends it through doRequest — the "marshal,
+// check the error, then call doRequest" preamble every JSON-bodied method
+// above shares, identically down to the wrapped marshal-error message.
+func (c *APIClient) sendJSON(method, path string, request interface{}, timeout time.Duration) (int, []byte, error) {
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	return c.doRequest(method, path, jsonData, timeout)
+}
+
+// decodeMessageOr tries to decode body as an APIResponse and, if that
+// succeeds, returns "prefix: apiResp.Message"; otherwise it returns the
+// caller's own literal fallback. GetSources, GenerateAudioBriefing,
+// ExtractEntry, and GetContextSuggestions all make this exact "try to give a
+// specific message, else fall back" decision on their non-2xx branches —
+// only the prefix and fallback text differ per status code and per endpoint,
+// and stay parameters rather than being merged away.
+func decodeMessageOr(body []byte, prefix, fallback string) error {
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err == nil {
+		return fmt.Errorf("%s: %s", prefix, apiResp.Message)
+	}
+	return fmt.Errorf("%s", fallback)
+}
+
+// apiErrorOrStatus is decodeMessageOr specialized for the generic >=400
+// fallback every status-checking method reaches after its own specific
+// status branches: "API error: <message>" when the body decodes, else
+// "API error: status <code>". This exact pair repeats in GetSources,
+// GenerateAudioBriefing, ExtractEntry, and GetContextSuggestions.
+func apiErrorOrStatus(status int, body []byte) error {
+	return decodeMessageOr(body, "API error", fmt.Sprintf("API error: status %d", status))
+}
+
+// decodeOrStatusError applies the {403, 422, 500, >=400, decode+Success}
+// decision chain that GenerateAudioBriefing and GetContextSuggestions both
+// make in full before extracting their own payload — identical status-by-
+// status except the 422/500 fallback text, which stays a parameter.
+func decodeOrStatusError(status int, body []byte, validation422Fallback, serverError500Fallback string) (APIResponse, error) {
+	if err := authFailedIfForbidden(status); err != nil {
+		return APIResponse{}, err
+	}
+	if status == 422 {
+		return APIResponse{}, decodeMessageOr(body, "validation error", validation422Fallback)
+	}
+	if status == 500 {
+		return APIResponse{}, decodeMessageOr(body, "server error", serverError500Fallback)
+	}
+	if status >= 400 {
+		return APIResponse{}, apiErrorOrStatus(status, body)
+	}
+
+	apiResp, err := decodeAPIResponse(body)
+	if err != nil {
+		return apiResp, err
+	}
+	if !apiResp.Success {
+		return apiResp, fmt.Errorf("API error: %s", apiResp.Message)
+	}
+	return apiResp, nil
+}
+
+// sourceOpResult applies the {403, 404, >=400} decision DeleteSource and
+// UpdateSource both make against a /api/sources/{id} response: byte-identical
+// except which single word ("API error" vs "validation error") introduces
+// the fallback message — kept as fallbackVerb rather than merged away.
+func sourceOpResult(status int, apiResp APIResponse, fallbackVerb string) (*APIResponse, error) {
+	if err := authFailedIfForbidden(status); err != nil {
+		return nil, err
+	}
+	if status == 404 {
+		return &apiResp, fmt.Errorf("source not found")
+	}
+	if status >= 400 {
+		return &apiResp, fmt.Errorf("%s: %s", fallbackVerb, apiResp.Message)
+	}
+	return &apiResp, nil
+}
+
+// successOnlyResult decodes body and reports apiResp.Success only — the shape
+// PauseSource and ResumeSource both use, deliberately never checking the raw
+// HTTP status (docs/work/dedup-triage.md cluster 1 behavior risk: these two
+// methods must keep deciding on apiResp.Success alone).
+func successOnlyResult(body []byte) (*APIResponse, error) {
+	apiResp, err := decodeAPIResponse(body)
+	if err != nil {
+		return nil, err
+	}
+	if !apiResp.Success {
+		return &apiResp, fmt.Errorf("%s", apiResp.Message)
+	}
+	return &apiResp, nil
+}
+
+// pruneCountData and pruneDeleteData are PruneCount's and PruneUnprioritized's
+// distinct data shapes ("count" vs "deleted") — kept as separate types
+// because the fact they carry genuinely differs; only the envelope around
+// them (decodeSuccessOnlyData below) is the repeated fact.
+type pruneCountData struct {
+	Count      int  `json:"count"`
+	DaysFilter *int `json:"days_filter"`
+}
+
+type pruneDeleteData struct {
+	Deleted    int  `json:"deleted"`
+	DaysFilter *int `json:"days_filter"`
+}
+
+// decodeSuccessOnlyData parses a {success, message, data} envelope into T and
+// reports the shared "Success is false" error PruneCount and
+// PruneUnprioritized both make, exactly as successOnlyResult does for the
+// plain APIResponse type — this is its generic counterpart for callers whose
+// data shape isn't APIResponse's untyped map.
+func decodeSuccessOnlyData[T any](body []byte) (T, error) {
+	var apiResp struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+		Data    T      `json:"data"`
+	}
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		var zero T
+		return zero, fmt.Errorf("failed to parse response: %w", err)
+	}
+	if !apiResp.Success {
+		var zero T
+		return zero, fmt.Errorf("%s", apiResp.Message)
+	}
+	return apiResp.Data, nil
+}
+
+// AddSource adds a new content source via the API
+func (c *APIClient) AddSource(request SourceRequest) (*APIResponse, error) {
+	status, body, err := c.sendJSON("POST", "/api/sources", request, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	apiResp, err := decodeAndCheckAuth(status, body)
+	if err != nil {
+		return nil, err
 	}
 
 	// Check for specific HTTP status codes
-	if resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed: invalid API key")
-	}
-	if resp.StatusCode == 422 {
+	if status == 422 {
 		return &apiResp, fmt.Errorf("validation error: %s", apiResp.Message)
 	}
-	if resp.StatusCode >= 400 {
+	if status >= 400 {
 		return &apiResp, fmt.Errorf("API error: %s", apiResp.Message)
 	}
 
@@ -248,209 +438,67 @@ func (c *APIClient) AddSource(request SourceRequest) (*APIResponse, error) {
 
 // DeleteSource removes a content source via the API
 func (c *APIClient) DeleteSource(sourceID string) (*APIResponse, error) {
-	// Create HTTP request
-	req, err := http.NewRequest("DELETE", c.baseURL+"/api/sources/"+sourceID, nil)
+	status, body, err := c.doRequest("DELETE", "/api/sources/"+sourceID, nil, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, err
 	}
 
-	// Set headers
-	req.Header.Set("X-API-Key", c.apiKey)
-
-	// Send request
-	resp, err := c.httpClient.Do(req)
+	apiResp, err := decodeAPIResponse(body)
 	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
-	// Parse response
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Check for specific HTTP status codes
-	if resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed: invalid API key")
-	}
-	if resp.StatusCode == 404 {
-		return &apiResp, fmt.Errorf("source not found")
-	}
-	if resp.StatusCode >= 400 {
-		return &apiResp, fmt.Errorf("API error: %s", apiResp.Message)
-	}
-
-	return &apiResp, nil
+	return sourceOpResult(status, apiResp, "API error")
 }
 
 // UpdateSource updates a content source via the API
 func (c *APIClient) UpdateSource(sourceID string, request SourceRequest) (*APIResponse, error) {
-	// Marshal request to JSON
-	jsonData, err := json.Marshal(request)
+	status, body, err := c.sendJSON("PATCH", "/api/sources/"+sourceID, request, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, err
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequest("PATCH", c.baseURL+"/api/sources/"+sourceID, bytes.NewBuffer(jsonData))
+	apiResp, err := decodeAPIResponse(body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, err
 	}
 
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", c.apiKey)
-
-	// Send request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Parse response
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Check for specific HTTP status codes
-	if resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed: invalid API key")
-	}
-	if resp.StatusCode == 404 {
-		return &apiResp, fmt.Errorf("source not found")
-	}
-	if resp.StatusCode >= 400 {
-		return &apiResp, fmt.Errorf("validation error: %s", apiResp.Message)
-	}
-
-	return &apiResp, nil
+	return sourceOpResult(status, apiResp, "validation error")
 }
 
 // PauseSource pauses a content source (sets inactive)
 func (c *APIClient) PauseSource(sourceID string) (*APIResponse, error) {
-	// Create HTTP request
-	req, err := http.NewRequest("PATCH", c.baseURL+"/api/sources/"+sourceID+"/pause", nil)
+	_, body, err := c.doRequest("PATCH", "/api/sources/"+sourceID+"/pause", nil, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, err
 	}
 
-	// Set headers
-	req.Header.Set("X-API-Key", c.apiKey)
-
-	// Send request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Parse response
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Check for API-level errors
-	if !apiResp.Success {
-		return &apiResp, fmt.Errorf("%s", apiResp.Message)
-	}
-
-	return &apiResp, nil
+	return successOnlyResult(body)
 }
 
 // ResumeSource resumes a paused content source (sets active)
 func (c *APIClient) ResumeSource(sourceID string) (*APIResponse, error) {
-	// Create HTTP request
-	req, err := http.NewRequest("PATCH", c.baseURL+"/api/sources/"+sourceID+"/resume", nil)
+	_, body, err := c.doRequest("PATCH", "/api/sources/"+sourceID+"/resume", nil, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, err
 	}
 
-	// Set headers
-	req.Header.Set("X-API-Key", c.apiKey)
-
-	// Send request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Parse response
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Check for API-level errors
-	if !apiResp.Success {
-		return &apiResp, fmt.Errorf("%s", apiResp.Message)
-	}
-
-	return &apiResp, nil
+	return successOnlyResult(body)
 }
 
 // GetSources retrieves all content sources from the API
 func (c *APIClient) GetSources() (*SourceListResponse, error) {
-	// Create HTTP request
-	req, err := http.NewRequest("GET", c.baseURL+"/api/sources", nil)
+	status, body, err := c.doRequest("GET", "/api/sources", nil, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("X-API-Key", c.apiKey)
-
-	// Send request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
 	// Check for specific HTTP status codes
-	if resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed: invalid API key")
+	if err := authFailedIfForbidden(status); err != nil {
+		return nil, err
 	}
-	if resp.StatusCode >= 400 {
-		var apiResp APIResponse
-		if err := json.Unmarshal(body, &apiResp); err == nil {
-			return nil, fmt.Errorf("API error: %s", apiResp.Message)
-		}
-		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
+	if status >= 400 {
+		return nil, apiErrorOrStatus(status, body)
 	}
 
 	// Parse the wrapped response
@@ -502,52 +550,24 @@ type ContentUpdateRequest struct {
 
 // UpdateContent updates content properties (read/favorited status)
 func (c *APIClient) UpdateContent(contentID string, request ContentUpdateRequest) (*APIResponse, error) {
-	// Marshal request to JSON
-	jsonData, err := json.Marshal(request)
+	status, body, err := c.sendJSON("PATCH", "/api/entries/"+contentID, request, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, err
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequest("PATCH", c.baseURL+"/api/entries/"+contentID, bytes.NewBuffer(jsonData))
+	apiResp, err := decodeAndCheckAuth(status, body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", c.apiKey)
-
-	// Send request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Parse response
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return nil, err
 	}
 
 	// Check for specific HTTP status codes
-	if resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed: invalid API key")
-	}
-	if resp.StatusCode == 404 {
+	if status == 404 {
 		return &apiResp, fmt.Errorf("content not found")
 	}
-	if resp.StatusCode == 422 {
+	if status == 422 {
 		return &apiResp, fmt.Errorf("validation error: %s", apiResp.Message)
 	}
-	if resp.StatusCode >= 400 {
+	if status >= 400 {
 		return &apiResp, fmt.Errorf("API error: %s", apiResp.Message)
 	}
 
@@ -569,40 +589,23 @@ func (c *APIClient) FetchEntriesSince(since time.Time) ([]ContentItem, error) {
 
 // fetchEntriesWithParams is the common implementation for fetching entries
 func (c *APIClient) fetchEntriesWithParams(params string) ([]ContentItem, error) {
-	// Build URL with optional parameters
-	url := c.baseURL + "/api/entries"
+	// Build path with optional parameters
+	path := "/api/entries"
 	if params != "" {
-		url += "?" + params
+		path += "?" + params
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequest("GET", url, nil)
+	status, body, err := c.doRequest("GET", path, nil, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("X-API-Key", c.apiKey)
-
-	// Send request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
 	// Check for HTTP errors
-	if resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed: invalid API key")
+	if err := authFailedIfForbidden(status); err != nil {
+		return nil, err
 	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	if status >= 400 {
+		return nil, fmt.Errorf("API error (status %d): %s", status, string(body))
 	}
 
 	// Parse response - API returns {success, message, data: {items: [...], total: N}}
@@ -624,104 +627,44 @@ func (c *APIClient) fetchEntriesWithParams(params string) ([]ContentItem, error)
 
 // PruneCount gets the count of unprioritized items that would be pruned
 func (c *APIClient) PruneCount(days *int) (int, error) {
-	// Build URL with optional days parameter
-	url := c.baseURL + "/api/prune/count"
+	// Build path with optional days parameter
+	path := "/api/prune/count"
 	if days != nil {
-		url = fmt.Sprintf("%s?days=%d", url, *days)
+		path = fmt.Sprintf("%s?days=%d", path, *days)
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequest("GET", url, nil)
+	_, body, err := c.doRequest("GET", path, nil, 0)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create request: %w", err)
+		return 0, err
 	}
 
-	// Set headers
-	req.Header.Set("X-API-Key", c.apiKey)
-
-	// Send request
-	resp, err := c.httpClient.Do(req)
+	data, err := decodeSuccessOnlyData[pruneCountData](body)
 	if err != nil {
-		return 0, fmt.Errorf("network error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read response: %w", err)
+		return 0, err
 	}
 
-	// Parse response
-	var apiResp struct {
-		Success bool   `json:"success"`
-		Message string `json:"message"`
-		Data    struct {
-			Count      int  `json:"count"`
-			DaysFilter *int `json:"days_filter"`
-		} `json:"data"`
-	}
-
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return 0, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if !apiResp.Success {
-		return 0, fmt.Errorf("%s", apiResp.Message)
-	}
-
-	return apiResp.Data.Count, nil
+	return data.Count, nil
 }
 
 // PruneUnprioritized deletes unprioritized content items
 func (c *APIClient) PruneUnprioritized(days *int) (int, error) {
-	// Build URL with optional days parameter
-	url := c.baseURL + "/api/prune"
+	// Build path with optional days parameter
+	path := "/api/prune"
 	if days != nil {
-		url = fmt.Sprintf("%s?days=%d", url, *days)
+		path = fmt.Sprintf("%s?days=%d", path, *days)
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequest("POST", url, nil)
+	_, body, err := c.doRequest("POST", path, nil, 0)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create request: %w", err)
+		return 0, err
 	}
 
-	// Set headers
-	req.Header.Set("X-API-Key", c.apiKey)
-
-	// Send request
-	resp, err := c.httpClient.Do(req)
+	data, err := decodeSuccessOnlyData[pruneDeleteData](body)
 	if err != nil {
-		return 0, fmt.Errorf("network error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read response: %w", err)
+		return 0, err
 	}
 
-	// Parse response
-	var apiResp struct {
-		Success bool   `json:"success"`
-		Message string `json:"message"`
-		Data    struct {
-			Deleted    int  `json:"deleted"`
-			DaysFilter *int `json:"days_filter"`
-		} `json:"data"`
-	}
-
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return 0, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if !apiResp.Success {
-		return 0, fmt.Errorf("%s", apiResp.Message)
-	}
-
-	return apiResp.Data.Deleted, nil
+	return data.Deleted, nil
 }
 
 // AudioBriefingResponse represents the response from POST /api/audio/briefings
@@ -736,66 +679,17 @@ type AudioBriefingResponse struct {
 
 // GenerateAudioBriefing generates an audio briefing from HIGH priority content
 func (c *APIClient) GenerateAudioBriefing() (*AudioBriefingResponse, error) {
-	// Create HTTP request - no body needed for POST
-	req, err := http.NewRequest("POST", c.baseURL+"/api/audio/briefings", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("X-API-Key", c.apiKey)
-
 	// Use longer timeout for audio generation (60 seconds)
-	client := &http.Client{Timeout: 60 * time.Second}
-
-	// Send request
-	resp, err := client.Do(req)
+	status, body, err := c.doRequest("POST", "/api/audio/briefings", nil, 60*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
+		return nil, err
 	}
-	defer resp.Body.Close()
 
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
+	apiResp, err := decodeOrStatusError(status, body,
+		"validation error: check if HIGH priority content exists",
+		"server error: audio generation failed")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Check for specific HTTP status codes
-	if resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed: invalid API key")
-	}
-	if resp.StatusCode == 422 {
-		var apiResp APIResponse
-		if err := json.Unmarshal(body, &apiResp); err == nil {
-			return nil, fmt.Errorf("validation error: %s", apiResp.Message)
-		}
-		return nil, fmt.Errorf("validation error: check if HIGH priority content exists")
-	}
-	if resp.StatusCode == 500 {
-		var apiResp APIResponse
-		if err := json.Unmarshal(body, &apiResp); err == nil {
-			return nil, fmt.Errorf("server error: %s", apiResp.Message)
-		}
-		return nil, fmt.Errorf("server error: audio generation failed")
-	}
-	if resp.StatusCode >= 400 {
-		var apiResp APIResponse
-		if err := json.Unmarshal(body, &apiResp); err == nil {
-			return nil, fmt.Errorf("API error: %s", apiResp.Message)
-		}
-		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
-	}
-
-	// Parse the wrapped response
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Check if operation was successful
-	if !apiResp.Success {
-		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+		return nil, err
 	}
 
 	// Extract the audio briefing data from the data field
@@ -826,33 +720,19 @@ func (c *APIClient) GenerateAudioBriefing() (*AudioBriefingResponse, error) {
 // Returns the data field from the API response, which contains the
 // deep_extraction object on success (idempotent: repeat calls return cached result).
 func (c *APIClient) ExtractEntry(contentID string) (map[string]interface{}, error) {
-	req, err := http.NewRequest("POST", c.baseURL+"/api/entries/"+contentID+"/extract", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("X-API-Key", c.apiKey)
-
 	// Deep extraction can take 10-30 seconds (LLM call); use a longer timeout.
-	client := &http.Client{Timeout: 60 * time.Second}
-
-	resp, err := client.Do(req)
+	status, body, err := c.doRequest("POST", "/api/entries/"+contentID+"/extract", nil, 60*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
-	if resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed: invalid API key")
+	if err := authFailedIfForbidden(status); err != nil {
+		return nil, err
 	}
-	if resp.StatusCode == 404 {
+	if status == 404 {
 		return nil, fmt.Errorf("entry not found")
 	}
-	if resp.StatusCode == 503 {
+	if status == 503 {
 		// Distinguish 503 sub-codes via data.reason so the user gets an actionable
 		// message. Daemon attaches reason="not_configured" or reason="circuit_open"
 		// (see api_errors.py ServiceUnavailableError). Falls back to the generic
@@ -870,17 +750,13 @@ func (c *APIClient) ExtractEntry(contentID string) (map[string]interface{}, erro
 		}
 		return nil, fmt.Errorf("deep extraction unavailable (service not configured or circuit open)")
 	}
-	if resp.StatusCode >= 400 {
-		var apiResp APIResponse
-		if err := json.Unmarshal(body, &apiResp); err == nil {
-			return nil, fmt.Errorf("API error: %s", apiResp.Message)
-		}
-		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
+	if status >= 400 {
+		return nil, apiErrorOrStatus(status, body)
 	}
 
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+	apiResp, err := decodeAPIResponse(body)
+	if err != nil {
+		return nil, err
 	}
 	if !apiResp.Success {
 		return nil, fmt.Errorf("API error: %s", apiResp.Message)
@@ -905,66 +781,17 @@ type ContextSuggestionsResponse struct {
 
 // GetContextSuggestions analyzes flagged items and suggests topics for context.md
 func (c *APIClient) GetContextSuggestions() (*ContextSuggestionsResponse, error) {
-	// Create HTTP request - no body needed for POST
-	req, err := http.NewRequest("POST", c.baseURL+"/api/context", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("X-API-Key", c.apiKey)
-
 	// Use longer timeout for LLM analysis (30 seconds)
-	client := &http.Client{Timeout: 30 * time.Second}
-
-	// Send request
-	resp, err := client.Do(req)
+	status, body, err := c.doRequest("POST", "/api/context", nil, 30*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("network error: %w", err)
+		return nil, err
 	}
-	defer resp.Body.Close()
 
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
+	apiResp, err := decodeOrStatusError(status, body,
+		"validation error: flag some items first using 'i' key",
+		"server error: context analysis failed")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Check for specific HTTP status codes
-	if resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed: invalid API key")
-	}
-	if resp.StatusCode == 422 {
-		var apiResp APIResponse
-		if err := json.Unmarshal(body, &apiResp); err == nil {
-			return nil, fmt.Errorf("validation error: %s", apiResp.Message)
-		}
-		return nil, fmt.Errorf("validation error: flag some items first using 'i' key")
-	}
-	if resp.StatusCode == 500 {
-		var apiResp APIResponse
-		if err := json.Unmarshal(body, &apiResp); err == nil {
-			return nil, fmt.Errorf("server error: %s", apiResp.Message)
-		}
-		return nil, fmt.Errorf("server error: context analysis failed")
-	}
-	if resp.StatusCode >= 400 {
-		var apiResp APIResponse
-		if err := json.Unmarshal(body, &apiResp); err == nil {
-			return nil, fmt.Errorf("API error: %s", apiResp.Message)
-		}
-		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
-	}
-
-	// Parse the wrapped response
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Check if operation was successful
-	if !apiResp.Success {
-		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+		return nil, err
 	}
 
 	// Extract suggested_topics from Data map

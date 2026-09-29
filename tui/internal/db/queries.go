@@ -34,6 +34,15 @@ func queryContent(priorityFilter string, readFilter *bool) ([]ContentItem, error
 	return queryContentWithFilter(priorityFilter, readFilter, true)
 }
 
+// contentSelectBase is the column list, JOIN, and "WHERE 1=1" seed queryContentWithFilter
+// and GetContentWithFilters both build their own additional "AND ..." conditions onto via
+// string concatenation - the two used to hand-write this exact string themselves.
+const contentSelectBase = `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
+	                 c.published_at, c.read, c.favorited, c.interesting_override, c.user_feedback, s.type, s.name, c.source_id
+	          FROM content c
+	          JOIN sources s ON c.source_id = s.id
+	          WHERE 1=1`
+
 // queryContentWithFilter is the extended version that handles unprioritized filtering
 func queryContentWithFilter(priorityFilter string, readFilter *bool, showUnprioritized bool) ([]ContentItem, error) {
 	// Use singleton connection pool for efficiency
@@ -44,11 +53,7 @@ func queryContentWithFilter(priorityFilter string, readFilter *bool, showUnprior
 	// Note: Don't close the pool connection - it's managed globally
 
 	// Build query with proper JOIN to get source info
-	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
-	                 c.published_at, c.read, c.favorited, c.interesting_override, c.user_feedback, s.type, s.name, c.source_id
-	          FROM content c
-	          JOIN sources s ON c.source_id = s.id
-	          WHERE 1=1`
+	query := contentSelectBase
 
 	var args []interface{}
 
@@ -80,6 +85,15 @@ func queryContentWithFilter(priorityFilter string, readFilter *bool, showUnprior
 	}
 	defer rows.Close()
 
+	return scanContentRows(rows)
+}
+
+// scanContentRows reads every row from a content-JOIN-sources query built with the same
+// 15-column SELECT (queryContentWithFilter, GetContentWithFilters, GetAllContent, and
+// GetUnprioritizedContent all share it) into a []ContentItem, applying the same
+// nullable-field and RFC3339 timestamp handling every caller used to repeat. Callers keep
+// their own defer rows.Close() - this only consumes rows via rows.Next()/rows.Err().
+func scanContentRows(rows *sql.Rows) ([]ContentItem, error) {
 	var items []ContentItem
 	for rows.Next() {
 		var item ContentItem
@@ -146,7 +160,7 @@ func queryContentWithFilter(priorityFilter string, readFilter *bool, showUnprior
 		items = append(items, item)
 	}
 
-	if err = rows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 
@@ -185,11 +199,7 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 	}
 
 	// Build query with proper JOIN to get source info
-	query := `SELECT c.id, c.title, c.url, c.summary, c.priority, c.content, c.analysis,
-	                 c.published_at, c.read, c.favorited, c.interesting_override, c.user_feedback, s.type, s.name, c.source_id
-	          FROM content c
-	          JOIN sources s ON c.source_id = s.id
-	          WHERE 1=1`
+	query := contentSelectBase
 
 	var args []interface{}
 
@@ -250,74 +260,9 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 	}
 	defer rows.Close()
 
-	var items []ContentItem
-	for rows.Next() {
-		var item ContentItem
-		var publishedStr sql.NullString
-		var priority sql.NullString
-		var summary sql.NullString
-		var content sql.NullString
-		var analysis sql.NullString
-		var userFeedback sql.NullString
-		var sourceType sql.NullString
-		var sourceName sql.NullString
-
-		err := rows.Scan(
-			&item.ID,
-			&item.Title,
-			&item.URL,
-			&summary,
-			&priority,
-			&content,
-			&analysis,
-			&publishedStr,
-			&item.Read,
-			&item.Favorited,
-			&item.InterestingOverride,
-			&userFeedback,
-			&sourceType,
-			&sourceName,
-			&item.SourceID,
-		)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Handle nullable fields
-		if priority.Valid {
-			item.Priority = priority.String
-		}
-		if summary.Valid {
-			item.Summary = summary.String
-		}
-		if content.Valid {
-			item.Content = content.String
-		}
-		if analysis.Valid {
-			item.Analysis = analysis.String
-		}
-		if userFeedback.Valid {
-			item.UserFeedback = userFeedback.String
-		}
-		if sourceType.Valid {
-			item.SourceType = sourceType.String
-		}
-		if sourceName.Valid {
-			item.SourceName = sourceName.String
-		}
-
-		// Parse published timestamp
-		if publishedStr.Valid {
-			if parsed, err := time.Parse(time.RFC3339, publishedStr.String); err == nil {
-				item.Published = parsed
-			}
-		}
-
-		items = append(items, item)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("error iterating rows: %w", err)
+	items, err := scanContentRows(rows)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	// Get count of hidden unprioritized items if filtering is active
@@ -363,75 +308,7 @@ func GetAllContent(showArchived bool) ([]ContentItem, error) {
 	}
 	defer rows.Close()
 
-	var items []ContentItem
-	for rows.Next() {
-		var item ContentItem
-		var publishedStr sql.NullString
-		var priority sql.NullString
-		var summary sql.NullString
-		var content sql.NullString
-		var analysis sql.NullString
-		var userFeedback sql.NullString
-		var sourceType sql.NullString
-		var sourceName sql.NullString
-
-		err := rows.Scan(
-			&item.ID,
-			&item.Title,
-			&item.URL,
-			&summary,
-			&priority,
-			&content,
-			&analysis,
-			&publishedStr,
-			&item.Read,
-			&item.Favorited,
-			&item.InterestingOverride,
-			&userFeedback,
-			&sourceType,
-			&sourceName,
-			&item.SourceID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		if priority.Valid {
-			item.Priority = priority.String
-		}
-		if summary.Valid {
-			item.Summary = summary.String
-		}
-		if content.Valid {
-			item.Content = content.String
-		}
-		if analysis.Valid {
-			item.Analysis = analysis.String
-		}
-		if userFeedback.Valid {
-			item.UserFeedback = userFeedback.String
-		}
-		if sourceType.Valid {
-			item.SourceType = sourceType.String
-		}
-		if sourceName.Valid {
-			item.SourceName = sourceName.String
-		}
-
-		if publishedStr.Valid {
-			if parsed, err := time.Parse(time.RFC3339, publishedStr.String); err == nil {
-				item.Published = parsed
-			}
-		}
-
-		items = append(items, item)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	return items, nil
+	return scanContentRows(rows)
 }
 
 // dbPathFunc is a variable holding the function to get DB path (for testing)
@@ -577,139 +454,56 @@ func GetUnprioritizedContent(showAll bool) ([]ContentItem, int, error) {
 	}
 	defer rows.Close()
 
-	var items []ContentItem
-	for rows.Next() {
-		var item ContentItem
-		var publishedStr sql.NullString
-		var priority sql.NullString
-		var summary sql.NullString
-		var content sql.NullString
-		var analysis sql.NullString
-		var userFeedback sql.NullString
-		var sourceType sql.NullString
-		var sourceName sql.NullString
-
-		err := rows.Scan(
-			&item.ID,
-			&item.Title,
-			&item.URL,
-			&summary,
-			&priority,
-			&content,
-			&analysis,
-			&publishedStr,
-			&item.Read,
-			&item.Favorited,
-			&item.InterestingOverride,
-			&userFeedback,
-			&sourceType,
-			&sourceName,
-			&item.SourceID,
-		)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Handle nullable fields
-		if priority.Valid {
-			item.Priority = priority.String
-		}
-		if summary.Valid {
-			item.Summary = summary.String
-		}
-		if content.Valid {
-			item.Content = content.String
-		}
-		if analysis.Valid {
-			item.Analysis = analysis.String
-		}
-		if userFeedback.Valid {
-			item.UserFeedback = userFeedback.String
-		}
-		if sourceType.Valid {
-			item.SourceType = sourceType.String
-		}
-		if sourceName.Valid {
-			item.SourceName = sourceName.String
-		}
-
-		// Parse published timestamp
-		if publishedStr.Valid {
-			if parsed, err := time.Parse(time.RFC3339, publishedStr.String); err == nil {
-				item.Published = parsed
-			}
-		}
-
-		items = append(items, item)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("error iterating rows: %w", err)
+	items, err := scanContentRows(rows)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	// No hidden count for unprioritized view
 	return items, 0, nil
 }
 
-// getUnprioritizedCount returns the count of unread items with NULL or empty priority
-func getUnprioritizedCount() (int, error) {
+// countQuery runs a single-value COUNT(*) query against the singleton connection pool
+// and returns the result, wrapping any error with "failed to <errContext>" the same way
+// every count query in this file did before this was extracted (getUnprioritizedCount,
+// GetArchivedCount, GetFavoritesCount).
+func countQuery(query, errContext string) (int, error) {
 	db, err := GetDB()
 	if err != nil {
 		return 0, fmt.Errorf("failed to get database connection: %w", err)
 	}
 
 	var count int
-	err = db.QueryRow(`
-		SELECT COUNT(*) FROM content
-		WHERE read = 0
-		AND (priority IS NULL OR priority = '')
-	`).Scan(&count)
-
-	if err != nil {
-		return 0, fmt.Errorf("failed to count unprioritized items: %w", err)
+	if err := db.QueryRow(query).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to %s: %w", errContext, err)
 	}
 
 	return count, nil
+}
+
+// getUnprioritizedCount returns the count of unread items with NULL or empty priority
+func getUnprioritizedCount() (int, error) {
+	return countQuery(`
+		SELECT COUNT(*) FROM content
+		WHERE read = 0
+		AND (priority IS NULL OR priority = '')
+	`, "count unprioritized items")
 }
 
 // GetArchivedCount returns the count of archived items
 func GetArchivedCount() (int, error) {
-	db, err := GetDB()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	var count int
-	err = db.QueryRow(`
+	return countQuery(`
 		SELECT COUNT(*) FROM content
 		WHERE archived_at IS NOT NULL
-	`).Scan(&count)
-
-	if err != nil {
-		return 0, fmt.Errorf("failed to count archived items: %w", err)
-	}
-
-	return count, nil
+	`, "count archived items")
 }
 
 // GetFavoritesCount returns the count of favorited items
 func GetFavoritesCount() (int, error) {
-	db, err := GetDB()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	var count int
-	err = db.QueryRow(`
+	return countQuery(`
 		SELECT COUNT(*) FROM content
 		WHERE favorited = 1
-	`).Scan(&count)
-
-	if err != nil {
-		return 0, fmt.Errorf("failed to count favorited items: %w", err)
-	}
-
-	return count, nil
+	`, "count favorited items")
 }
 
 // MarkAsRead marks a content item as read in the database

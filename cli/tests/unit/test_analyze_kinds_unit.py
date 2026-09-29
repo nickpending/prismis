@@ -1,5 +1,6 @@
-"""Unit tests for `prismis-cli analyze kinds` -- kind-backfill work order, job 1
-(SC-1..SC-5, gh #83).
+"""Unit tests for `prismis-cli analyze kinds` and `analyze repair` -- kind-backfill
+work order job 1 (SC-1..SC-5, gh #83) and dedup work order job 10's cluster-13 fix
+(SC-10).
 
 Protects:
 - SC-1: selection is bounded to items carrying a summary whose analysis has no
@@ -17,22 +18,30 @@ Protects:
 - SC-4: the command refuses -- before any decisions-endpoint call -- when no
   kind_service is configured (naming kind_service) or when run in remote mode
   (naming local mode the way `analyze repair`'s own `_check_local_mode` does).
+- SC-10: `analyze repair` builds its analysis dict through the same daemon-side
+  helper (build_llm_analysis) the fetch pipeline uses, and now passes learned
+  preferences into the evaluator the same way orchestrator.run_once does --
+  proven by preference_influenced appearing in the stored analysis, True when
+  enough recent feedback exists and False (not absent) when it does not.
 
 Per constitution Principle I (daemon/tests/unit/test_no_internal_mocks_unit.py),
-submit_decision -- kind_classifier's own decisions-endpoint provider boundary -- is
-the only thing stood in for. Storage, Config, and KindClassifier all run for real
+submit_decision (kind_classifier's decisions-endpoint boundary) and
+prismis_daemon.llm_call.complete (the shared LLM-call boundary summarizer and
+evaluator now go through, cluster 11) are the only things stood in for. Storage,
+Config, ContentSummarizer, ContentEvaluator, and KindClassifier all run for real
 against a real temp database and a real sealed config.toml.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch  # claudex-guard: allow-mock
+from unittest.mock import MagicMock, patch  # claudex-guard: allow-mock
 
 import pytest
 from typer.testing import CliRunner
@@ -50,6 +59,11 @@ from conftest import TEST_API_KEY
 # The decisions-endpoint provider boundary itself (Principle I permits faking it) --
 # same patch target kind_classifier's own unit tests use.
 _PATCH_SUBMIT = "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+
+# The shared LLM-call boundary summarizer.py and evaluator.py both go through
+# since cluster 11's call_llm_with_circuit_breaker extraction -- same patch target
+# daemon/tests/unit/test_evaluator_unit.py and test_summarizer_unit.py use.
+_PATCH_COMPLETE = "prismis_daemon.llm_call.complete"  # claudex-guard: allow-mock
 
 runner = CliRunner()
 
@@ -517,3 +531,126 @@ def test_kinds_declining_confirmation_skips_classification(local_env: Path) -> N
     assert "kind_confidence" not in (item["analysis"] or {}), (
         "declining the confirmation must leave the item unclassified"
     )
+
+
+# ---------------------------------------------------------------------------
+# SC-10 (dedup work order, job 10, cluster 13): `analyze repair` builds its
+# analysis dict through build_llm_analysis, the same daemon-side helper the
+# fetch pipeline uses, and passes learned preferences into the evaluator the
+# same way orchestrator.run_once does.
+# ---------------------------------------------------------------------------
+
+
+def _fake_complete_result(payload: dict[str, Any]) -> MagicMock:
+    """Stand in for llm_call.complete()'s CompleteResult, JSON-encoding payload
+    into .text the way summarizer.py/evaluator.py's extract_json() expects."""
+    fake = MagicMock()  # claudex-guard: allow-mock
+    fake.text = json.dumps(payload)
+    fake.tokens.input = 10
+    fake.tokens.output = 5
+    fake.cost = 0.0
+    fake.model = "gpt-4.1-mini"
+    fake.duration_ms = 1
+    return fake
+
+
+_SUMMARY_PAYLOAD: dict[str, Any] = {
+    "summary": "A short summary.",
+    "reading_summary": "# Title\n\n## Overview\nSomething happened.",
+    "alpha_insights": ["insight one"],
+    "patterns": ["pattern one"],
+    "quotes": [],
+    "tools": [],
+    "urls": [],
+}
+
+_EVAL_PAYLOAD: dict[str, Any] = {
+    "priority": "medium",
+    "matched_interests": ["topic"],
+    "reasoning": "matches topic",
+}
+
+
+def _repair_llm_side_effect() -> list[MagicMock]:
+    """One repair pass over a single item calls complete() twice: once from
+    summarizer.summarize_with_analysis, once from evaluator.evaluate_content --
+    in that order (analyze.py's repair() Step 1 then Step 2)."""
+    return [
+        _fake_complete_result(_SUMMARY_PAYLOAD),
+        _fake_complete_result(_EVAL_PAYLOAD),
+    ]
+
+
+def test_repair_includes_preference_influenced_and_passes_learned_preferences_to_evaluator(
+    local_env: Path,
+) -> None:
+    """
+    SC-10: with >=5 recent feedback votes, repair fetches learned preferences and
+    threads them into evaluate_content -- proven by the stored analysis carrying
+    preference_influenced=True, a flag ContentEvaluator only sets when it actually
+    received a non-empty learned_preferences argument (evaluator.py's
+    evaluate_content, not something the fake LLM response itself supplies).
+    BREAKS: repair building its own analysis dict inline (its pre-cluster-13 shape)
+    never threads learned_preferences into evaluate_content, so
+    preference_influenced stays False even with plenty of recent votes.
+    """
+    storage = Storage(local_env)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
+
+    # 5 votes in the last 30 days crosses get_learned_preferences' min_votes.
+    for i in range(5):
+        voted_id = _seed(storage, source_id, title=f"Voted Item {i}")
+        storage.update_content_status(voted_id, user_feedback="up")
+
+    target_id = _seed(
+        storage, source_id, title="Needs Repair", summary=None, analysis=None
+    )
+    storage.close()
+
+    with patch(
+        _PATCH_COMPLETE, side_effect=_repair_llm_side_effect()
+    ):  # claudex-guard: allow-mock
+        result = runner.invoke(analyze_app, ["repair", "--force", "--limit", "1"])
+
+    assert result.exit_code == 0, result.output
+
+    reread = Storage(local_env)
+    stored = reread.get_content_by_id(target_id)
+    reread.close()
+
+    assert stored is not None
+    assert stored["analysis"]["preference_influenced"] is True, stored["analysis"]
+
+
+def test_repair_still_writes_preference_influenced_false_when_no_learned_preferences(
+    local_env: Path,
+) -> None:
+    """
+    SC-10: with no recent feedback votes, repair's stored analysis still carries
+    the preference_influenced key (as False) -- the fetch pipeline always writes
+    this key, and matching that shape is cluster 13's fix, not swapping one
+    omission (no key) for another (a key present only sometimes).
+    BREAKS: repair reverting to its pre-fix narrower dict drops the key entirely
+    instead of writing it as False.
+    """
+    storage = Storage(local_env)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
+    target_id = _seed(
+        storage, source_id, title="Needs Repair Too", summary=None, analysis=None
+    )
+    storage.close()
+
+    with patch(
+        _PATCH_COMPLETE, side_effect=_repair_llm_side_effect()
+    ):  # claudex-guard: allow-mock
+        result = runner.invoke(analyze_app, ["repair", "--force", "--limit", "1"])
+
+    assert result.exit_code == 0, result.output
+
+    reread = Storage(local_env)
+    stored = reread.get_content_by_id(target_id)
+    reread.close()
+
+    assert stored is not None
+    assert "preference_influenced" in stored["analysis"], stored["analysis"]
+    assert stored["analysis"]["preference_influenced"] is False, stored["analysis"]

@@ -6,6 +6,7 @@ from typing import Any
 
 from rich.console import Console
 
+from .analysis import build_llm_analysis, get_learned_preferences
 from .config import Config
 from .deep_extractor import ContentDeepExtractor
 from .embeddings import Embedder
@@ -283,18 +284,7 @@ class DaemonOrchestrator:
                     )
 
                     # Step 3c: Build LLM analysis data
-                    llm_analysis = {
-                        "reading_summary": summary_result.reading_summary,
-                        "alpha_insights": summary_result.alpha_insights,
-                        "patterns": summary_result.patterns,
-                        "quotes": summary_result.quotes,
-                        "tools": summary_result.tools,
-                        "urls": summary_result.urls,
-                        "matched_interests": evaluation.matched_interests,
-                        "priority_reasoning": evaluation.reasoning,
-                        "preference_influenced": evaluation.preference_influenced,
-                        "metadata": summary_result.metadata,
-                    }
+                    llm_analysis = build_llm_analysis(summary_result, evaluation)
 
                     # Step 3d: Merge with existing analysis (preserve fetcher metrics)
                     existing_analysis = item.analysis or {}
@@ -480,14 +470,11 @@ class DaemonOrchestrator:
         # Only activates if user has provided at least 5 votes in the last 30 days
         learned_preferences = None
         try:
-            feedback_stats = self.storage.get_feedback_statistics(since_days=30)
-            total_votes = feedback_stats.get("totals", {}).get("total_votes", 0)
-            if total_votes >= 5:
-                learned_preferences = feedback_stats.get("for_llm_context")
-                if learned_preferences:
-                    self.console.print(
-                        f"🧠 Using learned preferences from {total_votes} votes (last 30 days)"
-                    )
+            learned_preferences, total_votes = get_learned_preferences(self.storage)
+            if learned_preferences:
+                self.console.print(
+                    f"🧠 Using learned preferences from {total_votes} votes (last 30 days)"
+                )
         except Exception as e:
             logger.warning(f"Failed to fetch feedback statistics: {e}")
             # Continue without learned preferences - not critical

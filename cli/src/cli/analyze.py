@@ -108,6 +108,10 @@ def repair(
                 console.print(f"[dim]Estimated cost: ${cost_estimate:.2f}[/dim]\n")
 
             # Lazy import heavy LLM dependencies (only when actually repairing)
+            from prismis_daemon.analysis import (
+                build_llm_analysis,
+                get_learned_preferences,
+            )
             from prismis_daemon.config import Config
             from prismis_daemon.evaluator import ContentEvaluator
             from prismis_daemon.observability import log as obs_log
@@ -117,6 +121,22 @@ def repair(
             config = Config.from_file()
             summarizer = ContentSummarizer(config.llm_light_service)
             evaluator = ContentEvaluator(config.llm_light_service)
+
+            # Fetch learned preferences for LLM evaluation (003-light-preference-learning),
+            # the same helper and threshold the daemon pipeline uses
+            # (orchestrator.run_once): only activates with >=5 votes in the last 30 days.
+            learned_preferences = None
+            try:
+                learned_preferences, total_votes = get_learned_preferences(storage)
+                if learned_preferences:
+                    console.print(
+                        f"[dim]🧠 Using learned preferences from {total_votes} votes (last 30 days)[/dim]"
+                    )
+            except Exception as e:
+                obs_log(
+                    "cli.repair.feedback_statistics_failed", source="cli", error=str(e)
+                )
+                # Continue without learned preferences - not critical
 
             # Track repair operation start
             start_time = time.time()
@@ -169,20 +189,12 @@ def repair(
                         title=item["title"],
                         url=item["url"],
                         context=config.context,
+                        learned_preferences=learned_preferences,
                     )
 
-                    # Step 3: Build analysis dict
-                    analysis = {
-                        "reading_summary": summary_result.reading_summary,
-                        "alpha_insights": summary_result.alpha_insights,
-                        "patterns": summary_result.patterns,
-                        "quotes": summary_result.quotes,
-                        "tools": summary_result.tools,
-                        "urls": summary_result.urls,
-                        "matched_interests": evaluation.matched_interests,
-                        "priority_reasoning": evaluation.reasoning,
-                        "metadata": summary_result.metadata,
-                    }
+                    # Step 3: Build analysis dict (same daemon-side helper the
+                    # pipeline uses -- includes preference_influenced, SC-10)
+                    analysis = build_llm_analysis(summary_result, evaluation)
 
                     # Merge with existing analysis (preserve any fetcher metrics)
                     if item.get("analysis"):

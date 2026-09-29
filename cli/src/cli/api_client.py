@@ -66,6 +66,99 @@ class APIClient:
 
         return api_key
 
+    def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        timeout: httpx.Timeout | None = None,
+    ) -> httpx.Response:
+        """Send an HTTP request to the daemon and return the raw response.
+
+        The single place every method opens its `httpx.Client`, builds the
+        request URL, attaches the API key header, and wraps `httpx.RequestError`
+        and any other exception raised while sending into `RuntimeError`. Does
+        not parse the body or inspect the status code — callers that want the
+        standard status/success/JSON handling use `_send_json`; `get_entry_raw`
+        reads `response.text` directly instead, since its endpoint is not JSON.
+
+        Args:
+            method: HTTP method (GET, POST, PATCH, DELETE)
+            path: URL path appended to `self.base_url`
+            json: Optional JSON request body
+            params: Optional query parameters
+            timeout: Optional per-call timeout override; defaults to `self.timeout`
+
+        Returns:
+            The raw httpx.Response
+
+        Raises:
+            RuntimeError: On a network error or any other failure to send
+        """
+        try:
+            with httpx.Client(timeout=timeout or self.timeout) as client:
+                return client.request(
+                    method,
+                    f"{self.base_url}{path}",
+                    json=json,
+                    params=params,
+                    headers={"X-API-Key": self.api_key},
+                )
+        except httpx.RequestError as e:
+            raise RuntimeError(f"Network error: {e}") from e
+        except Exception as e:
+            if isinstance(e, RuntimeError):
+                raise
+            raise RuntimeError(f"Unexpected error: {e}") from e
+
+    def _send_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        timeout: httpx.Timeout | None = None,
+        check_success: bool = True,
+    ) -> dict[str, Any]:
+        """Send a request via `_send`, parse its JSON body, and raise on failure.
+
+        Always raises `RuntimeError` on a >=400 status, using the body's
+        `message` field when present. When `check_success` is True (the
+        default, and every caller except `count_unprioritized` and
+        `prune_unprioritized`), also raises when the body's `success` flag is
+        falsy — those two callers' original bodies never made that check, so
+        it stays optional rather than folded into every caller's behavior.
+
+        Takes the same `method`/`path`/`json`/`params`/`timeout` arguments as
+        `_send`, plus:
+
+        Args:
+            check_success: Whether to also raise on a falsy `success` field
+
+        Returns:
+            The parsed JSON response body
+
+        Raises:
+            RuntimeError: On a network error, a >=400 status, a falsy `success`
+                field (when `check_success`), or any other failure
+        """
+        response = self._send(method, path, json=json, params=params, timeout=timeout)
+        try:
+            data = response.json()
+            if response.status_code >= 400:
+                error_msg = data.get("message", f"API error: {response.status_code}")
+                raise RuntimeError(error_msg)
+            if check_success and not data.get("success"):
+                raise RuntimeError(data.get("message", "Unknown error"))
+            return data
+        except RuntimeError:
+            raise
+        except Exception as e:
+            raise RuntimeError(f"Unexpected error: {e}") from e
+
     def add_source(
         self, url: str, source_type: str, name: str | None = None
     ) -> dict[str, Any]:
@@ -82,34 +175,12 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                response = client.post(
-                    f"{self.base_url}/api/sources",
-                    json={"url": url, "type": source_type, "name": name},
-                    headers={"X-API-Key": self.api_key},
-                )
-
-                data = response.json()
-
-                # Check for API errors
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return data.get("data", {})
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        data = self._send_json(
+            "POST",
+            "/api/sources",
+            json={"url": url, "type": source_type, "name": name},
+        )
+        return data.get("data", {})
 
     def remove_source(self, source_id: str) -> bool:
         """Remove a source via API.
@@ -123,33 +194,8 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                response = client.delete(
-                    f"{self.base_url}/api/sources/{source_id}",
-                    headers={"X-API-Key": self.api_key},
-                )
-
-                data = response.json()
-
-                # Check for API errors
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return True
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        self._send_json("DELETE", f"/api/sources/{source_id}")
+        return True
 
     def pause_source(self, source_id: str) -> bool:
         """Pause a source via API.
@@ -163,33 +209,8 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                response = client.patch(
-                    f"{self.base_url}/api/sources/{source_id}/pause",
-                    headers={"X-API-Key": self.api_key},
-                )
-
-                data = response.json()
-
-                # Check for API errors
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return True
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        self._send_json("PATCH", f"/api/sources/{source_id}/pause")
+        return True
 
     def resume_source(self, source_id: str) -> bool:
         """Resume a source via API.
@@ -203,33 +224,8 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                response = client.patch(
-                    f"{self.base_url}/api/sources/{source_id}/resume",
-                    headers={"X-API-Key": self.api_key},
-                )
-
-                data = response.json()
-
-                # Check for API errors
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return True
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        self._send_json("PATCH", f"/api/sources/{source_id}/resume")
+        return True
 
     def count_unprioritized(self, days: int | None = None) -> int:
         """Count unprioritized content items.
@@ -243,31 +239,11 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                params = {"days": days} if days is not None else {}
-                response = client.get(
-                    f"{self.base_url}/api/prune/count",
-                    headers={"X-API-Key": self.api_key},
-                    params=params,
-                )
-
-                data = response.json()
-
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                return data.get("data", {}).get("count", 0)
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        params = {"days": days} if days is not None else {}
+        data = self._send_json(
+            "GET", "/api/prune/count", params=params, check_success=False
+        )
+        return data.get("data", {}).get("count", 0)
 
     def prune_unprioritized(self, days: int | None = None) -> dict:
         """Delete unprioritized content items.
@@ -281,31 +257,8 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                params = {"days": days} if days is not None else {}
-                response = client.post(
-                    f"{self.base_url}/api/prune",
-                    headers={"X-API-Key": self.api_key},
-                    params=params,
-                )
-
-                data = response.json()
-
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                return data
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        params = {"days": days} if days is not None else {}
+        return self._send_json("POST", "/api/prune", params=params, check_success=False)
 
     def get_report(self, period: str = "24h") -> str:
         """Generate a content report for the specified period.
@@ -319,30 +272,8 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                response = client.get(
-                    f"{self.base_url}/api/reports",
-                    headers={"X-API-Key": self.api_key},
-                    params={"period": period},
-                )
-
-                data = response.json()
-
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                return data.get("data", {}).get("markdown", "")
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        data = self._send_json("GET", "/api/reports", params={"period": period})
+        return data.get("data", {}).get("markdown", "")
 
     def edit_source(self, source_id: str, name: str) -> bool:
         """Edit a source's name via API.
@@ -357,34 +288,8 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                response = client.patch(
-                    f"{self.base_url}/api/sources/{source_id}",
-                    json={"name": name},
-                    headers={"X-API-Key": self.api_key},
-                )
-
-                data = response.json()
-
-                # Check for API errors
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return True
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        self._send_json("PATCH", f"/api/sources/{source_id}", json={"name": name})
+        return True
 
     def get_entry(self, entry_id: str) -> dict[str, Any]:
         """Get a single content entry by ID (summary without content field).
@@ -398,33 +303,8 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails or entry not found
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                response = client.get(
-                    f"{self.base_url}/api/entries/{entry_id}",
-                    headers={"X-API-Key": self.api_key},
-                )
-
-                data = response.json()
-
-                # Check for API errors
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return data.get("data", {})
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        data = self._send_json("GET", f"/api/entries/{entry_id}")
+        return data.get("data", {})
 
     def get_entry_raw(self, entry_id: str) -> str:
         """Get raw content of a single entry as plain text.
@@ -438,27 +318,14 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails or entry not found
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                response = client.get(
-                    f"{self.base_url}/api/entries/{entry_id}/raw",
-                    headers={"X-API-Key": self.api_key},
-                )
+        response = self._send("GET", f"/api/entries/{entry_id}/raw")
 
-                # Raw endpoint returns plain text, not JSON
-                if response.status_code >= 400:
-                    raise RuntimeError(
-                        f"Entry not found or API error: {response.status_code}"
-                    )
+        # Raw endpoint returns plain text, not JSON - use _send only, never
+        # _send_json, which would try to parse this as JSON and check `success`.
+        if response.status_code >= 400:
+            raise RuntimeError(f"Entry not found or API error: {response.status_code}")
 
-                return response.text
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        return response.text
 
     def get_content(
         self,
@@ -489,56 +356,30 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                # Build query parameters
-                params: dict[str, Any] = {"limit": limit}
-                if priority:
-                    params["priority"] = priority
-                if unread_only:
-                    params["unread_only"] = True
-                if source:
-                    params["source"] = source
-                if compact:
-                    params["compact"] = True
-                if since_hours:
-                    params["since_hours"] = since_hours
-                if kind:
-                    params["kind"] = kind
+        # Build query parameters
+        params: dict[str, Any] = {"limit": limit}
+        if priority:
+            params["priority"] = priority
+        if unread_only:
+            params["unread_only"] = True
+        if source:
+            params["source"] = source
+        if compact:
+            params["compact"] = True
+        if since_hours:
+            params["since_hours"] = since_hours
+        if kind:
+            params["kind"] = kind
 
-                # Map archive_filter to API parameters
-                if archive_filter == "only":
-                    params["archived_only"] = True
-                elif archive_filter == "include":
-                    params["include_archived"] = True
-                # 'exclude' is the default (no parameter needed)
+        # Map archive_filter to API parameters
+        if archive_filter == "only":
+            params["archived_only"] = True
+        elif archive_filter == "include":
+            params["include_archived"] = True
+        # 'exclude' is the default (no parameter needed)
 
-                response = client.get(
-                    f"{self.base_url}/api/entries",
-                    headers={"X-API-Key": self.api_key},
-                    params=params,
-                )
-
-                data = response.json()
-
-                # Check for API errors
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return data.get("data", {}).get("items", [])
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        data = self._send_json("GET", "/api/entries", params=params)
+        return data.get("data", {}).get("items", [])
 
     def get_archive_status(self) -> dict:
         """Get archival status from API.
@@ -549,33 +390,8 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.get(
-                    f"{self.base_url}/api/archive/status",
-                    headers={"X-API-Key": self.api_key},
-                )
-
-                data = response.json()
-
-                # Check for API errors
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return data.get("data", {})
-
-        except httpx.RequestError as e:
-            raise RuntimeError(f"Network error: {e}") from e
-        except Exception as e:
-            if isinstance(e, RuntimeError):
-                raise
-            raise RuntimeError(f"Unexpected error: {e}") from e
+        data = self._send_json("GET", "/api/archive/status")
+        return data.get("data", {})
 
     def search(
         self,
@@ -600,42 +416,16 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                params: dict[str, Any] = {"q": query, "limit": limit}
-                if compact:
-                    params["compact"] = True
-                if source:
-                    params["source"] = source
-                if min_score is not None:
-                    params["min_score"] = min_score
+        params: dict[str, Any] = {"q": query, "limit": limit}
+        if compact:
+            params["compact"] = True
+        if source:
+            params["source"] = source
+        if min_score is not None:
+            params["min_score"] = min_score
 
-                response = client.get(
-                    f"{self.base_url}/api/search",
-                    headers={"X-API-Key": self.api_key},
-                    params=params,
-                )
-
-                data = response.json()
-
-                # Check for API errors
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return data.get("data", {}).get("items", [])
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        data = self._send_json("GET", "/api/search", params=params)
+        return data.get("data", {}).get("items", [])
 
     def get_statistics(self) -> dict[str, Any]:
         """Get system-wide statistics from API.
@@ -646,33 +436,8 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.get(
-                    f"{self.base_url}/api/statistics",
-                    headers={"X-API-Key": self.api_key},
-                )
-
-                data = response.json()
-
-                # Check for API errors
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return data.get("data", {})
-
-        except httpx.RequestError as e:
-            raise RuntimeError(f"Network error: {e}") from e
-        except Exception as e:
-            if isinstance(e, RuntimeError):
-                raise
-            raise RuntimeError(f"Unexpected error: {e}") from e
+        data = self._send_json("GET", "/api/statistics")
+        return data.get("data", {})
 
     def get_sources(self) -> list[dict[str, Any]]:
         """Get all configured sources via API.
@@ -683,32 +448,8 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=self.timeout) as client:
-            try:
-                response = client.get(
-                    f"{self.base_url}/api/sources",
-                    headers={"X-API-Key": self.api_key},
-                )
-
-                data = response.json()
-
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return data.get("data", {}).get("sources", [])
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        data = self._send_json("GET", "/api/sources")
+        return data.get("data", {}).get("sources", [])
 
     def extract_entry(self, entry_id: str) -> dict[str, Any]:
         """Trigger deep extraction for a content entry.
@@ -729,29 +470,9 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        with httpx.Client(timeout=httpx.Timeout(120.0)) as client:
-            try:
-                response = client.post(
-                    f"{self.base_url}/api/entries/{entry_id}/extract",
-                    headers={"X-API-Key": self.api_key},
-                )
-
-                data = response.json()
-
-                if response.status_code >= 400:
-                    error_msg = data.get(
-                        "message", f"API error: {response.status_code}"
-                    )
-                    raise RuntimeError(error_msg)
-
-                if not data.get("success"):
-                    raise RuntimeError(data.get("message", "Unknown error"))
-
-                return data.get("data", {})
-
-            except httpx.RequestError as e:
-                raise RuntimeError(f"Network error: {e}") from e
-            except Exception as e:
-                if isinstance(e, RuntimeError):
-                    raise
-                raise RuntimeError(f"Unexpected error: {e}") from e
+        data = self._send_json(
+            "POST",
+            f"/api/entries/{entry_id}/extract",
+            timeout=httpx.Timeout(120.0),
+        )
+        return data.get("data", {})

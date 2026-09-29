@@ -5,6 +5,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .api_client import APIClient
+from .format import format_priority
 
 console = Console()
 
@@ -90,14 +91,7 @@ def search(
 
             # Format priority with color
             priority_val = (result.get("priority") or "N/A").upper()
-            if priority_val == "HIGH":
-                priority_display = f"[red]{priority_val}[/red]"
-            elif priority_val == "MEDIUM":
-                priority_display = f"[yellow]{priority_val}[/yellow]"
-            elif priority_val == "LOW":
-                priority_display = f"[green]{priority_val}[/green]"
-            else:
-                priority_display = priority_val
+            priority_display = format_priority(priority_val)
 
             # Format relevance score
             relevance = result.get("relevance_score", 0.0)

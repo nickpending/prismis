@@ -5,9 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from .circuit_breaker import get_circuit_breaker
-from .llm_client import complete, extract_json
-from .observability import log as obs_log
+from .llm_call import build_messages, call_llm_with_circuit_breaker
+from .llm_client import extract_json
 
 logger = logging.getLogger(__name__)
 
@@ -158,10 +157,7 @@ Content Text:
 
 Evaluate this content and respond with the JSON format specified."""
 
-        return [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
+        return build_messages(system_prompt, user_prompt)
 
     def _call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
         """Call the LLM with the evaluation prompt.
@@ -173,6 +169,7 @@ Evaluate this content and respond with the JSON format specified."""
             Parsed JSON response from the LLM
 
         Raises:
+            RuntimeError: If the service's circuit breaker is open
             Exception: If LLM call fails
         """
         try:
@@ -184,67 +181,9 @@ Evaluate this content and respond with the JSON format specified."""
             system_prompt = messages[0]["content"]
             user_prompt = messages[1]["content"]
 
-            # Check circuit breaker before LLM call
-            circuit = get_circuit_breaker(self.service_name)
-            if not circuit.check_can_proceed():
-                status = circuit.get_status()
-                obs_log(
-                    "llm.call",
-                    action="evaluate",
-                    model=self.service_name,
-                    status="circuit_open",
-                )
-                raise RuntimeError(
-                    f"LLM circuit breaker is open (quota exhausted). "
-                    f"Recovery in {status.get('recovery_in_seconds', 'unknown')}s"
-                )
-
-            try:
-                result = complete(
-                    prompt=user_prompt,
-                    system_prompt=system_prompt,
-                    service=self.service_name,
-                    json=True,
-                )
-
-                # Extract token usage
-                tokens = {
-                    "prompt": result.tokens.input,
-                    "completion": result.tokens.output,
-                    "total": result.tokens.input + result.tokens.output,
-                }
-
-                # Real billed cost for OpenRouter services; None for api.openai.com
-                # services, which return no cost (see llm_client.py's complete()).
-                cost_usd = result.cost
-
-                # Log successful LLM call
-                obs_log(
-                    "llm.call",
-                    action="evaluate",
-                    model=result.model,
-                    tokens=tokens,
-                    cost_usd=cost_usd,
-                    duration_ms=result.duration_ms,
-                    status="success",
-                )
-
-                # Record success for circuit breaker (closes if half-open)
-                circuit.record_success()
-
-            except Exception as e:
-                # Record failure for circuit breaker (may open circuit)
-                circuit.record_failure(e)
-
-                # Log failed LLM call
-                obs_log(
-                    "llm.call",
-                    action="evaluate",
-                    model=self.service_name,
-                    status="error",
-                    error=str(e),
-                )
-                raise  # Re-raise to preserve existing error handling
+            result = call_llm_with_circuit_breaker(
+                self.service_name, system_prompt, user_prompt, "evaluate"
+            )
 
             # Extract and parse response
             response_text = result.text

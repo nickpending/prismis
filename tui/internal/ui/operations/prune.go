@@ -26,12 +26,9 @@ type PruneCountMsg struct {
 // GetPruneCount gets the count of items that would be pruned
 func GetPruneCount(days *int) tea.Cmd {
 	return func() tea.Msg {
-		// Create API client
-		apiClient, err := api.NewClient()
-		if err != nil {
-			return PruneResultMsg{
-				Error: fmt.Errorf("failed to create API client: %w", err),
-			}
+		apiClient, errMsg := newClientOrPruneErrMsg()
+		if errMsg != nil {
+			return errMsg
 		}
 
 		// Get the count
@@ -52,12 +49,9 @@ func GetPruneCount(days *int) tea.Cmd {
 // ExecutePrune performs the actual prune operation
 func ExecutePrune(days *int) tea.Cmd {
 	return func() tea.Msg {
-		// Create API client
-		apiClient, err := api.NewClient()
-		if err != nil {
-			return PruneResultMsg{
-				Error: fmt.Errorf("failed to create API client: %w", err),
-			}
+		apiClient, errMsg := newClientOrPruneErrMsg()
+		if errMsg != nil {
+			return errMsg
 		}
 
 		// Get count first (for the message)
@@ -81,30 +75,17 @@ func ExecutePrune(days *int) tea.Cmd {
 
 // HandlePruneCommand processes the prune command with confirmation
 func HandlePruneCommand(msg commands.PruneMsg) tea.Cmd {
-	// If just counting, return count only
+	// If just counting, delegate to GetPruneCount and mark the result
+	// show-only rather than re-deriving the count here.
 	if msg.CountOnly {
 		return func() tea.Msg {
-			// Create API client
-			apiClient, err := api.NewClient()
-			if err != nil {
-				return PruneResultMsg{
-					Error: fmt.Errorf("failed to create API client: %w", err),
-				}
+			result := GetPruneCount(msg.Days)()
+			if countMsg, ok := result.(PruneCountMsg); ok {
+				countMsg.ShowOnly = true
+				return countMsg
 			}
-
-			// Get the count
-			count, err := apiClient.PruneCount(msg.Days)
-			if err != nil {
-				return PruneResultMsg{
-					Error: fmt.Errorf("failed to get prune count: %w", err),
-				}
-			}
-
-			return PruneCountMsg{
-				Count:    count,
-				Days:     msg.Days,
-				ShowOnly: true,
-			}
+			// PruneResultMsg (error case) passes through unchanged.
+			return result
 		}
 	}
 
@@ -115,4 +96,17 @@ func HandlePruneCommand(msg commands.PruneMsg) tea.Cmd {
 
 	// Otherwise, get count first for confirmation
 	return GetPruneCount(msg.Days)
+}
+
+// newClientOrPruneErrMsg creates an API client, returning the client on
+// success or a ready-to-return PruneResultMsg (as a tea.Msg) describing the
+// failure. Callers check errMsg for nil before using the client.
+func newClientOrPruneErrMsg() (*api.APIClient, tea.Msg) {
+	apiClient, err := api.NewClient()
+	if err != nil {
+		return nil, PruneResultMsg{
+			Error: fmt.Errorf("failed to create API client: %w", err),
+		}
+	}
+	return apiClient, nil
 }

@@ -88,6 +88,262 @@ class Storage:
         except json.JSONDecodeError:
             return None
 
+    @staticmethod
+    def _source_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+        """Map a `sources` row to its canonical dict.
+
+        get_active_sources and get_all_sources run different WHERE/ORDER BY
+        clauses over the same 10-column SELECT and used to hand-copy this same
+        dict literal each; one mapper, both callers.
+        """
+        return {
+            "id": row["id"],
+            "url": row["url"],
+            "type": row["type"],
+            "name": row["name"],
+            "active": bool(row["active"]),
+            "error_count": row["error_count"],
+            "last_error": row["last_error"],
+            "last_fetched_at": row["last_fetched_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _content_item_from_dict(self, item: dict[str, Any]) -> ContentItem:
+        """Coerce a raw content dict into a ContentItem, defaulting source_id.
+
+        Pure -- no DB write -- so each of add_content and create_or_update_content
+        keeps its own connection choice for the insert/update that follows (they
+        intentionally differ: add_content opens a fresh connection per call,
+        create_or_update_content reuses self.conn).
+        """
+        source_id = item.get("source_id")
+        if not source_id:
+            sources = self.get_active_sources()
+            if sources:
+                source_id = sources[0]["id"]
+            else:
+                raise ValueError(
+                    "No source_id provided and no active sources available"
+                )
+
+        content_item = ContentItem(
+            id=str(uuid.uuid4()),
+            external_id=item.get("external_id", str(uuid.uuid4())),
+            title=item.get("title", ""),
+            url=item.get("url", ""),
+            content=item.get("content", ""),
+            source_id=source_id,
+        )
+        # Set optional fields if provided
+        if "summary" in item:
+            content_item.summary = item["summary"]
+        if "analysis" in item:
+            content_item.analysis = item["analysis"]
+        if "priority" in item:
+            content_item.priority = item["priority"]
+        if "published_at" in item:
+            content_item.published_at = item["published_at"]
+        if "fetched_at" in item:
+            content_item.fetched_at = item["fetched_at"]
+        if "read" in item:
+            content_item.read = item["read"]
+        if "favorited" in item:
+            content_item.favorited = item["favorited"]
+        if "notes" in item:
+            content_item.notes = item["notes"]
+        return content_item
+
+    def _content_row_common_fields(self, row: sqlite3.Row) -> dict[str, Any]:
+        """The content-table fields every content-read method returns, whether
+        or not its query joins sources.
+
+        `_get_by_external_id`'s own SELECT lists these columns explicitly (no
+        join); every joined read's `c.*` selects them too -- one shared base
+        instead of two independently hand-copied dict literals.
+        """
+        return {
+            "id": row["id"],
+            "source_id": row["source_id"],
+            "external_id": row["external_id"],
+            "title": row["title"],
+            "url": row["url"],
+            "content": row["content"],
+            "summary": row["summary"],
+            "analysis": self._parse_analysis_json(row["analysis"]),
+            "priority": row["priority"],
+            "published_at": row["published_at"],
+            "fetched_at": row["fetched_at"],
+            "read": bool(row["read"]),
+            "favorited": bool(row["favorited"]),
+            "notes": row["notes"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _content_row_to_dict(
+        self, row: sqlite3.Row, *, omit: tuple[str, ...] = ()
+    ) -> dict[str, Any]:
+        """Map a `content c JOIN/LEFT JOIN sources s` row to its canonical dict.
+
+        Every joined content-read method below selects `c.*` plus
+        `source_name`/`source_type` from the sources join, so the row always
+        carries this full field set regardless of which subset a given
+        caller has historically returned. `omit` lets a caller keep its own
+        narrower shape (see each call site) instead of silently starting to
+        return fields it never did -- get_latest_content_for_source is the
+        one caller that takes the full set on purpose: it used to drop
+        user_feedback, unlike every other read method here, which was a
+        latent bug, not a narrower contract.
+        """
+        full = {
+            **self._content_row_common_fields(row),
+            "interesting_override": bool(row["interesting_override"]),
+            "user_feedback": row["user_feedback"],
+            "source_name": row["source_name"],
+            "source_type": row["source_type"],
+        }
+        for key in omit:
+            del full[key]
+        return full
+
+    def _map_content_rows(
+        self, rows: list[sqlite3.Row], *, omit: tuple[str, ...] = ()
+    ) -> list[dict[str, Any]]:
+        """Map every row in `rows` through `_content_row_to_dict`.
+
+        Every content-list read shares this same mapping step over its own
+        `cursor.fetchall()`.
+        """
+        return [self._content_row_to_dict(row, omit=omit) for row in rows]
+
+    def _query_joined_content(
+        self,
+        where_sql: str,
+        params: tuple[Any, ...] | list[Any] = (),
+        *,
+        omit: tuple[str, ...] = (),
+    ) -> list[dict[str, Any]]:
+        """Run the canonical `content c LEFT JOIN sources s` SELECT, ending in
+        `where_sql`, and map every row.
+
+        get_content_by_id, get_latest_content_for_source, get_content_without_
+        embeddings, get_content_without_analysis, get_content_needing_kind, and
+        search_content's candidate lookup all run this exact SELECT header and
+        differ only in their WHERE/ORDER BY/LIMIT clause, their param list, and
+        which canonical fields they return.
+        """
+        # String concatenation, not an f-string -- matches this file's existing
+        # pattern for a hardcoded (never user-input) dynamic SQL fragment (see
+        # PRUNE_EXCLUSION_WHERE and every `query +=` above).
+        cursor = self.conn.execute(
+            """
+            SELECT c.*, s.name as source_name, s.type as source_type
+            FROM content c
+            LEFT JOIN sources s ON c.source_id = s.id
+            """
+            + where_sql,
+            tuple(params),
+        )
+        return self._map_content_rows(cursor.fetchall(), omit=omit)
+
+    @staticmethod
+    def _content_insert_values(item: ContentItem) -> tuple[str | None, str | None, str]:
+        """Derive the insert-time-only fields from a ContentItem.
+
+        The JSON-serialized analysis, and the ISO-string published_at/
+        fetched_at -- Python 3.12 deprecated the default sqlite3 datetime
+        adapter, so both datetimes get converted to ISO strings here rather
+        than bound directly (matches deep_extractor.py's canonical UTC-ISO
+        timestamp shape). add_content and create_or_update_content's create
+        branch both derive these before their own (different) INSERT.
+        """
+        analysis_json = json.dumps(item.analysis) if item.analysis else None
+        published_at_iso = item.published_at.isoformat() if item.published_at else None
+        fetched_at_iso = (
+            item.fetched_at.isoformat()
+            if item.fetched_at
+            else datetime.now(UTC).isoformat()
+        )
+        return analysis_json, published_at_iso, fetched_at_iso
+
+    @staticmethod
+    def _insert_content_row(
+        conn: sqlite3.Connection,
+        item: ContentItem,
+        analysis_json: str | None,
+        published_at_iso: str | None,
+        fetched_at_iso: str,
+    ) -> None:
+        """Run the canonical content INSERT against the connection the caller
+        supplies.
+
+        add_content and create_or_update_content intentionally use different
+        connections (a fresh one vs the shared instance connection) -- the
+        connection stays a parameter here so that choice stays visible at
+        each call site instead of being decided inside this helper.
+        """
+        conn.execute(
+            """
+            INSERT INTO content (
+                id, source_id, external_id, title, url, content,
+                summary, analysis, priority, published_at,
+                fetched_at, read, favorited, notes,
+                created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                item.id,
+                item.source_id,
+                item.external_id,
+                item.title,
+                item.url,
+                item.content,
+                item.summary,
+                analysis_json,
+                item.priority,
+                published_at_iso,
+                fetched_at_iso,
+                item.read,
+                item.favorited,
+                item.notes,
+            ),
+        )
+
+    def _log_update_result(
+        self,
+        operation: str,
+        duration_ms: int,
+        row_count: int | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Emit the db.update event a single-row content UPDATE always logs.
+
+        update_content_status and flag_interesting both wrap their UPDATE in
+        the same success/not_found-by-row_count, error-by-exception shape;
+        one obs_log call site instead of two hand-copied ones.
+        """
+        if error is not None:
+            obs_log(
+                "db.update",
+                table="content",
+                operation=operation,
+                error=error,
+                duration_ms=duration_ms,
+                status="error",
+            )
+        else:
+            obs_log(
+                "db.update",
+                table="content",
+                operation=operation,
+                row_count=row_count,
+                duration_ms=duration_ms,
+                status="success" if row_count else "not_found",
+            )
+
     def add_source(self, url: str, source_type: str, name: str | None = None) -> str:
         """Add a new content source to the database.
 
@@ -150,22 +406,7 @@ class Storage:
                 """
             )
 
-            sources = []
-            for row in cursor.fetchall():
-                sources.append(
-                    {
-                        "id": row["id"],
-                        "url": row["url"],
-                        "type": row["type"],
-                        "name": row["name"],
-                        "active": bool(row["active"]),
-                        "error_count": row["error_count"],
-                        "last_error": row["last_error"],
-                        "last_fetched_at": row["last_fetched_at"],
-                        "created_at": row["created_at"],
-                        "updated_at": row["updated_at"],
-                    }
-                )
+            sources = [self._source_row_to_dict(row) for row in cursor.fetchall()]
 
             return sources
 
@@ -191,44 +432,7 @@ class Storage:
 
         # Convert dict to ContentItem if needed
         if isinstance(item, dict):
-            # If no source_id provided, use the first available source
-            source_id = item.get("source_id")
-            if not source_id:
-                sources = self.get_active_sources()
-                if sources:
-                    source_id = sources[0]["id"]
-                else:
-                    raise ValueError(
-                        "No source_id provided and no active sources available"
-                    )
-
-            # Create ContentItem from dict with required fields
-            content_item = ContentItem(
-                id=str(uuid.uuid4()),
-                external_id=item.get("external_id", str(uuid.uuid4())),
-                title=item.get("title", ""),
-                url=item.get("url", ""),
-                content=item.get("content", ""),
-                source_id=source_id,
-            )
-            # Set optional fields if provided
-            if "summary" in item:
-                content_item.summary = item["summary"]
-            if "analysis" in item:
-                content_item.analysis = item["analysis"]
-            if "priority" in item:
-                content_item.priority = item["priority"]
-            if "published_at" in item:
-                content_item.published_at = item["published_at"]
-            if "fetched_at" in item:
-                content_item.fetched_at = item["fetched_at"]
-            if "read" in item:
-                content_item.read = item["read"]
-            if "favorited" in item:
-                content_item.favorited = item["favorited"]
-            if "notes" in item:
-                content_item.notes = item["notes"]
-            item = content_item
+            item = self._content_item_from_dict(item)
 
         conn = get_db_connection(self.db_path)
         try:
@@ -251,50 +455,11 @@ class Storage:
                 )
                 return None
 
-            # Serialize analysis dict to JSON if present
-            analysis_json = None
-            if item.analysis:
-                analysis_json = json.dumps(item.analysis)
-
-            # Convert datetime bindings to ISO strings — Python 3.12 deprecated
-            # the default sqlite3 datetime adapter. Matches deep_extractor.py:156
-            # canonical UTC-ISO timestamp shape.
-            published_at_iso = (
-                item.published_at.isoformat() if item.published_at else None
+            analysis_json, published_at_iso, fetched_at_iso = (
+                self._content_insert_values(item)
             )
-            fetched_at_iso = (
-                item.fetched_at.isoformat()
-                if item.fetched_at
-                else datetime.now(UTC).isoformat()
-            )
-
-            conn.execute(
-                """
-                INSERT INTO content (
-                    id, source_id, external_id, title, url, content,
-                    summary, analysis, priority, published_at,
-                    fetched_at, read, favorited, notes,
-                    created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """,
-                (
-                    item.id,  # Use the UUID from the item
-                    item.source_id,
-                    item.external_id,
-                    item.title,
-                    item.url,
-                    item.content,
-                    item.summary,
-                    analysis_json,
-                    item.priority,
-                    published_at_iso,
-                    fetched_at_iso,
-                    item.read,
-                    item.favorited,
-                    item.notes,
-                ),
+            self._insert_content_row(
+                conn, item, analysis_json, published_at_iso, fetched_at_iso
             )
 
             conn.commit()
@@ -344,44 +509,7 @@ class Storage:
         """
         # Convert dict to ContentItem if needed (same logic as add_content)
         if isinstance(item, dict):
-            # If no source_id provided, use the first available source
-            source_id = item.get("source_id")
-            if not source_id:
-                sources = self.get_active_sources()
-                if sources:
-                    source_id = sources[0]["id"]
-                else:
-                    raise ValueError(
-                        "No source_id provided and no active sources available"
-                    )
-
-            # Create ContentItem from dict with required fields
-            content_item = ContentItem(
-                id=str(uuid.uuid4()),
-                external_id=item.get("external_id", str(uuid.uuid4())),
-                title=item.get("title", ""),
-                url=item.get("url", ""),
-                content=item.get("content", ""),
-                source_id=source_id,
-            )
-            # Set optional fields if provided
-            if "summary" in item:
-                content_item.summary = item["summary"]
-            if "analysis" in item:
-                content_item.analysis = item["analysis"]
-            if "priority" in item:
-                content_item.priority = item["priority"]
-            if "published_at" in item:
-                content_item.published_at = item["published_at"]
-            if "fetched_at" in item:
-                content_item.fetched_at = item["fetched_at"]
-            if "read" in item:
-                content_item.read = item["read"]
-            if "favorited" in item:
-                content_item.favorited = item["favorited"]
-            if "notes" in item:
-                content_item.notes = item["notes"]
-            item = content_item
+            item = self._content_item_from_dict(item)
 
         start_time = time.time()
 
@@ -422,49 +550,11 @@ class Storage:
 
             else:
                 # Create new content (same logic as add_content)
-                analysis_json = None
-                if item.analysis:
-                    analysis_json = json.dumps(item.analysis)
-
-                # Convert datetime bindings to ISO strings — Python 3.12 deprecated
-                # the default sqlite3 datetime adapter. Matches deep_extractor.py:156
-                # canonical UTC-ISO timestamp shape.
-                published_at_iso = (
-                    item.published_at.isoformat() if item.published_at else None
+                analysis_json, published_at_iso, fetched_at_iso = (
+                    self._content_insert_values(item)
                 )
-                fetched_at_iso = (
-                    item.fetched_at.isoformat()
-                    if item.fetched_at
-                    else datetime.now(UTC).isoformat()
-                )
-
-                self.conn.execute(
-                    """
-                    INSERT INTO content (
-                        id, source_id, external_id, title, url, content,
-                        summary, analysis, priority, published_at,
-                        fetched_at, read, favorited, notes,
-                        created_at, updated_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    """,
-                    (
-                        item.id,
-                        item.source_id,
-                        item.external_id,
-                        item.title,
-                        item.url,
-                        item.content,
-                        item.summary,
-                        analysis_json,
-                        item.priority,
-                        published_at_iso,
-                        fetched_at_iso,
-                        item.read,
-                        item.favorited,
-                        item.notes,
-                    ),
+                self._insert_content_row(
+                    self.conn, item, analysis_json, published_at_iso, fetched_at_iso
                 )
                 self.conn.commit()
                 obs_log(
@@ -572,27 +662,7 @@ class Storage:
             row = cursor.fetchone()
 
             if row:
-                # Convert sqlite3.Row to dict
-                return {
-                    "id": row["id"],
-                    "source_id": row["source_id"],
-                    "external_id": row["external_id"],
-                    "title": row["title"],
-                    "url": row["url"],
-                    "content": row["content"],
-                    "summary": row["summary"],
-                    "analysis": json.loads(row["analysis"])
-                    if row["analysis"]
-                    else None,
-                    "priority": row["priority"],
-                    "published_at": row["published_at"],
-                    "fetched_at": row["fetched_at"],
-                    "read": bool(row["read"]),
-                    "favorited": bool(row["favorited"]),
-                    "notes": row["notes"],
-                    "created_at": row["created_at"],
-                    "updated_at": row["updated_at"],
-                }
+                return self._content_row_common_fields(row)
             return None
 
         except sqlite3.Error as e:
@@ -646,37 +716,9 @@ class Storage:
 
             cursor = self.conn.execute(query, tuple(params))
 
-            content = []
-            for row in cursor.fetchall():
-                # Parse JSON analysis if present
-                analysis = None
-                if row["analysis"]:
-                    analysis = json.loads(row["analysis"])
-
-                content.append(
-                    {
-                        "id": row["id"],
-                        "source_id": row["source_id"],
-                        "source_name": row["source_name"],
-                        "source_type": row["source_type"],
-                        "external_id": row["external_id"],
-                        "title": row["title"],
-                        "url": row["url"],
-                        "content": row["content"],
-                        "summary": row["summary"],
-                        "analysis": analysis,
-                        "priority": row["priority"],
-                        "published_at": row["published_at"],
-                        "fetched_at": row["fetched_at"],
-                        "read": bool(row["read"]),
-                        "favorited": bool(row["favorited"]),
-                        "interesting_override": bool(row["interesting_override"]),
-                        "user_feedback": row["user_feedback"],
-                        "notes": row["notes"],
-                    }
-                )
-
-            return content
+            return self._map_content_rows(
+                cursor.fetchall(), omit=("created_at", "updated_at")
+            )
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content by priority: {e}") from e
@@ -729,37 +771,9 @@ class Storage:
 
             cursor = self.conn.execute(query, tuple(params))
 
-            content = []
-            for row in cursor.fetchall():
-                # Parse JSON analysis if present
-                analysis = None
-                if row["analysis"]:
-                    analysis = json.loads(row["analysis"])
-
-                content.append(
-                    {
-                        "id": row["id"],
-                        "source_id": row["source_id"],
-                        "source_name": row["source_name"],
-                        "source_type": row["source_type"],
-                        "external_id": row["external_id"],
-                        "title": row["title"],
-                        "url": row["url"],
-                        "content": row["content"],
-                        "summary": row["summary"],
-                        "analysis": analysis,
-                        "priority": row["priority"],
-                        "published_at": row["published_at"],
-                        "fetched_at": row["fetched_at"],
-                        "read": bool(row["read"]),
-                        "favorited": bool(row["favorited"]),
-                        "interesting_override": bool(row["interesting_override"]),
-                        "user_feedback": row["user_feedback"],
-                        "notes": row["notes"],
-                    }
-                )
-
-            return content
+            return self._map_content_rows(
+                cursor.fetchall(), omit=("created_at", "updated_at")
+            )
 
         except sqlite3.Error as e:
             since_str = since.isoformat() if since else "beginning"
@@ -932,22 +946,7 @@ class Storage:
                 """
             )
 
-            sources = []
-            for row in cursor.fetchall():
-                sources.append(
-                    {
-                        "id": row["id"],
-                        "url": row["url"],
-                        "type": row["type"],
-                        "name": row["name"],
-                        "active": bool(row["active"]),
-                        "error_count": row["error_count"],
-                        "last_error": row["last_error"],
-                        "last_fetched_at": row["last_fetched_at"],
-                        "created_at": row["created_at"],
-                        "updated_at": row["updated_at"],
-                    }
-                )
+            sources = [self._source_row_to_dict(row) for row in cursor.fetchall()]
 
             return sources
 
@@ -1127,27 +1126,15 @@ class Storage:
             self.conn.commit()
             duration_ms = int((time.time() - start_time) * 1000)
             row_count = cursor.rowcount
-            obs_log(
-                "db.update",
-                table="content",
-                operation="update_content_status",
-                row_count=row_count,
-                duration_ms=duration_ms,
-                status="success" if row_count > 0 else "not_found",
+            self._log_update_result(
+                "update_content_status", duration_ms, row_count=row_count
             )
             return cursor.rowcount > 0
 
         except sqlite3.Error as e:
             self.conn.rollback()
             duration_ms = int((time.time() - start_time) * 1000)
-            obs_log(
-                "db.update",
-                table="content",
-                operation="update_content_status",
-                error=str(e),
-                duration_ms=duration_ms,
-                status="error",
-            )
+            self._log_update_result("update_content_status", duration_ms, error=str(e))
             raise sqlite3.Error(f"Failed to update content status: {e}") from e
 
     def flag_interesting(self, content_id: str) -> bool:
@@ -1171,27 +1158,15 @@ class Storage:
             self.conn.commit()
             duration_ms = int((time.time() - start_time) * 1000)
             row_count = cursor.rowcount
-            obs_log(
-                "db.update",
-                table="content",
-                operation="flag_interesting",
-                row_count=row_count,
-                duration_ms=duration_ms,
-                status="success" if row_count > 0 else "not_found",
+            self._log_update_result(
+                "flag_interesting", duration_ms, row_count=row_count
             )
             return cursor.rowcount > 0
 
         except sqlite3.Error as e:
             self.conn.rollback()
             duration_ms = int((time.time() - start_time) * 1000)
-            obs_log(
-                "db.update",
-                table="content",
-                operation="flag_interesting",
-                error=str(e),
-                duration_ms=duration_ms,
-                status="error",
-            )
+            self._log_update_result("flag_interesting", duration_ms, error=str(e))
             raise sqlite3.Error(f"Failed to flag content as interesting: {e}") from e
 
     def get_flagged_items(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -1273,43 +1248,8 @@ class Storage:
             sqlite3.Error: If database operation fails
         """
         try:
-            cursor = self.conn.execute(
-                """
-                SELECT c.*, s.name as source_name, s.type as source_type
-                FROM content c
-                LEFT JOIN sources s ON c.source_id = s.id
-                WHERE c.id = ?
-                """,
-                (content_id,),
-            )
-            row = cursor.fetchone()
-
-            if row:
-                analysis = self._parse_analysis_json(row["analysis"])
-
-                return {
-                    "id": row["id"],
-                    "source_id": row["source_id"],
-                    "external_id": row["external_id"],
-                    "title": row["title"],
-                    "url": row["url"],
-                    "content": row["content"],
-                    "summary": row["summary"],
-                    "analysis": analysis,
-                    "priority": row["priority"],
-                    "published_at": row["published_at"],
-                    "fetched_at": row["fetched_at"],
-                    "read": bool(row["read"]),
-                    "favorited": bool(row["favorited"]),
-                    "interesting_override": bool(row["interesting_override"]),
-                    "user_feedback": row["user_feedback"],
-                    "notes": row["notes"],
-                    "source_name": row["source_name"],
-                    "source_type": row["source_type"],
-                    "created_at": row["created_at"],
-                    "updated_at": row["updated_at"],
-                }
-            return None
+            rows = self._query_joined_content("WHERE c.id = ?", (content_id,))
+            return rows[0] if rows else None
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content by ID: {e}") from e
@@ -1327,44 +1267,14 @@ class Storage:
             sqlite3.Error: If database operation fails
         """
         try:
-            cursor = self.conn.execute(
-                """
-                SELECT c.*, s.name as source_name, s.type as source_type
-                FROM content c
-                LEFT JOIN sources s ON c.source_id = s.id
-                WHERE c.source_id = ?
-                ORDER BY c.fetched_at DESC
-                LIMIT 1
-                """,
+            # Full canonical set, including user_feedback -- every other
+            # joined-row read method here returns it; this one used to
+            # silently drop it (a latent bug, not a narrower contract).
+            rows = self._query_joined_content(
+                "WHERE c.source_id = ? ORDER BY c.fetched_at DESC LIMIT 1",
                 (source_id,),
             )
-            row = cursor.fetchone()
-
-            if row:
-                analysis = self._parse_analysis_json(row["analysis"])
-
-                return {
-                    "id": row["id"],
-                    "source_id": row["source_id"],
-                    "external_id": row["external_id"],
-                    "title": row["title"],
-                    "url": row["url"],
-                    "content": row["content"],
-                    "summary": row["summary"],
-                    "analysis": analysis,
-                    "priority": row["priority"],
-                    "published_at": row["published_at"],
-                    "fetched_at": row["fetched_at"],
-                    "read": bool(row["read"]),
-                    "favorited": bool(row["favorited"]),
-                    "interesting_override": bool(row["interesting_override"]),
-                    "notes": row["notes"],
-                    "source_name": row["source_name"],
-                    "source_type": row["source_type"],
-                    "created_at": row["created_at"],
-                    "updated_at": row["updated_at"],
-                }
-            return None
+            return rows[0] if rows else None
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get latest content for source: {e}") from e
@@ -1614,47 +1524,20 @@ class Storage:
             # Build safe IN clause with parameterized placeholders
             # Note: placeholders is just "?,?,?" string, not user input
             placeholders = ",".join(["?"] * len(content_ids))
-            query = (
-                "SELECT c.*, s.name as source_name, s.type as source_type "
-                "FROM content c "
-                "LEFT JOIN sources s ON c.source_id = s.id "
-                "WHERE c.id IN (" + placeholders + ")"
-            )
+            where_sql = "WHERE c.id IN (" + placeholders + ")"
             params: list[Any] = list(content_ids)
 
             # Add source filter at SQL level if provided
             if source_filter:
-                query += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
+                where_sql += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
                 params.append(source_filter)
 
-            cursor = self.conn.execute(query, params)
+            rows = self._query_joined_content(
+                where_sql, params, omit=("interesting_override",)
+            )
 
             # Build dict of content by id
-            content_by_id = {}
-            for row in cursor.fetchall():
-                analysis = self._parse_analysis_json(row["analysis"])
-
-                content_by_id[row["id"]] = {
-                    "id": row["id"],
-                    "source_id": row["source_id"],
-                    "external_id": row["external_id"],
-                    "title": row["title"],
-                    "url": row["url"],
-                    "content": row["content"],
-                    "summary": row["summary"],
-                    "analysis": analysis,
-                    "priority": row["priority"],
-                    "published_at": row["published_at"],
-                    "fetched_at": row["fetched_at"],
-                    "read": bool(row["read"]),
-                    "favorited": bool(row["favorited"]),
-                    "user_feedback": row["user_feedback"],
-                    "notes": row["notes"],
-                    "source_name": row["source_name"],
-                    "source_type": row["source_type"],
-                    "created_at": row["created_at"],
-                    "updated_at": row["updated_at"],
-                }
+            content_by_id = {row["id"]: row for row in rows}
 
             # Calculate weighted scores and re-rank
             results = []
@@ -1736,46 +1619,12 @@ class Storage:
             sqlite3.Error: If database operation fails
         """
         try:
-            cursor = self.conn.execute(
-                """
-                SELECT c.*, s.name as source_name, s.type as source_type
-                FROM content c
-                LEFT JOIN sources s ON c.source_id = s.id
-                WHERE c.id NOT IN (SELECT content_id FROM embeddings)
-                ORDER BY c.fetched_at DESC
-                LIMIT ?
-                """,
+            return self._query_joined_content(
+                """WHERE c.id NOT IN (SELECT content_id FROM embeddings)
+                   ORDER BY c.fetched_at DESC LIMIT ?""",
                 (limit,),
+                omit=("interesting_override", "user_feedback"),
             )
-
-            results = []
-            for row in cursor.fetchall():
-                analysis = self._parse_analysis_json(row["analysis"])
-
-                results.append(
-                    {
-                        "id": row["id"],
-                        "source_id": row["source_id"],
-                        "external_id": row["external_id"],
-                        "title": row["title"],
-                        "url": row["url"],
-                        "content": row["content"],
-                        "summary": row["summary"],
-                        "analysis": analysis,
-                        "priority": row["priority"],
-                        "published_at": row["published_at"],
-                        "fetched_at": row["fetched_at"],
-                        "read": bool(row["read"]),
-                        "favorited": bool(row["favorited"]),
-                        "notes": row["notes"],
-                        "source_name": row["source_name"],
-                        "source_type": row["source_type"],
-                        "created_at": row["created_at"],
-                        "updated_at": row["updated_at"],
-                    }
-                )
-
-            return results
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content without embeddings: {e}") from e
@@ -1825,49 +1674,15 @@ class Storage:
             sqlite3.Error: If database operation fails
         """
         try:
-            cursor = self.conn.execute(
-                """
-                SELECT c.*, s.name as source_name, s.type as source_type
-                FROM content c
-                LEFT JOIN sources s ON c.source_id = s.id
-                WHERE c.priority IS NULL
-                  AND c.summary IS NULL
-                  AND c.analysis IS NULL
-                  AND c.archived_at IS NULL
-                ORDER BY c.fetched_at DESC
-                LIMIT ?
-                """,
+            return self._query_joined_content(
+                """WHERE c.priority IS NULL
+                     AND c.summary IS NULL
+                     AND c.analysis IS NULL
+                     AND c.archived_at IS NULL
+                   ORDER BY c.fetched_at DESC LIMIT ?""",
                 (limit,),
+                omit=("interesting_override", "user_feedback"),
             )
-
-            results = []
-            for row in cursor.fetchall():
-                analysis = self._parse_analysis_json(row["analysis"])
-
-                results.append(
-                    {
-                        "id": row["id"],
-                        "source_id": row["source_id"],
-                        "external_id": row["external_id"],
-                        "title": row["title"],
-                        "url": row["url"],
-                        "content": row["content"],
-                        "summary": row["summary"],
-                        "analysis": analysis,
-                        "priority": row["priority"],
-                        "published_at": row["published_at"],
-                        "fetched_at": row["fetched_at"],
-                        "read": bool(row["read"]),
-                        "favorited": bool(row["favorited"]),
-                        "notes": row["notes"],
-                        "source_name": row["source_name"],
-                        "source_type": row["source_type"],
-                        "created_at": row["created_at"],
-                        "updated_at": row["updated_at"],
-                    }
-                )
-
-            return results
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content without analysis: {e}") from e
@@ -1896,52 +1711,20 @@ class Storage:
             sqlite3.Error: If database operation fails
         """
         try:
-            query = """
-                SELECT c.*, s.name as source_name, s.type as source_type
-                FROM content c
-                LEFT JOIN sources s ON c.source_id = s.id
-                WHERE c.archived_at IS NULL
-                  AND c.summary IS NOT NULL
-                  AND c.summary != ''
-                  AND json_type(c.analysis, '$.kind_confidence') IS NULL
-            """
+            where_sql = """WHERE c.archived_at IS NULL
+                             AND c.summary IS NOT NULL
+                             AND c.summary != ''
+                             AND json_type(c.analysis, '$.kind_confidence') IS NULL"""
             params: list[Any] = []
             if since_days is not None:
-                query += " AND datetime(c.fetched_at) >= datetime('now', ?)"
+                where_sql += " AND datetime(c.fetched_at) >= datetime('now', ?)"
                 params.append(f"-{since_days} days")
-            query += " ORDER BY c.fetched_at DESC LIMIT ?"
+            where_sql += " ORDER BY c.fetched_at DESC LIMIT ?"
             params.append(limit)
 
-            cursor = self.conn.execute(query, tuple(params))
-
-            results = []
-            for row in cursor.fetchall():
-                analysis = self._parse_analysis_json(row["analysis"])
-
-                results.append(
-                    {
-                        "id": row["id"],
-                        "source_id": row["source_id"],
-                        "external_id": row["external_id"],
-                        "title": row["title"],
-                        "url": row["url"],
-                        "content": row["content"],
-                        "summary": row["summary"],
-                        "analysis": analysis,
-                        "priority": row["priority"],
-                        "published_at": row["published_at"],
-                        "fetched_at": row["fetched_at"],
-                        "read": bool(row["read"]),
-                        "favorited": bool(row["favorited"]),
-                        "notes": row["notes"],
-                        "source_name": row["source_name"],
-                        "source_type": row["source_type"],
-                        "created_at": row["created_at"],
-                        "updated_at": row["updated_at"],
-                    }
-                )
-
-            return results
+            return self._query_joined_content(
+                where_sql, params, omit=("interesting_override", "user_feedback")
+            )
 
         except sqlite3.Error as e:
             raise sqlite3.Error(

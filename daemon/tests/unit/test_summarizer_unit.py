@@ -4,8 +4,18 @@ import dataclasses
 import json
 from unittest.mock import MagicMock, patch  # claudex-guard: allow-mock
 
-from prismis_daemon.circuit_breaker import reset_circuit_breaker
+import pytest
+
+from prismis_daemon.circuit_breaker import (
+    CircuitState,
+    get_circuit_breaker,
+    reset_circuit_breaker,
+)
 from prismis_daemon.summarizer import ContentSummarizer, ContentSummary
+
+# dedup (cluster 11): summarizer.py no longer imports complete directly -- the call
+# moved into the shared call_llm_with_circuit_breaker helper in llm_call.py.
+_LLM_COMPLETE_MOCK = "prismis_daemon.llm_call.complete"  # claudex-guard: allow-mock
 
 # ContentSummarizer takes a llm-core service name (summarizer.py:39-46); model choice and
 # credentials are resolved by llm-core from services.toml, not from a config dict here.
@@ -149,9 +159,7 @@ def test_summarize_with_analysis_parses_response_with_no_entity_tags_key() -> No
     fake_result.duration_ms = 500
 
     try:
-        with patch(
-            "prismis_daemon.summarizer.complete"
-        ) as mock_complete:  # claudex-guard: allow-mock
+        with patch(_LLM_COMPLETE_MOCK) as mock_complete:  # claudex-guard: allow-mock
             mock_complete.return_value = fake_result
 
             result = summarizer.summarize_with_analysis(
@@ -169,3 +177,82 @@ def test_summarize_with_analysis_parses_response_with_no_entity_tags_key() -> No
     assert result.patterns == ["pattern"]
     assert result.quotes == []
     assert not hasattr(result, "entities")
+
+
+# --- cluster 11 (dedup-triage.md): the LLM-call mechanics, including the
+# circuit-breaker gating, now live in call_llm_with_circuit_breaker
+# (prismis_daemon/llm_call.py). summarizer.py already gated on the circuit breaker
+# before the extraction, but nothing here proved it -- these tests prove the
+# consolidated caller still refuses, and still records success/failure, exactly as
+# it did before the move. ---
+
+
+def test_circuit_open_refuses_summarize_without_hitting_the_llm() -> None:
+    """A summarize call is refused before complete() is ever invoked, once the
+    service's circuit breaker is open."""
+    reset_circuit_breaker()
+    circuit = get_circuit_breaker(SERVICE)
+    for _ in range(3):
+        circuit.record_failure(RuntimeError("insufficient_quota"))
+    assert circuit.check_can_proceed() is False, "setup: circuit must be open"
+
+    summarizer = ContentSummarizer(SERVICE)
+    try:
+        with patch(_LLM_COMPLETE_MOCK) as mock_complete:  # claudex-guard: allow-mock
+            with pytest.raises(RuntimeError, match="circuit breaker is open"):
+                summarizer.summarize_with_analysis(content="body text", title="t")
+            mock_complete.assert_not_called()
+    finally:
+        reset_circuit_breaker()
+
+
+def test_summarize_records_a_quota_failure_on_the_circuit_breaker() -> None:
+    """Three quota-shaped failures from summarize_with_analysis open the circuit --
+    the helper's record_failure call, not just a log line."""
+    reset_circuit_breaker()
+    summarizer = ContentSummarizer(SERVICE)
+    try:
+        with patch(
+            _LLM_COMPLETE_MOCK, side_effect=RuntimeError("insufficient_quota")
+        ):  # claudex-guard: allow-mock
+            for _ in range(3):
+                with pytest.raises(RuntimeError):
+                    summarizer.summarize_with_analysis(content="body text", title="t")
+        assert get_circuit_breaker(SERVICE).check_can_proceed() is False
+    finally:
+        reset_circuit_breaker()
+
+
+def test_summarize_records_success_and_closes_a_half_open_circuit() -> None:
+    """A successful summarize call closes a half-open circuit via record_success."""
+    reset_circuit_breaker()
+    circuit = get_circuit_breaker(SERVICE)
+    circuit.state = CircuitState.HALF_OPEN
+    summarizer = ContentSummarizer(SERVICE)
+
+    fake_result = MagicMock()  # claudex-guard: allow-mock
+    fake_result.text = json.dumps(
+        {
+            "summary": "s",
+            "reading_summary": "r",
+            "alpha_insights": [],
+            "patterns": [],
+            "quotes": [],
+            "tools": [],
+            "urls": [],
+        }
+    )
+    fake_result.tokens.input = 10
+    fake_result.tokens.output = 5
+    fake_result.cost = 0.0
+    fake_result.model = "gpt-4.1-mini"
+    fake_result.duration_ms = 1
+
+    try:
+        with patch(_LLM_COMPLETE_MOCK) as mock_complete:  # claudex-guard: allow-mock
+            mock_complete.return_value = fake_result
+            result = summarizer.summarize_with_analysis(content="body text", title="t")
+        assert result is not None
+        assert circuit.state == CircuitState.CLOSED
+    finally:
+        reset_circuit_breaker()

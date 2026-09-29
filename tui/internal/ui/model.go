@@ -261,48 +261,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case commands.RefreshMsg:
 		// Handle refresh command
 		if msg.PreserveCursor && m.view == "list" && !m.loading {
-			// Save current item ID to restore position if possible
-			var currentItemID string
-			if m.cursor < len(m.items) && m.cursor >= 0 {
-				currentItemID = m.items[m.cursor].ID
-			}
-
 			m.loading = true
 
 			// Create refresh command that preserves position (same as old 'r' key)
-			refreshCmd := func() tea.Msg {
-				var result itemsLoadedMsg
-
-				// Check if remote mode
-				if m.remoteURL != "" {
-					result = fetchItemsRemote(m)
-				} else {
-					// Fetch all content, filter client-side (unified with remote mode)
-					allItems, err := db.GetAllContent(m.showArchived)
-					if err != nil {
-						result = itemsLoadedMsg{err: err}
-					} else {
-						kinds, kErr := db.GetDistinctKinds(m.showArchived)
-						if kErr != nil {
-							// Don't fail the whole refresh if kind enumeration fails
-							kinds = nil
-						}
-						result = itemsLoadedMsg{
-							items:          applyFiltersClientSide(allItems, m),
-							hiddenCount:    countHiddenUnprioritized(allItems, m),
-							availableKinds: kinds,
-							err:            nil,
-						}
-					}
-				}
-
-				// Add cursor preservation fields
-				result.preserveCursor = true
-				result.targetItemID = currentItemID
-				return result
-			}
-
-			return m, refreshCmd
+			return m, m.buildRefreshCmd(false)
 		} else {
 			// Simple refresh without cursor preservation
 			m.loading = true
@@ -936,50 +898,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case autoRefreshMsg:
 		// Handle automatic refresh - only if not already loading and in list view
 		if !m.loading && m.view == "list" && !m.sourceModal.IsVisible() {
-			// Save current item ID to restore position
-			var currentItemID string
-			if m.cursor < len(m.items) && m.cursor >= 0 {
-				currentItemID = m.items[m.cursor].ID
-			}
-
 			m.loading = true
 
-			// Create refresh command that preserves position
-			refreshCmd := func() tea.Msg {
-				var result itemsLoadedMsg
-
-				// Check if remote mode
-				if m.remoteURL != "" {
-					result = fetchItemsRemote(m)
-				} else {
-					// Fetch all content, filter client-side (unified with remote mode)
-					allItems, err := db.GetAllContent(m.showArchived)
-					if err != nil {
-						result = itemsLoadedMsg{err: err}
-					} else {
-						kinds, kErr := db.GetDistinctKinds(m.showArchived)
-						if kErr != nil {
-							// Don't fail the whole refresh if kind enumeration fails
-							kinds = nil
-						}
-						result = itemsLoadedMsg{
-							items:          applyFiltersClientSide(allItems, m),
-							hiddenCount:    countHiddenUnprioritized(allItems, m),
-							availableKinds: kinds,
-							err:            nil,
-						}
-					}
-				}
-
-				// Add cursor preservation and auto-refresh marker
-				result.preserveCursor = true
-				result.targetItemID = currentItemID
-				result.isAutoRefresh = true
-				return result
-			}
-
 			// Trigger refresh (timer rescheduled after completion)
-			cmds = append(cmds, refreshCmd)
+			cmds = append(cmds, m.buildRefreshCmd(true))
 		}
 
 	case operations.PruneCountMsg:
@@ -1260,6 +1182,52 @@ func fetchItemsWithState(m Model, refreshData bool) tea.Cmd {
 			availableKinds: kinds,
 			err:            nil,
 		}
+	}
+}
+
+// buildRefreshCmd returns a tea.Cmd that reloads items and preserves the
+// current cursor position, shared by the manual-refresh (commands.RefreshMsg)
+// and auto-refresh (autoRefreshMsg) paths. isAutoRefresh marks the resulting
+// itemsLoadedMsg as auto-refresh triggered; every other field is identical
+// between the two callers.
+func (m *Model) buildRefreshCmd(isAutoRefresh bool) tea.Cmd {
+	// Save current item ID to restore position if possible
+	var currentItemID string
+	if m.cursor < len(m.items) && m.cursor >= 0 {
+		currentItemID = m.items[m.cursor].ID
+	}
+
+	return func() tea.Msg {
+		var result itemsLoadedMsg
+
+		// Check if remote mode
+		if m.remoteURL != "" {
+			result = fetchItemsRemote(*m)
+		} else {
+			// Fetch all content, filter client-side (unified with remote mode)
+			allItems, err := db.GetAllContent(m.showArchived)
+			if err != nil {
+				result = itemsLoadedMsg{err: err}
+			} else {
+				kinds, kErr := db.GetDistinctKinds(m.showArchived)
+				if kErr != nil {
+					// Don't fail the whole refresh if kind enumeration fails
+					kinds = nil
+				}
+				result = itemsLoadedMsg{
+					items:          applyFiltersClientSide(allItems, *m),
+					hiddenCount:    countHiddenUnprioritized(allItems, *m),
+					availableKinds: kinds,
+					err:            nil,
+				}
+			}
+		}
+
+		// Add cursor preservation and auto-refresh marker
+		result.preserveCursor = true
+		result.targetItemID = currentItemID
+		result.isAutoRefresh = isAutoRefresh
+		return result
 	}
 }
 

@@ -80,7 +80,7 @@ install: check-deps build install-binaries install-config ## Install everything 
 	@echo "========================================="
 
 .PHONY: install-binaries
-install-binaries: install-tui install-daemon install-cli ## Install all binaries
+install-binaries: install-tui install-daemon install-cli-local ## Install all binaries
 	@if [[ ":$$PATH:" != *":$(INSTALL_DIR):"* ]]; then \
 		echo ""; \
 		echo "⚠️  $(INSTALL_DIR) is not in your PATH"; \
@@ -104,6 +104,13 @@ install-daemon: ## Install daemon only (no Go/TUI required)
 	cd daemon && uv tool install . --python 3.13 --reinstall
 	@echo "✓ Installed prismis-daemon"
 
+# Local-mode commands (analyze, embeddings) import prismis_daemon, which only the [local] extra installs.
+CLI_SPEC ?= .
+
+.PHONY: install-cli-local
+install-cli-local: ## Install CLI with local-mode commands (daemon host)
+	@$(MAKE) --no-print-directory install-cli CLI_SPEC='.[local]'
+
 .PHONY: install-cli
 install-cli: ## Install CLI only (no Go/TUI required)
 	@echo "Installing prismis-cli..."
@@ -118,7 +125,7 @@ install-cli: ## Install CLI only (no Go/TUI required)
 	else \
 		echo "✓ Python 3.13 is available"; \
 	fi
-	cd cli && uv tool install . --python 3.13 --reinstall
+	cd cli && uv tool install '$(CLI_SPEC)' --python 3.13 --reinstall
 	@echo "✓ Installed prismis-cli"
 	@echo ""
 	@echo "Usage: prismis-cli --remote http://server:8989 <command>"

@@ -4,9 +4,10 @@ Drives the production orchestrator over one named source against a throwaway
 temp-XDG database and reports what each link did, mined from the observability
 JSONL the run itself writes.
 
-This module reimplements no link. Fetch, summarize, evaluate, deep-extract,
-store and embed all happen inside `DaemonOrchestrator.fetch_source_content`,
-which is called once with a synthetic source dict.
+This module reimplements no link. Fetch, summarize, evaluate, classify kind,
+deep-extract, store and embed all happen inside
+`DaemonOrchestrator.fetch_source_content`, which is called once with a synthetic
+source dict.
 """
 
 import dataclasses
@@ -29,6 +30,7 @@ from .fetchers.file import FileFetcher
 from .fetchers.reddit import RedditFetcher
 from .fetchers.rss import RSSFetcher
 from .fetchers.youtube import YouTubeFetcher
+from .kind_classifier import KindClassifier
 from .notifier import Notifier
 from .observability import get_logger, set_run_id
 from .orchestrator import DaemonOrchestrator
@@ -55,7 +57,7 @@ FAILING_STATUSES = ("error", "circuit-open")
 class LinkStatus:
     """One pipeline link's outcome in the rendered report.
 
-    name: "fetch" | "dedup" | "summarize" | "evaluate" | "deep_extract"
+    name: "fetch" | "dedup" | "summarize" | "evaluate" | "kind" | "deep_extract"
           | "store" | "embed" | "notify"
     status: "ran" | "empty" | "never-reached" | "skipped-by-flag"
             | "skipped" | "circuit-open" | "error"
@@ -447,12 +449,45 @@ def render_report(
     source_id: str,
     full: bool,
     deep_service: str | None = None,
+    kind_service: str | None = None,
 ) -> list[LinkStatus]:
     """Turn the returned stats plus this run's events into one LinkStatus per link.
 
     Pure aggregation — no I/O and no collaborators. Link 8 (serve) is out of scope and
     is not reported.
     """
+    # Kind classification (gh #77) is never gated by --full: the orchestrator calls
+    # it after the light pass whenever a classifier is configured, so its own report
+    # is None-gated on kind_service exactly the same way deep_extract is gated on
+    # deep_service once --full is asked for. Its own failures land in
+    # stats["kind_classify_failures"] rather than stats["errors"] (INV-002, mirroring
+    # deep_extract_failures), so a circuit-open refusal has to be read from the
+    # classify_kind events directly, the same reason deep_extract checks its own
+    # events before ever calling _llm_link.
+    if kind_service is None:
+        kind = LinkStatus("kind", "skipped", None, "kind service not configured")
+    elif kind_refused := [
+        e
+        for e in _llm_events(events, "classify_kind")
+        if e.get("status") == "circuit_open"
+    ]:
+        kind = LinkStatus(
+            "kind",
+            "circuit-open",
+            None,
+            f"kind service circuit open; {len(kind_refused)} item(s) stored "
+            "without a kind",
+        )
+    else:
+        kind = _llm_link(
+            "kind",
+            events,
+            stats,
+            "classify_kind",
+            "never-reached",
+            "kind classification never attempted, the kind circuit",
+        )
+
     if not full:
         deep = LinkStatus(
             "deep_extract", "skipped-by-flag", None, "run with --full to extract"
@@ -504,6 +539,7 @@ def render_report(
             "never-reached",
             "summarize hit the open circuit first; evaluate never attempted, the circuit",
         ),
+        kind,
         deep,
         _store_link(events, stats),
         _embed_link(events, stats),
@@ -565,6 +601,14 @@ def build_orchestrator(
     if full and config.llm_deep_service:
         deep_extractor = ContentDeepExtractor(config.llm_deep_service)
 
+    # Kind classification (gh #77) is not gated by --full: the orchestrator calls it
+    # after the light pass on every item, exactly like the daemon's own --once and
+    # scheduler paths (__main__.py) — so this mirrors that, not the --full-gated deep
+    # extractor built above.
+    kind_classifier = None
+    if config.llm_kind_service:
+        kind_classifier = KindClassifier(config.llm_kind_service)
+
     return DaemonOrchestrator(
         storage=storage,
         rss_fetcher=RSSFetcher(config=config),
@@ -583,6 +627,7 @@ def build_orchestrator(
         console=console,
         embedder=Embedder(),
         deep_extractor=deep_extractor,
+        kind_classifier=kind_classifier,
     )
 
 
@@ -628,7 +673,12 @@ def execute_chain(
 
     events = read_run_events(get_logger().base_dir, run_id)
     links = render_report(
-        stats, events, source["id"], full, deep_service=config.llm_deep_service
+        stats,
+        events,
+        source["id"],
+        full,
+        deep_service=config.llm_deep_service,
+        kind_service=config.llm_kind_service,
     )
     print_report(console, links)
 

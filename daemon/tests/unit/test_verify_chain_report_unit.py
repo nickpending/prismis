@@ -345,6 +345,7 @@ def test_default_run_reports_deep_and_notify_as_skipped_by_flag() -> None:
         "dedup",
         "summarize",
         "evaluate",
+        "kind",
         "deep_extract",
         "store",
         "embed",

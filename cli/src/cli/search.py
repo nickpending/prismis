@@ -5,7 +5,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .api_client import APIClient
-from .format import format_priority
+from .format import format_kind, format_priority
 
 console = Console()
 
@@ -103,8 +103,7 @@ def search(
             priority_display = format_priority(priority_val)
 
             # Format kind (unclassified items carry no kind; show a dash)
-            kind_val = result.get("kind")
-            kind_display = kind_val if kind_val else "-"
+            kind_display = format_kind(result.get("kind"))
 
             # Format relevance score
             relevance = result.get("relevance_score", 0.0)

@@ -1,4 +1,5 @@
-"""Unit tests for `format_priority` — cluster 17's cli-wide consolidation.
+"""Unit tests for `format_priority` and `format_kind` — cluster 17's cli-wide
+consolidation, extended by the search-kind-filter work order's job 2.
 
 Protects:
 - INV: HIGH/MEDIUM/LOW each get the red/yellow/green Rich markup `list.py` and
@@ -9,6 +10,9 @@ Protects:
 - INV: `list` and `search`'s rendered tables still carry the same color markup
   after routing through the shared helper — proven through the real Typer
   commands against a real local HTTP server, not just the pure function.
+- INV: `format_kind` renders a present kind value as itself, and renders a
+  missing or empty kind as "-" — the one function `list.py` and `search.py`
+  both now call instead of each pasting the same dash-fallback logic.
 """
 
 import http.server
@@ -22,7 +26,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from cli.format import format_priority
+from cli.format import format_kind, format_priority
 from cli.list import list as list_command
 from cli.search import search as search_command
 
@@ -50,6 +54,31 @@ def test_unknown_value_passes_through_unchanged() -> None:
     fallback for a missing priority) is returned as-is, with no markup.
     """
     assert format_priority("N/A") == "N/A"
+
+
+# ---------------------------------------------------------------------------
+# format_kind — the pure function
+# ---------------------------------------------------------------------------
+
+
+def test_kind_value_renders_as_itself() -> None:
+    assert format_kind("release") == "release"
+
+
+def test_missing_kind_renders_dash() -> None:
+    """
+    INVARIANT: `None` (the item carries no `kind` key at all, e.g.
+    `entry.get("kind")` on an unclassified item) renders as "-", not "None".
+    """
+    assert format_kind(None) == "-"
+
+
+def test_empty_kind_renders_dash() -> None:
+    """
+    INVARIANT: an empty string kind also renders as "-", matching the
+    original `kind_val if kind_val else "-"` falsy check both callers used.
+    """
+    assert format_kind("") == "-"
 
 
 # ---------------------------------------------------------------------------

@@ -20,3 +20,16 @@ def format_priority(priority_val: str) -> str:
     elif priority_val == "LOW":
         return f"[green]{priority_val}[/green]"
     return priority_val
+
+
+def format_kind(kind_val: str | None) -> str:
+    """Render a content item's `kind` for the `list` and `search` tables.
+
+    Args:
+        kind_val: The item's `kind` field, e.g. `entry.get("kind")`. Unclassified
+            items carry no kind, so this is `None` or an empty string.
+
+    Returns:
+        `kind_val` unchanged when it is truthy, otherwise `"-"`.
+    """
+    return kind_val if kind_val else "-"

@@ -127,10 +127,11 @@ class APIClient:
 
         Always raises `RuntimeError` on a >=400 status, using the body's
         `message` field when present. When `check_success` is True (the
-        default, and every caller except `count_unprioritized` and
-        `prune_unprioritized`), also raises when the body's `success` flag is
-        falsy — those two callers' original bodies never made that check, so
-        it stays optional rather than folded into every caller's behavior.
+        default, and every caller except `count_unprioritized`,
+        `prune_unprioritized`, and `get_report`), also raises when the body's
+        `success` flag is falsy — those three callers' original bodies never
+        made that check, so it stays optional rather than folded into every
+        caller's behavior.
 
         Takes the same `method`/`path`/`json`/`params`/`timeout` arguments as
         `_send`, plus:
@@ -272,7 +273,9 @@ class APIClient:
         Raises:
             RuntimeError: If API request fails
         """
-        data = self._send_json("GET", "/api/reports", params={"period": period})
+        data = self._send_json(
+            "GET", "/api/reports", params={"period": period}, check_success=False
+        )
         return data.get("data", {}).get("markdown", "")
 
     def edit_source(self, source_id: str, name: str) -> bool:

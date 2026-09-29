@@ -249,6 +249,24 @@ def test_get_report_returns_markdown(recording_server: str) -> None:
     ]
 
 
+def test_get_report_does_not_raise_when_success_false(recording_server: str) -> None:
+    """
+    INVARIANT (behavior risk): get_report never checked `success` before
+    consolidation either — like count_unprioritized/prune_unprioritized, a
+    200 response with `"success": false` must still return the markdown, not
+    raise.
+    """
+    _RecordingHandler.response_json = {
+        "success": False,
+        "data": {"markdown": "# Report anyway"},
+    }
+    client = _make_client(recording_server)
+
+    result = client.get_report()
+
+    assert result == "# Report anyway"
+
+
 def test_edit_source_patches_name_and_returns_true(recording_server: str) -> None:
     client = _make_client(recording_server)
 

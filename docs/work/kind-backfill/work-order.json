@@ -1,0 +1,67 @@
+{
+  "workOrder": "kind-backfill",
+  "what": "Add `prismis-cli analyze kinds`, a bounded local-mode command that classifies already-analysed items that have no content kind yet, using the existing KindClassifier, and merges kind and kind_confidence into each item's stored analysis (gh #83).",
+  "why": "Only items analysed since content-kind shipped (aed1db6, 2026-09-28) carry analysis.kind, so the kind filter in the API, CLI and TUI misses nearly the whole corpus. Classifying costs about $0.00004 per item: about $0.14 for the last 30 days (about 3.4k items) and about $1.50 for all of cerebro's roughly 37.7k analysed items.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a database holding items with a summary and no kind_confidence in analysis, items that already have kind_confidence (classified or unclassified), and items with no summary",
+      "when": "`prismis-cli analyze kinds --limit N [--since-days D]` selects its work",
+      "then": "it selects only items with a summary whose analysis has no kind_confidence key, newest first, at most N, and when --since-days is given only items fetched in the last D days",
+      "observation": {
+        "command": "cd cli && uv run pytest -q tests -k 'kinds and selects' && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "selected items and a stubbed decisions endpoint (the provider is the only permitted fake)",
+      "when": "the command classifies them",
+      "then": "each item's stored analysis gains kind (null when below the classifier's threshold) and kind_confidence, and every other analysis field is unchanged, so a classified or unclassified item is never selected again. The classifier's own state builder and threshold are reused; there is no second copy of either",
+      "observation": {
+        "command": "cd cli && uv run pytest -q tests -k 'kinds and merges' && echo 'SC-2: PASS'",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "a run where the classifier call fails for some items",
+      "when": "the command processes the batch",
+      "then": "it continues past each failure, leaves failed items without kind_confidence so a later run retries them, and ends by printing counts of classified, unclassified and failed items",
+      "observation": {
+        "command": "cd cli && uv run pytest -q tests -k 'kinds and failure' && echo 'SC-3: PASS'",
+        "expect": "SC-3: PASS"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "a config with no [llm] kind_service, or the CLI in remote mode",
+      "when": "`prismis-cli analyze kinds` runs",
+      "then": "it exits non-zero before making any decisions call. The message names kind_service when it isn't configured, and names local mode the way `analyze repair` does when run remotely",
+      "observation": {
+        "command": "cd cli && uv run pytest -q tests -k 'kinds and refuses' && echo 'SC-4: PASS'",
+        "expect": "SC-4: PASS"
+      }
+    },
+    {
+      "id": "SC-5",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Running the backfill on cerebro. That happens after deploy, with its cost stated before it runs.",
+    "Re-classifying items that already have kind_confidence, including unclassified ones.",
+    "Any change to KindClassifier, its threshold or the ten kinds."
+  ],
+  "stakes": [
+    "Before processing, the command prints how many items it will classify and the estimated cost, and asks for confirmation unless --force is given, following `analyze repair`.",
+    "Principle I: tests fake only the decisions endpoint (the provider boundary allowlisted in the no-internal-mocks guard); Storage and the classifier run for real against a temp database.",
+    "Every classifier call goes through KindClassifier, so each one is logged as an llm.call event with its cost, as in the daemon pipeline."
+  ]
+}

@@ -1,0 +1,743 @@
+{
+ "items": {
+  "1": {
+   "kinds": [
+    "incident",
+    "analysis"
+   ],
+   "primary": "incident"
+  },
+  "2": {
+   "kinds": [
+    "news"
+   ],
+   "primary": "news"
+  },
+  "3": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "4": {
+   "kinds": [
+    "vulnerability"
+   ],
+   "primary": "vulnerability"
+  },
+  "5": {
+   "kinds": [
+    "incident"
+   ],
+   "primary": "incident"
+  },
+  "6": {
+   "kinds": [
+    "analysis"
+   ],
+   "primary": "analysis"
+  },
+  "7": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "8": {
+   "kinds": [
+    "news",
+    "research"
+   ],
+   "primary": "news"
+  },
+  "9": {
+   "kinds": [
+    "vulnerability"
+   ],
+   "primary": "vulnerability"
+  },
+  "10": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "11": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "12": {
+   "kinds": [
+    "experience"
+   ],
+   "primary": "experience"
+  },
+  "13": {
+   "kinds": [
+    "incident"
+   ],
+   "primary": "incident"
+  },
+  "14": {
+   "kinds": [
+    "news"
+   ],
+   "primary": "news"
+  },
+  "15": {
+   "kinds": [
+    "research"
+   ],
+   "primary": "research"
+  },
+  "16": {
+   "kinds": [
+    "release",
+    "analysis"
+   ],
+   "primary": "release"
+  },
+  "17": {
+   "kinds": [
+    "research",
+    "analysis"
+   ],
+   "primary": "research"
+  },
+  "18": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "19": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "20": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "21": {
+   "kinds": [
+    "incident"
+   ],
+   "primary": "incident"
+  },
+  "22": {
+   "kinds": [
+    "news",
+    "research"
+   ],
+   "primary": "news"
+  },
+  "23": {
+   "kinds": [
+    "news",
+    "analysis"
+   ],
+   "primary": "news"
+  },
+  "24": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "25": {
+   "kinds": [
+    "vulnerability",
+    "research"
+   ],
+   "primary": "vulnerability"
+  },
+  "26": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "27": {
+   "kinds": [
+    "experience",
+    "tutorial"
+   ],
+   "primary": "experience"
+  },
+  "28": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "29": {
+   "kinds": [
+    "research",
+    "news"
+   ],
+   "primary": "research"
+  },
+  "30": {
+   "kinds": [
+    "research",
+    "news"
+   ],
+   "primary": "research"
+  },
+  "31": {
+   "kinds": [
+    "analysis"
+   ],
+   "primary": "analysis"
+  },
+  "32": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "33": {
+   "kinds": [
+    "news"
+   ],
+   "primary": "news"
+  },
+  "34": {
+   "kinds": [
+    "news"
+   ],
+   "primary": "news"
+  },
+  "35": {
+   "kinds": [
+    "analysis",
+    "news"
+   ],
+   "primary": "analysis"
+  },
+  "36": {
+   "kinds": [
+    "news"
+   ],
+   "primary": "news"
+  },
+  "37": {
+   "kinds": [
+    "news"
+   ],
+   "primary": "news"
+  },
+  "38": {
+   "kinds": [
+    "experience"
+   ],
+   "primary": "experience"
+  },
+  "39": {
+   "kinds": [
+    "analysis"
+   ],
+   "primary": "analysis"
+  },
+  "40": {
+   "kinds": [
+    "news"
+   ],
+   "primary": "news"
+  },
+  "41": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "42": {
+   "kinds": [
+    "release",
+    "research"
+   ],
+   "primary": "release"
+  },
+  "43": {
+   "kinds": [
+    "analysis"
+   ],
+   "primary": "analysis"
+  },
+  "44": {
+   "kinds": [
+    "incident"
+   ],
+   "primary": "incident"
+  },
+  "45": {
+   "kinds": [
+    "news"
+   ],
+   "primary": "news"
+  },
+  "46": {
+   "kinds": [
+    "experience"
+   ],
+   "primary": "experience"
+  },
+  "47": {
+   "kinds": [
+    "question",
+    "analysis"
+   ],
+   "primary": "question"
+  },
+  "48": {
+   "kinds": [
+    "tutorial"
+   ],
+   "primary": "tutorial"
+  },
+  "49": {
+   "kinds": [
+    "question"
+   ],
+   "primary": "question"
+  },
+  "50": {
+   "kinds": [
+    "humor",
+    "experience"
+   ],
+   "primary": "humor"
+  },
+  "51": {
+   "kinds": [
+    "incident"
+   ],
+   "primary": "incident"
+  },
+  "52": {
+   "kinds": [
+    "humor"
+   ],
+   "primary": "humor"
+  },
+  "53": {
+   "kinds": [
+    "question"
+   ],
+   "primary": "question"
+  },
+  "54": {
+   "kinds": [
+    "question"
+   ],
+   "primary": "question"
+  },
+  "55": {
+   "kinds": [
+    "experience"
+   ],
+   "primary": "experience"
+  },
+  "56": {
+   "kinds": [
+    "question"
+   ],
+   "primary": "question"
+  },
+  "57": {
+   "kinds": [
+    "experience",
+    "analysis"
+   ],
+   "primary": "experience"
+  },
+  "58": {
+   "kinds": [
+    "analysis"
+   ],
+   "primary": "analysis"
+  },
+  "59": {
+   "kinds": [
+    "question",
+    "release"
+   ],
+   "primary": "question"
+  },
+  "60": {
+   "kinds": [
+    "research",
+    "experience"
+   ],
+   "primary": "research"
+  },
+  "61": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "62": {
+   "kinds": [
+    "experience",
+    "incident"
+   ],
+   "primary": "experience"
+  },
+  "63": {
+   "kinds": [
+    "experience",
+    "vulnerability"
+   ],
+   "primary": "experience"
+  },
+  "64": {
+   "kinds": [
+    "question"
+   ],
+   "primary": "question"
+  },
+  "65": {
+   "kinds": [
+    "question"
+   ],
+   "primary": "question"
+  },
+  "66": {
+   "kinds": [
+    "humor"
+   ],
+   "primary": "humor"
+  },
+  "67": {
+   "kinds": [
+    "incident",
+    "experience",
+    "question"
+   ],
+   "primary": "incident"
+  },
+  "68": {
+   "kinds": [
+    "analysis",
+    "experience"
+   ],
+   "primary": "analysis"
+  },
+  "69": {
+   "kinds": [
+    "research",
+    "release"
+   ],
+   "primary": "research"
+  },
+  "70": {
+   "kinds": [
+    "research",
+    "release"
+   ],
+   "primary": "research"
+  },
+  "71": {
+   "kinds": [
+    "experience",
+    "question"
+   ],
+   "primary": "experience"
+  },
+  "72": {
+   "kinds": [
+    "question"
+   ],
+   "primary": "question"
+  },
+  "73": {
+   "kinds": [
+    "question"
+   ],
+   "primary": "question"
+  },
+  "74": {
+   "kinds": [
+    "release",
+    "experience"
+   ],
+   "primary": "release"
+  },
+  "75": {
+   "kinds": [
+    "vulnerability"
+   ],
+   "primary": "vulnerability"
+  },
+  "76": {
+   "kinds": [
+    "question"
+   ],
+   "primary": "question"
+  },
+  "77": {
+   "kinds": [
+    "question",
+    "experience"
+   ],
+   "primary": "question"
+  },
+  "78": {
+   "kinds": [
+    "humor"
+   ],
+   "primary": "humor"
+  },
+  "79": {
+   "kinds": [
+    "experience",
+    "analysis"
+   ],
+   "primary": "experience"
+  },
+  "80": {
+   "kinds": [
+    "question",
+    "experience"
+   ],
+   "primary": "question"
+  },
+  "81": {
+   "kinds": [
+    "experience",
+    "release"
+   ],
+   "primary": "experience"
+  },
+  "82": {
+   "kinds": [
+    "vulnerability"
+   ],
+   "primary": "vulnerability"
+  },
+  "83": {
+   "kinds": [
+    "incident",
+    "vulnerability"
+   ],
+   "primary": "incident"
+  },
+  "84": {
+   "kinds": [
+    "analysis",
+    "experience"
+   ],
+   "primary": "analysis"
+  },
+  "85": {
+   "kinds": [
+    "experience",
+    "release",
+    "tutorial"
+   ],
+   "primary": "experience"
+  },
+  "86": {
+   "kinds": [
+    "experience"
+   ],
+   "primary": "experience"
+  },
+  "87": {
+   "kinds": [
+    "tutorial"
+   ],
+   "primary": "tutorial"
+  },
+  "88": {
+   "kinds": [
+    "analysis",
+    "tutorial"
+   ],
+   "primary": "analysis"
+  },
+  "89": {
+   "kinds": [
+    "tutorial",
+    "release"
+   ],
+   "primary": "tutorial"
+  },
+  "90": {
+   "kinds": [
+    "research"
+   ],
+   "primary": "research"
+  },
+  "91": {
+   "kinds": [
+    "experience"
+   ],
+   "primary": "experience"
+  },
+  "92": {
+   "kinds": [
+    "analysis"
+   ],
+   "primary": "analysis"
+  },
+  "93": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "94": {
+   "kinds": [
+    "analysis",
+    "tutorial"
+   ],
+   "primary": "analysis"
+  },
+  "95": {
+   "kinds": [
+    "analysis",
+    "news"
+   ],
+   "primary": "analysis"
+  },
+  "96": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "97": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "98": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "99": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  },
+  "100": {
+   "kinds": [
+    "release"
+   ],
+   "primary": "release"
+  }
+ },
+ "taxonomy": [
+  {
+   "kind": "release",
+   "definition": "A maker makes something new available or changes it: product, model, version, changelog, feature, pricing/plan or policy change, OSS tool or Show-HN project, event or challenge launch.",
+   "boundary": "vs news: if the event is 'X now exists / changed and you can use it', it is release even when a third party reports it (11, 16); outlet-reported defects, lawsuits, policy and business moves are news (2, 33, 37).",
+   "count": 22
+  },
+  {
+   "kind": "experience",
+   "definition": "First-hand account of using, building or running something: war story, model comparison, build log, PSA/warning, engineering case study.",
+   "boundary": "vs question: experience offers an account; if the post's point is to ask for help, it is question even when it narrates (80, 77).",
+   "count": 14
+  },
+  {
+   "kind": "question",
+   "definition": "A request for help, advice or recommendations; the value is in the answers.",
+   "boundary": "vs experience: question when the author's ask drives the thread (59, 72); if the ask is incidental to a report, experience (71).",
+   "count": 13
+  },
+  {
+   "kind": "analysis",
+   "definition": "Argued interpretation: opinion, essay, commentary, review, explainer or reference article.",
+   "boundary": "vs experience: analysis argues a general position (6, 58, 84); experience recounts what happened to the author.",
+   "count": 12
+  },
+  {
+   "kind": "news",
+   "definition": "Third-party reporting of a non-product event: legal, policy, business, accidents, science coverage, product defects.",
+   "boundary": "vs analysis: news when the event is the payload and the author's view is incidental; analysis when the argument or interpretation is the payload (23 news vs 35 analysis).",
+   "count": 11
+  },
+  {
+   "kind": "incident",
+   "definition": "An attack, breach, abuse campaign or damaging data loss that happened: victim, actor, impact, attribution, IoCs.",
+   "boundary": "vs vulnerability: primary is incident when the story is the compromise (13, 44, 83), vulnerability when it is the bug.",
+   "count": 8
+  },
+  {
+   "kind": "research",
+   "definition": "A study, paper, benchmark or experiment with a method and results, from academia, labs or individuals.",
+   "boundary": "vs experience: research has a stated method and measured result (60, 69, 70); an anecdotal 'I tried X and Y' comparison is experience (55, 79).",
+   "count": 8
+  },
+  {
+   "kind": "vulnerability",
+   "definition": "A flaw: CVE, advisory, exploitation status, PoC or research write-up of an attack technique, patch guidance.",
+   "boundary": "vs incident: vulnerability centers on the flaw and its fix (4, 9 even when exploited in the wild); incident centers on who was attacked and what was taken.",
+   "count": 5
+  },
+  {
+   "kind": "humor",
+   "definition": "Satire, parody, memes and jokes: the point is amusement, not information.",
+   "boundary": "vs experience/analysis: humor when no factual claim is meant to be taken at face value (52 parody resignation, 78 satire).",
+   "count": 4
+  },
+  {
+   "kind": "tutorial",
+   "definition": "Instructions for accomplishing a task: how-to, guide, walkthrough.",
+   "boundary": "vs experience: tutorial is written for the reader to follow (87, 89); a build log of what the author did is experience (27).",
+   "count": 3
+  }
+ ],
+ "multi_kind_share": 0.36,
+ "unreadable_items": [
+  3,
+  15,
+  18,
+  20,
+  22,
+  26,
+  30,
+  32,
+  36,
+  38,
+  39,
+  48,
+  61,
+  75,
+  82,
+  83,
+  86,
+  87,
+  90,
+  91,
+  92,
+  93,
+  94
+ ],
+ "findings": [
+  "One kind is not enough for a third of items: 36/100 need two or more kinds to describe honestly (two need three: 67 first-hand malvertising sighting + incident + question; 85 PSA = experience + release + tutorial). Primary kind still resolves every item, so a primary field plus optional secondary kinds fits the data; a single-label scheme loses the analysis layer on reported events (1, 16, 23, 35, 95).",
+  "Counting only the 77 items with readable content, the multi-kind share is 32/77 = 0.42; stub items are almost all single-kind because there is too little text to see a second kind.",
+  "'Discussion thread' is a format, not a kind: the 40 reddit items split into 9 different primary kinds (question 13, experience 9, humor 4, incident 3, research 3, analysis 3, release 2, vulnerability 2, tutorial 1) and none was best described as 'discussion'. The kinds it hides are question (help/advice requests, e.g. 64 Defender P2 for 650 users) and experience (first-hand reports, e.g. 62 Claude Code force-merging 158 PRs, 85 project-memory PSA).",
+  "New kinds the candidate list lacked: experience (14 items: build logs, model comparisons, war stories, PSAs, team case studies) and question (13 items); both emerge mostly from reddit and conference-talk titles. Humor (4) emerged as a real triage signal: 52 is a parody of an AI-lab resignation letter that a topic classifier would score as AI-safety news.",
+  "Candidate 'tool or project launch' collapsed into release: the information kind of a Show HN (19 Toast, 24 PaperMono) and an OSS version (7 jemalloc 5.4.0) or vendor changelog (96-100) is the same, 'this now exists or changed'; only the maker's size differs, which is a source attribute.",
+  "Candidate 'vulnerability or incident write-up' split in two because the corpus has both in quantity with a clean boundary: vulnerability 5 (4 MikroTik, 9 Cisco ISE, 25 BragJack, 75 Docker, 82) vs incident 8 (1 and 83 OpenAI agent attacks, 5 Claude abuse, 13 Florida DMV, 44 CrowdSec leak).",
+  "Candidate 'tutorial or how-to' barely occurs: 3 primary (48, 87, 89), 7 total including secondary; most instructional content appears as a secondary layer inside experience or analysis (27, 85, 88, 94).",
+  "'Announcement' and 'news report' needed a boundary: release reported by an outlet (11 Bleeping on Claude Code credits) is still release; news is kept for non-product events (legal 37, 45; policy 40; accidents 34; product defects 2, 33).",
+  "Analysis absorbed explainers, reviews and reference pages (43 Wikipedia M-DISC, 31 film review, 39 security.txt) rather than adding a 'reference' kind; 3 items did not justify an eleventh kind.",
+  "Kind was inferred from title/URL only for 23/100 items with no usable body (HN link-only 'Comments' stubs, JS-walled pages, reddit link-only posts, 8 of 10 youtube items with no transcript): 3, 15, 18, 20, 22, 26, 30, 32, 36, 38, 39, 48, 61, 75, 82, 83, 86, 87, 90, 91, 92, 93, 94. A kind classifier on current content will be guessing for roughly a quarter of the feed.",
+  "The same event arrives through multiple sources with different kinds: MikroTik exploitation is vulnerability in both 4 (Bleeping) and 82 (reddit link); OpenAI-agent attacks appear as 1 (Simon Willison, incident + analysis) and 83 (reddit link to the write-up). Kind alone will not dedupe these."
+ ]
+}

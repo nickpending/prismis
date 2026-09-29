@@ -1,6 +1,8 @@
 """Content analysis and repair commands."""
 
+import json
 import time
+from typing import TYPE_CHECKING, Any, Optional
 
 import typer
 from rich.console import Console
@@ -9,9 +11,15 @@ from rich.prompt import Confirm
 from .remote import is_remote_mode
 
 # Heavy imports (litellm, Storage) are lazy-loaded to support client-only installs
+if TYPE_CHECKING:
+    from prismis_daemon.storage import Storage
 
 console = Console()
 app = typer.Typer()  # Sub-typer for analyze commands
+
+# gh #83: classifying one item through KindClassifier costs about this much (Jev,
+# OpenRouter's decisions model) -- see the work order's measured 3.4k-items/$0.14.
+_KIND_COST_PER_ITEM = 0.00004
 
 
 def _check_local_mode(command: str) -> None:
@@ -234,6 +242,180 @@ def repair(
             console.print(f"  ✓ Repaired: [green]{processed}[/green] items")
             if skipped > 0:
                 console.print(f"  ⊙ Skipped: [yellow]{skipped}[/yellow] items")
+            if failed > 0:
+                console.print(f"  ✗ Failed: [red]{failed}[/red] items")
+
+    except Exception as e:
+        console.print(f"[red]✗ Error: {e}[/red]")
+        raise typer.Exit(1) from e
+
+
+def _select_items_needing_kind(
+    storage: "Storage", *, limit: int, since_days: Optional[int]
+) -> list[dict[str, Any]]:
+    """Select already-analysed items with no content kind yet (SC-1).
+
+    A summary must be present, and the analysis must carry no kind_confidence key at
+    all -- json_type() (not json_extract(), which cannot distinguish an absent key
+    from a key whose value is JSON null) is what tells "never classified" apart from
+    "classified unclassified": a below-threshold or unparseable answer still stores
+    kind_confidence=null, and that item must never be reselected either. Newest
+    fetched_at first, bounded to at most `limit`, and to items fetched within the
+    last `since_days` days when given.
+    """
+    query = """
+        SELECT c.*, s.name as source_name, s.type as source_type
+        FROM content c
+        LEFT JOIN sources s ON c.source_id = s.id
+        WHERE c.archived_at IS NULL
+          AND c.summary IS NOT NULL
+          AND c.summary != ''
+          AND json_type(c.analysis, '$.kind_confidence') IS NULL
+    """
+    params: list[Any] = []
+    if since_days is not None:
+        query += " AND datetime(c.fetched_at) >= datetime('now', ?)"
+        params.append(f"-{since_days} days")
+    query += " ORDER BY c.fetched_at DESC LIMIT ?"
+    params.append(limit)
+
+    cursor = storage.conn.execute(query, tuple(params))
+
+    items = []
+    for row in cursor.fetchall():
+        analysis = None
+        if row["analysis"]:
+            try:
+                analysis = json.loads(row["analysis"])
+            except json.JSONDecodeError:
+                analysis = None
+
+        items.append(
+            {
+                "id": row["id"],
+                "title": row["title"],
+                "content": row["content"],
+                "summary": row["summary"],
+                "analysis": analysis,
+                "source_name": row["source_name"],
+                "source_type": row["source_type"],
+            }
+        )
+
+    return items
+
+
+@app.command(name="kinds")
+def kinds(
+    limit: int = typer.Option(100, "--limit", "-n", help="Maximum items to classify"),
+    since_days: Optional[int] = typer.Option(
+        None, "--since-days", help="Only classify items fetched in the last N days"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip confirmation prompt"
+    ),
+) -> None:
+    """Backfill the content kind for already-analysed items that have none yet.
+
+    Selects items with a summary and no kind_confidence in their stored analysis
+    (newest first, at most --limit, optionally narrowed to the last --since-days
+    days), and classifies each through KindClassifier (~$0.00004/item, gh #83). An
+    item that already carries kind_confidence -- classified or unclassified -- is
+    never reselected; a later run retries only items a failed call left untouched.
+    """
+    _check_local_mode("analyze kinds")
+
+    from prismis_daemon.config import Config
+
+    config = Config.from_file()
+    if not config.llm_kind_service:
+        console.print(
+            "[yellow]'analyze kinds' requires a kind_service configured under "
+            "[llm] in config.toml.[/yellow]\n"
+            "[dim]Set kind_service to a service name from "
+            "~/.config/llm-core/services.toml.[/dim]"
+        )
+        raise typer.Exit(1)
+
+    try:
+        from prismis_daemon.kind_classifier import KindClassifier
+        from prismis_daemon.observability import log as obs_log
+        from prismis_daemon.storage import Storage
+
+        with Storage() as storage:
+            items = _select_items_needing_kind(
+                storage, limit=limit, since_days=since_days
+            )
+
+            if not items:
+                console.print("[green]✓ No items need kind classification[/green]")
+                return
+
+            total = len(items)
+            console.print(f"[bold]Found {total} items needing kind classification[/bold]")
+
+            if not force:
+                cost_estimate = total * _KIND_COST_PER_ITEM
+                console.print(f"[dim]Estimated cost: ${cost_estimate:.4f}[/dim]\n")
+                if not Confirm.ask(f"Classify {total} items?", default=False):
+                    console.print("[yellow]Aborted[/yellow]")
+                    return
+
+            classifier = KindClassifier(config.llm_kind_service)
+
+            start_time = time.time()
+            obs_log("cli.kinds.start", source="cli", items=total, limit=limit)
+
+            classified = 0
+            unclassified = 0
+            failed = 0
+
+            for idx, item in enumerate(items, 1):
+                console.print(f"\n[bold][{idx}/{total}][/bold] {item['title']}")
+                analysis = item.get("analysis") or {}
+
+                try:
+                    result = classifier.classify(
+                        title=item["title"],
+                        source_type=item.get("source_type") or "rss",
+                        source_name=item.get("source_name") or "",
+                        summary=item.get("summary") or "",
+                        reading_summary=analysis.get("reading_summary") or "",
+                        raw_content=item.get("content") or "",
+                    )
+                except Exception as e:
+                    console.print(f"  [red]✗ Failed: {e}[/red]")
+                    failed += 1
+                    continue
+
+                updated_analysis = dict(analysis)
+                updated_analysis["kind"] = result.kind
+                updated_analysis["kind_confidence"] = result.confidence
+                storage.update_analysis(item["id"], updated_analysis)
+
+                if result.kind is not None:
+                    console.print(
+                        f"  [green]✓ {result.kind} ({result.confidence:.2f})[/green]"
+                    )
+                    classified += 1
+                else:
+                    console.print("  [dim]⊙ unclassified[/dim]")
+                    unclassified += 1
+
+            duration_ms = int((time.time() - start_time) * 1000)
+            obs_log(
+                "cli.kinds.complete",
+                source="cli",
+                duration_ms=duration_ms,
+                classified=classified,
+                unclassified=unclassified,
+                failed=failed,
+                total=total,
+            )
+
+            console.print("\n[bold]Kind Classification Complete[/bold]")
+            console.print(f"  ✓ Classified: [green]{classified}[/green] items")
+            console.print(f"  ⊙ Unclassified: [yellow]{unclassified}[/yellow] items")
             if failed > 0:
                 console.print(f"  ✗ Failed: [red]{failed}[/red] items")
 

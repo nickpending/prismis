@@ -246,6 +246,63 @@ auto_update_min_votes = 5
 backup_count = 3
 """
 
+# Post-llm-core install: has 'service' but hasn't been renamed to 'light_service' yet.
+# Drives the "service -> light_service rename" branch of migrate_config (cluster 10b's
+# other call site for the [services.prismis-openai-deep] append), which
+# test_SC15_migrate_config_creates_services_and_updates_config and
+# test_SC15_migrate_config_is_idempotent never reach -- both only drive the
+# pre-llm-core ('provider' field) branch.
+_SERVICE_RENAME_CONFIG_TOML = """\
+[daemon]
+fetch_interval = 30
+max_items_rss = 25
+max_items_reddit = 50
+max_items_youtube = 10
+max_items_file = 5
+max_days_lookback = 30
+
+[llm]
+service = "prismis-openai"
+
+[reddit]
+client_id = "env:REDDIT_CLIENT_ID"
+client_secret = "env:REDDIT_CLIENT_SECRET"
+user_agent = "test"
+max_comments = 100
+
+[notifications]
+high_priority_only = true
+command = "echo"
+
+[api]
+key = "test-api-key"
+
+[archival]
+enabled = false
+
+[archival.windows]
+high_read = 30
+medium_unread = 14
+medium_read = 30
+low_unread = 7
+low_read = 30
+
+[context]
+auto_update_enabled = false
+auto_update_interval_days = 7
+auto_update_min_votes = 5
+backup_count = 3
+"""
+
+_EXISTING_SERVICES_TOML = (
+    'default_service = "prismis-openai"\n\n'
+    "[services.prismis-openai]\n"
+    'adapter = "openai"\n'
+    'key = "openai"\n'
+    'base_url = "https://api.openai.com/v1"\n'
+    'default_model = "gpt-4.1-mini"\n'
+)
+
 
 def test_SC15_migrate_config_creates_services_and_updates_config() -> None:
     """
@@ -345,6 +402,96 @@ def test_SC15_migrate_config_is_idempotent() -> None:
         result_services = services_path.read_text()
         assert custom_services.strip() in result_services, (
             "Existing services.toml content was overwritten (idempotency violated)"
+        )
+
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_SC15_migrate_config_rename_branch_appends_deep_service_block() -> None:
+    """
+    SC-7: the "service -> light_service" rename branch of migrate_config must append
+    [services.prismis-openai-deep] to services.toml -- the call site the other SC-15
+    tests never reach, since both only drive the pre-llm-core ('provider' field)
+    branch. Cluster 10a/10b consolidates this branch's append into the same helper
+    the pre-llm-core branch uses; this proves that call site independently.
+    BREAKS: extracting a shared append helper silently drops the rename branch's call
+    to it, leaving deep extraction unconfigured after a rename-only migration.
+    """
+    temp_dir = tempfile.mkdtemp()
+
+    try:
+        prismis_dir = Path(temp_dir) / "prismis"
+        prismis_dir.mkdir(parents=True)
+        config_toml = prismis_dir / "config.toml"
+        config_toml.write_text(_SERVICE_RENAME_CONFIG_TOML)
+
+        # services.toml already exists (as it would after an earlier, pre-llm-core
+        # migration), but without the deep-service block yet.
+        llm_core_dir = Path(temp_dir) / "llm-core"
+        llm_core_dir.mkdir(parents=True)
+        services_path = llm_core_dir / "services.toml"
+        services_path.write_text(_EXISTING_SERVICES_TOML)
+
+        with patch.dict(
+            "os.environ", {"XDG_CONFIG_HOME": temp_dir}
+        ):  # claudex-guard: allow-mock
+            from prismis_daemon.__main__ import migrate_config
+
+            migrate_config()
+
+        services_content = services_path.read_text()
+        assert services_content.count("[services.prismis-openai-deep]") == 1, (
+            "rename branch did not append the deep service block exactly once"
+        )
+        assert 'default_model = "gpt-5-mini"' in services_content
+
+        updated_config = config_toml.read_text()
+        assert 'light_service = "prismis-openai"' in updated_config, (
+            "Config [llm] section was not renamed to light_service= format"
+        )
+
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_SC15_migrate_config_rename_branch_is_idempotent_for_deep_service() -> None:
+    """
+    SC-7: the rename branch's idempotency check (skip the append when the block is
+    already present) must be reached and honoured through the shared helper.
+    BREAKS: consolidating the two append call sites drops the idempotency check for
+    this one, duplicating [services.prismis-openai-deep] on a repeat run.
+    """
+    temp_dir = tempfile.mkdtemp()
+
+    try:
+        prismis_dir = Path(temp_dir) / "prismis"
+        prismis_dir.mkdir(parents=True)
+        config_toml = prismis_dir / "config.toml"
+        config_toml.write_text(_SERVICE_RENAME_CONFIG_TOML)
+
+        llm_core_dir = Path(temp_dir) / "llm-core"
+        llm_core_dir.mkdir(parents=True)
+        services_path = llm_core_dir / "services.toml"
+        # Deep service block already present (e.g. an earlier migrate_config run).
+        services_path.write_text(
+            _EXISTING_SERVICES_TOML + "\n[services.prismis-openai-deep]\n"
+            'adapter = "openai"\n'
+            'key = "sable-openai"\n'
+            'base_url = "https://api.openai.com/v1"\n'
+            'default_model = "gpt-5-mini"\n'
+        )
+
+        with patch.dict(
+            "os.environ", {"XDG_CONFIG_HOME": temp_dir}
+        ):  # claudex-guard: allow-mock
+            from prismis_daemon.__main__ import migrate_config
+
+            migrate_config()
+
+        services_content = services_path.read_text()
+        assert services_content.count("[services.prismis-openai-deep]") == 1, (
+            "rename branch duplicated the deep service block instead of skipping it"
         )
 
     finally:

@@ -4,9 +4,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from .circuit_breaker import get_circuit_breaker
-from .llm_client import complete, extract_json
-from .observability import log as obs_log
+from .llm_call import call_llm_with_circuit_breaker
+from .llm_client import extract_json
 
 logger = logging.getLogger(__name__)
 
@@ -93,67 +92,9 @@ class ContentSummarizer:
                 f"Calling LLM service {self.service_name} for content analysis"
             )
 
-            # Check circuit breaker before LLM call
-            circuit = get_circuit_breaker(self.service_name)
-            if not circuit.check_can_proceed():
-                status = circuit.get_status()
-                obs_log(
-                    "llm.call",
-                    action="summarize",
-                    model=self.service_name,
-                    status="circuit_open",
-                )
-                raise RuntimeError(
-                    f"LLM circuit breaker is open (quota exhausted). "
-                    f"Recovery in {status.get('recovery_in_seconds', 'unknown')}s"
-                )
-
-            try:
-                result = complete(
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    service=self.service_name,
-                    json=True,
-                )
-
-                # Extract token usage
-                tokens = {
-                    "prompt": result.tokens.input,
-                    "completion": result.tokens.output,
-                    "total": result.tokens.input + result.tokens.output,
-                }
-
-                # Real billed cost for OpenRouter services; None for api.openai.com
-                # services, which return no cost (see llm_client.py's complete()).
-                cost_usd = result.cost
-
-                # Log successful LLM call
-                obs_log(
-                    "llm.call",
-                    action="summarize",
-                    model=result.model,
-                    tokens=tokens,
-                    cost_usd=cost_usd,
-                    duration_ms=result.duration_ms,
-                    status="success",
-                )
-
-                # Record success for circuit breaker (closes if half-open)
-                circuit.record_success()
-
-            except Exception as e:
-                # Record failure for circuit breaker (may open circuit)
-                circuit.record_failure(e)
-
-                # Log failed LLM call
-                obs_log(
-                    "llm.call",
-                    action="summarize",
-                    model=self.service_name,
-                    status="error",
-                    error=str(e),
-                )
-                raise  # Re-raise to preserve existing error handling
+            result = call_llm_with_circuit_breaker(
+                self.service_name, system_prompt, prompt, "summarize"
+            )
 
             # Extract and parse response
             response_text = result.text

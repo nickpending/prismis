@@ -1,10 +1,25 @@
 """Unit tests for ContentEvaluator logic functions."""
 
+import json
+from unittest.mock import MagicMock, patch  # claudex-guard: allow-mock
+
+import pytest
+
+from prismis_daemon.circuit_breaker import (
+    CircuitState,
+    get_circuit_breaker,
+    reset_circuit_breaker,
+)
 from prismis_daemon.evaluator import ContentEvaluator, PriorityLevel
 
-# ContentEvaluator takes an llm-core service name (evaluator.py:40-47); model choice and
-# credentials are resolved by llm-core from services.toml, not from a config dict here.
+# ContentEvaluator takes an llm-core service name (evaluator.py's __init__); model
+# choice and credentials are resolved by llm-core from services.toml, not from a
+# config dict here.
 SERVICE = "prismis-openai"
+
+# dedup (cluster 11): evaluator.py no longer imports complete directly -- the call
+# moved into the shared call_llm_with_circuit_breaker helper in llm_call.py.
+_LLM_COMPLETE_MOCK = "prismis_daemon.llm_call.complete"  # claudex-guard: allow-mock
 
 
 def test_evaluator_initialization_with_service_name() -> None:
@@ -134,3 +149,80 @@ def test_system_prompt_has_priority_guidelines() -> None:
     assert "matched_interests" in system_prompt
     assert "reasoning" in system_prompt
     assert "JSON" in system_prompt
+
+
+# --- cluster 11 (dedup-triage.md): the LLM-call mechanics, including the
+# circuit-breaker gating, now live in call_llm_with_circuit_breaker
+# (prismis_daemon/llm_call.py). evaluator.py already gated on the circuit breaker
+# before the extraction, but nothing here proved it -- these tests prove the
+# consolidated caller still refuses, and still records success/failure, exactly as
+# it did before the move. ---
+
+
+def test_circuit_open_refuses_evaluate_content_without_hitting_the_llm() -> None:
+    """An evaluate call is refused before complete() is ever invoked, once the
+    service's circuit breaker is open."""
+    reset_circuit_breaker(SERVICE)
+    circuit = get_circuit_breaker(SERVICE)
+    for _ in range(3):
+        circuit.record_failure(RuntimeError("insufficient_quota"))
+    assert circuit.check_can_proceed() is False, "setup: circuit must be open"
+
+    evaluator = ContentEvaluator(SERVICE)
+    try:
+        with patch(_LLM_COMPLETE_MOCK) as mock_complete:  # claudex-guard: allow-mock
+            with pytest.raises(RuntimeError, match="circuit breaker is open"):
+                evaluator.evaluate_content(
+                    content="c", title="t", url="u", context="ctx"
+                )
+            mock_complete.assert_not_called()
+    finally:
+        reset_circuit_breaker(SERVICE)
+
+
+def test_evaluate_content_records_a_quota_failure_on_the_circuit_breaker() -> None:
+    """Three quota-shaped failures from evaluate_content open the circuit -- the
+    helper's record_failure call, not just a log line."""
+    reset_circuit_breaker(SERVICE)
+    evaluator = ContentEvaluator(SERVICE)
+    try:
+        with patch(
+            _LLM_COMPLETE_MOCK, side_effect=RuntimeError("insufficient_quota")
+        ):  # claudex-guard: allow-mock
+            for _ in range(3):
+                with pytest.raises(RuntimeError):
+                    evaluator.evaluate_content(
+                        content="c", title="t", url="u", context="ctx"
+                    )
+        assert get_circuit_breaker(SERVICE).check_can_proceed() is False
+    finally:
+        reset_circuit_breaker(SERVICE)
+
+
+def test_evaluate_content_records_success_and_closes_a_half_open_circuit() -> None:
+    """A successful evaluate call closes a half-open circuit via record_success."""
+    reset_circuit_breaker(SERVICE)
+    circuit = get_circuit_breaker(SERVICE)
+    circuit.state = CircuitState.HALF_OPEN
+    evaluator = ContentEvaluator(SERVICE)
+
+    fake_result = MagicMock()  # claudex-guard: allow-mock
+    fake_result.text = json.dumps(
+        {"priority": "high", "matched_interests": ["AI"], "reasoning": "r"}
+    )
+    fake_result.tokens.input = 10
+    fake_result.tokens.output = 5
+    fake_result.cost = 0.0
+    fake_result.model = "gpt-4.1-mini"
+    fake_result.duration_ms = 1
+
+    try:
+        with patch(_LLM_COMPLETE_MOCK) as mock_complete:  # claudex-guard: allow-mock
+            mock_complete.return_value = fake_result
+            result = evaluator.evaluate_content(
+                content="c", title="t", url="u", context="ctx"
+            )
+        assert result.priority == PriorityLevel.HIGH
+        assert circuit.state == CircuitState.CLOSED
+    finally:
+        reset_circuit_breaker(SERVICE)

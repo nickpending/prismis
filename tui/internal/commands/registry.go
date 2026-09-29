@@ -173,14 +173,9 @@ func cmdLogs(args []string) tea.Cmd {
 // cmdUnprioritized shows count of unprioritized items
 func cmdUnprioritized(args []string) tea.Cmd {
 	return func() tea.Msg {
-		// Parse optional age filter
-		var days *int
-		if len(args) > 0 {
-			parsedDays := parseAge(args[0])
-			if parsedDays < 0 {
-				return ErrorMsg{Message: fmt.Sprintf("unprioritized: invalid age filter '%s' (use format like 7d, 2w, 1m)", args[0])}
-			}
-			days = &parsedDays
+		days, errMsg := parseAgeArg("unprioritized", args)
+		if errMsg != nil {
+			return *errMsg
 		}
 
 		return PruneMsg{
@@ -193,14 +188,9 @@ func cmdUnprioritized(args []string) tea.Cmd {
 // cmdPrune removes unprioritized content with confirmation
 func cmdPrune(args []string) tea.Cmd {
 	return func() tea.Msg {
-		// Parse optional age filter
-		var days *int
-		if len(args) > 0 {
-			parsedDays := parseAge(args[0])
-			if parsedDays < 0 {
-				return ErrorMsg{Message: fmt.Sprintf("prune: invalid age filter '%s' (use format like 7d, 2w, 1m)", args[0])}
-			}
-			days = &parsedDays
+		days, errMsg := parseAgeArg("prune", args)
+		if errMsg != nil {
+			return *errMsg
 		}
 
 		return PruneMsg{
@@ -214,14 +204,9 @@ func cmdPrune(args []string) tea.Cmd {
 // cmdPruneForce removes unprioritized content without confirmation
 func cmdPruneForce(args []string) tea.Cmd {
 	return func() tea.Msg {
-		// Parse optional age filter
-		var days *int
-		if len(args) > 0 {
-			parsedDays := parseAge(args[0])
-			if parsedDays < 0 {
-				return ErrorMsg{Message: fmt.Sprintf("prune!: invalid age filter '%s' (use format like 7d, 2w, 1m)", args[0])}
-			}
-			days = &parsedDays
+		days, errMsg := parseAgeArg("prune!", args)
+		if errMsg != nil {
+			return *errMsg
 		}
 
 		return PruneMsg{
@@ -230,6 +215,21 @@ func cmdPruneForce(args []string) tea.Cmd {
 			CountOnly: false,
 		}
 	}
+}
+
+// parseAgeArg parses the optional age-filter argument shared by cmdUnprioritized,
+// cmdPrune and cmdPruneForce. cmdName supplies the command-specific prefix on the
+// returned error message. A missing argument is not an error: it returns (nil, nil).
+func parseAgeArg(cmdName string, args []string) (*int, *ErrorMsg) {
+	if len(args) == 0 {
+		return nil, nil
+	}
+
+	parsedDays := parseAge(args[0])
+	if parsedDays < 0 {
+		return nil, &ErrorMsg{Message: fmt.Sprintf("%s: invalid age filter '%s' (use format like 7d, 2w, 1m)", cmdName, args[0])}
+	}
+	return &parsedDays, nil
 }
 
 // parseAge parses age strings like "7d", "2w", "1m" to days

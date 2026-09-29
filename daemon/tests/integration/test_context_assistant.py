@@ -4,15 +4,21 @@ Tests prune protection invariants AND context suggestion API invariants.
 """
 
 import gc
+import json
 import logging
 import sqlite3
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from prismis_daemon.api import app
+from prismis_daemon.circuit_breaker import (
+    CircuitState,
+    get_circuit_breaker,
+    reset_circuit_breaker,
+)
 from prismis_daemon.config import Config
 from prismis_daemon.context_analyzer import ContextAnalyzer
 from prismis_daemon.models import ContentItem
@@ -22,10 +28,14 @@ from conftest import TEST_API_KEY, add_new_content
 logger = logging.getLogger(__name__)
 
 # llm_core.complete as imported into a prismis_daemon module -- the one collaborator
-# the constitution permits standing in for.
-_LLM_COMPLETE_MOCK = (
-    "prismis_daemon.context_analyzer.complete"  # claudex-guard: allow-mock
-)
+# the constitution permits standing in for. dedup (cluster 11): context_analyzer.py no
+# longer imports complete directly -- the call moved into the shared
+# call_llm_with_circuit_breaker helper in llm_call.py.
+_LLM_COMPLETE_MOCK = "prismis_daemon.llm_call.complete"  # claudex-guard: allow-mock
+
+# A service name scoped to this file's circuit-breaker tests, so they don't share
+# state with any other module's SERVICE constant in the same test session.
+_CIRCUIT_SERVICE = "prismis-openai-context-analyzer-circuit-test"
 
 # ===== EXISTING TESTS: Prune Protection Invariants =====
 
@@ -445,3 +455,85 @@ def test_FAILURE_malformed_context_md_graceful(
         assert isinstance(existing_topics["high"], list)
         assert isinstance(existing_topics["medium"], list)
         assert isinstance(existing_topics["low"], list)
+
+
+# --- cluster 11 (dedup-triage.md): context_analyzer.py made no circuit-breaker check
+# at all before this consolidation -- the shared call_llm_with_circuit_breaker helper
+# (prismis_daemon/llm_call.py) now gates it exactly like evaluator.py and
+# summarizer.py did already. These tests prove the decision landed, not just that the
+# helper itself has the logic. ---
+
+
+def test_circuit_open_refuses_context_analyzer_call_without_hitting_the_llm(
+    sample_flagged_items: list[dict],
+) -> None:
+    """A context-analysis call is refused before complete() is ever invoked, once
+    the service's circuit breaker is open -- context_analyzer previously had no such
+    check at all."""
+    reset_circuit_breaker(_CIRCUIT_SERVICE)
+    circuit = get_circuit_breaker(_CIRCUIT_SERVICE)
+    for _ in range(3):
+        circuit.record_failure(RuntimeError("insufficient_quota"))
+    assert circuit.check_can_proceed() is False, "setup: circuit must be open"
+
+    analyzer = ContextAnalyzer(_CIRCUIT_SERVICE)
+    try:
+        with patch(_LLM_COMPLETE_MOCK) as mock_complete:  # claudex-guard: allow-mock
+            with pytest.raises(RuntimeError, match="circuit breaker is open"):
+                analyzer.analyze_flagged_items(
+                    sample_flagged_items, "## High Priority Topics\n- x\n"
+                )
+            mock_complete.assert_not_called()
+    finally:
+        reset_circuit_breaker(_CIRCUIT_SERVICE)
+
+
+def test_context_analyzer_records_a_quota_failure_on_the_circuit_breaker(
+    sample_flagged_items: list[dict],
+) -> None:
+    """Three quota-shaped failures from analyze_flagged_items open the circuit --
+    the helper's record_failure call, not just a log line."""
+    reset_circuit_breaker(_CIRCUIT_SERVICE)
+    analyzer = ContextAnalyzer(_CIRCUIT_SERVICE)
+    try:
+        with patch(
+            _LLM_COMPLETE_MOCK, side_effect=RuntimeError("insufficient_quota")
+        ):  # claudex-guard: allow-mock
+            for _ in range(3):
+                with pytest.raises(RuntimeError):
+                    analyzer.analyze_flagged_items(
+                        sample_flagged_items, "## High Priority Topics\n- x\n"
+                    )
+        assert get_circuit_breaker(_CIRCUIT_SERVICE).check_can_proceed() is False
+    finally:
+        reset_circuit_breaker(_CIRCUIT_SERVICE)
+
+
+def test_context_analyzer_records_success_and_closes_a_half_open_circuit(
+    sample_flagged_items: list[dict],
+) -> None:
+    """A successful context-analysis call closes a half-open circuit via
+    record_success."""
+    reset_circuit_breaker(_CIRCUIT_SERVICE)
+    circuit = get_circuit_breaker(_CIRCUIT_SERVICE)
+    circuit.state = CircuitState.HALF_OPEN
+    analyzer = ContextAnalyzer(_CIRCUIT_SERVICE)
+
+    fake_result = MagicMock()  # claudex-guard: allow-mock
+    fake_result.text = json.dumps({"suggested_topics": []})
+    fake_result.tokens.input = 10
+    fake_result.tokens.output = 5
+    fake_result.cost = 0.0
+    fake_result.model = "gpt-4.1-mini"
+    fake_result.duration_ms = 1
+
+    try:
+        with patch(_LLM_COMPLETE_MOCK) as mock_complete:  # claudex-guard: allow-mock
+            mock_complete.return_value = fake_result
+            result = analyzer.analyze_flagged_items(
+                sample_flagged_items, "## High Priority Topics\n- x\n"
+            )
+        assert result == {"suggested_topics": []}
+        assert circuit.state == CircuitState.CLOSED
+    finally:
+        reset_circuit_breaker(_CIRCUIT_SERVICE)

@@ -98,7 +98,6 @@ def run_service(service: str, items: list[dict], context: str) -> list[dict]:
             if summary:
                 row["summary"] = summary.summary
                 row["reading_summary"] = summary.reading_summary
-                row["entities"] = summary.entities
                 row["alpha_insights"] = summary.alpha_insights
         except Exception as exc:
             row["summarize_ok"] = False
@@ -288,7 +287,6 @@ def side_by_side(all_results: dict[str, list[dict]]) -> str:
                 )
             else:
                 out.append(f"- **summary:** {row.get('summary')}\n")
-                out.append(f"- **entities:** {', '.join(row.get('entities') or [])}\n")
             if not row.get("evaluate_ok"):
                 out.append(f"- evaluate FAILED: {row.get('evaluate_error')}\n")
             else:

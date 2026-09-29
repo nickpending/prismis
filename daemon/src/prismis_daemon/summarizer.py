@@ -24,7 +24,6 @@ class ContentSummary:
     # Universal structured analysis fields (extracted once during ingest)
     alpha_insights: list[str]
     patterns: list[str]
-    entities: list[str]  # These are the "topics" - key concepts/technologies
     quotes: list[str]  # Key memorable quotes from the content
     tools: list[str]  # Novel/interesting tools and libraries mentioned
     urls: list[str]  # URLs referenced in the content
@@ -175,7 +174,6 @@ class ContentSummarizer:
                 "reading_summary",
                 "alpha_insights",
                 "patterns",
-                "entities",
                 "quotes",  # Required - core extraction feature
             ]
             for field in required_fields:
@@ -193,7 +191,6 @@ class ContentSummarizer:
                 reading_summary=parsed["reading_summary"],
                 alpha_insights=parsed.get("alpha_insights", []),
                 patterns=parsed.get("patterns", []),
-                entities=parsed.get("entities", []),
                 quotes=parsed.get("quotes", []),
                 tools=parsed.get("tools", []),
                 urls=parsed.get("urls", []),
@@ -291,50 +288,7 @@ STEP 2: EXTRACT INSIGHTS & PATTERNS
 - Alpha insights: Universal truths that exist outside the article but are grounded in it (10-24 items)
 - Patterns: Specific methods, frameworks, or approaches described (3-10 items)
 
-STEP 3: EXTRACT HASHTAG-STYLE TAGS (entities)
-Think Twitter hashtags or Instagram tags - simple, searchable, one concept each.
-Extract 3-5 essential tags. IMPORTANT: 3 great tags is BETTER than 5 mediocre ones.
-Do NOT force 5 tags - only include tags that truly matter.
-
-HASHTAG MINDSET:
-- Think breadth, not depth - what's this REALLY about?
-- Single words preferred, hyphens OK for compound concepts
-- Choose the essence, not the full description
-- Less is more - 3 great tags better than 5 mediocre ones
-
-SIMPLIFICATION RULES:
-- "ai language models" → "ai" (not ai-language-models)
-- "supply chain attack" → "security" or "supply-chain"
-- "national institutes of health" → "health" or "nih"
-- "16-digit numerical password" → "security"
-- "adaptive security appliance" → "security"
-- "biomedical research funding" → "research" or "biomedical"
-- "artificial intelligence ethics" → "ai" and "ethics" (separate tags)
-
-GOOD hashtag examples:
-- AI article: ["ai", "chatgpt", "ethics"]
-- Security breach: ["security", "ransomware", "cisco"]
-- Health research: ["health", "research", "nih"]
-- Dev tutorial: ["python", "tutorial", "web"]
-
-BAD examples (too complex):
-- ["ai language models", "ethical considerations", "societal impact"]
-- ["supply chain attack", "open source security", "npm ecosystem"]
-- ["national institutes of health", "biomedical research", "federal funding"]
-
-VALIDATION RULES (MUST FOLLOW):
-- NO SPACES EVER. If multi-word: either hyphenate OR simplify to one word
-  • "cloud code" → "claude-code" OR just "claude"
-  • "software development" → "software-development" OR just "software"
-  • "agentic tool use" → "agentic-tools" OR just "agentic"
-- NO DUPLICATES. If you include "gemini", don't add "llm-gemini"
-- Every tag: lowercase letters and hyphens only
-- If ANY tag contains spaces, the extraction has FAILED
-
-CRITICAL: Pick the ESSENCE, not the description.
-If unsure, go broader and simpler. All lowercase, no spaces.
-
-STEP 4: EXTRACT MEMORABLE QUOTES (quotes)
+STEP 3: EXTRACT MEMORABLE QUOTES (quotes)
 Find 0-3 quotes that are GENUINELY INSIGHTFUL. Many articles have NO quotable insights - that's OK.
 
 QUALITY CRITERIA:
@@ -361,7 +315,7 @@ EXAMPLES of NON-QUOTES (never extract these):
 
 REMEMBER: Better to have zero quotes than to extract mundane sentences. Only the gems.
 
-STEP 5: EXTRACT SUBSTANTIVE TOOLS
+STEP 4: EXTRACT SUBSTANTIVE TOOLS
 Extract tools that are discussed SUBSTANTIVELY in the content.
 
 Only include tools that meet these criteria:
@@ -384,7 +338,7 @@ DO NOT include tools that are:
 Maximum 5 tools to keep focused on the most valuable ones
 Format: lowercase unless it's a proper name
 
-STEP 6: FIND REFERENCED URLS
+STEP 5: FIND REFERENCED URLS
 Extract actual URLs referenced or linked WITHIN the content.
 
 Include GitHub repos, documentation sites, project homepages that are referenced
@@ -405,13 +359,6 @@ OUTPUT FORMAT:
   "patterns": [
     "Specific method or approach described",
     "Framework or technique mentioned"
-  ],
-  "entities": [
-    "Most significant entity #1",
-    "Most significant entity #2",
-    "Most significant entity #3",
-    "Most significant entity #4",
-    "Most significant entity #5"
   ],
   "quotes": [
     "First memorable quote that captures key insight",
@@ -482,22 +429,16 @@ STEP 2: EXTRACT INSIGHTS & PATTERNS
 - Alpha insights: What do these changes reveal? (e.g., "Documentation migration indicates platform consolidation")
 - Patterns: What patterns appear in the changes? (e.g., "Consistent URL scheme migration")
 
-STEP 3: EXTRACT TAGS (entities)
-Extract 3-5 tags about what changed. Examples:
-- URL migration: ["documentation", "url-migration"]
-- Bug fix: ["bugfix", "error-handling"]
-- Feature addition: ["feature", "api"]
-
-STEP 4: EXTRACT QUOTES
+STEP 3: EXTRACT QUOTES
 Usually empty for diffs. Only include if changes contain genuinely insightful text.
 
-STEP 5: EXTRACT TOOLS
+STEP 4: EXTRACT TOOLS
 Only tools that were ADDED or REMOVED in the changes, not tools mentioned in context.
 
-STEP 6: EXTRACT URLs
+STEP 5: EXTRACT URLs
 Only URLs that were ADDED in the changes (lines starting with "+").
 
-Return JSON with: summary, reading_summary, alpha_insights, patterns, entities, quotes, tools, urls, metadata"""
+Return JSON with: summary, reading_summary, alpha_insights, patterns, quotes, tools, urls, metadata"""
 
     def _build_prompt(
         self,

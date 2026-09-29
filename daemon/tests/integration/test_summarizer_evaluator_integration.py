@@ -16,7 +16,7 @@ def test_summarizer_with_real_llm_extracts_all_fields() -> None:
     This test:
     - Initializes ContentSummarizer with real API key
     - Makes actual LLM API call to gpt-4o-mini
-    - Verifies all fields extracted (summary, reading_summary, alpha_insights, patterns, entities)
+    - Verifies all fields extracted (summary, reading_summary, alpha_insights, patterns)
     """
     # Use real API key from environment
     summarizer = ContentSummarizer("gpt-4o-mini")
@@ -69,15 +69,6 @@ def test_summarizer_with_real_llm_extracts_all_fields() -> None:
     # Check patterns identified
     assert len(result.patterns) >= 2  # Should identify some patterns
     assert all(isinstance(pattern, str) for pattern in result.patterns)
-
-    # Check entities extracted (exactly 5 most significant)
-    assert len(result.entities) == 5
-    assert all(isinstance(entity, str) for entity in result.entities)
-    # Should include major entities from the content
-    assert any(
-        "gpt" in entity.lower() or "openai" in entity.lower()
-        for entity in result.entities
-    )
 
     # Check metadata
     assert result.metadata["model"] == "gpt-4o-mini"
@@ -252,7 +243,10 @@ def test_complete_analysis_pipeline(llm_config, full_config) -> None:
 
     assert summary_result is not None
     assert len(summary_result.alpha_insights) > 0
-    assert any("rust" in entity.lower() for entity in summary_result.entities)
+    assert (
+        "rust" in summary_result.summary.lower()
+        or "rust" in summary_result.reading_summary.lower()
+    )
 
     # Step 2: Evaluate priority
     evaluation = evaluator.evaluate_content(
@@ -276,7 +270,6 @@ def test_complete_analysis_pipeline(llm_config, full_config) -> None:
         "reading_summary": summary_result.reading_summary,
         "alpha_insights": summary_result.alpha_insights,
         "patterns": summary_result.patterns,
-        "entities": summary_result.entities,
         "matched_interests": evaluation.matched_interests,
         "metadata": summary_result.metadata,
     }
@@ -285,7 +278,6 @@ def test_complete_analysis_pipeline(llm_config, full_config) -> None:
     assert "reading_summary" in analysis_json
     assert "alpha_insights" in analysis_json
     assert "patterns" in analysis_json
-    assert "entities" in analysis_json
     assert "matched_interests" in analysis_json
 
     # This would go to database with:

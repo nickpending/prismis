@@ -287,7 +287,6 @@ class DaemonOrchestrator:
                         "reading_summary": summary_result.reading_summary,
                         "alpha_insights": summary_result.alpha_insights,
                         "patterns": summary_result.patterns,
-                        "entities": summary_result.entities,
                         "quotes": summary_result.quotes,
                         "tools": summary_result.tools,
                         "urls": summary_result.urls,

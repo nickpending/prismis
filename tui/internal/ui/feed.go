@@ -67,7 +67,7 @@ func buildViewStateString(m Model) string {
 
 	// Kind filter (only shown when one is active, "all" is the unfiltered default)
 	if m.kindFilter != "" && m.kindFilter != "all" {
-		states = append(states, "Kind: "+strings.ToUpper(m.kindFilter))
+		states = append(states, "Kind: "+m.kindFilter)
 	}
 
 	// Add hidden count if applicable
@@ -505,7 +505,7 @@ func renderContentList(m Model, width, height int, theme StyleTheme) string {
 
 		// Kind if classified (empty for unclassified items - no label shown)
 		if kind := parseMetadata(item.Analysis).Kind; kind != "" {
-			metaParts = append(metaParts, lipgloss.NewStyle().Foreground(theme.Cyan).Render(strings.ToUpper(kind)))
+			metaParts = append(metaParts, lipgloss.NewStyle().Foreground(theme.Cyan).Render(kind))
 		}
 
 		// User feedback indicator (prepend so it's visible)
@@ -811,7 +811,7 @@ func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
 
 	// Kind if classified (empty for unclassified items - no label shown)
 	if kind := parseMetadata(item.Analysis).Kind; kind != "" {
-		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(theme.Cyan).Render(strings.ToUpper(kind)))
+		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(theme.Cyan).Render(kind))
 	}
 
 	// Title and metadata on same line with bold grey brackets

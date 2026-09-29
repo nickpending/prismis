@@ -84,7 +84,7 @@ func TestFeedPriorityDisplay(t *testing.T) {
 }
 
 // TestFeedKindDisplay_ClassifiedItem verifies the feed row shows the item's kind
-// (mined from analysis.kind) in uppercase.
+// (mined from analysis.kind) in lowercase, as stored.
 func TestFeedKindDisplay_ClassifiedItem(t *testing.T) {
 	items := []db.ContentItem{
 		{ID: "1", Title: "Classified Item", Priority: "high", Analysis: `{"kind":"release","kind_confidence":0.91}`},
@@ -102,8 +102,8 @@ func TestFeedKindDisplay_ClassifiedItem(t *testing.T) {
 	}
 
 	output := model.View()
-	if !strings.Contains(output, "RELEASE") {
-		t.Errorf("Expected feed row to show kind 'RELEASE'. Got: %s", output)
+	if !strings.Contains(output, "release") {
+		t.Errorf("Expected feed row to show kind 'release'. Got: %s", output)
 	}
 }
 
@@ -127,7 +127,7 @@ func TestFeedKindDisplay_UnclassifiedItem(t *testing.T) {
 	}
 
 	output := model.View()
-	for _, kind := range []string{"RELEASE", "EXPERIENCE", "QUESTION", "ANALYSIS", "NEWS", "INCIDENT", "RESEARCH", "VULNERABILITY", "HUMOR", "TUTORIAL"} {
+	for _, kind := range []string{"release", "experience", "question", "analysis", "news", "incident", "research", "vulnerability", "humor", "tutorial"} {
 		if strings.Contains(output, kind) {
 			t.Errorf("Unclassified items must show no kind label, but found %q. Got: %s", kind, output)
 		}
@@ -152,8 +152,8 @@ func TestReaderKindDisplay(t *testing.T) {
 	model.updateReaderContent()
 
 	output := model.View()
-	if !strings.Contains(output, "TUTORIAL") {
-		t.Errorf("Expected reader header to show kind 'TUTORIAL'. Got: %s", output)
+	if !strings.Contains(output, "tutorial") {
+		t.Errorf("Expected reader header to show kind 'tutorial'. Got: %s", output)
 	}
 }
 

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -497,5 +498,480 @@ func TestAPITimeUnmarshalJSON_SingleParseCall_SC26(t *testing.T) {
 			"SC-26 violation: client.go must not contain any space-separator format string. " +
 				"The pre-fix fallback list has been re-introduced.",
 		)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Cluster 1 dedup (doRequest, docs/work/dedup-triage.md section 1): closes the
+// triage's documented test gap. Every method here previously had no direct
+// httptest-backed test. PauseSource/ResumeSource/PruneCount/PruneUnprioritized
+// used to check only apiResp.Success, never resp.StatusCode — the exact drift
+// SC-1 names in the work order's "why" ("four TUI client methods skip the
+// HTTP status check the other nine make") and requires fixed: "PauseSource,
+// ResumeSource, PruneCount and PruneUnprioritized return an error on a
+// non-2xx status like the other nine" (work-order.json SC-1). The
+// "StatusError" tests prove they error when the daemon reports failure
+// (status and success both indicate it), and the
+// "StatusErrorEvenWhenBodySaysSuccess" tests prove the fix itself: a non-2xx
+// status now produces an error even when the body claims success:true.
+// ---------------------------------------------------------------------------
+
+func TestUpdateSourceRequest(t *testing.T) {
+	var gotMethod, gotPath, gotContentType, gotAPIKey string
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotContentType = r.Header.Get("Content-Type")
+		gotAPIKey = r.Header.Get("X-API-Key")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"updated"}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "secret-key", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	name := "New Name"
+	resp, err := client.UpdateSource("src-1", SourceRequest{URL: "https://example.com", Type: "rss", Name: &name})
+	if err != nil {
+		t.Fatalf("UpdateSource failed: %v", err)
+	}
+	if !resp.Success {
+		t.Fatal("expected a successful response")
+	}
+	if gotMethod != http.MethodPatch {
+		t.Errorf("expected PATCH, got %s", gotMethod)
+	}
+	if gotPath != "/api/sources/src-1" {
+		t.Errorf("expected /api/sources/src-1, got %s", gotPath)
+	}
+	if gotContentType != "application/json" {
+		t.Errorf("expected application/json content-type, got %q", gotContentType)
+	}
+	if gotAPIKey != "secret-key" {
+		t.Errorf("expected X-API-Key header to be sent, got %q", gotAPIKey)
+	}
+	var sent SourceRequest
+	if err := json.Unmarshal(gotBody, &sent); err != nil {
+		t.Fatalf("failed to decode sent body: %v", err)
+	}
+	if sent.URL != "https://example.com" {
+		t.Errorf("expected sent URL to round-trip, got %q", sent.URL)
+	}
+}
+
+func TestUpdateSourceStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"success":false,"message":"no such source"}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	_, err := client.UpdateSource("missing", SourceRequest{URL: "https://example.com", Type: "rss"})
+	if err == nil {
+		t.Fatal("expected an error for a 404 response")
+	}
+	if !containsString(err.Error(), "source not found") {
+		t.Errorf("expected 'source not found', got: %v", err)
+	}
+}
+
+func TestUpdateContentRequest(t *testing.T) {
+	var gotMethod, gotPath, gotContentType string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotContentType = r.Header.Get("Content-Type")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"updated"}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	read := true
+	_, err := client.UpdateContent("content-1", ContentUpdateRequest{Read: &read})
+	if err != nil {
+		t.Fatalf("UpdateContent failed: %v", err)
+	}
+	if gotMethod != http.MethodPatch {
+		t.Errorf("expected PATCH, got %s", gotMethod)
+	}
+	if gotPath != "/api/entries/content-1" {
+		t.Errorf("expected /api/entries/content-1, got %s", gotPath)
+	}
+	if gotContentType != "application/json" {
+		t.Errorf("expected application/json content-type, got %q", gotContentType)
+	}
+}
+
+func TestUpdateContentStatusError(t *testing.T) {
+	cases := []struct {
+		name       string
+		status     int
+		wantSubstr string
+	}{
+		{"not found", http.StatusNotFound, "content not found"},
+		{"validation", http.StatusUnprocessableEntity, "validation error"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"success":false,"message":"bad request"}`))
+			}))
+			defer server.Close()
+
+			client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+			read := true
+			_, err := client.UpdateContent("content-1", ContentUpdateRequest{Read: &read})
+			if err == nil {
+				t.Fatalf("expected an error for status %d", tc.status)
+			}
+			if !containsString(err.Error(), tc.wantSubstr) {
+				t.Errorf("expected error to contain %q, got: %v", tc.wantSubstr, err)
+			}
+		})
+	}
+}
+
+func TestFetchEntriesRequest(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"items":[],"total":0,"filters_applied":{}}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	items, err := client.FetchEntries()
+	if err != nil {
+		t.Fatalf("FetchEntries failed: %v", err)
+	}
+	if items == nil {
+		t.Fatal("expected a non-nil slice")
+	}
+	if gotPath != "/api/entries?limit=10000" {
+		t.Errorf("expected /api/entries?limit=10000, got %s", gotPath)
+	}
+}
+
+func TestFetchEntriesSinceRequest(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"items":[],"total":0,"filters_applied":{}}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	since := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if _, err := client.FetchEntriesSince(since); err != nil {
+		t.Fatalf("FetchEntriesSince failed: %v", err)
+	}
+	wantParam := "since=" + since.Format(time.RFC3339Nano)
+	if !strings.Contains(gotPath, wantParam) {
+		t.Errorf("expected path to contain %q, got %s", wantParam, gotPath)
+	}
+}
+
+func TestPauseSourceRequest(t *testing.T) {
+	var gotMethod, gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"paused"}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	resp, err := client.PauseSource("src-1")
+	if err != nil {
+		t.Fatalf("PauseSource failed: %v", err)
+	}
+	if !resp.Success {
+		t.Fatal("expected a successful response")
+	}
+	if gotMethod != http.MethodPatch {
+		t.Errorf("expected PATCH, got %s", gotMethod)
+	}
+	if gotPath != "/api/sources/src-1/pause" {
+		t.Errorf("expected /api/sources/src-1/pause, got %s", gotPath)
+	}
+}
+
+func TestPauseSourceStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"success":false,"message":"pause failed"}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	_, err := client.PauseSource("src-1")
+	if err == nil {
+		t.Fatal("expected an error for a failed pause")
+	}
+	if !containsString(err.Error(), "pause failed") {
+		t.Errorf("expected error to contain the API message, got: %v", err)
+	}
+}
+
+// TestPauseSourceStatusErrorEvenWhenBodySaysSuccess proves the SC-1 fix
+// (work-order.json's "why": "four TUI client methods skip the HTTP status
+// check the other nine make"): PauseSource must now error on a non-2xx
+// status even when the body claims success:true — it must not decide on
+// apiResp.Success alone anymore, the way it used to.
+func TestPauseSourceStatusErrorEvenWhenBodySaysSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"success":true,"message":"paused anyway"}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	_, err := client.PauseSource("src-1")
+	if err == nil {
+		t.Fatal("expected PauseSource to error on a non-2xx status regardless of apiResp.Success")
+	}
+}
+
+func TestResumeSourceRequest(t *testing.T) {
+	var gotMethod, gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"resumed"}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	resp, err := client.ResumeSource("src-1")
+	if err != nil {
+		t.Fatalf("ResumeSource failed: %v", err)
+	}
+	if !resp.Success {
+		t.Fatal("expected a successful response")
+	}
+	if gotMethod != http.MethodPatch {
+		t.Errorf("expected PATCH, got %s", gotMethod)
+	}
+	if gotPath != "/api/sources/src-1/resume" {
+		t.Errorf("expected /api/sources/src-1/resume, got %s", gotPath)
+	}
+}
+
+func TestResumeSourceStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"success":false,"message":"resume failed"}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	_, err := client.ResumeSource("src-1")
+	if err == nil {
+		t.Fatal("expected an error for a failed resume")
+	}
+	if !containsString(err.Error(), "resume failed") {
+		t.Errorf("expected error to contain the API message, got: %v", err)
+	}
+}
+
+// TestResumeSourceStatusErrorEvenWhenBodySaysSuccess is ResumeSource's half
+// of the SC-1 fix — see TestPauseSourceStatusErrorEvenWhenBodySaysSuccess.
+func TestResumeSourceStatusErrorEvenWhenBodySaysSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"success":true,"message":"resumed anyway"}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	_, err := client.ResumeSource("src-1")
+	if err == nil {
+		t.Fatal("expected ResumeSource to error on a non-2xx status regardless of apiResp.Success")
+	}
+}
+
+func TestPruneCountRequest(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"count":7,"days_filter":null}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	days := 30
+	count, err := client.PruneCount(&days)
+	if err != nil {
+		t.Fatalf("PruneCount failed: %v", err)
+	}
+	if count != 7 {
+		t.Errorf("expected count 7, got %d", count)
+	}
+	if gotPath != "/api/prune/count?days=30" {
+		t.Errorf("expected /api/prune/count?days=30, got %s", gotPath)
+	}
+}
+
+func TestPruneCountStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"success":false,"message":"count failed"}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	_, err := client.PruneCount(nil)
+	if err == nil {
+		t.Fatal("expected an error for a failed prune count")
+	}
+	if !containsString(err.Error(), "count failed") {
+		t.Errorf("expected error to contain the API message, got: %v", err)
+	}
+}
+
+// TestPruneCountStatusErrorEvenWhenBodySaysSuccess is PruneCount's half of
+// the SC-1 fix — see TestPauseSourceStatusErrorEvenWhenBodySaysSuccess.
+func TestPruneCountStatusErrorEvenWhenBodySaysSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"count":3,"days_filter":null}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	_, err := client.PruneCount(nil)
+	if err == nil {
+		t.Fatal("expected PruneCount to error on a non-2xx status regardless of apiResp.Success")
+	}
+}
+
+func TestPruneUnprioritizedRequest(t *testing.T) {
+	var gotMethod, gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.RequestURI()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"deleted":5,"days_filter":null}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	days := 7
+	deleted, err := client.PruneUnprioritized(&days)
+	if err != nil {
+		t.Fatalf("PruneUnprioritized failed: %v", err)
+	}
+	if deleted != 5 {
+		t.Errorf("expected 5 deleted, got %d", deleted)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("expected POST, got %s", gotMethod)
+	}
+	if gotPath != "/api/prune?days=7" {
+		t.Errorf("expected /api/prune?days=7, got %s", gotPath)
+	}
+}
+
+func TestPruneUnprioritizedStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"success":false,"message":"prune failed"}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	_, err := client.PruneUnprioritized(nil)
+	if err == nil {
+		t.Fatal("expected an error for a failed prune")
+	}
+	if !containsString(err.Error(), "prune failed") {
+		t.Errorf("expected error to contain the API message, got: %v", err)
+	}
+}
+
+// TestPruneUnprioritizedStatusErrorEvenWhenBodySaysSuccess is
+// PruneUnprioritized's half of the SC-1 fix — see
+// TestPauseSourceStatusErrorEvenWhenBodySaysSuccess.
+func TestPruneUnprioritizedStatusErrorEvenWhenBodySaysSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"deleted":2,"days_filter":null}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	_, err := client.PruneUnprioritized(nil)
+	if err == nil {
+		t.Fatal("expected PruneUnprioritized to error on a non-2xx status regardless of apiResp.Success")
+	}
+}
+
+// TestGenerateAudioBriefingUsesOwnTimeout, TestExtractEntryUsesOwnTimeout and
+// TestGetContextSuggestionsUsesOwnTimeout pin the triage's other named
+// behavior risk for cluster 1: these three methods build a fresh, longer-
+// timeout *http.Client per call instead of using c.httpClient — losing its
+// tuned Transport (connection pooling) on purpose, not by accident. Each
+// server sleeps longer than c.httpClient's own timeout; the call only
+// succeeds if the method used its own longer-lived client for this request.
+func TestGenerateAudioBriefingUsesOwnTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"file_path":"/tmp/a.mp3","filename":"a.mp3","duration_estimate":"5m","generated_at":"now","provider":"test","high_priority_count":1}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Millisecond}}
+	resp, err := client.GenerateAudioBriefing()
+	if err != nil {
+		t.Fatalf("GenerateAudioBriefing failed: %v", err)
+	}
+	if resp.Filename != "a.mp3" {
+		t.Errorf("expected filename a.mp3, got %q", resp.Filename)
+	}
+}
+
+func TestExtractEntryUsesOwnTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"status":"extracted"}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Millisecond}}
+	data, err := client.ExtractEntry("content-1")
+	if err != nil {
+		t.Fatalf("ExtractEntry failed: %v", err)
+	}
+	if data["status"] != "extracted" {
+		t.Errorf("expected status extracted, got %v", data["status"])
+	}
+}
+
+func TestGetContextSuggestionsUsesOwnTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"suggested_topics":[{"topic":"AI","section":"high","action":"add","existing_topic":null,"gap_analysis":"gap","rationale":"why"}]}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Millisecond}}
+	resp, err := client.GetContextSuggestions()
+	if err != nil {
+		t.Fatalf("GetContextSuggestions failed: %v", err)
+	}
+	if len(resp.SuggestedTopics) != 1 || resp.SuggestedTopics[0].Topic != "AI" {
+		t.Errorf("unexpected suggested topics: %+v", resp.SuggestedTopics)
 	}
 }

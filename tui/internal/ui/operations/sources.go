@@ -22,13 +22,9 @@ type SourceOperationMsg struct {
 func AddSource(url string, name string) tea.Cmd {
 	return func() tea.Msg {
 		// Create API client
-		apiClient, err := api.NewClient()
-		if err != nil {
-			return SourceOperationMsg{
-				Message: fmt.Sprintf("Failed to create API client: %v", err),
-				Success: false,
-				Error:   err,
-			}
+		apiClient, errMsg := newClientOrErrMsg()
+		if errMsg != nil {
+			return errMsg
 		}
 
 		// Detect source type
@@ -94,27 +90,13 @@ func AddSource(url string, name string) tea.Cmd {
 // RemoveSource removes a source by ID, URL, or name
 func RemoveSource(identifier string) tea.Cmd {
 	return func() tea.Msg {
-		apiClient, err := api.NewClient()
-		if err != nil {
-			return SourceOperationMsg{
-				Message: fmt.Sprintf("Failed to create API client: %v", err),
-				Success: false,
-				Error:   err,
-			}
-		}
-
-		// Use helper to find source
-		sourceID, sourceName, err := lookupSourceByIdentifier(identifier, apiClient)
-		if err != nil {
-			return SourceOperationMsg{
-				Message: err.Error(),
-				Success: false,
-				Error:   err,
-			}
+		apiClient, sourceID, sourceName, errMsg := clientAndLookupOrErrMsg(identifier)
+		if errMsg != nil {
+			return errMsg
 		}
 
 		// Delete the source by ID
-		_, err = apiClient.DeleteSource(sourceID)
+		_, err := apiClient.DeleteSource(sourceID)
 		if err != nil {
 			return SourceOperationMsg{
 				Message: fmt.Sprintf("Failed to remove source: %v", err),
@@ -134,27 +116,13 @@ func RemoveSource(identifier string) tea.Cmd {
 // PauseSource pauses a source by ID, URL, or name
 func PauseSource(identifier string) tea.Cmd {
 	return func() tea.Msg {
-		apiClient, err := api.NewClient()
-		if err != nil {
-			return SourceOperationMsg{
-				Message: fmt.Sprintf("Failed to create API client: %v", err),
-				Success: false,
-				Error:   err,
-			}
-		}
-
-		// Use helper to find source
-		sourceID, sourceName, err := lookupSourceByIdentifier(identifier, apiClient)
-		if err != nil {
-			return SourceOperationMsg{
-				Message: err.Error(),
-				Success: false,
-				Error:   err,
-			}
+		apiClient, sourceID, sourceName, errMsg := clientAndLookupOrErrMsg(identifier)
+		if errMsg != nil {
+			return errMsg
 		}
 
 		// Pause the source
-		_, err = apiClient.PauseSource(sourceID)
+		_, err := apiClient.PauseSource(sourceID)
 		if err != nil {
 			return SourceOperationMsg{
 				Message: fmt.Sprintf("Failed to pause source: %v", err),
@@ -174,27 +142,13 @@ func PauseSource(identifier string) tea.Cmd {
 // ResumeSource resumes a paused source by ID, URL, or name
 func ResumeSource(identifier string) tea.Cmd {
 	return func() tea.Msg {
-		apiClient, err := api.NewClient()
-		if err != nil {
-			return SourceOperationMsg{
-				Message: fmt.Sprintf("Failed to create API client: %v", err),
-				Success: false,
-				Error:   err,
-			}
-		}
-
-		// Use helper to find source
-		sourceID, sourceName, err := lookupSourceByIdentifier(identifier, apiClient)
-		if err != nil {
-			return SourceOperationMsg{
-				Message: err.Error(),
-				Success: false,
-				Error:   err,
-			}
+		apiClient, sourceID, sourceName, errMsg := clientAndLookupOrErrMsg(identifier)
+		if errMsg != nil {
+			return errMsg
 		}
 
 		// Resume the source
-		_, err = apiClient.ResumeSource(sourceID)
+		_, err := apiClient.ResumeSource(sourceID)
 		if err != nil {
 			return SourceOperationMsg{
 				Message: fmt.Sprintf("Failed to resume source: %v", err),
@@ -214,23 +168,9 @@ func ResumeSource(identifier string) tea.Cmd {
 // EditSourceName edits the name of a source
 func EditSourceName(identifier string, newName string) tea.Cmd {
 	return func() tea.Msg {
-		apiClient, err := api.NewClient()
-		if err != nil {
-			return SourceOperationMsg{
-				Message: fmt.Sprintf("Failed to create API client: %v", err),
-				Success: false,
-				Error:   err,
-			}
-		}
-
-		// Use helper to find source
-		sourceID, _, err := lookupSourceByIdentifier(identifier, apiClient)
-		if err != nil {
-			return SourceOperationMsg{
-				Message: err.Error(),
-				Success: false,
-				Error:   err,
-			}
+		apiClient, sourceID, _, errMsg := clientAndLookupOrErrMsg(identifier)
+		if errMsg != nil {
+			return errMsg
 		}
 
 		// Get the current source data to preserve URL and Type
@@ -276,13 +216,9 @@ func EditSourceName(identifier string, newName string) tea.Cmd {
 // UpdateSource updates a source with the given changes
 func UpdateSource(sourceID string, updates map[string]interface{}) tea.Cmd {
 	return func() tea.Msg {
-		apiClient, err := api.NewClient()
-		if err != nil {
-			return SourceOperationMsg{
-				Message: fmt.Sprintf("Failed to create API client: %v", err),
-				Success: false,
-				Error:   err,
-			}
+		apiClient, errMsg := newClientOrErrMsg()
+		if errMsg != nil {
+			return errMsg
 		}
 
 		// Build the update request
@@ -385,13 +321,9 @@ func ShowLogs() tea.Cmd {
 // ExportSources exports all sources to clipboard in markdown format
 func ExportSources() tea.Cmd {
 	return func() tea.Msg {
-		apiClient, err := api.NewClient()
-		if err != nil {
-			return SourceOperationMsg{
-				Message: fmt.Sprintf("Failed to create API client: %v", err),
-				Success: false,
-				Error:   err,
-			}
+		apiClient, errMsg := newClientOrErrMsg()
+		if errMsg != nil {
+			return errMsg
 		}
 
 		// Get all sources from API
@@ -643,4 +575,51 @@ func lookupSourceByIdentifier(identifier string, apiClient *api.APIClient) (stri
 	}
 
 	return "", "", fmt.Errorf("source not found: %s", identifier)
+}
+
+// newClientOrErrMsg creates an API client, returning the client on success or
+// a ready-to-return SourceOperationMsg (as a tea.Msg) describing the failure.
+// Callers check errMsg for nil before using the client.
+func newClientOrErrMsg() (*api.APIClient, tea.Msg) {
+	apiClient, err := api.NewClient()
+	if err != nil {
+		return nil, SourceOperationMsg{
+			Message: fmt.Sprintf("Failed to create API client: %v", err),
+			Success: false,
+			Error:   err,
+		}
+	}
+	return apiClient, nil
+}
+
+// lookupOrErrMsg finds a source by ID, URL, or name, returning the id/name on
+// success or a ready-to-return SourceOperationMsg (as a tea.Msg) describing
+// the failure. Callers check errMsg for nil before using id/name.
+func lookupOrErrMsg(identifier string, apiClient *api.APIClient) (id, name string, errMsg tea.Msg) {
+	id, name, err := lookupSourceByIdentifier(identifier, apiClient)
+	if err != nil {
+		return "", "", SourceOperationMsg{
+			Message: err.Error(),
+			Success: false,
+			Error:   err,
+		}
+	}
+	return id, name, nil
+}
+
+// clientAndLookupOrErrMsg creates an API client and looks up a source by ID,
+// URL, or name in one step — the common preamble RemoveSource, PauseSource,
+// ResumeSource, and EditSourceName each need before their own
+// operation-specific API call. Callers check errMsg for nil before using
+// apiClient/id/name.
+func clientAndLookupOrErrMsg(identifier string) (apiClient *api.APIClient, id, name string, errMsg tea.Msg) {
+	apiClient, errMsg = newClientOrErrMsg()
+	if errMsg != nil {
+		return nil, "", "", errMsg
+	}
+	id, name, errMsg = lookupOrErrMsg(identifier, apiClient)
+	if errMsg != nil {
+		return nil, "", "", errMsg
+	}
+	return apiClient, id, name, nil
 }

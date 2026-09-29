@@ -77,95 +77,15 @@ func renderSimpleMarkdown(content string, width int) string {
 		} else if strings.HasPrefix(trimmed, "## ") {
 			// Handle headers (## Header -> ▸ Header in cyan)
 			headerText := strings.TrimPrefix(trimmed, "## ")
-
-			// Special handling for Overview - put content in a box
-			if headerText == "Overview" {
-				// Add the header
-				styled := lipgloss.NewStyle().
-					Foreground(theme.Cyan).
-					Bold(true).
-					Render("▸ " + headerText)
-				result = append(result, styled)
-
-				// Collect overview content until next header or key points
-				var overviewLines []string
-				for j := i + 1; j < len(lines); j++ {
-					nextLine := strings.TrimSpace(lines[j])
-					if strings.HasPrefix(nextLine, "#") || strings.HasPrefix(nextLine, "-") || nextLine == "" {
-						break
-					}
-					overviewLines = append(overviewLines, nextLine)
-					skipLines++
-				}
-
-				// Box the overview content
-				if len(overviewLines) > 0 {
-					overviewText := strings.Join(overviewLines, " ")
-					wrapped := wrapText(overviewText, width-6) // Account for box padding
-
-					boxStyle := lipgloss.NewStyle().
-						Border(lipgloss.RoundedBorder()).
-						BorderForeground(theme.Purple).
-						Padding(0, 1).
-						Width(width - 2)
-
-					boxed := boxStyle.Render(wrapped)
-					result = append(result, boxed)
-				}
-			} else {
-				styled := lipgloss.NewStyle().
-					Foreground(theme.Cyan).
-					Bold(true).
-					Render("▸ " + headerText)
-				result = append(result, styled)
-				result = append(result, "") // Add space after header
-			}
+			headerLines, consumed := renderHeaderLine(headerText, lines, i, width, theme)
+			result = append(result, headerLines...)
+			skipLines += consumed
 		} else if strings.HasPrefix(trimmed, "# ") {
-			// Bigger headers
+			// Bigger headers (also handles # Overview in case it was converted)
 			headerText := strings.TrimPrefix(trimmed, "# ")
-
-			// Also handle # Overview here in case it was converted
-			if headerText == "Overview" {
-				// Add the header
-				styled := lipgloss.NewStyle().
-					Foreground(theme.Cyan).
-					Bold(true).
-					Render("▸ " + headerText)
-				result = append(result, styled)
-
-				// Collect overview content until next header or key points
-				var overviewLines []string
-				for j := i + 1; j < len(lines); j++ {
-					nextLine := strings.TrimSpace(lines[j])
-					if strings.HasPrefix(nextLine, "#") || strings.HasPrefix(nextLine, "-") || nextLine == "" {
-						break
-					}
-					overviewLines = append(overviewLines, nextLine)
-					skipLines++
-				}
-
-				// Box the overview content
-				if len(overviewLines) > 0 {
-					overviewText := strings.Join(overviewLines, " ")
-					wrapped := wrapText(overviewText, width-6) // Account for box padding
-
-					boxStyle := lipgloss.NewStyle().
-						Border(lipgloss.RoundedBorder()).
-						BorderForeground(theme.Purple).
-						Padding(0, 1).
-						Width(width - 2)
-
-					boxed := boxStyle.Render(wrapped)
-					result = append(result, boxed)
-				}
-			} else {
-				styled := lipgloss.NewStyle().
-					Foreground(theme.Cyan).
-					Bold(true).
-					Render("▸ " + headerText)
-				result = append(result, styled)
-				result = append(result, "") // Add space after header
-			}
+			headerLines, consumed := renderHeaderLine(headerText, lines, i, width, theme)
+			result = append(result, headerLines...)
+			skipLines += consumed
 		} else if strings.HasPrefix(trimmed, "> ") {
 			// Handle quotes with indentation and color
 			quoteText := strings.TrimPrefix(trimmed, "> ")
@@ -222,6 +142,62 @@ func renderSimpleMarkdown(content string, width int) string {
 	}
 
 	return strings.Join(result, "\n")
+}
+
+// renderHeaderLine renders a single "## Header" or "# Header" line into styled
+// output lines, sharing the "## " and "# " branches' identical body. lines and i
+// are the full source lines and the current line index (the header line itself),
+// used only to look ahead and collect the special-cased "Overview" section's
+// content until the next header/bullet/blank line. It returns the lines to
+// append to the render result, and how many of the following source lines were
+// consumed by that Overview lookahead (0 for every other header).
+func renderHeaderLine(headerText string, lines []string, i, width int, theme StyleTheme) ([]string, int) {
+	// Special handling for Overview - put content in a box
+	if headerText == "Overview" {
+		var result []string
+
+		// Add the header
+		styled := lipgloss.NewStyle().
+			Foreground(theme.Cyan).
+			Bold(true).
+			Render("▸ " + headerText)
+		result = append(result, styled)
+
+		// Collect overview content until next header or key points
+		var overviewLines []string
+		consumed := 0
+		for j := i + 1; j < len(lines); j++ {
+			nextLine := strings.TrimSpace(lines[j])
+			if strings.HasPrefix(nextLine, "#") || strings.HasPrefix(nextLine, "-") || nextLine == "" {
+				break
+			}
+			overviewLines = append(overviewLines, nextLine)
+			consumed++
+		}
+
+		// Box the overview content
+		if len(overviewLines) > 0 {
+			overviewText := strings.Join(overviewLines, " ")
+			wrapped := wrapText(overviewText, width-6) // Account for box padding
+
+			boxStyle := lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(theme.Purple).
+				Padding(0, 1).
+				Width(width - 2)
+
+			boxed := boxStyle.Render(wrapped)
+			result = append(result, boxed)
+		}
+
+		return result, consumed
+	}
+
+	styled := lipgloss.NewStyle().
+		Foreground(theme.Cyan).
+		Bold(true).
+		Render("▸ " + headerText)
+	return []string{styled, ""}, 0 // Add space after header
 }
 
 // wrapTextWithPrefix wraps text with different prefixes for first and continuation lines

@@ -4,8 +4,8 @@ subtype: boundaries
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-25"
-last_change: "openai-sdk-migration: the daemon's LLM boundary is now a direct openai-SDK client (llm_client.py), not a separate library; see decisions.md [2026-09-25]"
+updated: "2026-09-29"
+last_change: "content-kind (#77): new Daemon <-> OpenRouter Decisions and kind-filter contracts. Prior: openai-sdk-migration: the daemon's LLM boundary is now a direct openai-SDK client (llm_client.py), not a separate library; see decisions.md [2026-09-25]"
 tags: [architecture, boundaries]
 ---
 
@@ -42,6 +42,18 @@ Interface contracts between components and external systems.
 **Between:** `llm_client.py` (via daemon) ↔ apiconf
 **Contract:** `llm_client` calls apiconf's `get_key(key_name)`, which reads from ~/.config/apiconf/config.toml [keys.{name}].value. A service with `key_required = false` in services.toml skips apiconf entirely (a local model server that takes no key).
 **Constraints:** No env var override for apiconf config path. Tests must use real config or skip.
+
+## Daemon ↔ OpenRouter Decisions endpoint (kind classification)
+
+**Between:** `kind_classifier.submit_decision` ↔ OpenRouter alpha Decisions endpoint (typed pick-one-of-N, model `typesafe/jev-1.13`)
+**Contract:** Off unless `[llm] kind_service` names a `services.toml` entry; then no request is made otherwise. A call-level failure (unreachable, non-2xx, non-JSON body) raises; a successful call with confidence < 0.7 or a choice outside `KINDS` returns unclassified (`kind` null). The orchestrator catches the raise, records `kind_classify_failures`, and stores the item with no `kind` key. Request size is bounded (reading summary 4000 chars, raw content 1000).
+**Constraints:** The ten kinds and the 0.7 threshold change only with new measurement (gh #77). Provider is the only thing tests may stand in for.
+
+## Kind filter contract (API ↔ CLI/TUI)
+
+**Between:** `GET /api/entries?kind=` and `analysis.kind` ↔ CLI `--kind`, TUI kind filter
+**Contract:** `kind` is a single value or comma-separated list from `KINDS`; unknown values return 422. Entries expose a top-level `kind` (null = unclassified), mirrored from `analysis.kind`. The TUI reads `analysis.kind` directly from SQLite and builds its filter choices from `GetDistinctKinds` (scoped by archive state), not a hardcoded list.
+**Constraints:** Kind has no DB column; filtering is post-fetch in Python, so `limit` applies before the kind filter.
 
 ## TUI ↔ Daemon API
 

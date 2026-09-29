@@ -4,14 +4,20 @@ subtype: decisions
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-25"
-last_change: "openai-sdk-migration: daemon LLM calls go through a direct openai-SDK client (llm_client.py), replacing llm-core ([2026-09-25]); same migration's uv lock re-resolution upper-bounds praw to <8 until test_reddit_validation_unit.py is updated for prawcore 4's Session shape. Every unexpected API failure returns a generic 500 with detail redacted to the log (#76, commit 66cb94e); internal collaborators are no longer mocked in daemon or CLI tests, enforced by a structural guard test (no-internal-mocks, #73, #62)"
+updated: "2026-09-29"
+last_change: "content-kind (#77): ten-kind classification via Jev/OpenRouter Decisions endpoint ([2026-09-28]). Prior: openai-sdk-migration: daemon LLM calls go through a direct openai-SDK client (llm_client.py), replacing llm-core ([2026-09-25]); same migration's uv lock re-resolution upper-bounds praw to <8 until test_reddit_validation_unit.py is updated for prawcore 4's Session shape. Every unexpected API failure returns a generic 500 with detail redacted to the log (#76, commit 66cb94e); internal collaborators are no longer mocked in daemon or CLI tests, enforced by a structural guard test (no-internal-mocks, #73, #62)"
 tags: [architecture, decisions]
 ---
 
 # Decisions
 
 Architectural decisions and their rationale. Most recent first.
+
+## [2026-09-28]: Content kind is classified by Jev through OpenRouter's Decisions endpoint, optional and fail-open (content-kind, #77)
+
+**Context:** Priority and topics did not say what sort of item something is. Ten kinds were derived from 100 hand-labelled items.
+**Choice:** `kind_classifier.py` calls the typed Decisions endpoint directly (not `llm_client.complete()`), accepting only confidence >= 0.7 and one of ten `KINDS`, else unclassified. Kind is stored inside the analysis JSON (no column), and filtering happens in Python (API) or via `json_extract` (TUI). Enabled only by `llm_kind_service`; classifier failures never raise into the pipeline (INV-002).
+**Why:** 89% accuracy on the 72% of items above threshold; forcing low-confidence items into a bucket would be wrong more often than unlabeled. Fail-open keeps ingestion independent of a new alpha provider.
 
 ## [2026-09-25]: Daemon LLM calls go straight through the openai Python SDK; llm-core is removed (openai-sdk-migration)
 

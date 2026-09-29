@@ -151,6 +151,41 @@ def test_get_latest_content_for_source_with_multiple_sources(test_db: Path) -> N
     # Sources must not cross-contaminate
 
 
+def test_get_latest_content_for_source_returns_user_feedback(test_db: Path) -> None:
+    """
+    INVARIANT: get_latest_content_for_source returns user_feedback like every
+    other joined-row read method (get_content_by_id, get_content_by_priority,
+    get_content_since) does.
+    BREAKS: a caller reading a source's latest item and checking user_feedback
+    gets a KeyError today -- the field is silently dropped by this one method.
+    """
+    storage = Storage(test_db)
+
+    source_id = storage.add_source(
+        "https://example.com/feedback.md", "file", "Feedback Source"
+    )
+
+    item_dict = {
+        "source_id": source_id,
+        "external_id": "feedback-v1",
+        "title": "Feedback Doc",
+        "url": "https://example.com/feedback.md",
+        "content": "Some content",
+        "priority": "high",
+    }
+    content_id, is_new = storage.create_or_update_content(item_dict)
+    assert is_new is True
+
+    updated = storage.update_content_status(content_id, user_feedback="up")
+    assert updated is True
+
+    latest = storage.get_latest_content_for_source(source_id)
+
+    assert latest is not None
+    assert "user_feedback" in latest, "user_feedback key missing from returned dict"
+    assert latest["user_feedback"] == "up"
+
+
 def test_get_latest_content_for_source_with_no_previous_entry(test_db: Path) -> None:
     """
     INVARIANT: get_latest_content_for_source returns None when no previous entry exists

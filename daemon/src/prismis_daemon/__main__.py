@@ -129,6 +129,58 @@ def build_scheduler(
     return scheduler, interval_msg
 
 
+def build_orchestrator(config: Config, storage: Storage) -> DaemonOrchestrator:
+    """Wire every pipeline component into a DaemonOrchestrator for one config+storage.
+
+    Shared by run_scheduler and the --once branch of main: both built the same
+    fetchers, summarizer, evaluator, notifier and optional deep_extractor/
+    kind_classifier from the same config fields, in the same order, then diverged
+    only after (one calls build_scheduler, the other calls run_once()).
+    """
+    rss_fetcher = RSSFetcher(config=config)
+    reddit_fetcher = RedditFetcher(config=config)
+    youtube_fetcher = YouTubeFetcher(config=config)
+    file_fetcher = FileFetcher(config=config, storage=storage)
+
+    notification_config = {
+        "high_priority_only": config.high_priority_only,
+        "command": config.notification_command,
+    }
+
+    summarizer = ContentSummarizer(config.llm_light_service)
+    evaluator = ContentEvaluator(config.llm_light_service)
+    notifier = Notifier(notification_config)
+
+    # Optional deep extractor — only when llm_deep_service is configured.
+    deep_extractor = None
+    if config.llm_deep_service:
+        from .deep_extractor import ContentDeepExtractor
+
+        deep_extractor = ContentDeepExtractor(config.llm_deep_service)
+
+    # Optional kind classifier (gh #77) — only when llm_kind_service is configured.
+    kind_classifier = None
+    if config.llm_kind_service:
+        from .kind_classifier import KindClassifier
+
+        kind_classifier = KindClassifier(config.llm_kind_service)
+
+    return DaemonOrchestrator(
+        storage=storage,
+        rss_fetcher=rss_fetcher,
+        reddit_fetcher=reddit_fetcher,
+        youtube_fetcher=youtube_fetcher,
+        file_fetcher=file_fetcher,
+        summarizer=summarizer,
+        evaluator=evaluator,
+        notifier=notifier,
+        config=config,
+        console=console,
+        deep_extractor=deep_extractor,
+        kind_classifier=kind_classifier,
+    )
+
+
 async def run_scheduler(config: Config, test_mode: bool = False) -> None:
     """Run the daemon with APScheduler for periodic fetching.
 
@@ -143,50 +195,8 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
         console.print("🔧 Initializing components...")
         storage = Storage()
 
-        # Create all fetchers with config
-        rss_fetcher = RSSFetcher(config=config)
-        reddit_fetcher = RedditFetcher(config=config)
-        youtube_fetcher = YouTubeFetcher(config=config)
-        file_fetcher = FileFetcher(config=config, storage=storage)
-
-        notification_config = {
-            "high_priority_only": config.high_priority_only,
-            "command": config.notification_command,
-        }
-
-        summarizer = ContentSummarizer(config.llm_light_service)
-        evaluator = ContentEvaluator(config.llm_light_service)
-        notifier = Notifier(notification_config)
-
-        # Optional deep extractor — only when llm_deep_service is configured.
-        deep_extractor = None
-        if config.llm_deep_service:
-            from .deep_extractor import ContentDeepExtractor
-
-            deep_extractor = ContentDeepExtractor(config.llm_deep_service)
-
-        # Optional kind classifier (gh #77) — only when llm_kind_service is configured.
-        kind_classifier = None
-        if config.llm_kind_service:
-            from .kind_classifier import KindClassifier
-
-            kind_classifier = KindClassifier(config.llm_kind_service)
-
         # Create orchestrator with all dependencies
-        orchestrator = DaemonOrchestrator(
-            storage=storage,
-            rss_fetcher=rss_fetcher,
-            reddit_fetcher=reddit_fetcher,
-            youtube_fetcher=youtube_fetcher,
-            file_fetcher=file_fetcher,
-            summarizer=summarizer,
-            evaluator=evaluator,
-            notifier=notifier,
-            config=config,
-            console=console,
-            deep_extractor=deep_extractor,
-            kind_classifier=kind_classifier,
-        )
+        orchestrator = build_orchestrator(config, storage)
 
         scheduler, interval_msg = build_scheduler(
             config, orchestrator, storage, test_mode
@@ -218,7 +228,7 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
 
         # Expose deep extractor to API endpoints (None when not configured;
         # the endpoint returns 503 in that case).
-        app.state.deep_extractor = deep_extractor
+        app.state.deep_extractor = orchestrator.deep_extractor
 
         # Create API server config
         api_config = uvicorn.Config(
@@ -434,51 +444,8 @@ def main(
                 console.print("🔧 Initializing components...")
                 storage = Storage()
 
-                # Create all fetchers with config
-                rss_fetcher = RSSFetcher(config=config)
-                reddit_fetcher = RedditFetcher(config=config)
-                youtube_fetcher = YouTubeFetcher(config=config)
-                file_fetcher = FileFetcher(config=config, storage=storage)
-
-                notification_config = {
-                    "high_priority_only": config.high_priority_only,
-                    "command": config.notification_command,
-                }
-
-                summarizer = ContentSummarizer(config.llm_light_service)
-                evaluator = ContentEvaluator(config.llm_light_service)
-                notifier = Notifier(notification_config)
-
-                # Optional deep extractor — only when llm_deep_service is configured.
-                deep_extractor = None
-                if config.llm_deep_service:
-                    from .deep_extractor import ContentDeepExtractor
-
-                    deep_extractor = ContentDeepExtractor(config.llm_deep_service)
-
-                # Optional kind classifier (gh #77) — only when llm_kind_service is
-                # configured.
-                kind_classifier = None
-                if config.llm_kind_service:
-                    from .kind_classifier import KindClassifier
-
-                    kind_classifier = KindClassifier(config.llm_kind_service)
-
                 # Create and run orchestrator with all dependencies
-                orchestrator = DaemonOrchestrator(
-                    storage=storage,
-                    rss_fetcher=rss_fetcher,
-                    reddit_fetcher=reddit_fetcher,
-                    youtube_fetcher=youtube_fetcher,
-                    file_fetcher=file_fetcher,
-                    summarizer=summarizer,
-                    evaluator=evaluator,
-                    notifier=notifier,
-                    config=config,
-                    console=console,
-                    deep_extractor=deep_extractor,
-                    kind_classifier=kind_classifier,
-                )
+                orchestrator = build_orchestrator(config, storage)
 
                 stats = orchestrator.run_once()
 
@@ -495,6 +462,39 @@ def main(
 
             # Run the scheduler with already validated config
             asyncio.run(run_scheduler(config, test_mode=test_mode))
+
+
+def _append_deep_service_block(services_path: Path, console: Console) -> bool:
+    """Idempotently append the [services.prismis-openai-deep] block to services.toml.
+
+    Shared by both migrate_config branches that converge a config to the dual-service
+    shape: the "service -> light_service" rename branch and the pre-llm-core install
+    branch. Callers guarantee services_path exists before calling this.
+
+    Returns True when the block was newly appended, False when it was already present.
+    The skip message is printed here, since it was byte-identical at both call sites
+    before consolidation. The success message is left to the caller: the two call
+    sites' original messages differ in whether they escape the console markup
+    bracket (one does, one doesn't -- the latter is a pre-existing, unconsolidated
+    quirk, not something this extraction changes), so printing it here would pick one
+    behavior for both callers.
+    """
+    services_text = services_path.read_text()
+    if "[services.prismis-openai-deep]" in services_text:
+        console.print("[dim]Skipping prismis-openai-deep entry (already exists)[/dim]")
+        return False
+
+    if not services_text.endswith("\n"):
+        services_text += "\n"
+    services_text += (
+        "\n[services.prismis-openai-deep]\n"
+        'adapter = "openai"\n'
+        'key = "sable-openai"\n'
+        'base_url = "https://api.openai.com/v1"\n'
+        'default_model = "gpt-5-mini"\n'
+    )
+    services_path.write_text(services_text)
+    return True
 
 
 @app.command()
@@ -551,22 +551,7 @@ def migrate_config() -> None:
         # Append [services.prismis-openai-deep] to services.toml (idempotent)
         services_path = Path(config_home) / "llm-core" / "services.toml"
         if services_path.exists():
-            services_text = services_path.read_text()
-            if "[services.prismis-openai-deep]" in services_text:
-                console.print(
-                    "[dim]Skipping prismis-openai-deep entry (already exists)[/dim]"
-                )
-            else:
-                if not services_text.endswith("\n"):
-                    services_text += "\n"
-                services_text += (
-                    "\n[services.prismis-openai-deep]\n"
-                    'adapter = "openai"\n'
-                    'key = "sable-openai"\n'
-                    'base_url = "https://api.openai.com/v1"\n'
-                    'default_model = "gpt-5-mini"\n'
-                )
-                services_path.write_text(services_text)
+            if _append_deep_service_block(services_path, console):
                 console.print(
                     f"[green]Added \\[services.prismis-openai-deep] to {services_path}[/green]"
                 )
@@ -679,25 +664,11 @@ value = "{resolved_key}"
     # No pricing.toml step here: the openai-SDK migration (wo-openai-sdk-migration.md)
     # reads billed cost straight off the provider's response (llm_client.py's complete()),
     # not a locally maintained pricing table, so prismis has nothing left to populate
-    # pricing.toml for. Mirrors the check-before-append pattern in the "service ->
-    # light_service" rename branch above (the [services.prismis-openai-deep] append
-    # right after new_config_text is built there) so a single run of migrate-config on
-    # a pre-llm-core config converges to the full dual-service shape — no intermediate
+    # pricing.toml for. Uses the same _append_deep_service_block helper the "service ->
+    # light_service" rename branch above calls, so a single run of migrate-config on a
+    # pre-llm-core config converges to the full dual-service shape — no intermediate
     # unloadable state between runs.
-    services_text = services_path.read_text()
-    if "[services.prismis-openai-deep]" in services_text:
-        console.print("[dim]Skipping prismis-openai-deep entry (already exists)[/dim]")
-    else:
-        if not services_text.endswith("\n"):
-            services_text += "\n"
-        services_text += (
-            "\n[services.prismis-openai-deep]\n"
-            'adapter = "openai"\n'
-            'key = "sable-openai"\n'
-            'base_url = "https://api.openai.com/v1"\n'
-            'default_model = "gpt-5-mini"\n'
-        )
-        services_path.write_text(services_text)
+    if _append_deep_service_block(services_path, console):
         console.print(
             f"[green]Added [services.prismis-openai-deep] to {services_path}[/green]"
         )

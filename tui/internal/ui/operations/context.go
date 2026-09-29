@@ -99,45 +99,15 @@ func GetContextSuggestions() tea.Cmd {
 			}
 
 			if len(highTopics) > 0 {
-				formatted.WriteString("## High Priority Topics\n\n")
-				for _, topic := range highTopics {
-					formatted.WriteString(fmt.Sprintf("- %s\n", topic.Topic))
-					formatted.WriteString(fmt.Sprintf("  **Action:** %s", topic.Action))
-					if topic.ExistingTopic != nil {
-						formatted.WriteString(fmt.Sprintf(" | **Existing:** %s", *topic.ExistingTopic))
-					}
-					formatted.WriteString("\n")
-					formatted.WriteString(fmt.Sprintf("  **Gap:** %s\n", topic.GapAnalysis))
-					formatted.WriteString(fmt.Sprintf("  *%s*\n\n", topic.Rationale))
-				}
+				formatTopicSection(&formatted, "## High Priority Topics\n\n", highTopics)
 			}
 
 			if len(mediumTopics) > 0 {
-				formatted.WriteString("## Medium Priority Topics\n\n")
-				for _, topic := range mediumTopics {
-					formatted.WriteString(fmt.Sprintf("- %s\n", topic.Topic))
-					formatted.WriteString(fmt.Sprintf("  **Action:** %s", topic.Action))
-					if topic.ExistingTopic != nil {
-						formatted.WriteString(fmt.Sprintf(" | **Existing:** %s", *topic.ExistingTopic))
-					}
-					formatted.WriteString("\n")
-					formatted.WriteString(fmt.Sprintf("  **Gap:** %s\n", topic.GapAnalysis))
-					formatted.WriteString(fmt.Sprintf("  *%s*\n\n", topic.Rationale))
-				}
+				formatTopicSection(&formatted, "## Medium Priority Topics\n\n", mediumTopics)
 			}
 
 			if len(lowTopics) > 0 {
-				formatted.WriteString("## Low Priority Topics\n\n")
-				for _, topic := range lowTopics {
-					formatted.WriteString(fmt.Sprintf("- %s\n", topic.Topic))
-					formatted.WriteString(fmt.Sprintf("  **Action:** %s", topic.Action))
-					if topic.ExistingTopic != nil {
-						formatted.WriteString(fmt.Sprintf(" | **Existing:** %s", *topic.ExistingTopic))
-					}
-					formatted.WriteString("\n")
-					formatted.WriteString(fmt.Sprintf("  **Gap:** %s\n", topic.GapAnalysis))
-					formatted.WriteString(fmt.Sprintf("  *%s*\n\n", topic.Rationale))
-				}
+				formatTopicSection(&formatted, "## Low Priority Topics\n\n", lowTopics)
 			}
 		}
 
@@ -158,6 +128,22 @@ func GetContextSuggestions() tea.Cmd {
 			Success:     true,
 			Error:       nil,
 		}
+	}
+}
+
+// formatTopicSection writes one priority section (heading plus its topics,
+// each rendered as a bullet with action/gap/rationale lines) into b.
+func formatTopicSection(b *strings.Builder, heading string, topics []api.TopicSuggestion) {
+	b.WriteString(heading)
+	for _, topic := range topics {
+		b.WriteString(fmt.Sprintf("- %s\n", topic.Topic))
+		b.WriteString(fmt.Sprintf("  **Action:** %s", topic.Action))
+		if topic.ExistingTopic != nil {
+			b.WriteString(fmt.Sprintf(" | **Existing:** %s", *topic.ExistingTopic))
+		}
+		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("  **Gap:** %s\n", topic.GapAnalysis))
+		b.WriteString(fmt.Sprintf("  *%s*\n\n", topic.Rationale))
 	}
 }
 

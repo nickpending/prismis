@@ -1,0 +1,14 @@
+{
+  "artifact": [
+    "tui/internal/ui/source_modal_test.go"
+  ],
+  "verified": true,
+  "findings": [
+    "F-3-1"
+  ],
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-abfc924d4dc30cca1",
+    "branch": "worktree-agent-abfc924d4dc30cca1",
+    "base": "72044f02fc0b63713bb52ed51a529f6158e0be1"
+  }
+}

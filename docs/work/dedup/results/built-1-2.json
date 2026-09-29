@@ -1,0 +1,13 @@
+{
+  "artifact": [
+    "tui/internal/api/client.go",
+    "tui/internal/api/client_test.go"
+  ],
+  "verified": true,
+  "findings": ["F-1-1"],
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-aeee3daa04e0a06d6",
+    "branch": "worktree-agent-aeee3daa04e0a06d6",
+    "base": "72044f02fc0b63713bb52ed51a529f6158e0be10"
+  }
+}

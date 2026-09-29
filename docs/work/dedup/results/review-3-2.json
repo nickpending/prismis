@@ -1,0 +1,15 @@
+{
+  "searched": [
+    "docs/work/dedup/work-order.json",
+    "docs/work/dedup/results/plan.json",
+    "docs/work/dedup/job-3.diff (delta since F-3-1, source_modal_test.go only)",
+    "docs/work/dedup/journal.jsonl (F-3-1 finding, submission 2 built/verified records for job 3)",
+    "tui/internal/ui/source_modal.go (pre-diff, on-disk, to confirm the 'a'/'enter' list-mode entry paths and case \"tab\"/\"esc\" bodies the new tests drive through)",
+    "tui/internal/db/queries.go (db.Source struct, to confirm the URL field used in the new edit-mode test)",
+    "tui/go.mod and the vendored bubbles@v0.21.0 textinput.go source (to confirm Focused() is a real public method, not invented)",
+    "tui/internal/ui and tui/internal/commands *_test.go: grep for existing bubbletea tea.KeyTab/KeyEscape/KeyEnter/KeyRunes usage and the tea import alias, to confirm the new tests' idiom matches the codebase's own convention",
+    "tui/internal/ui/*_test.go: grep for TestSourceModal_Update_ to rule out a name collision with the four new tests"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

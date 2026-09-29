@@ -1,0 +1,18 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/llm_call.py",
+    "daemon/src/prismis_daemon/context_analyzer.py",
+    "daemon/src/prismis_daemon/evaluator.py",
+    "daemon/src/prismis_daemon/summarizer.py",
+    "daemon/tests/unit/test_evaluator_unit.py",
+    "daemon/tests/unit/test_summarizer_unit.py",
+    "daemon/tests/integration/test_context_assistant.py",
+    "daemon/tests/unit/test_llm_core_migration_unit.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-aa41f1bbbbaa8d0da",
+    "branch": "worktree-agent-aa41f1bbbbaa8d0da",
+    "base": "72044f02fc0b63713bb52ed51a529f6158e0be10"
+  }
+}

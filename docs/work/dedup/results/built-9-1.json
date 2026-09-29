@@ -1,0 +1,12 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/api.py",
+    "daemon/tests/integration/test_source_add_normalization_integration.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-af673043c55c8e5fd",
+    "branch": "worktree-agent-af673043c55c8e5fd",
+    "base": "72044f02fc0b63713bb52ed51a529f6158e0be10"
+  }
+}

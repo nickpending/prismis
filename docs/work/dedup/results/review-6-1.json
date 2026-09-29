@@ -1,0 +1,14 @@
+{
+  "searched": [
+    "docs/work/dedup/work-order.json",
+    "docs/work/dedup/results/plan.json",
+    "docs/work/dedup/job-6.diff",
+    "docs/work/dedup-triage.md (sections 2, 2a, 2b, 2c, 2d, and the job-sequencing notes around line 680)",
+    "docs/work/dedup/journal.jsonl (opened/planned/built/verified records for job 6, and the pattern of prior review findings for jobs 1/3/4/5/7)",
+    "daemon/src/prismis_daemon/storage.py (current main, to check pre-diff context: _get_by_external_id, get_content_by_priority, get_content_since, search_content, update_content_status signature)",
+    "daemon/tests/ (grep for existing add_content/create_or_update_content coverage)",
+    ".specify/verify.sh (to check what the project gate actually runs vs what ember verify's duplication check covers)"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

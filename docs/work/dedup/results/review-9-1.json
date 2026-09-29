@@ -1,0 +1,16 @@
+{
+  "searched": [
+    "docs/work/dedup/job-9.diff",
+    "docs/work/dedup/work-order.json",
+    "docs/work/dedup/results/plan.json",
+    "docs/work/dedup-triage.md (lines 509-528, cluster 12 write-up)",
+    "docs/work/dedup/journal.jsonl (built/verified records for job 9)",
+    "docs/work/dedup/results/built-9-1.json",
+    "daemon/src/prismis_daemon/api.py (add_source, update_source, exception handling around them)",
+    "daemon/tests/integration/test_source_add_normalization_integration.py (full file, pre- and post-diff)",
+    "daemon/src/prismis_daemon/api_models.py (SourceRequest.type)",
+    ".specify/verify.sh"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

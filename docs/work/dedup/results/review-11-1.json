@@ -1,0 +1,20 @@
+{
+  "searched": [
+    "docs/work/dedup/work-order.json",
+    "docs/work/dedup/results/plan.json",
+    "docs/work/dedup/job-11.diff",
+    "docs/work/dedup-triage.md (cluster 3 and cluster 17 sections)",
+    "docs/work/dedup/journal.jsonl (job 11's built/verified/diffed records)",
+    "cli/src/cli/api_client.py (pre-diff, on disk, to diff against the patch text)",
+    "daemon/src/prismis_daemon/api.py (to check whether /api/reports or any endpoint the CLI calls can return HTTP 200 with success:false)"
+  ],
+  "exhaustive": true,
+  "findings": [
+    {
+      "file": "docs/work/dedup/job-11.diff",
+      "line": 353,
+      "summary": "`get_report`'s consolidated call, `self._send_json(\"GET\", \"/api/reports\", params={\"period\": period})`, uses `_send_json`'s default `check_success=True`. The pre-diff method (cli/src/cli/api_client.py:310-345 on disk, unpatched) never checked `data.get(\"success\")` — it only raised on `response.status_code >= 400` and otherwise returned `data.get(\"data\", {}).get(\"markdown\", \"\")` regardless of the `success` field. `get_report` is a third caller (besides `count_unprioritized` and `prune_unprioritized`, which the diff does route with `check_success=False`) whose original code lacked this check, and it was missed: the new code will now raise `RuntimeError` on a 200 response carrying `\"success\": false`, a case the original method returned normally on. This is an unauthorized behavior change under work-order.json's stakes clause (\"Each helper preserves every caller's observable behaviour ... except the five named drift fixes\" — get_report's success-check is not one of the five named in `why`) and under outOfScope's \"Any behaviour change beyond the five drift fixes.\" It is also unproven: test_api_client_unit.py's `test_get_report_returns_markdown` only exercises the success:true happy path, unlike the explicit `test_count_unprioritized_does_not_raise_when_success_false` / `test_prune_unprioritized_does_not_raise_when_success_false` tests that pin the same invariant for the two callers the diff did handle. The new `_send_json` docstring itself (job-11.diff:69-73) states the exception list as \"every caller except `count_unprioritized` and `prune_unprioritized`\", which is factually wrong about the pre-existing code it consolidates and will mislead a future reader into believing get_report always checked success. I checked whether this is reachable against the real daemon: api.py's only two `\"success\": False` responses (api.py:173, :196) are both emitted through exception handlers paired with a non-2xx status code, so today's daemon never actually returns 200+success:false for /api/reports or anywhere else — the drift is real in the code contract and the docstring's claim, but not observable against the current backend, which caps the practical severity.",
+      "severity": "medium"
+    }
+  ]
+}

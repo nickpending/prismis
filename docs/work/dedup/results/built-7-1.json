@@ -1,0 +1,12 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/__main__.py",
+    "daemon/tests/unit/test_llm_core_migration_unit.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a4b1e2bdbea1b4932",
+    "branch": "worktree-agent-a4b1e2bdbea1b4932",
+    "base": "72044f02fc0b63713bb52ed51a529f6158e0be10"
+  }
+}

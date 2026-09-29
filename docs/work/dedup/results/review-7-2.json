@@ -1,0 +1,11 @@
+{
+  "searched": [
+    "docs/work/dedup/job-7.diff (incremental diff since commit 8445bb5c87e34d6174165f9471c2f7c73c9e2aca)",
+    "docs/work/dedup/work-order.json",
+    "docs/work/dedup/results/plan.json",
+    "docs/work/dedup-triage.md (sections 10a, 10b)",
+    "docs/work/dedup/results/review-7-1.json (finding F-7-1 being re-checked)"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

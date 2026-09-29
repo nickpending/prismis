@@ -1,0 +1,20 @@
+{
+  "searched": [
+    "docs/work/dedup/job-7.diff",
+    "docs/work/dedup/work-order.json",
+    "docs/work/dedup/results/plan.json",
+    "docs/work/dedup-triage.md (sections 10a, 10b)",
+    "docs/work/dedup/journal.jsonl (job 7 records: built, verified, diffed)",
+    "daemon/src/prismis_daemon/orchestrator.py (DaemonOrchestrator.deep_extractor attribute, spot-check)",
+    "daemon/tests/unit/test_llm_core_migration_unit.py (new tests in the diff)"
+  ],
+  "exhaustive": true,
+  "findings": [
+    {
+      "file": "docs/work/dedup/job-7.diff",
+      "line": 209,
+      "summary": "Consolidating cluster 10b's two `[services.prismis-openai-deep]` append call sites into `_append_deep_service_block` silently changes the pre-llm-core branch's console message. Before the diff, the rename branch escaped the bracket (job-7.diff:237, `f\"...Added \\\\[services.prismis-openai-deep]...\"`) while the pre-llm-core branch did not (job-7.diff:270, `f\"...Added [services.prismis-openai-deep]...\"`, no backslash). The new shared helper (job-7.diff:209) uses the escaped form for both callers, so the pre-llm-core branch's printed message now renders differently (rich console markup treats the unescaped bracket as an invalid style tag and silently drops it; the escaped form now prints the literal bracketed text). The helper's own docstring (job-7.diff:189-192) names this exact discrepancy and says the unescaped copy 'silently swallowed that text when printed' -- i.e. the builder found and fixed a real bug, but this is not one of the five drift fixes work-order.json's `why` names (context_analyzer's missing circuit breaker, get_latest_content_for_source's dropped user_feedback, four TUI client methods' missing status check, `analyze repair`'s different dict, the TUI source modal's dead renderers). work-order.json's `outOfScope` explicitly excludes 'Any behaviour change beyond the five drift fixes named in `why`', and `stakes` explicitly warns against 'merging code that means different things.' The triage itself missed this (docs/work/dedup-triage.md:449 says 'Behavior risk: none -- the appended text and the idempotency check are byte-identical,' true only of the TOML block, not the print statement), so the job inherited an incomplete triage and resolved the gap unilaterally instead of flagging it for a decision. No test in the diff asserts on console output for either branch (a grep of the new test bodies in test_llm_core_migration_unit.py for console.print/capsys/caplog finds none), so the change is also unproven. Functional impact is low (a cosmetic difference in a one-time CLI migration's terminal message), but it is a real, unauthorized, untested behavior change the work order's own scope language forbids.",
+      "severity": "medium"
+    }
+  ]
+}

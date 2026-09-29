@@ -1,0 +1,22 @@
+{
+  "searched": [
+    "docs/work/dedup/work-order.json",
+    "docs/work/dedup/results/plan.json",
+    "docs/work/dedup/job-3.diff",
+    "docs/work/dedup-triage.md (sections 5, 5a, 5b, 6)",
+    "docs/work/dedup/journal.jsonl",
+    "tui/internal/ui/source_modal.go (pre-diff, on-disk)",
+    "tui/internal/ui/source_modal_test.go (pre-diff, on-disk, full file)",
+    "tui/internal/ui/modal.go (pre-diff, on-disk, full file)",
+    "tui/internal/ui directory: grep for tab/esc/activeField/handleFieldTab/clearFormAndReturnToList/updateActiveTextInput coverage across *_test.go"
+  ],
+  "exhaustive": true,
+  "findings": [
+    {
+      "file": "tui/internal/ui/source_modal.go",
+      "line": 303,
+      "summary": "Cluster 5b extracts three new helper methods (handleFieldTab at job-3.diff:303-311, clearFormAndReturnToList at :411-420, updateActiveTextInput at :456-469) that replace duplicated add/edit tab-switch, esc-clear and textinput-passthrough logic in SourceModal.Update. No test in the diff or already in the tree exercises SourceModal.Update with a KeyMsg in \"add\" or \"edit\" mode at all (grepped tui/internal/ui/*_test.go for activeField, \"tab\"/\"esc\" key literals, and the three new method names -- no matches; source_modal_test.go's own tests only call LoadSources/UpdateContent/View, never Update). This is a real consolidated seam the work order's stakes clause binds (\"Every consolidated seam keeps or gains a test that fails if a caller's behaviour changes\"), and it ships with none: a regression that broke the Tab field-swap or the esc-clear-and-return-to-list flow in either mode would pass every check the gate runs. The triage's cluster 5b write-up (docs/work/dedup-triage.md:321-330) only asserts the two blocks were byte-identical pre-consolidation and does not itself flag a test gap the way it does for cluster 6 (:361-365), but the work order's own binding stakes language is not scoped to only the gaps the triage happened to name.",
+      "severity": "medium"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "searched": [
+    "docs/work/dedup/work-order.json",
+    "docs/work/dedup/results/plan.json",
+    "docs/work/dedup/job-8.diff",
+    "docs/work/dedup-triage.md (cluster 11 section, lines 461-505)",
+    "docs/work/dedup/journal.jsonl (job 8's built/verified/diffed records)",
+    "docs/work/dedup/results/built-8-1.json",
+    "daemon/src/prismis_daemon/context_analyzer.py",
+    "daemon/src/prismis_daemon/evaluator.py",
+    "daemon/src/prismis_daemon/summarizer.py",
+    "daemon/src/prismis_daemon/circuit_breaker.py",
+    "daemon/src/prismis_daemon/llm_client.py",
+    "daemon/tests/unit/test_evaluator_unit.py",
+    "daemon/tests/unit/test_summarizer_unit.py",
+    "daemon/tests/integration/test_context_assistant.py",
+    "daemon/tests/unit/test_llm_core_migration_unit.py",
+    "daemon/tests/unit/test_no_internal_mocks_unit.py",
+    "grep across daemon/tests for any remaining patch target on evaluator.complete/summarizer.complete/context_analyzer.complete or circuit_breaker access outside the diff's own files",
+    "grep across daemon/src/prismis_daemon for other '{\"role\": \"system\"...}' message-list literals (context_auto_updater.py) to check for duplication the diff leaves behind"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

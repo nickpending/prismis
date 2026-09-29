@@ -1,0 +1,12 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/storage.py",
+    "daemon/tests/integration/test_file_fetcher_integration.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a4df28e87aa5fe487",
+    "branch": "worktree-agent-a4df28e87aa5fe487",
+    "base": "72044f02fc0b63713bb52ed51a529f6158e0be10"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "searched": [
+    "docs/work/dedup/job-10.diff",
+    "docs/work/dedup/work-order.json",
+    "docs/work/dedup/results/plan.json",
+    "docs/work/dedup-triage.md (cluster 13 section, lines 692-697)",
+    "docs/work/dedup/journal.jsonl (all records, including job 10's built/verified entries and prior jobs' merged/reviewed history)",
+    "docs/work/dedup/results/built-10-1.json",
+    "cli/src/cli/analyze.py (current file, pre-diff state on disk)",
+    "cli/tests/unit/test_analyze_kinds_unit.py (full new test additions and pre-existing fixtures: _seed, local_env)",
+    "daemon/src/prismis_daemon/analysis.py (new file, full contents)",
+    "daemon/src/prismis_daemon/orchestrator.py (run_once and fetch_source_content, before/after diff context)",
+    "daemon/src/prismis_daemon/evaluator.py (evaluate_content, ContentEvaluation, _parse_evaluation_response)",
+    "daemon/src/prismis_daemon/summarizer.py (summarize_with_analysis, required-field validation)",
+    "daemon/src/prismis_daemon/storage.py (update_content_status, get_feedback_statistics, get_content_by_id, get_latest_content_for_source, import list)",
+    "daemon/src/prismis_daemon/llm_call.py (complete() call site, import for patch-target verification)"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

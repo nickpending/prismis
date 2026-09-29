@@ -72,3 +72,9 @@
 {"kind":"reviewed","job":11,"findings":[],"sha":"2c32c304944d537cd09fdabb6c0506004f87c893899d54e45c5e01d171121cb0","submission":2,"ts":"2026-09-29T22:32:07.982Z"}
 {"kind":"merged","job":11,"sha":"8bb4433a617e1414e6fa89dff99dab8d87a8379b","ts":"2026-09-29T22:34:39.478Z"}
 {"kind":"checkpointed","sha":"8bb4433a617e1414e6fa89dff99dab8d87a8379b","ts":"2026-09-29T22:34:39.565Z"}
+{"kind":"built","job":10,"files":["cli/src/cli/analyze.py","daemon/src/prismis_daemon/orchestrator.py","daemon/src/prismis_daemon/analysis.py","cli/tests/unit/test_analyze_kinds_unit.py"],"worktree":{"path":"/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a6ab665cb8acb9611","branch":"worktree-agent-a6ab665cb8acb9611","base":"73f99ea6cd04ac5ac5347f3b5185a818e2b8b0a8"},"sha":"b42b1705f63cb0566bdb6db72c71d13304551e8d27925522563a4bb056609d1c","submission":1,"ts":"2026-09-29T22:51:31.643Z"}
+{"kind":"verified","job":10,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)"],"uncovered":[".sh(8 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-09-29T22:53:56.358Z"}
+{"kind":"diffed","job":10,"path":"docs/work/dedup/job-10.diff","from":"73f99ea6cd04ac5ac5347f3b5185a818e2b8b0a8","to":"42c3e27e61ee723844e99a17b7fbed66dda6a42f","ts":"2026-09-29T22:53:56.591Z"}
+{"kind":"reviewed","job":10,"findings":[],"sha":"dce7b4355753c982c6f60f48a7da0c08343ae047e30654846640d192881cddb1","submission":1,"ts":"2026-09-29T22:57:39.549Z"}
+{"kind":"merged","job":10,"sha":"42c3e27e61ee723844e99a17b7fbed66dda6a42f","ts":"2026-09-29T23:00:04.423Z"}
+{"kind":"closed","sha":"42c3e27e61ee723844e99a17b7fbed66dda6a42f","ts":"2026-09-29T23:00:04.476Z"}

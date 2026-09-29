@@ -1,8 +1,7 @@
 """Content analysis and repair commands."""
 
-import json
 import time
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Optional
 
 import typer
 from rich.console import Console
@@ -11,8 +10,6 @@ from rich.prompt import Confirm
 from .remote import is_remote_mode
 
 # Heavy imports (litellm, Storage) are lazy-loaded to support client-only installs
-if TYPE_CHECKING:
-    from prismis_daemon.storage import Storage
 
 console = Console()
 app = typer.Typer()  # Sub-typer for analyze commands
@@ -250,61 +247,6 @@ def repair(
         raise typer.Exit(1) from e
 
 
-def _select_items_needing_kind(
-    storage: "Storage", *, limit: int, since_days: Optional[int]
-) -> list[dict[str, Any]]:
-    """Select already-analysed items with no content kind yet (SC-1).
-
-    A summary must be present, and the analysis must carry no kind_confidence key at
-    all -- json_type() (not json_extract(), which cannot distinguish an absent key
-    from a key whose value is JSON null) is what tells "never classified" apart from
-    "classified unclassified": a below-threshold or unparseable answer still stores
-    kind_confidence=null, and that item must never be reselected either. Newest
-    fetched_at first, bounded to at most `limit`, and to items fetched within the
-    last `since_days` days when given.
-    """
-    query = """
-        SELECT c.*, s.name as source_name, s.type as source_type
-        FROM content c
-        LEFT JOIN sources s ON c.source_id = s.id
-        WHERE c.archived_at IS NULL
-          AND c.summary IS NOT NULL
-          AND c.summary != ''
-          AND json_type(c.analysis, '$.kind_confidence') IS NULL
-    """
-    params: list[Any] = []
-    if since_days is not None:
-        query += " AND datetime(c.fetched_at) >= datetime('now', ?)"
-        params.append(f"-{since_days} days")
-    query += " ORDER BY c.fetched_at DESC LIMIT ?"
-    params.append(limit)
-
-    cursor = storage.conn.execute(query, tuple(params))
-
-    items = []
-    for row in cursor.fetchall():
-        analysis = None
-        if row["analysis"]:
-            try:
-                analysis = json.loads(row["analysis"])
-            except json.JSONDecodeError:
-                analysis = None
-
-        items.append(
-            {
-                "id": row["id"],
-                "title": row["title"],
-                "content": row["content"],
-                "summary": row["summary"],
-                "analysis": analysis,
-                "source_name": row["source_name"],
-                "source_type": row["source_type"],
-            }
-        )
-
-    return items
-
-
 @app.command(name="kinds")
 def kinds(
     limit: int = typer.Option(100, "--limit", "-n", help="Maximum items to classify"),
@@ -343,9 +285,7 @@ def kinds(
         from prismis_daemon.storage import Storage
 
         with Storage() as storage:
-            items = _select_items_needing_kind(
-                storage, limit=limit, since_days=since_days
-            )
+            items = storage.get_content_needing_kind(limit=limit, since_days=since_days)
 
             if not items:
                 console.print("[green]✓ No items need kind classification[/green]")

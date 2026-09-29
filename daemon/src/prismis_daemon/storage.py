@@ -72,6 +72,22 @@ class Storage:
         """Context manager exit - ensures connection is closed."""
         self.close()
 
+    @staticmethod
+    def _parse_analysis_json(raw: str | None) -> dict[str, Any] | None:
+        """Parse a content row's analysis JSON text, or None.
+
+        None on an empty/NULL column and on JSON that fails to parse -- a read path
+        never raises over a corrupt or partial analysis write. The one parse-or-None
+        rule every row-mapping method below shares, instead of a copy of the same
+        try/except at each of them.
+        """
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+
     def add_source(self, url: str, source_type: str, name: str | None = None) -> str:
         """Add a new content source to the database.
 
@@ -1217,12 +1233,9 @@ class Storage:
             results = []
             for row in rows:
                 content_dict = dict(row)
-                # Parse JSON analysis if present
-                if content_dict.get("analysis"):
-                    try:
-                        content_dict["analysis"] = json.loads(content_dict["analysis"])
-                    except json.JSONDecodeError:
-                        content_dict["analysis"] = None
+                content_dict["analysis"] = self._parse_analysis_json(
+                    content_dict.get("analysis")
+                )
                 results.append(content_dict)
 
             obs_log(
@@ -1272,13 +1285,7 @@ class Storage:
             row = cursor.fetchone()
 
             if row:
-                # Parse JSON analysis if present
-                analysis = None
-                if row["analysis"]:
-                    try:
-                        analysis = json.loads(row["analysis"])
-                    except json.JSONDecodeError:
-                        analysis = None
+                analysis = self._parse_analysis_json(row["analysis"])
 
                 return {
                     "id": row["id"],
@@ -1334,13 +1341,7 @@ class Storage:
             row = cursor.fetchone()
 
             if row:
-                # Parse JSON analysis if present
-                analysis = None
-                if row["analysis"]:
-                    try:
-                        analysis = json.loads(row["analysis"])
-                    except json.JSONDecodeError:
-                        analysis = None
+                analysis = self._parse_analysis_json(row["analysis"])
 
                 return {
                     "id": row["id"],
@@ -1631,13 +1632,7 @@ class Storage:
             # Build dict of content by id
             content_by_id = {}
             for row in cursor.fetchall():
-                # Parse JSON analysis if present
-                analysis = None
-                if row["analysis"]:
-                    try:
-                        analysis = json.loads(row["analysis"])
-                    except json.JSONDecodeError:
-                        analysis = None
+                analysis = self._parse_analysis_json(row["analysis"])
 
                 content_by_id[row["id"]] = {
                     "id": row["id"],
@@ -1755,13 +1750,7 @@ class Storage:
 
             results = []
             for row in cursor.fetchall():
-                # Parse JSON analysis if present
-                analysis = None
-                if row["analysis"]:
-                    try:
-                        analysis = json.loads(row["analysis"])
-                    except json.JSONDecodeError:
-                        analysis = None
+                analysis = self._parse_analysis_json(row["analysis"])
 
                 results.append(
                     {
@@ -1853,13 +1842,7 @@ class Storage:
 
             results = []
             for row in cursor.fetchall():
-                # Parse JSON analysis if present
-                analysis = None
-                if row["analysis"]:
-                    try:
-                        analysis = json.loads(row["analysis"])
-                    except json.JSONDecodeError:
-                        analysis = None
+                analysis = self._parse_analysis_json(row["analysis"])
 
                 results.append(
                     {
@@ -1888,6 +1871,82 @@ class Storage:
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content without analysis: {e}") from e
+
+    def get_content_needing_kind(
+        self, limit: int = 100, since_days: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Get already-analysed content items with no content kind yet (gh #83).
+
+        A qualifying item carries a summary and an analysis JSON with no
+        kind_confidence key at all -- json_type() (not json_extract(), which cannot
+        distinguish an absent key from a key whose value is JSON null) is what tells
+        "never classified" apart from "classified unclassified": a below-threshold or
+        unparseable classifier answer still stores kind_confidence=null, and that item
+        must never be reselected either. Newest fetched_at first, bounded to at most
+        `limit`, and to items fetched within the last `since_days` days when given.
+
+        Args:
+            limit: Maximum number of items to return
+            since_days: Optional -- only items fetched within the last N days
+
+        Returns:
+            List of content dicts needing kind classification
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            query = """
+                SELECT c.*, s.name as source_name, s.type as source_type
+                FROM content c
+                LEFT JOIN sources s ON c.source_id = s.id
+                WHERE c.archived_at IS NULL
+                  AND c.summary IS NOT NULL
+                  AND c.summary != ''
+                  AND json_type(c.analysis, '$.kind_confidence') IS NULL
+            """
+            params: list[Any] = []
+            if since_days is not None:
+                query += " AND datetime(c.fetched_at) >= datetime('now', ?)"
+                params.append(f"-{since_days} days")
+            query += " ORDER BY c.fetched_at DESC LIMIT ?"
+            params.append(limit)
+
+            cursor = self.conn.execute(query, tuple(params))
+
+            results = []
+            for row in cursor.fetchall():
+                analysis = self._parse_analysis_json(row["analysis"])
+
+                results.append(
+                    {
+                        "id": row["id"],
+                        "source_id": row["source_id"],
+                        "external_id": row["external_id"],
+                        "title": row["title"],
+                        "url": row["url"],
+                        "content": row["content"],
+                        "summary": row["summary"],
+                        "analysis": analysis,
+                        "priority": row["priority"],
+                        "published_at": row["published_at"],
+                        "fetched_at": row["fetched_at"],
+                        "read": bool(row["read"]),
+                        "favorited": bool(row["favorited"]),
+                        "notes": row["notes"],
+                        "source_name": row["source_name"],
+                        "source_type": row["source_type"],
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                    }
+                )
+
+            return results
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(
+                f"Failed to get content needing kind classification: {e}"
+            ) from e
 
     def archive_old_content(self, config: dict[str, Any]) -> int:
         """Archive content based on priority-aware aging windows.

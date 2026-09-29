@@ -89,6 +89,23 @@ class Storage:
             return None
 
     @staticmethod
+    def _kind_filter_sql(kind_filter: list[str] | None, params: list[Any]) -> str:
+        """The `AND json_extract(...) IN (...)` fragment for a kind filter (SC-1/SC-2).
+
+        Appends `kind_filter`'s values onto `params` (in placeholder order) and
+        returns the fragment to concatenate onto the caller's own WHERE clause, or
+        `""` when no filter is given -- the one place this fragment is spelled,
+        shared by every kind-filtered query (get_content_by_priority,
+        get_content_since, get_flagged_items, and search_content's KNN candidate
+        subquery) instead of a hand-copied string at each of them.
+        """
+        if not kind_filter:
+            return ""
+        placeholders = ",".join(["?"] * len(kind_filter))
+        params.extend(kind_filter)
+        return f" AND json_extract(c.analysis, '$.kind') IN ({placeholders})"
+
+    @staticmethod
     def _source_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         """Map a `sources` row to its canonical dict.
 
@@ -715,10 +732,7 @@ class Storage:
                 query += " AND datetime(c.fetched_at) > datetime(?)"
                 params.append(since.isoformat())
 
-            if kind_filter:
-                placeholders = ",".join(["?"] * len(kind_filter))
-                query += f" AND json_extract(c.analysis, '$.kind') IN ({placeholders})"
-                params.extend(kind_filter)
+            query += self._kind_filter_sql(kind_filter, params)
 
             query += " ORDER BY c.published_at DESC LIMIT ?"
             params.append(limit)
@@ -779,10 +793,7 @@ class Storage:
                 query += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
                 params.append(source_filter)
 
-            if kind_filter:
-                placeholders = ",".join(["?"] * len(kind_filter))
-                query += f" AND json_extract(c.analysis, '$.kind') IN ({placeholders})"
-                params.extend(kind_filter)
+            query += self._kind_filter_sql(kind_filter, params)
 
             query += " ORDER BY c.priority ASC, c.published_at DESC"
 
@@ -1219,10 +1230,7 @@ class Storage:
                   AND c.archived_at IS NULL
             """
             params: list[Any] = []
-            if kind_filter:
-                placeholders = ",".join(["?"] * len(kind_filter))
-                query += f" AND json_extract(c.analysis, '$.kind') IN ({placeholders})"
-                params.extend(kind_filter)
+            query += self._kind_filter_sql(kind_filter, params)
             query += " ORDER BY c.fetched_at DESC LIMIT ?"
             params.append(limit)
 
@@ -1555,13 +1563,7 @@ class Storage:
                         " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
                     )
                     knn_params.append(source_filter)
-                if kind_filter:
-                    # Note: placeholders is just "?,?,?" string, not user input
-                    placeholders = ",".join(["?"] * len(kind_filter))
-                    candidate_query += (
-                        f" AND json_extract(c.analysis, '$.kind') IN ({placeholders})"
-                    )
-                    knn_params.extend(kind_filter)
+                candidate_query += self._kind_filter_sql(kind_filter, knn_params)
                 knn_query += " AND content_id IN (" + candidate_query + ")"
 
             knn_query += " ORDER BY distance LIMIT 100"

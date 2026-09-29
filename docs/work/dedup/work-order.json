@@ -1,0 +1,139 @@
+{
+  "workOrder": "dedup",
+  "what": "Remove prismis's 105 source clones by consolidating each repeated fact into one helper with one home, per the triage in docs/work/dedup-triage.md (18 clusters, 11 jobs over disjoint files), and fix the latent bugs the triage found where the copies had drifted apart.",
+  "why": "ember's duplication gate (L174, L189, L224) fails any job whose listed files hold a clone, and `ember verify` on prismis main reports 105. The copies are real: one fact written N times, where a change made in one copy misses the others. The triage found places where that had already happened: context_analyzer calls the LLM without the circuit-breaker check evaluator and summarizer make, get_latest_content_for_source drops user_feedback that every other row mapper returns, four TUI client methods skip the HTTP status check the other nine make, `analyze repair` writes a different analysis dict from the daemon pipeline, and the TUI source modal carries dead renderers that two tests assert on instead of what is drawn.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "tui/internal/api/client.go after the change (triage cluster 1)",
+      "when": "ember verify runs, and the client methods receive an HTTP error status",
+      "then": "no duplication entry names client.go; request, status check and envelope decoding live in one helper every method uses; PauseSource, ResumeSource, PruneCount and PruneUnprioritized return an error on a non-2xx status like the other nine, proven against a real httptest server",
+      "observation": {
+        "command": "if ember verify 2>&1 | grep -qE 'duplication\\([^)]*tui/internal/api/client\\.go'; then echo 'SC-1: FAIL'; else cd tui && go test ./internal/api/... -run 'StatusError' && echo 'SC-1: PASS'; fi",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "tui/internal/db/queries.go after the change (clusters 4a, 4b)",
+      "when": "ember verify runs",
+      "then": "no duplication entry names queries.go; row scanning and count queries each have one helper, and the existing db tests pass unchanged",
+      "observation": {
+        "command": "if ember verify 2>&1 | grep -qE 'duplication\\([^)]*tui/internal/db/queries\\.go'; then echo 'SC-2: FAIL'; else cd tui && go test ./internal/db/... && echo 'SC-2: PASS'; fi",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "tui/internal/ui/source_modal.go and modal.go after the change (clusters 5a, 5b, 6)",
+      "when": "ember verify runs and the source modal tests run",
+      "then": "the dead renderList, renderAddForm and renderEditForm and the SetContent calls that feed them are deleted; the tests that asserted on Modal.content assert on SourceModal.View output instead; no duplication entry names either file",
+      "observation": {
+        "command": "if ember verify 2>&1 | grep -qE 'duplication\\([^)]*tui/internal/ui/(source_)?modal\\.go'; then echo 'SC-3: FAIL'; elif grep -nE 'func \\(m SourceModal\\) render(List|AddForm|EditForm)\\(' tui/internal/ui/source_modal.go; then echo 'SC-3: FAIL'; else cd tui && go test ./internal/ui/ -run 'SourceModal' && echo 'SC-3: PASS'; fi",
+        "expect": "SC-3: PASS"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "tui/internal/ui/operations/{sources,context,prune}.go after the change (clusters 7, 8, 9)",
+      "when": "ember verify runs and the operations tests run",
+      "then": "no duplication entry names an operations file; the package, which had no tests, has tests that drive each consolidated path against a real httptest server",
+      "observation": {
+        "command": "if ember verify 2>&1 | grep -qE 'duplication\\([^)]*tui/internal/ui/operations/'; then echo 'SC-4: FAIL'; else cd tui && go test ./internal/ui/operations/... && ls internal/ui/operations/*_test.go >/dev/null && echo 'SC-4: PASS'; fi",
+        "expect": "SC-4: PASS"
+      }
+    },
+    {
+      "id": "SC-5",
+      "given": "tui/internal/commands/registry.go, tui/internal/ui/helpers.go and tui/internal/ui/model.go after the change (clusters 14, 15, 16)",
+      "when": "ember verify runs",
+      "then": "no duplication entry names any of the three files and the tui tests pass",
+      "observation": {
+        "command": "if ember verify 2>&1 | grep -qE 'duplication\\([^)]*tui/internal/(commands/registry|ui/helpers|ui/model)\\.go'; then echo 'SC-5: FAIL'; else cd tui && go test ./... && echo 'SC-5: PASS'; fi",
+        "expect": "SC-5: PASS"
+      }
+    },
+    {
+      "id": "SC-6",
+      "given": "daemon/src/prismis_daemon/storage.py after the change (clusters 2a-2d)",
+      "when": "ember verify runs, and get_latest_content_for_source reads an item that has user feedback",
+      "then": "no duplication entry names storage.py; every content read method builds its dict through one row mapper; get_latest_content_for_source returns user_feedback like the others",
+      "observation": {
+        "command": "if ember verify 2>&1 | grep -qE 'duplication\\([^)]*daemon/src/prismis_daemon/storage\\.py'; then echo 'SC-6: FAIL'; else cd daemon && uv run pytest -q tests -k 'latest_content and user_feedback' && echo 'SC-6: PASS'; fi",
+        "expect": "SC-6: PASS"
+      }
+    },
+    {
+      "id": "SC-7",
+      "given": "daemon/src/prismis_daemon/__main__.py after the change (clusters 10a, 10b)",
+      "when": "ember verify runs, and migrate_config runs on an already-migrated `[llm] service=` config",
+      "then": "no duplication entry names __main__.py; the rename branch, which no test reached, is proven to append the deep service block exactly once",
+      "observation": {
+        "command": "if ember verify 2>&1 | grep -qE 'duplication\\([^)]*daemon/src/prismis_daemon/__main__\\.py'; then echo 'SC-7: FAIL'; else cd daemon && uv run pytest -q tests -k 'migrate_config and rename' && echo 'SC-7: PASS'; fi",
+        "expect": "SC-7: PASS"
+      }
+    },
+    {
+      "id": "SC-8",
+      "given": "context_analyzer.py, evaluator.py and summarizer.py after the change (cluster 11)",
+      "when": "ember verify runs, and each makes an LLM call while its service's circuit breaker is open",
+      "then": "no duplication entry names the three files; the LLM call body lives in one helper all three use; all three, context_analyzer included, refuse the call while the breaker is open and record success and failure",
+      "observation": {
+        "command": "if ember verify 2>&1 | grep -qE 'duplication\\([^)]*daemon/src/prismis_daemon/(context_analyzer|evaluator|summarizer)\\.py'; then echo 'SC-8: FAIL'; else cd daemon && uv run pytest -q tests -k 'circuit and (context_analyzer or evaluator or summarizer)' && echo 'SC-8: PASS'; fi",
+        "expect": "SC-8: PASS"
+      }
+    },
+    {
+      "id": "SC-9",
+      "given": "daemon/src/prismis_daemon/api.py after the change (cluster 12)",
+      "when": "ember verify runs",
+      "then": "no duplication entry names api.py and the daemon's api tests pass",
+      "observation": {
+        "command": "if ember verify 2>&1 | grep -qE 'duplication\\([^)]*daemon/src/prismis_daemon/api\\.py'; then echo 'SC-9: FAIL'; else cd daemon && uv run pytest -q tests -k 'api' && echo 'SC-9: PASS'; fi",
+        "expect": "SC-9: PASS"
+      }
+    },
+    {
+      "id": "SC-10",
+      "given": "cli/src/cli/analyze.py and daemon/src/prismis_daemon/orchestrator.py after the change (cluster 13)",
+      "when": "ember verify runs, and `prismis-cli analyze repair` re-analyses an item",
+      "then": "no duplication entry names either file; the analysis dict is built by one daemon-side helper both use, so repair writes the same fields as the pipeline, including preference_influenced, and passes learned preferences to the evaluator",
+      "observation": {
+        "command": "if ember verify 2>&1 | grep -qE 'duplication\\([^)]*(cli/src/cli/analyze|daemon/src/prismis_daemon/orchestrator)\\.py'; then echo 'SC-10: FAIL'; else cd cli && uv run pytest -q tests -k 'repair and preference' && echo 'SC-10: PASS'; fi",
+        "expect": "SC-10: PASS"
+      }
+    },
+    {
+      "id": "SC-11",
+      "given": "cli/src/cli/api_client.py, list.py and search.py after the change (clusters 3, 17)",
+      "when": "ember verify runs",
+      "then": "no duplication entry names the three files; httpx request and error handling live in one helper, and priority colouring in one function list and search share",
+      "observation": {
+        "command": "if ember verify 2>&1 | grep -qE 'duplication\\([^)]*cli/src/cli/(api_client|list|search)\\.py'; then echo 'SC-11: FAIL'; else cd cli && uv run pytest -q tests && echo 'SC-11: PASS'; fi",
+        "expect": "SC-11: PASS"
+      }
+    },
+    {
+      "id": "SC-12",
+      "given": "the repository after every job has merged",
+      "when": "ember verify and the project gate run",
+      "then": "ember verify reports no duplication entries, and every check in the project gate passes",
+      "observation": {
+        "command": "ember verify >/dev/null 2>&1 && ./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Test files: the gate does not scan them.",
+    "The search-kind-filter lane's changes, which are built and wait on this unit; they rebase onto it afterwards.",
+    "Any behaviour change beyond the five drift fixes named in `why`."
+  ],
+  "stakes": [
+    "docs/work/dedup-triage.md is the design: read its section for each cluster before building it, including the behaviour differences it lists between copies. Each helper preserves every caller's observable behaviour (messages, status handling, headers, timeouts, returned fields) except the five named drift fixes, which are fixes and are tested as such.",
+    "A clone is never hidden: no jscpd ignore comments, no reformatting to slip under the token threshold, no merging code that means different things.",
+    "Principle I: tests fake only the LLM provider. HTTP paths are proven against a real local server (httptest in Go, a real loopback server in Python), storage against a real sqlite database.",
+    "Every consolidated seam keeps or gains a test that fails if a caller's behaviour changes; where the triage names a test gap for a cluster, closing it is part of that cluster's job.",
+    "cli depends on the daemon only through the optional [local] extra, so cluster 13's shared helper lives in the daemon and the daemon never imports cli."
+  ]
+}

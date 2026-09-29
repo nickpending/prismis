@@ -18,7 +18,7 @@ type ContentItem struct {
 	Summary             string
 	Priority            string
 	Content             string
-	Analysis            string // JSON field containing reading_summary, alpha_insights, patterns, entities
+	Analysis            string // JSON field containing reading_summary, alpha_insights, patterns
 	Published           time.Time
 	Read                bool
 	Favorited           bool   // Whether item is favorited

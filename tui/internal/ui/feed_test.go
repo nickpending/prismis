@@ -157,6 +157,79 @@ func TestReaderKindDisplay(t *testing.T) {
 	}
 }
 
+// TestFeedNoEntityTags verifies the feed row shows no tag list for an item whose
+// stored analysis still carries an entities array (older items analysed before the
+// entities field was dropped from the summarizer). The row must render the title
+// and priority normally and must not surface any of the stored entity strings.
+func TestFeedNoEntityTags(t *testing.T) {
+	items := []db.ContentItem{
+		{
+			ID:       "1",
+			Title:    "Legacy Analysed Item",
+			Priority: "high",
+			Analysis: `{"entities":["cve-2026-88772","citrix-netscaler","reuters"],"kind":"vulnerability"}`,
+		},
+	}
+
+	model := Model{
+		items:    items,
+		cursor:   0,
+		view:     "list",
+		priority: "all",
+		loading:  false,
+		width:    100,
+		height:   30,
+		viewport: viewport.New(100, 30),
+	}
+
+	output := model.View()
+
+	if !strings.Contains(output, "Legacy Analysed Item") {
+		t.Errorf("Feed row should still render the title. Got: %s", output)
+	}
+	for _, entity := range []string{"cve-2026-88772", "citrix-netscaler", "reuters"} {
+		if strings.Contains(output, entity) {
+			t.Errorf("Feed row must not show stored entity %q as a tag. Got: %s", entity, output)
+		}
+	}
+}
+
+// TestReaderNoEntityTags verifies the reader shows no tag list for an item whose
+// stored analysis still carries an entities array. The reader must render the
+// title and metadata normally and must not surface any of the stored entity strings.
+func TestReaderNoEntityTags(t *testing.T) {
+	items := []db.ContentItem{
+		{
+			ID:       "1",
+			Title:    "Legacy Reader Item",
+			Content:  "Body.",
+			Analysis: `{"entities":["cve-2026-88772","citrix-netscaler","reuters"],"kind":"vulnerability"}`,
+		},
+	}
+
+	model := Model{
+		items:    items,
+		cursor:   0,
+		view:     "reader",
+		loading:  false,
+		width:    100,
+		height:   30,
+		viewport: viewport.New(100, 30),
+	}
+	model.updateReaderContent()
+
+	output := model.View()
+
+	if !strings.Contains(output, "Legacy Reader Item") {
+		t.Errorf("Reader should still render the title. Got: %s", output)
+	}
+	for _, entity := range []string{"cve-2026-88772", "citrix-netscaler", "reuters"} {
+		if strings.Contains(output, entity) {
+			t.Errorf("Reader must not show stored entity %q as a tag. Got: %s", entity, output)
+		}
+	}
+}
+
 // TestFeedEmptyStates tests that empty states render correctly
 func TestFeedEmptyStates(t *testing.T) {
 	model := Model{

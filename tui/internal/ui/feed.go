@@ -426,7 +426,6 @@ func renderContentList(m Model, width, height int, theme StyleTheme) string {
 
 		// Build metadata line with real data
 		var line2 string
-		tags := extractTags(item.Analysis)
 		contentLength := extractContentLength(item.Analysis)
 
 		// Build metadata components
@@ -496,11 +495,6 @@ func renderContentList(m Model, width, height int, theme StyleTheme) string {
 				lengthStr = fmt.Sprintf("%d", contentLength)
 			}
 			metaParts = append(metaParts, metaStyle.Render(lengthStr+" chars"))
-		}
-
-		// Tags if available
-		if tags != "" {
-			metaParts = append(metaParts, tags)
 		}
 
 		// Kind if classified (empty for unclassified items - no label shown)
@@ -618,123 +612,6 @@ func extractContentLength(analysis string) int {
 	return length
 }
 
-// extractTags extracts tags from the Analysis JSON field
-func extractTags(analysis string) string {
-	if analysis == "" {
-		return ""
-	}
-
-	// Parse tags from the JSON-like analysis field
-	theme := CleanCyberTheme
-	tagStyle := lipgloss.NewStyle().Foreground(theme.Purple)
-
-	// Look for entities array in the analysis JSON
-	// Pattern: "entities": ["tag1", "tag2", ...]
-	start := strings.Index(analysis, `"entities"`)
-	if start == -1 {
-		return ""
-	}
-
-	// Find the array start
-	arrayStart := strings.Index(analysis[start:], "[")
-	if arrayStart == -1 {
-		return ""
-	}
-	start += arrayStart + 1
-
-	// Find the array end
-	arrayEnd := strings.Index(analysis[start:], "]")
-	if arrayEnd == -1 {
-		return ""
-	}
-
-	tagStr := analysis[start : start+arrayEnd]
-	tagStr = strings.ReplaceAll(tagStr, `"`, "")
-	tagStr = strings.ReplaceAll(tagStr, " ", "")
-
-	if tagStr == "" {
-		return ""
-	}
-
-	tagList := strings.Split(tagStr, ",")
-
-	// Format first 2-3 tags in a single container
-	tagsToShow := []string{}
-	for i, tag := range tagList {
-		if i >= 2 {
-			break
-		}
-		if tag != "" {
-			tagsToShow = append(tagsToShow, tag)
-		}
-	}
-
-	if len(tagsToShow) == 0 {
-		return ""
-	}
-
-	// Join tags with separator (no container for clean look)
-	tagString := strings.Join(tagsToShow, " • ")
-	return tagStyle.Render(tagString)
-}
-
-// extractAllTags extracts ALL tags from the Analysis JSON field (for reader modal)
-func extractAllTags(analysis string) string {
-	if analysis == "" {
-		return ""
-	}
-
-	// Parse tags from the JSON-like analysis field
-	theme := CleanCyberTheme
-	tagStyle := lipgloss.NewStyle().Foreground(theme.Purple)
-
-	// Look for entities array in the analysis JSON
-	// Pattern: "entities": ["tag1", "tag2", ...]
-	start := strings.Index(analysis, `"entities"`)
-	if start == -1 {
-		return ""
-	}
-
-	// Find the array start
-	arrayStart := strings.Index(analysis[start:], "[")
-	if arrayStart == -1 {
-		return ""
-	}
-	start += arrayStart + 1
-
-	// Find the array end
-	arrayEnd := strings.Index(analysis[start:], "]")
-	if arrayEnd == -1 {
-		return ""
-	}
-
-	tagStr := analysis[start : start+arrayEnd]
-	tagStr = strings.ReplaceAll(tagStr, `"`, "")
-	tagStr = strings.ReplaceAll(tagStr, " ", "")
-
-	if tagStr == "" {
-		return ""
-	}
-
-	tagList := strings.Split(tagStr, ",")
-
-	// Format ALL tags for reader modal in a single container
-	tagsToShow := []string{}
-	for _, tag := range tagList {
-		if tag != "" {
-			tagsToShow = append(tagsToShow, tag)
-		}
-	}
-
-	if len(tagsToShow) == 0 {
-		return ""
-	}
-
-	// Join all tags with separator (no container for clean look)
-	tagString := strings.Join(tagsToShow, " • ")
-	return tagStyle.Render(tagString)
-}
-
 // renderReaderContent renders the article reader in the content pane (right side)
 func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
 	if m.cursor >= len(m.items) || len(m.items) == 0 {
@@ -820,13 +697,6 @@ func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
 	leftBracket := lipgloss.NewStyle().Foreground(theme.Gray).Bold(true).Render(" [ ")
 	rightBracket := lipgloss.NewStyle().Foreground(theme.Gray).Bold(true).Render(" ]")
 	content.WriteString(priorityDotRendered + " " + titleText + leftBracket + metadataStr + rightBracket)
-
-	// Tags on their own line, indented to align with title
-	tags := extractAllTags(item.Analysis)
-	if tags != "" {
-		content.WriteString("\n")
-		content.WriteString("  " + tags) // Two spaces to align with title after "● "
-	}
 
 	content.WriteString("\n\n")
 

@@ -8,7 +8,6 @@ import (
 
 // ContentMetadata represents the metadata extracted from analysis JSON
 type ContentMetadata struct {
-	Entities       []string `json:"entities"`
 	Quotes         []string `json:"quotes"`
 	Tools          []string `json:"tools"`
 	URLs           []string `json:"urls"`
@@ -36,15 +35,6 @@ func parseMetadata(analysisJSON string) ContentMetadata {
 	}
 
 	metadata := ContentMetadata{}
-
-	// Extract entities (these are the "topics")
-	if entities, ok := analysis["entities"].([]interface{}); ok {
-		for _, entity := range entities {
-			if str, ok := entity.(string); ok {
-				metadata.Entities = append(metadata.Entities, str)
-			}
-		}
-	}
 
 	// Extract quotes
 	if quotes, ok := analysis["quotes"].([]interface{}); ok {
@@ -207,7 +197,7 @@ func (m *Model) updateReaderContent() {
 
 	// Viewport dimensions - account for reader header and metadata
 	m.viewport.Width = contentWidth - 4   // Account for padding
-	m.viewport.Height = contentHeight - 9 // Account for position, title+metadata, tags, divider
+	m.viewport.Height = contentHeight - 9 // Account for position, title+metadata, divider
 
 	// Parse metadata once for use throughout
 	metadata := parseMetadata(item.Analysis)

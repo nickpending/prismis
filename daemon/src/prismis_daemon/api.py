@@ -259,6 +259,33 @@ async def get_validator() -> SourceValidator:
 SOURCE_VALIDATION_TIMEOUT = 20.0
 
 
+async def _validate_source_with_timeout(
+    validator: SourceValidator, url: str, type_: str
+) -> dict | None:
+    """Validate a source off the event loop, bounded by SOURCE_VALIDATION_TIMEOUT.
+
+    Shared by add_source and update_source's URL-change branch. Returns the
+    validator's metadata dict (or None) on success; raises ValidationError on a
+    timeout or a validation failure, with the same messages both call sites used
+    before this was one function.
+    """
+    try:
+        is_valid, error_msg, metadata = await asyncio.wait_for(
+            asyncio.to_thread(validator.validate_source, url, type_),
+            timeout=SOURCE_VALIDATION_TIMEOUT,
+        )
+    except TimeoutError as e:
+        raise ValidationError(
+            f"Source validation timed out after "
+            f"{SOURCE_VALIDATION_TIMEOUT:.0f} seconds"
+        ) from e
+
+    if not is_valid:
+        raise ValidationError(f"Source validation failed: {error_msg}")
+
+    return metadata
+
+
 # Configure CORS for local access only
 app.add_middleware(
     CORSMiddleware,
@@ -489,21 +516,9 @@ async def add_source(
             name = extract_name_from_url(normalized_url, request.type)
 
         # Validate the source off the event loop — validate_source blocks on network
-        try:
-            is_valid, error_msg, metadata = await asyncio.wait_for(
-                asyncio.to_thread(
-                    validator.validate_source, normalized_url, request.type
-                ),
-                timeout=SOURCE_VALIDATION_TIMEOUT,
-            )
-        except TimeoutError as e:
-            raise ValidationError(
-                f"Source validation timed out after "
-                f"{SOURCE_VALIDATION_TIMEOUT:.0f} seconds"
-            ) from e
-
-        if not is_valid:
-            raise ValidationError(f"Source validation failed: {error_msg}")
+        metadata = await _validate_source_with_timeout(
+            validator, normalized_url, request.type
+        )
 
         # Use display name from metadata if available (e.g., for Reddit subreddits)
         if metadata and "display_name" in metadata:
@@ -596,21 +611,9 @@ async def update_source(
             normalized_url = normalize_source_url(request.url, request.type)
 
             # Validate off the event loop — validate_source blocks on network
-            try:
-                is_valid, error_msg, metadata = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        validator.validate_source, normalized_url, request.type
-                    ),
-                    timeout=SOURCE_VALIDATION_TIMEOUT,
-                )
-            except TimeoutError as e:
-                raise ValidationError(
-                    f"Source validation timed out after "
-                    f"{SOURCE_VALIDATION_TIMEOUT:.0f} seconds"
-                ) from e
-
-            if not is_valid:
-                raise ValidationError(f"Source validation failed: {error_msg}")
+            await _validate_source_with_timeout(
+                validator, normalized_url, request.type
+            )
 
             update_data["url"] = normalized_url
 

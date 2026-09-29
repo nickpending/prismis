@@ -57,3 +57,35 @@ def test_a_playlist_id_is_refused_by_name(test_db) -> None:
     assert response.status_code != 200, response.text
     assert "playlist" in response.text.lower(), response.text
     assert Storage().get_all_sources() == []
+
+
+def test_update_rejects_a_playlist_id_without_changing_the_stored_source(
+    test_db,
+) -> None:
+    """
+    INVARIANT: update_source's URL-change branch validates before writing, the same as
+               add_source — both call the shared _validate_source_with_timeout helper
+    BREAKS: update_source stops validating the new URL (e.g. the helper extraction wires
+            only add_source's call site), so a source is silently repointed at a URL that
+            fails the same check add_source enforces, and every fetch cycle after fails on
+            a channel that does not exist
+    """
+    client = TestClient(app)
+    created = client.post(
+        "/api/sources",
+        json={"url": "youtube://@prismistest", "type": "youtube"},
+        headers=_HEADERS,
+    )
+    assert created.status_code == 200, created.text
+    source_id = created.json()["data"]["id"]
+
+    response = client.patch(
+        f"/api/sources/{source_id}",
+        json={"url": "youtube://PLabc123", "type": "youtube"},
+        headers=_HEADERS,
+    )
+
+    assert response.status_code != 200, response.text
+    assert "playlist" in response.text.lower(), response.text
+    urls = [s["url"] for s in Storage().get_all_sources()]
+    assert urls == ["https://www.youtube.com/@prismistest"], urls

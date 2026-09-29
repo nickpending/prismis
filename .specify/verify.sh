@@ -68,7 +68,7 @@ while IFS= read -r pp; do
 done < <(find "$ROOT" -name pyproject.toml \
            -not -path '*/.venv/*' -not -path '*/node_modules/*' \
            -not -path '*/build/*' -not -path '*/dist/*' \
-           -not -path '*/.claude/worktrees/*' | sort)
+           -not -path "$ROOT/.claude/worktrees/*" | sort)
 
 # -------------------------------------------------------------------- Go units
 while IFS= read -r gm; do
@@ -84,7 +84,7 @@ while IFS= read -r gm; do
     note_uncovered "staticcheck($rel): binary not installed"
   fi
   run_step "go test($rel)" env -C "$d" go test ./... || true
-done < <(find "$ROOT" -name go.mod -not -path '*/vendor/*' -not -path '*/.claude/worktrees/*' | sort)
+done < <(find "$ROOT" -name go.mod -not -path '*/vendor/*' -not -path "$ROOT/.claude/worktrees/*" | sort)
 
 # ------------------------------------------------------------------ Rust units
 while IFS= read -r cg; do
@@ -94,7 +94,7 @@ while IFS= read -r cg; do
   run_step "cargo fmt($rel)" env -C "$d" cargo fmt --check || true
   run_step "clippy($rel)" env -C "$d" cargo clippy -- -D warnings || true
   run_step "cargo test($rel)" env -C "$d" cargo test || true
-done < <(find "$ROOT" -name Cargo.toml -not -path '*/target/*' -not -path '*/.claude/worktrees/*' -maxdepth 3 | sort)
+done < <(find "$ROOT" -name Cargo.toml -not -path '*/target/*' -not -path "$ROOT/.claude/worktrees/*" -maxdepth 3 | sort)
 
 # ------------------------------------------------------------------- JS/TS units
 while IFS= read -r pj; do
@@ -106,7 +106,7 @@ while IFS= read -r pj; do
   if find "$d" -name '*.test.ts' -not -path '*/node_modules/*' | grep -q .; then
     run_step "bun test($rel)" env -C "$d" bun test || true
   fi
-done < <(find "$ROOT" -name package.json -not -path '*/node_modules/*' -not -path '*/.claude/worktrees/*' | sort)
+done < <(find "$ROOT" -name package.json -not -path '*/node_modules/*' -not -path "$ROOT/.claude/worktrees/*" | sort)
 
 # ----------------------------------------------------------------- the verdict
 # Two different absences, two different answers. A repo with no units AND no source is
@@ -115,7 +115,7 @@ done < <(find "$ROOT" -name package.json -not -path '*/node_modules/*' -not -pat
 if [ "$UNITS_FOUND" -eq 0 ]; then
   if [ -z "$(find "$ROOT" \( -name '*.py' -o -name '*.go' -o -name '*.ts' -o -name '*.rs' \) \
               -not -path '*/.venv/*' -not -path '*/node_modules/*' \
-              -not -path '*/.claude/worktrees/*' -print -quit)" ]; then
+              -not -path "$ROOT/.claude/worktrees/*" -print -quit)" ]; then
     echo "VERIFY_NOT_YET: no verifiable unit and no source files — nothing has been written yet"
   else
     echo "VERIFY_UNCOVERED: source files exist but no unit was discovered — discovery is broken"

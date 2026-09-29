@@ -505,11 +505,15 @@ func TestAPITimeUnmarshalJSON_SingleParseCall_SC26(t *testing.T) {
 // Cluster 1 dedup (doRequest, docs/work/dedup-triage.md section 1): closes the
 // triage's documented test gap. Every method here previously had no direct
 // httptest-backed test. PauseSource/ResumeSource/PruneCount/PruneUnprioritized
-// are the four methods that check only apiResp.Success, never resp.StatusCode
-// — the "StatusError" tests prove they still error like the other nine when
-// the daemon reports failure, and the "IgnoresStatusCode" tests pin that no
-// status-code gating was added by the doRequest extraction (the triage's
-// central behavior risk for this cluster).
+// used to check only apiResp.Success, never resp.StatusCode — the exact drift
+// SC-1 names in the work order's "why" ("four TUI client methods skip the
+// HTTP status check the other nine make") and requires fixed: "PauseSource,
+// ResumeSource, PruneCount and PruneUnprioritized return an error on a
+// non-2xx status like the other nine" (work-order.json SC-1). The
+// "StatusError" tests prove they error when the daemon reports failure
+// (status and success both indicate it), and the
+// "StatusErrorEvenWhenBodySaysSuccess" tests prove the fix itself: a non-2xx
+// status now produces an error even when the body claims success:true.
 // ---------------------------------------------------------------------------
 
 func TestUpdateSourceRequest(t *testing.T) {
@@ -716,7 +720,12 @@ func TestPauseSourceStatusError(t *testing.T) {
 	}
 }
 
-func TestPauseSourceIgnoresStatusCode(t *testing.T) {
+// TestPauseSourceStatusErrorEvenWhenBodySaysSuccess proves the SC-1 fix
+// (work-order.json's "why": "four TUI client methods skip the HTTP status
+// check the other nine make"): PauseSource must now error on a non-2xx
+// status even when the body claims success:true — it must not decide on
+// apiResp.Success alone anymore, the way it used to.
+func TestPauseSourceStatusErrorEvenWhenBodySaysSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"success":true,"message":"paused anyway"}`))
@@ -724,12 +733,9 @@ func TestPauseSourceIgnoresStatusCode(t *testing.T) {
 	defer server.Close()
 
 	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
-	resp, err := client.PauseSource("src-1")
-	if err != nil {
-		t.Fatalf("expected PauseSource to ignore the HTTP status and trust apiResp.Success, got: %v", err)
-	}
-	if !resp.Success {
-		t.Fatal("expected a successful response")
+	_, err := client.PauseSource("src-1")
+	if err == nil {
+		t.Fatal("expected PauseSource to error on a non-2xx status regardless of apiResp.Success")
 	}
 }
 
@@ -776,7 +782,9 @@ func TestResumeSourceStatusError(t *testing.T) {
 	}
 }
 
-func TestResumeSourceIgnoresStatusCode(t *testing.T) {
+// TestResumeSourceStatusErrorEvenWhenBodySaysSuccess is ResumeSource's half
+// of the SC-1 fix — see TestPauseSourceStatusErrorEvenWhenBodySaysSuccess.
+func TestResumeSourceStatusErrorEvenWhenBodySaysSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"success":true,"message":"resumed anyway"}`))
@@ -784,12 +792,9 @@ func TestResumeSourceIgnoresStatusCode(t *testing.T) {
 	defer server.Close()
 
 	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
-	resp, err := client.ResumeSource("src-1")
-	if err != nil {
-		t.Fatalf("expected ResumeSource to ignore the HTTP status and trust apiResp.Success, got: %v", err)
-	}
-	if !resp.Success {
-		t.Fatal("expected a successful response")
+	_, err := client.ResumeSource("src-1")
+	if err == nil {
+		t.Fatal("expected ResumeSource to error on a non-2xx status regardless of apiResp.Success")
 	}
 }
 
@@ -833,7 +838,9 @@ func TestPruneCountStatusError(t *testing.T) {
 	}
 }
 
-func TestPruneCountIgnoresStatusCode(t *testing.T) {
+// TestPruneCountStatusErrorEvenWhenBodySaysSuccess is PruneCount's half of
+// the SC-1 fix — see TestPauseSourceStatusErrorEvenWhenBodySaysSuccess.
+func TestPruneCountStatusErrorEvenWhenBodySaysSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"count":3,"days_filter":null}}`))
@@ -841,12 +848,9 @@ func TestPruneCountIgnoresStatusCode(t *testing.T) {
 	defer server.Close()
 
 	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
-	count, err := client.PruneCount(nil)
-	if err != nil {
-		t.Fatalf("expected PruneCount to ignore the HTTP status and trust apiResp.Success, got: %v", err)
-	}
-	if count != 3 {
-		t.Errorf("expected count 3, got %d", count)
+	_, err := client.PruneCount(nil)
+	if err == nil {
+		t.Fatal("expected PruneCount to error on a non-2xx status regardless of apiResp.Success")
 	}
 }
 
@@ -894,7 +898,10 @@ func TestPruneUnprioritizedStatusError(t *testing.T) {
 	}
 }
 
-func TestPruneUnprioritizedIgnoresStatusCode(t *testing.T) {
+// TestPruneUnprioritizedStatusErrorEvenWhenBodySaysSuccess is
+// PruneUnprioritized's half of the SC-1 fix — see
+// TestPauseSourceStatusErrorEvenWhenBodySaysSuccess.
+func TestPruneUnprioritizedStatusErrorEvenWhenBodySaysSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"deleted":2,"days_filter":null}}`))
@@ -902,12 +909,9 @@ func TestPruneUnprioritizedIgnoresStatusCode(t *testing.T) {
 	defer server.Close()
 
 	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
-	deleted, err := client.PruneUnprioritized(nil)
-	if err != nil {
-		t.Fatalf("expected PruneUnprioritized to ignore the HTTP status and trust apiResp.Success, got: %v", err)
-	}
-	if deleted != 2 {
-		t.Errorf("expected 2 deleted, got %d", deleted)
+	_, err := client.PruneUnprioritized(nil)
+	if err == nil {
+		t.Fatal("expected PruneUnprioritized to error on a non-2xx status regardless of apiResp.Success")
 	}
 }
 

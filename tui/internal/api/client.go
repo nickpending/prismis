@@ -198,13 +198,15 @@ func NewClientWithURL(baseURL string) (*APIClient, error) {
 // doRequest builds an *http.Request for method+path against c.baseURL, sets
 // X-API-Key (and Content-Type when body is non-nil), sends it, and reads the
 // response body. It returns the raw status code and bytes; every caller keeps
-// its own status-code branching and JSON decoding exactly as before — only
-// the mechanical build/send/read step lives here (docs/work/dedup-triage.md
-// cluster 1). When timeout > 0 the request is sent through a one-off
-// *http.Client with that timeout instead of c.httpClient, matching the
-// pre-extraction behavior of the three callers that need a longer deadline
-// than c.httpClient's tuned transport provides — c.httpClient's connection
-// pooling is intentionally not reused for them, not lost by accident.
+// its own status-code branching and JSON decoding, and every caller now acts
+// on the status this returns (docs/work/dedup-triage.md cluster 1; SC-1 fixed
+// the four methods that used to ignore it — see successOnlyResult and
+// decodeSuccessOnlyData). When timeout > 0 the request is sent through a
+// one-off *http.Client with that timeout instead of c.httpClient, matching
+// the pre-extraction behavior of the three callers that need a longer
+// deadline than c.httpClient's tuned transport provides — c.httpClient's
+// connection pooling is intentionally not reused for them, not lost by
+// accident.
 func (c *APIClient) doRequest(method, path string, body []byte, timeout time.Duration) (int, []byte, error) {
 	var reqBody io.Reader
 	if body != nil {
@@ -256,11 +258,8 @@ func decodeAPIResponse(body []byte) (APIResponse, error) {
 }
 
 // authFailedIfForbidden reports the one status-code check whose message never
-// varies by caller: every method that checks resp.StatusCode at all (as
-// opposed to only apiResp.Success — see the triage's behavior risk for
-// PauseSource/ResumeSource/PruneCount/PruneUnprioritized) reports the same
-// "authentication failed" error on 403. Callers that skip status-code
-// checking entirely never call this, preserving that documented difference.
+// varies by caller: every method reports the same "authentication failed"
+// error on 403.
 func authFailedIfForbidden(status int) error {
 	if status == 403 {
 		return fmt.Errorf("authentication failed: invalid API key")
@@ -362,16 +361,20 @@ func sourceOpResult(status int, apiResp APIResponse, fallbackVerb string) (*APIR
 	return &apiResp, nil
 }
 
-// successOnlyResult decodes body and reports apiResp.Success only — the shape
-// PauseSource and ResumeSource both use, deliberately never checking the raw
-// HTTP status (docs/work/dedup-triage.md cluster 1 behavior risk: these two
-// methods must keep deciding on apiResp.Success alone).
-func successOnlyResult(body []byte) (*APIResponse, error) {
-	apiResp, err := decodeAPIResponse(body)
+// successOnlyResult decodes body and reports an error when status is a
+// non-2xx status or apiResp.Success is false. PauseSource and ResumeSource
+// used to decide on apiResp.Success alone, silently accepting a non-2xx
+// status whose body happened to say success:true — one of the five drift
+// fixes named in the work order's "why" (work-order.json: "four TUI client
+// methods skip the HTTP status check the other nine make"). SC-1 requires
+// these methods return an error on a non-2xx status like the other nine;
+// this is that fix, applied through the same shared helper shape as before.
+func successOnlyResult(status int, body []byte) (*APIResponse, error) {
+	apiResp, err := decodeAndCheckAuth(status, body)
 	if err != nil {
 		return nil, err
 	}
-	if !apiResp.Success {
+	if status >= 400 || !apiResp.Success {
 		return &apiResp, fmt.Errorf("%s", apiResp.Message)
 	}
 	return &apiResp, nil
@@ -392,11 +395,11 @@ type pruneDeleteData struct {
 }
 
 // decodeSuccessOnlyData parses a {success, message, data} envelope into T and
-// reports the shared "Success is false" error PruneCount and
-// PruneUnprioritized both make, exactly as successOnlyResult does for the
-// plain APIResponse type — this is its generic counterpart for callers whose
-// data shape isn't APIResponse's untyped map.
-func decodeSuccessOnlyData[T any](body []byte) (T, error) {
+// reports an error when status is non-2xx or apiResp.Success is false —
+// PruneCount and PruneUnprioritized's generic counterpart to
+// successOnlyResult, for callers whose data shape isn't APIResponse's untyped
+// map. Same SC-1 fix: these two used to decide on apiResp.Success alone.
+func decodeSuccessOnlyData[T any](status int, body []byte) (T, error) {
 	var apiResp struct {
 		Success bool   `json:"success"`
 		Message string `json:"message"`
@@ -406,7 +409,11 @@ func decodeSuccessOnlyData[T any](body []byte) (T, error) {
 		var zero T
 		return zero, fmt.Errorf("failed to parse response: %w", err)
 	}
-	if !apiResp.Success {
+	if err := authFailedIfForbidden(status); err != nil {
+		var zero T
+		return zero, err
+	}
+	if status >= 400 || !apiResp.Success {
 		var zero T
 		return zero, fmt.Errorf("%s", apiResp.Message)
 	}
@@ -468,22 +475,22 @@ func (c *APIClient) UpdateSource(sourceID string, request SourceRequest) (*APIRe
 
 // PauseSource pauses a content source (sets inactive)
 func (c *APIClient) PauseSource(sourceID string) (*APIResponse, error) {
-	_, body, err := c.doRequest("PATCH", "/api/sources/"+sourceID+"/pause", nil, 0)
+	status, body, err := c.doRequest("PATCH", "/api/sources/"+sourceID+"/pause", nil, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	return successOnlyResult(body)
+	return successOnlyResult(status, body)
 }
 
 // ResumeSource resumes a paused content source (sets active)
 func (c *APIClient) ResumeSource(sourceID string) (*APIResponse, error) {
-	_, body, err := c.doRequest("PATCH", "/api/sources/"+sourceID+"/resume", nil, 0)
+	status, body, err := c.doRequest("PATCH", "/api/sources/"+sourceID+"/resume", nil, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	return successOnlyResult(body)
+	return successOnlyResult(status, body)
 }
 
 // GetSources retrieves all content sources from the API
@@ -633,12 +640,12 @@ func (c *APIClient) PruneCount(days *int) (int, error) {
 		path = fmt.Sprintf("%s?days=%d", path, *days)
 	}
 
-	_, body, err := c.doRequest("GET", path, nil, 0)
+	status, body, err := c.doRequest("GET", path, nil, 0)
 	if err != nil {
 		return 0, err
 	}
 
-	data, err := decodeSuccessOnlyData[pruneCountData](body)
+	data, err := decodeSuccessOnlyData[pruneCountData](status, body)
 	if err != nil {
 		return 0, err
 	}
@@ -654,12 +661,12 @@ func (c *APIClient) PruneUnprioritized(days *int) (int, error) {
 		path = fmt.Sprintf("%s?days=%d", path, *days)
 	}
 
-	_, body, err := c.doRequest("POST", path, nil, 0)
+	status, body, err := c.doRequest("POST", path, nil, 0)
 	if err != nil {
 		return 0, err
 	}
 
-	data, err := decodeSuccessOnlyData[pruneDeleteData](body)
+	data, err := decodeSuccessOnlyData[pruneDeleteData](status, body)
 	if err != nil {
 		return 0, err
 	}

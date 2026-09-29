@@ -49,3 +49,9 @@
 {"kind":"verified","job":3,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)"],"uncovered":[".sh(8 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-09-28T23:49:31.873Z"}
 {"kind":"merged","job":3,"sha":"a897e1d76b4ccdada8d757712a649eca5454b372","ts":"2026-09-28T23:51:49.490Z"}
 {"kind":"checkpointed","sha":"a897e1d76b4ccdada8d757712a649eca5454b372","ts":"2026-09-28T23:51:49.533Z"}
+{"kind":"built","job":4,"files":["daemon/src/prismis_daemon/verify_chain.py","daemon/tests/integration/test_verify_chain_kind_integration.py","daemon/tests/unit/test_verify_chain_report_unit.py"],"worktree":{"path":"/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a30ccc6af2ef213cf","branch":"worktree-agent-a30ccc6af2ef213cf","base":"7203c489efd96aba5bf932772661e1a2dbd85c66"},"sha":"b80efbf0d39ba47fa6480ad7b9c6314b4cc31243197698368afd4a118f555dfa","ts":"2026-09-29T00:05:46.075Z"}
+{"kind":"verified","job":4,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)"],"uncovered":[".sh(8 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-09-29T00:09:04.027Z"}
+{"kind":"diffed","job":4,"path":"docs/work/content-kind/job-4.diff","from":"7203c489efd96aba5bf932772661e1a2dbd85c66","to":"fb87e6d91d8e8833862754d4ef6efec59aa394de","ts":"2026-09-29T00:09:04.168Z"}
+{"kind":"reviewed","job":4,"findings":[],"sha":"ae2a57082af060800fd52227912ac29a7a510cc3b084854d9c730d07dffde798","ts":"2026-09-29T00:12:21.672Z"}
+{"kind":"merged","job":4,"sha":"fb87e6d91d8e8833862754d4ef6efec59aa394de","ts":"2026-09-29T00:14:42.523Z"}
+{"kind":"closed","sha":"fb87e6d91d8e8833862754d4ef6efec59aa394de","ts":"2026-09-29T00:14:42.573Z"}

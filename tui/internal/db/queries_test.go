@@ -928,3 +928,115 @@ func TestGetAllContent_ArchivedFilter(t *testing.T) {
 		t.Errorf("Expected archived item ID '1', got '%s'", archived[0].ID)
 	}
 }
+
+// TestGetArchivedCount_ReturnsAccurateTotal tests that GetArchivedCount reflects the
+// current archived_at state, closing the gap the dedup triage noted for cluster 4b:
+// GetArchivedCount had no direct test before this, unlike its countQuery siblings
+// getUnprioritizedCount (exercised via GetContentByPriority) and GetFavoritesCount.
+func TestGetArchivedCount_ReturnsAccurateTotal(t *testing.T) {
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+	oldFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = oldFunc
+		CloseDB()
+	}()
+
+	count, err := GetArchivedCount()
+	if err != nil {
+		t.Fatalf("GetArchivedCount failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("Expected 0 archived items before archiving any, got %d", count)
+	}
+
+	db, err := GetDB()
+	if err != nil {
+		t.Fatalf("Failed to get DB: %v", err)
+	}
+	if _, err := db.Exec("UPDATE content SET archived_at = ? WHERE id IN ('1', '2')", time.Now().Format(time.RFC3339)); err != nil {
+		t.Fatalf("Failed to archive items: %v", err)
+	}
+
+	count, err = GetArchivedCount()
+	if err != nil {
+		t.Fatalf("GetArchivedCount failed after archiving: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("Expected 2 archived items, got %d", count)
+	}
+}
+
+// TestGetUnprioritizedContent_FiltersByPriorityAndReadState tests GetUnprioritizedContent
+// directly, closing the gap the dedup triage flagged for cluster 4a: it had no direct
+// test at all (only its row-scan sibling functions did), so nothing would have caught a
+// regression from routing its row loop through the shared scanContentRows helper.
+func TestGetUnprioritizedContent_FiltersByPriorityAndReadState(t *testing.T) {
+	resetDBForTest(t)
+	dbPath := createTestDB(t)
+	oldFunc := dbPathFunc
+	dbPathFunc = func() (string, error) {
+		return dbPath, nil
+	}
+	defer func() {
+		dbPathFunc = oldFunc
+		CloseDB()
+	}()
+
+	// createTestDB seeds item "5" as unread with priority "". Make item "3" (originally
+	// "medium", unread) a second unprioritized item, but read, so showAll can be told
+	// apart from showAll=false.
+	db, err := GetDB()
+	if err != nil {
+		t.Fatalf("Failed to get DB: %v", err)
+	}
+	if _, err := db.Exec("UPDATE content SET priority = '', read = 1 WHERE id = '3'"); err != nil {
+		t.Fatalf("Failed to seed second unprioritized item: %v", err)
+	}
+
+	// showAll=false: only the unread unprioritized item (5).
+	unreadOnly, hiddenCount, err := GetUnprioritizedContent(false)
+	if err != nil {
+		t.Fatalf("GetUnprioritizedContent(false) failed: %v", err)
+	}
+	if len(unreadOnly) != 1 {
+		t.Fatalf("Expected 1 unread unprioritized item, got %d: %+v", len(unreadOnly), unreadOnly)
+	}
+	if unreadOnly[0].ID != "5" {
+		t.Errorf("Expected item '5', got '%s'", unreadOnly[0].ID)
+	}
+	if unreadOnly[0].Priority != "" {
+		t.Errorf("Expected empty priority, got %q", unreadOnly[0].Priority)
+	}
+	if unreadOnly[0].SourceType != "rss" || unreadOnly[0].SourceName != "Test RSS Feed" {
+		t.Errorf("Expected JOIN-populated source info, got type=%q name=%q", unreadOnly[0].SourceType, unreadOnly[0].SourceName)
+	}
+	// GetUnprioritizedContent never reports a hidden count - it IS the unprioritized view.
+	if hiddenCount != 0 {
+		t.Errorf("Expected hiddenCount 0, got %d", hiddenCount)
+	}
+
+	// showAll=true: both unprioritized items (3 and 5), read status included.
+	all, _, err := GetUnprioritizedContent(true)
+	if err != nil {
+		t.Fatalf("GetUnprioritizedContent(true) failed: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("Expected 2 unprioritized items with showAll=true, got %d: %+v", len(all), all)
+	}
+	foundRead := false
+	for _, item := range all {
+		if item.ID == "3" {
+			foundRead = true
+			if !item.Read {
+				t.Error("Expected item '3' to be read")
+			}
+		}
+	}
+	if !foundRead {
+		t.Error("Expected the read unprioritized item ('3') to be included when showAll=true")
+	}
+}

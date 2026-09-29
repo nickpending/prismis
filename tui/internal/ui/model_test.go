@@ -2,12 +2,117 @@ package ui
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nickpending/prismis/internal/commands"
 	"github.com/nickpending/prismis/internal/db"
 )
+
+// remoteTestConfig points XDG_CONFIG_HOME at a temp config.toml with a
+// [remote] key, which api.NewClientWithURL requires once a non-empty baseURL
+// puts it in remote mode - even though the explicit baseURL argument (the
+// httptest server's URL) overrides the config's own [remote].url. Restores
+// the previous XDG_CONFIG_HOME via the returned func.
+func remoteTestConfig(t *testing.T) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "prismis")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	configContent := "[remote]\nurl = \"http://ignored\"\nkey = \"test-key\"\n"
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	oldEnv := os.Getenv("XDG_CONFIG_HOME")
+	os.Setenv("XDG_CONFIG_HOME", tmpDir)
+	t.Cleanup(func() { os.Setenv("XDG_CONFIG_HOME", oldEnv) })
+}
+
+// emptyEntriesServer returns an httptest.Server that answers GET /api/entries
+// with a valid, empty envelope - enough for fetchItemsRemote to succeed
+// without asserting on request shape (that's cluster 1's concern).
+func emptyEntriesServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"success":true,"message":"","data":{"items":[],"total":0}}`)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// TestBuildRefreshCmd_ThreadsIsAutoRefreshAndPreservesCursor verifies
+// buildRefreshCmd (cluster 16) captures the current item's ID before the
+// async fetch runs and threads isAutoRefresh through for both the
+// manual-refresh and auto-refresh callers.
+func TestBuildRefreshCmd_ThreadsIsAutoRefreshAndPreservesCursor(t *testing.T) {
+	remoteTestConfig(t)
+	server := emptyEntriesServer(t)
+
+	for _, tc := range []struct {
+		name          string
+		isAutoRefresh bool
+	}{
+		{"manual refresh (RefreshMsg path)", false},
+		{"auto refresh (autoRefreshMsg path)", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Model{
+				remoteURL: server.URL,
+				cursor:    1,
+				items: []db.ContentItem{
+					{ID: "item-a"},
+					{ID: "item-b"},
+				},
+			}
+
+			cmd := m.buildRefreshCmd(tc.isAutoRefresh)
+			msg := cmd()
+
+			result, ok := msg.(itemsLoadedMsg)
+			if !ok {
+				t.Fatalf("expected itemsLoadedMsg, got %T", msg)
+			}
+			if result.err != nil {
+				t.Fatalf("expected no error, got %v", result.err)
+			}
+			if !result.preserveCursor {
+				t.Error("expected preserveCursor to be true")
+			}
+			if result.targetItemID != "item-b" {
+				t.Errorf("expected targetItemID 'item-b' (the cursor's item), got %q", result.targetItemID)
+			}
+			if result.isAutoRefresh != tc.isAutoRefresh {
+				t.Errorf("expected isAutoRefresh=%v, got %v", tc.isAutoRefresh, result.isAutoRefresh)
+			}
+		})
+	}
+}
+
+// TestBuildRefreshCmd_CursorOutOfBounds verifies an out-of-bounds cursor
+// leaves targetItemID empty instead of panicking or reading stale data.
+func TestBuildRefreshCmd_CursorOutOfBounds(t *testing.T) {
+	remoteTestConfig(t)
+	server := emptyEntriesServer(t)
+
+	m := Model{remoteURL: server.URL, cursor: 5, items: nil}
+	msg := m.buildRefreshCmd(false)()
+
+	result, ok := msg.(itemsLoadedMsg)
+	if !ok {
+		t.Fatalf("expected itemsLoadedMsg, got %T", msg)
+	}
+	if result.targetItemID != "" {
+		t.Errorf("expected empty targetItemID for out-of-bounds cursor, got %q", result.targetItemID)
+	}
+}
 
 func TestNewModel(t *testing.T) {
 	m := NewModel()

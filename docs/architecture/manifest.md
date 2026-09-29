@@ -1,9 +1,9 @@
 ---
 type: manifest
 project: prismis
-generated: "2026-09-28"
+generated: "2026-09-29"
 source: /Users/rudy/development/projects/prismis/docs/architecture
-reconciled_at: dc7b42c35f61ad806e62563df09d3d6fb7442d0c
+reconciled_at: aed1db687839dda335a253c206772ac03ad541b3
 ---
 
 ## Components
@@ -15,6 +15,7 @@ reconciled_at: dc7b42c35f61ad806e62563df09d3d6fb7442d0c
 - **Deep Extractor** — Second-tier LLM synthesis for HIGH items; low-signal sources excluded.
 - **Context System** — User interest profile, auto-updated from feedback.
 - **LLM Client** — Direct openai-SDK client for every daemon LLM call.
+- **Kind Classifier** — Optional ten-kind item tagging via OpenRouter Decisions; fail-open.
 - **Circuit Breaker** — Service-keyed quota protection for LLM calls.
 - **API Server** — FastAPI REST: content access, search, on-demand extraction.
 - **Storage** — SQLite: content, dedup, archival, analysis patching.

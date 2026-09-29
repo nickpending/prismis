@@ -1,0 +1,3 @@
+{"kind":"opened","criteria":["SC-1","SC-2","SC-3","SC-4","SC-5"],"sha":"5886ac353e7718709b4362028308c80895868890","ts":"2026-09-29T15:51:24.982Z"}
+{"kind":"planned","jobs":{"1":{"files":["cli/src/cli/analyze.py","cli/tests/unit/test_analyze_kinds_unit.py"],"depends":[],"delivers":["SC-1","SC-2","SC-3","SC-4","SC-5"]}},"sha":"46667c19abd174820ccc6c8277493f651f411996e289e643e8aed268c3eeb2b9","ts":"2026-09-29T15:55:39.579Z"}
+{"kind":"checkpointed","sha":"5886ac353e7718709b4362028308c80895868890","ts":"2026-09-29T15:55:39.625Z"}

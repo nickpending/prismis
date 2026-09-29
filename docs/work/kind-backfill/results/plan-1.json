@@ -1,0 +1,19 @@
+{
+  "artifact": [
+    "docs/work/kind-backfill/results/plan-1.json"
+  ],
+  "verified": false,
+  "jobs": [
+    {
+      "number": 1,
+      "title": "prismis-cli analyze kinds: bounded selection of already-analysed, unclassified-so-far items (summary present, no kind_confidence key, newest first, --limit/--since-days), classification through the existing KindClassifier with per-item failure isolation and a final classified/unclassified/failed count, and the local-mode + kind_service guard analyze repair already models",
+      "files": [
+        "cli/src/cli/analyze.py",
+        "cli/tests/unit/test_analyze_kinds_unit.py"
+      ],
+      "depends": [],
+      "delivers": ["SC-1", "SC-2", "SC-3", "SC-4", "SC-5"],
+      "red": true
+    }
+  ]
+}

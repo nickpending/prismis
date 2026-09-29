@@ -190,16 +190,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 		case "add":
 			switch msg.String() {
 			case "tab":
-				// Switch between URL and name fields
-				if m.activeField == "url" {
-					m.activeField = "name"
-					m.urlInput.Blur()
-					m.nameInput.Focus()
-				} else {
-					m.activeField = "url"
-					m.nameInput.Blur()
-					m.urlInput.Focus()
-				}
+				m.handleFieldTab()
 			case "enter":
 				// Add source using textinput values
 				url := strings.TrimSpace(m.urlInput.Value())
@@ -211,36 +202,16 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				name := strings.TrimSpace(m.nameInput.Value())
 				return m, operations.AddSource(url, name)
 			case "esc":
-				m.mode = "list"
-				m.urlInput.SetValue("")
-				m.nameInput.SetValue("")
-				m.urlInput.Blur()
-				m.nameInput.Blur()
-				m.errorMsg = ""
+				m.clearFormAndReturnToList()
 			default:
 				// Let textinput handle all other keys (including paste!)
-				var cmd tea.Cmd
-				if m.activeField == "url" {
-					m.urlInput, cmd = m.urlInput.Update(msg)
-				} else {
-					m.nameInput, cmd = m.nameInput.Update(msg)
-				}
-				return m, cmd
+				return m, m.updateActiveTextInput(msg)
 			}
 
 		case "edit":
 			switch msg.String() {
 			case "tab":
-				// Switch between URL and name fields (consistent with add)
-				if m.activeField == "url" {
-					m.activeField = "name"
-					m.urlInput.Blur()
-					m.nameInput.Focus()
-				} else {
-					m.activeField = "url"
-					m.nameInput.Blur()
-					m.urlInput.Focus()
-				}
+				m.handleFieldTab()
 			case "enter":
 				// Prepare to update source
 				if m.cursor >= len(m.sources) {
@@ -255,12 +226,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				// Check if anything actually changed
 				if url == source.URL && name == source.Name {
 					// No changes made, just go back to list
-					m.mode = "list"
-					m.urlInput.SetValue("")
-					m.nameInput.SetValue("")
-					m.urlInput.Blur()
-					m.nameInput.Blur()
-					m.errorMsg = ""
+					m.clearFormAndReturnToList()
 					return m, nil
 				}
 
@@ -275,12 +241,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 
 				// Clear form and go back to list
 				// The actual update will happen via the command
-				m.mode = "list"
-				m.urlInput.SetValue("")
-				m.nameInput.SetValue("")
-				m.urlInput.Blur()
-				m.nameInput.Blur()
-				m.errorMsg = ""
+				m.clearFormAndReturnToList()
 
 				// Update content before returning
 				m.UpdateContent()
@@ -288,21 +249,10 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				// Return the update command directly (like add/remove/pause/resume)
 				return m, operations.UpdateSource(source.ID, updates)
 			case "esc":
-				m.mode = "list"
-				m.urlInput.SetValue("")
-				m.nameInput.SetValue("")
-				m.urlInput.Blur()
-				m.nameInput.Blur()
-				m.errorMsg = ""
+				m.clearFormAndReturnToList()
 			default:
 				// Let textinput handle all other keys (including paste!)
-				var cmd tea.Cmd
-				if m.activeField == "url" {
-					m.urlInput, cmd = m.urlInput.Update(msg)
-				} else {
-					m.nameInput, cmd = m.nameInput.Update(msg)
-				}
-				return m, cmd
+				return m, m.updateActiveTextInput(msg)
 			}
 
 		case "confirm_remove":
@@ -376,174 +326,48 @@ func (m *SourceModal) UpdateContent() {
 	case "list":
 		// For list mode, update viewport content
 		m.viewport.SetContent(m.renderListContentOnly())
-		m.SetContent(m.renderList())
-	case "add":
-		m.SetContent(m.renderAddForm())
-	case "edit":
-		m.SetContent(m.renderEditForm())
 	case "confirm_remove":
 		m.SetContent(m.renderConfirmContentOnly())
 	}
 }
 
-// renderList renders the source list view
-func (m SourceModal) renderList() string {
-	theme := CleanCyberTheme
-	var lines []string
-
-	// Header with title
-	titleStyle := lipgloss.NewStyle().
-		Foreground(theme.Cyan).
-		Bold(true)
-	lines = append(lines, titleStyle.Render("SOURCE MANAGEMENT"))
-	lines = append(lines, "")
-
-	// Commands
-	commandStyle := theme.MutedStyle()
-	lines = append(lines, commandStyle.Render("[a]dd  [e]dit  [p]ause  [r]emove  [ESC] close"))
-	lines = append(lines, strings.Repeat("─", 60))
-
-	// Source list
-	if len(m.sources) == 0 {
-		noSourcesStyle := theme.MutedStyle().Italic(true)
-		lines = append(lines, "", noSourcesStyle.Render("No sources configured"))
-		lines = append(lines, "", theme.MutedStyle().Render("Press [a] to add your first source"))
+// handleFieldTab switches the active add/edit form field between "url" and "name",
+// focusing the newly active textinput and blurring the other.
+func (m *SourceModal) handleFieldTab() {
+	if m.activeField == "url" {
+		m.activeField = "name"
+		m.urlInput.Blur()
+		m.nameInput.Focus()
 	} else {
-		for i, source := range m.sources {
-			// Status indicator
-			var status string
-			if !source.Active {
-				status = theme.ErrorStyle().Render("○") // Red - inactive
-			} else if source.ErrorCount > 3 {
-				status = lipgloss.NewStyle().Foreground(theme.Orange).Render("●") // Orange - errors
-			} else {
-				status = theme.SuccessStyle().Render("●") // Green - healthy
-			}
-
-			// Selection indicator
-			selector := "  "
-			if i == m.cursor {
-				selector = lipgloss.NewStyle().Foreground(theme.Cyan).Render("▸ ")
-			}
-
-			// Format source type with color
-			typeStyle := theme.TagStyle()
-			typeStr := typeStyle.Render(fmt.Sprintf("[%s]", strings.ToUpper(source.Type)))
-
-			// Format unread count
-			var countStr string
-			if source.UnreadCount > 0 {
-				countStr = lipgloss.NewStyle().Foreground(theme.Cyan).Render(fmt.Sprintf("%d", source.UnreadCount))
-			} else {
-				countStr = theme.MutedStyle().Render("0")
-			}
-
-			// Format source name
-			nameStr := sourceModalTruncate(source.Name, 25)
-			if i == m.cursor {
-				nameStr = lipgloss.NewStyle().
-					Foreground(theme.White).
-					Bold(true).
-					Render(nameStr)
-			} else {
-				nameStr = theme.TextStyle().Render(nameStr)
-			}
-
-			// Format source line with proper spacing
-			line := fmt.Sprintf("%s%s %s %s %s",
-				selector,
-				status,
-				nameStr,
-				typeStr,
-				countStr,
-			)
-
-			lines = append(lines, line)
-		}
+		m.activeField = "url"
+		m.nameInput.Blur()
+		m.urlInput.Focus()
 	}
-
-	// Error message if any
-	if m.errorMsg != "" {
-		lines = append(lines, "")
-		lines = append(lines, theme.ErrorStyle().Render("⚠ "+m.errorMsg))
-	}
-
-	return strings.Join(lines, "\n")
 }
 
-// renderAddForm renders the add source form
-func (m SourceModal) renderAddForm() string {
-	theme := CleanCyberTheme
-	var lines []string
-
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.Cyan)
-	lines = append(lines, titleStyle.Render("ADD NEW SOURCE"))
-	lines = append(lines, "")
-
-	// URL field
-	labelStyle := theme.TextStyle()
-	lines = append(lines, labelStyle.Render("URL:"))
-	lines = append(lines, m.urlInput.View())
-	lines = append(lines, "")
-
-	// Name field
-	lines = append(lines, labelStyle.Render("Name (optional):"))
-	lines = append(lines, m.nameInput.View())
-	lines = append(lines, "")
-
-	// Help text
-	lines = append(lines, theme.MutedStyle().Render("Supported: RSS/Atom feeds, Reddit URLs, YouTube channels, .md/.txt files"))
-	lines = append(lines, "")
-
-	// Commands
-	commandStyle := theme.MutedStyle()
-	lines = append(lines, commandStyle.Render("[tab] switch [\u21b5] save [esc] cancel"))
-
-	// Error message if any
-	if m.errorMsg != "" {
-		lines = append(lines, "")
-		lines = append(lines, theme.ErrorStyle().Render("⚠ "+m.errorMsg))
-	}
-
-	return strings.Join(lines, "\n")
+// clearFormAndReturnToList resets the add/edit form fields and any error message,
+// then returns to list mode. Callers that need to keep the form's values (e.g. to
+// build an update command) must read them before calling this.
+func (m *SourceModal) clearFormAndReturnToList() {
+	m.mode = "list"
+	m.urlInput.SetValue("")
+	m.nameInput.SetValue("")
+	m.urlInput.Blur()
+	m.nameInput.Blur()
+	m.errorMsg = ""
 }
 
-// renderEditForm renders the edit source form
-func (m SourceModal) renderEditForm() string {
-	theme := CleanCyberTheme
-	if m.cursor >= len(m.sources) {
-		return "Invalid source selection"
+// updateActiveTextInput passes msg to whichever of the URL/name textinputs is
+// currently active, letting it handle keys the add/edit form doesn't intercept
+// itself (including paste).
+func (m *SourceModal) updateActiveTextInput(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	if m.activeField == "url" {
+		m.urlInput, cmd = m.urlInput.Update(msg)
+	} else {
+		m.nameInput, cmd = m.nameInput.Update(msg)
 	}
-
-	var lines []string
-
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.Cyan)
-	lines = append(lines, titleStyle.Render("EDIT SOURCE"))
-	lines = append(lines, "")
-
-	labelStyle := theme.TextStyle()
-
-	// URL field (first - matches add form)
-	lines = append(lines, labelStyle.Render("URL:"))
-	lines = append(lines, m.urlInput.View())
-	lines = append(lines, "")
-
-	// Name field (second - matches add form)
-	lines = append(lines, labelStyle.Render("Name:"))
-	lines = append(lines, m.nameInput.View())
-	lines = append(lines, "")
-
-	// Commands
-	commandStyle := theme.MutedStyle()
-	lines = append(lines, commandStyle.Render("[tab] switch [\u21b5] save [esc] cancel"))
-
-	// Error message if any
-	if m.errorMsg != "" {
-		lines = append(lines, "")
-		lines = append(lines, theme.ErrorStyle().Render("⚠ "+m.errorMsg))
-	}
-
-	return strings.Join(lines, "\n")
+	return cmd
 }
 
 // View renders the source modal
@@ -648,13 +472,7 @@ func (m SourceModal) View(theme StyleTheme) string {
 	)
 
 	// Build the modal frame (like reader modal)
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Cyan).
-		Width(m.width).
-		Height(m.height).
-		Padding(1, 2).
-		Align(lipgloss.Left)
+	modalStyle := modalFrameStyle(theme, m.width, m.height, lipgloss.Left)
 
 	return modalStyle.Render(modalContent)
 }
@@ -746,13 +564,20 @@ func (m SourceModal) renderListContentOnly() string {
 		}
 	}
 
-	// Error message if any
-	if m.errorMsg != "" {
-		lines = append(lines, "")
-		lines = append(lines, theme.ErrorStyle().Render("⚠ "+m.errorMsg))
-	}
+	lines = appendErrorLine(theme, lines, m.errorMsg)
 
 	return strings.Join(lines, "\n")
+}
+
+// appendErrorLine appends the blank-line-then-rendered-error tail every content-only
+// renderer ends with, when there is an error to show. A no-op (returns lines unchanged)
+// when errorMsg is empty.
+func appendErrorLine(theme StyleTheme, lines []string, errorMsg string) []string {
+	if errorMsg != "" {
+		lines = append(lines, "")
+		lines = append(lines, theme.ErrorStyle().Render("⚠ "+errorMsg))
+	}
+	return lines
 }
 
 // renderAddContentOnly renders just the add form content
@@ -774,11 +599,7 @@ func (m SourceModal) renderAddContentOnly() string {
 	// Help text
 	lines = append(lines, theme.MutedStyle().Render("Supported: RSS/Atom feeds, Reddit URLs, YouTube channels"))
 
-	// Error message if any
-	if m.errorMsg != "" {
-		lines = append(lines, "")
-		lines = append(lines, theme.ErrorStyle().Render("⚠ "+m.errorMsg))
-	}
+	lines = appendErrorLine(theme, lines, m.errorMsg)
 
 	return strings.Join(lines, "\n")
 }
@@ -803,11 +624,7 @@ func (m SourceModal) renderEditContentOnly() string {
 	lines = append(lines, labelStyle.Render("Name:"))
 	lines = append(lines, m.nameInput.View())
 
-	// Error message if any
-	if m.errorMsg != "" {
-		lines = append(lines, "")
-		lines = append(lines, theme.ErrorStyle().Render("⚠ "+m.errorMsg))
-	}
+	lines = appendErrorLine(theme, lines, m.errorMsg)
 
 	return strings.Join(lines, "\n")
 }
@@ -837,66 +654,7 @@ func (m SourceModal) ViewWithOverlay(backgroundView string, termWidth, termHeigh
 		return backgroundView
 	}
 
-	// Get the custom modal view
-	modalView := m.View(theme)
-	if modalView == "" {
-		return backgroundView
-	}
-
-	// Split background into lines
-	bgLines := strings.Split(backgroundView, "\n")
-
-	// Keep the first line (header) undimmed, dim everything else
-	for i := range bgLines {
-		if i == 0 {
-			// Keep the header line as-is (PRISMIS gradient bar)
-			continue
-		} else {
-			// Dim other lines by clearing them
-			bgLines[i] = strings.Repeat(" ", termWidth)
-		}
-	}
-
-	// Rejoin dimmed background
-	dimmedBg := strings.Join(bgLines, "\n")
-
-	// Calculate position to center modal
-	modalLines := strings.Split(modalView, "\n")
-	modalHeight := len(modalLines)
-	modalWidth := m.width
-
-	// Calculate starting positions
-	startY := modalMax(1, (termHeight-modalHeight)/2) // Start at least at line 1 to not overlap header
-	startX := modalMax(0, (termWidth-modalWidth)/2)
-
-	// Split background and modal into lines for overlay
-	bgLinesArray := strings.Split(dimmedBg, "\n")
-	modalLinesArray := strings.Split(modalView, "\n")
-
-	// Overlay modal on background
-	result := make([]string, modalMax(len(bgLinesArray), startY+len(modalLinesArray)))
-	copy(result, bgLinesArray)
-
-	// Place modal lines at the calculated position
-	for i, modalLine := range modalLinesArray {
-		lineIdx := startY + i
-		if lineIdx < len(result) {
-			// Center the modal line
-			padding := strings.Repeat(" ", startX)
-			result[lineIdx] = padding + modalLine
-		}
-	}
-
-	return strings.Join(result, "\n")
-}
-
-// sourceModalTruncate truncates a string to the specified length with ellipsis
-func sourceModalTruncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
+	// modalWidth is m.width (no +4): SourceModal builds its own layout and doesn't
+	// add Modal's uniform border+padding. minStartY is 1 to not overlap the header.
+	return overlayModal(backgroundView, m.View(theme), termWidth, termHeight, m.width, 1)
 }

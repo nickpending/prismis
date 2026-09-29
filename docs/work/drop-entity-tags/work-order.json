@@ -1,0 +1,57 @@
+{
+  "workOrder": "drop-entity-tags",
+  "what": "Stop generating, storing and showing the summarizer's 3-5 hashtag-style tags (analysis.entities): remove them from both summarizer prompts and the parsed result, from what the orchestrator and CLI repair write, from the model playtest harness, and from the TUI feed row and reader.",
+  "why": "The tags are display-only: nothing else reads analysis.entities. Feedback learning and the context auto-updater use matched_interests, and search and embeddings never touch the tags. rudy judged them mostly poor, and a recent cerebro sample mixes useful ones (cve-2026-88772, citrix-netscaler) with filler (ai, reuters). Content kind (gh #77) now tells the reader what sort of item it is, and the summary line says what it is about. Removing the step also takes one job out of the oversized summarizer prompt, which #79 is working toward.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "the light summarizer",
+      "when": "it builds its prompts (standard and changelog modes) and parses a response",
+      "then": "neither prompt asks for tags or entities, ContentSummary has no entities field, entities is not a required response field, and a response containing no entities key parses into a complete ContentSummary",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'no_entity_tags' && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "the daemon, CLI and scripts source trees",
+      "when": "an item is analysed by the orchestrator, repaired by prismis-cli analyze repair, or run through daemon/scripts/model_playtest.py",
+      "then": "no code writes or reads an entities field: analysis no longer carries entities for newly analysed items",
+      "observation": {
+        "command": "if git grep -nE '\"entities\"|\\.entities\\b' -- daemon/src cli/src daemon/scripts; then echo 'SC-2: FAIL'; else echo 'SC-2: PASS'; fi",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "the TUI reading items, including older items whose stored analysis still has an entities array",
+      "when": "the feed and the reader render an item",
+      "then": "no tag list is shown in the feed row or the reader, and the entities parsing and tag-rendering code is gone",
+      "observation": {
+        "command": "cd tui && go test ./... -run NoEntityTags && echo 'SC-3: PASS'",
+        "expect": "SC-3: PASS"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Stripping entities from analysis JSON already stored in the database. It becomes inert data that nothing reads.",
+    "Any other summarizer prompt change, including patterns, tools (gh #78) and splitting the prompt (gh #79).",
+    "The deep extractor prompt, which says 'named entities' as prose rather than as this field."
+  ],
+  "stakes": [
+    "Tests that assert entities, for example the exact-count assertion in test_summarizer_evaluator_integration.py and the reader_test fixtures, are updated to the new contract, not deleted wholesale. A test that also checked other fields keeps those checks.",
+    "Principle I: tests fake only the LLM provider; the no-internal-mocks guard stays green.",
+    "Items analysed before the change keep their stored entities in the JSON. Every reader must tolerate the key being present or absent."
+  ]
+}

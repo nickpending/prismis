@@ -432,6 +432,33 @@ def _item_kind(item: dict) -> str | None:
     return analysis.get("kind") if isinstance(analysis, dict) else None
 
 
+def _parse_kind_filter(kind: str | None) -> list[str]:
+    """Parse and validate a comma-separated `kind` query param (SC-3/SC-5).
+
+    Shared by /api/entries and /api/search so the validation -- and the 422 message
+    naming every valid kind -- can never drift between the two copies (SC-3: "exactly
+    the same validation /api/entries uses, one shared helper, not a second copy").
+    Kept outside each endpoint's try/except so a bad value reaches the client as its
+    own 422 rather than a generic 500.
+
+    Returns:
+        The parsed kind values, or an empty list when `kind` is None/empty.
+
+    Raises:
+        ValidationError: if any value isn't one of the ten kinds in KINDS.
+    """
+    if not kind:
+        return []
+    kinds = [k.strip() for k in kind.split(",")]
+    invalid_kinds = [k for k in kinds if k not in KINDS]
+    if invalid_kinds:
+        raise ValidationError(
+            f"Invalid kind value(s): {', '.join(invalid_kinds)}. Must be one of: "
+            f"{', '.join(KINDS)}"
+        )
+    return kinds
+
+
 def deduplicate_content(
     items: list[dict], similarity_threshold: float = 0.80
 ) -> list[dict]:
@@ -866,17 +893,8 @@ async def get_content(
             )
 
     # Parse and validate kind parameter (supports comma-separated values, SC-5).
-    # Kept outside the try/except below like the priority check above it, so a bad
-    # value reaches the client as its own 422 rather than a generic 500.
-    kinds: list[str] = []
-    if kind:
-        kinds = [k.strip() for k in kind.split(",")]
-        invalid_kinds = [k for k in kinds if k not in KINDS]
-        if invalid_kinds:
-            raise ValidationError(
-                f"Invalid kind value(s): {', '.join(invalid_kinds)}. Must be one of: "
-                f"{', '.join(KINDS)}"
-            )
+    kinds = _parse_kind_filter(kind)
+    kind_filter = kinds or None
 
     # Validate sort_by parameter
     valid_sort_options = ["priority", "date", "unread"]
@@ -899,7 +917,7 @@ async def get_content(
 
         # Handle interesting_override filter first (takes precedence)
         if interesting_override is True:
-            content_items = storage.get_flagged_items(limit)
+            content_items = storage.get_flagged_items(limit, kind_filter=kind_filter)
         elif priorities:
             # Get content by specific priority/priorities
             if unread_only:
@@ -914,6 +932,7 @@ async def get_content(
                         include_archived,
                         source_filter=source,
                         since=since_dt,
+                        kind_filter=kind_filter,
                     )
                     content_items.extend(items)
             else:
@@ -922,6 +941,7 @@ async def get_content(
                     since=since_dt,
                     include_archived=include_archived,
                     source_filter=source,
+                    kind_filter=kind_filter,
                 )
                 content_items = [
                     item for item in all_content if item.get("priority") in priorities
@@ -936,6 +956,7 @@ async def get_content(
                     include_archived,
                     source_filter=source,
                     since=since_dt,
+                    kind_filter=kind_filter,
                 )
                 remaining_limit = limit - len(high_items)
 
@@ -948,6 +969,7 @@ async def get_content(
                         include_archived,
                         source_filter=source,
                         since=since_dt,
+                        kind_filter=kind_filter,
                     )
                     remaining_limit = remaining_limit - len(medium_items)
 
@@ -958,6 +980,7 @@ async def get_content(
                         include_archived,
                         source_filter=source,
                         since=since_dt,
+                        kind_filter=kind_filter,
                     )
 
                 content_items = high_items + medium_items + low_items
@@ -967,17 +990,17 @@ async def get_content(
                     since=since_dt,
                     include_archived=include_archived,
                     source_filter=source,
+                    kind_filter=kind_filter,
                 )
                 content_items = all_content
 
-        # SC-5: mirror kind onto the top level the way priority already is, then
-        # filter by it. Kind has no storage-layer filter (unlike priority, it isn't
-        # a column), so both steps happen here in Python over the items already
-        # fetched.
+        # SC-2/SC-5: kind filtering is now a storage-layer WHERE clause (threaded
+        # above via kind_filter), applied before each query's own LIMIT -- not a
+        # Python post-filter over items a limit already bounded. The mirror onto
+        # the top level still happens here: kind has no column of its own (unlike
+        # priority), so every read path stores it only inside the analysis JSON.
         for item in content_items:
             item["kind"] = _item_kind(item)
-        if kinds:
-            content_items = [item for item in content_items if item["kind"] in kinds]
 
         # Apply sorting based on sort_by parameter
         # Helper to get sortable date (ISO strings sort correctly alphabetically)
@@ -1074,6 +1097,10 @@ async def semantic_search(
     source: str | None = Query(
         None, description="Filter by source name (case-insensitive substring match)"
     ),
+    kind: str | None = Query(
+        None,
+        description="Filter by kind(s) (SC-3). Single: 'release' or comma-separated: 'release,question'",
+    ),
     compact: bool = Query(
         False, description="Return compact format (excludes content and analysis)"
     ),
@@ -1090,12 +1117,20 @@ async def semantic_search(
         min_score: Minimum relevance score filter (0.0-1.0, default: 0.1
             filters near-zero noise; pass 0.0 to disable)
         source: Filter results to sources containing this substring (case-insensitive)
+        kind: Filter by kind(s) (SC-3). Single value or comma-separated, from the ten
+              kinds declared in kind_classifier.KINDS. Constrains the KNN candidate
+              query itself (SC-1), same as /api/entries' validation (SC-3).
         compact: Return compact format for LLM consumption
         storage: Storage instance injected by FastAPI
 
     Returns:
         JSON response with ranked search results including relevance_score
     """
+    # Parse and validate kind parameter (SC-3). Kept outside the try/except below,
+    # like /api/entries' identical check, so a bad value reaches the client as its
+    # own 422 rather than getting wrapped into a generic 500 by the except below.
+    kinds = _parse_kind_filter(kind)
+
     try:
         # Initialize embedder and generate query embedding
         embedder = Embedder()
@@ -1107,7 +1142,13 @@ async def semantic_search(
             limit=limit,
             min_score=min_score,
             source_filter=source,
+            kind_filter=kinds or None,
         )
+
+        # SC-3/SC-5: mirror kind onto the top level the way /api/entries already
+        # does -- kind has no column of its own, so it comes out of analysis here.
+        for item in results:
+            item["kind"] = _item_kind(item)
 
         # Filter to compact fields if requested
         if compact:
@@ -1116,6 +1157,7 @@ async def semantic_search(
                 "title",
                 "url",
                 "priority",
+                "kind",
                 "relevance_score",
                 "published_at",
                 "source_name",
@@ -1138,6 +1180,7 @@ async def semantic_search(
                     "limit": limit,
                     "min_score": min_score,
                     "source": source,
+                    "kind": kind,
                     "compact": compact,
                 },
             ),

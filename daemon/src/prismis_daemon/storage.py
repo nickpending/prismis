@@ -675,6 +675,7 @@ class Storage:
         include_archived: bool = False,
         source_filter: str | None = None,
         since: datetime | None = None,
+        kind_filter: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Get unread content by priority level.
 
@@ -684,6 +685,9 @@ class Storage:
             include_archived: Include archived content if True
             source_filter: Filter by source name (case-insensitive substring match)
             since: Only content fetched after this instant
+            kind_filter: Optional list of kind values (SC-2). Applied in the SQL
+                WHERE clause, before `LIMIT`, so an item of the requested kind older
+                than the newest `limit` items of another kind is still found.
 
         Returns:
             List of content dictionaries
@@ -711,6 +715,11 @@ class Storage:
                 query += " AND datetime(c.fetched_at) > datetime(?)"
                 params.append(since.isoformat())
 
+            if kind_filter:
+                placeholders = ",".join(["?"] * len(kind_filter))
+                query += f" AND json_extract(c.analysis, '$.kind') IN ({placeholders})"
+                params.extend(kind_filter)
+
             query += " ORDER BY c.published_at DESC LIMIT ?"
             params.append(limit)
 
@@ -728,6 +737,7 @@ class Storage:
         since: datetime | None = None,
         include_archived: bool = False,
         source_filter: str | None = None,
+        kind_filter: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Get content since a specific timestamp, or all content if since is None.
 
@@ -736,6 +746,8 @@ class Storage:
                    If None, returns all content regardless of time.
             include_archived: Include archived content if True
             source_filter: Filter by source name (case-insensitive substring match)
+            kind_filter: Optional list of kind values (SC-2), applied in the SQL
+                WHERE clause rather than as a Python post-filter.
 
         Returns:
             List of content dictionaries with source information
@@ -766,6 +778,11 @@ class Storage:
             if source_filter:
                 query += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
                 params.append(source_filter)
+
+            if kind_filter:
+                placeholders = ",".join(["?"] * len(kind_filter))
+                query += f" AND json_extract(c.analysis, '$.kind') IN ({placeholders})"
+                params.extend(kind_filter)
 
             query += " ORDER BY c.priority ASC, c.published_at DESC"
 
@@ -1169,7 +1186,9 @@ class Storage:
             self._log_update_result("flag_interesting", duration_ms, error=str(e))
             raise sqlite3.Error(f"Failed to flag content as interesting: {e}") from e
 
-    def get_flagged_items(self, limit: int = 50) -> list[dict[str, Any]]:
+    def get_flagged_items(
+        self, limit: int = 50, kind_filter: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """Get content items flagged for context analysis (upvoted items).
 
         Returns items with user_feedback='up' for context analysis.
@@ -1180,6 +1199,9 @@ class Storage:
 
         Args:
             limit: Maximum number of items to return (default 50)
+            kind_filter: Optional list of kind values (SC-2), applied in the SQL
+                WHERE clause before `LIMIT`, so a flagged item of the requested
+                kind older than the newest `limit` flagged items is still found.
 
         Returns:
             List of content dictionaries with source information
@@ -1189,18 +1211,22 @@ class Storage:
         """
         start_time = time.time()
         try:
-            cursor = self.conn.execute(
-                """
+            query = """
                 SELECT c.*, s.name as source_name, s.type as source_type
                 FROM content c
                 LEFT JOIN sources s ON c.source_id = s.id
                 WHERE c.user_feedback = 'up'
                   AND c.archived_at IS NULL
-                ORDER BY c.fetched_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            )
+            """
+            params: list[Any] = []
+            if kind_filter:
+                placeholders = ",".join(["?"] * len(kind_filter))
+                query += f" AND json_extract(c.analysis, '$.kind') IN ({placeholders})"
+                params.extend(kind_filter)
+            query += " ORDER BY c.fetched_at DESC LIMIT ?"
+            params.append(limit)
+
+            cursor = self.conn.execute(query, tuple(params))
             rows = cursor.fetchall()
             duration_ms = int((time.time() - start_time) * 1000)
 
@@ -1476,6 +1502,7 @@ class Storage:
         limit: int = 20,
         min_score: float = 0.0,
         source_filter: str | None = None,
+        kind_filter: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Semantic search using similarity-first ranking with source authority.
 
@@ -1489,6 +1516,11 @@ class Storage:
             limit: Maximum number of results to return
             min_score: Minimum relevance score (0.0-1.0)
             source_filter: Optional substring to filter source names (case-insensitive)
+            kind_filter: Optional list of kind values (SC-1). Constrains the KNN
+                candidate query itself via a `content_id IN (subquery)` restriction,
+                so a filter on anything outside the unfiltered top-100 nearest
+                neighbours still finds its matches -- filtering the top 100
+                afterward (the original defect) would silently drop them instead.
 
         Returns:
             List of content dicts with relevance_score field
@@ -1500,25 +1532,50 @@ class Storage:
             # First get top candidates by similarity from vec_content
             embedding_json = json.dumps(query_embedding)
 
-            # Get top 100 candidates by similarity (we'll re-rank)
-            cursor = self.conn.execute(
-                """
+            # SC-1: kind/source filters constrain the KNN candidate query itself, not
+            # the top-100 pool after the fact. The candidate subquery is only added
+            # when a filter is actually given, so the unfiltered path (today's
+            # behaviour) is untouched.
+            knn_query = """
                 SELECT
                     content_id,
                     distance
                 FROM vec_content
                 WHERE embedding MATCH ?
-                ORDER BY distance
-                LIMIT 100
-                """,
-                (embedding_json,),
-            )
+            """
+            knn_params: list[Any] = [embedding_json]
+
+            if source_filter or kind_filter:
+                candidate_query = (
+                    "SELECT c.id FROM content c "
+                    "LEFT JOIN sources s ON c.source_id = s.id WHERE 1=1"
+                )
+                if source_filter:
+                    candidate_query += (
+                        " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
+                    )
+                    knn_params.append(source_filter)
+                if kind_filter:
+                    # Note: placeholders is just "?,?,?" string, not user input
+                    placeholders = ",".join(["?"] * len(kind_filter))
+                    candidate_query += (
+                        f" AND json_extract(c.analysis, '$.kind') IN ({placeholders})"
+                    )
+                    knn_params.extend(kind_filter)
+                knn_query += " AND content_id IN (" + candidate_query + ")"
+
+            knn_query += " ORDER BY distance LIMIT 100"
+
+            # Get top 100 candidates by similarity (we'll re-rank)
+            cursor = self.conn.execute(knn_query, tuple(knn_params))
 
             candidates = cursor.fetchall()
             if not candidates:
                 return []
 
-            # Get content details for candidates
+            # Get content details for candidates. The kind/source filters already
+            # narrowed the candidate set above, so this query needs no filter of
+            # its own -- every content_id here already matched.
             content_ids = [row["content_id"] for row in candidates]
 
             # Build safe IN clause with parameterized placeholders
@@ -1526,11 +1583,6 @@ class Storage:
             placeholders = ",".join(["?"] * len(content_ids))
             where_sql = "WHERE c.id IN (" + placeholders + ")"
             params: list[Any] = list(content_ids)
-
-            # Add source filter at SQL level if provided
-            if source_filter:
-                where_sql += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
-                params.append(source_filter)
 
             rows = self._query_joined_content(
                 where_sql, params, omit=("interesting_override",)

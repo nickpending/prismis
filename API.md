@@ -359,6 +359,12 @@ Search content using semantic similarity (embeddings).
 **Query Parameters:**
 - `q` (string, required): Search query
 - `limit` (integer, default: 10): Max results
+- `kind` (string, optional): Filter by kind(s). Single value (`release`) or
+  comma-separated (`release,question`), from the ten kinds declared in
+  `kind_classifier.KINDS`. An unknown kind returns a 422 naming the valid kinds --
+  the same validation `GET /api/entries` applies. Constrains the underlying KNN
+  candidate query itself, so a filter on anything outside the nearest 100 matches
+  still finds them rather than filtering an already-limited pool.
 
 **Response:**
 ```json
@@ -371,7 +377,8 @@ Search content using semantic similarity (embeddings).
         "title": "Understanding CRDTs",
         "summary": "Conflict-free replicated data types...",
         "similarity": 0.87,
-        "priority": "high"
+        "priority": "high",
+        "kind": "analysis"
       }
     ],
     "query": "distributed systems",

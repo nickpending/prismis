@@ -459,6 +459,45 @@ def test_SC15_migrate_config_rename_branch_appends_deep_service_block() -> None:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.mark.parametrize(
+    ("config_toml_text", "seed_services"),
+    [(_OLD_FORMAT_CONFIG_TOML, False), (_SERVICE_RENAME_CONFIG_TOML, True)],
+    ids=["pre_llm_core_branch", "rename_branch"],
+)
+def test_migrate_config_reports_the_deep_service_block_it_added(
+    config_toml_text: str, seed_services: bool, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """
+    Both migrate_config branches print which block they appended. The pre-llm-core
+    branch used to print an unescaped "[services.prismis-openai-deep]", which rich
+    parses as a style tag and drops, so the operator saw "Added  to <path>".
+    BREAKS: the success line silently loses the name of the block it added.
+    """
+    temp_dir = tempfile.mkdtemp()
+
+    try:
+        prismis_dir = Path(temp_dir) / "prismis"
+        prismis_dir.mkdir(parents=True)
+        (prismis_dir / "config.toml").write_text(config_toml_text)
+        if seed_services:
+            llm_core_dir = Path(temp_dir) / "llm-core"
+            llm_core_dir.mkdir(parents=True)
+            (llm_core_dir / "services.toml").write_text(_EXISTING_SERVICES_TOML)
+
+        with patch.dict(
+            "os.environ", {"XDG_CONFIG_HOME": temp_dir}
+        ):  # claudex-guard: allow-mock
+            from prismis_daemon.__main__ import migrate_config
+
+            migrate_config()
+
+        output = " ".join(capsys.readouterr().out.split())
+        assert "Added [services.prismis-openai-deep] to" in output, output
+
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 def test_SC15_migrate_config_rename_branch_is_idempotent_for_deep_service() -> None:
     """
     SC-7: the rename branch's idempotency check (skip the append when the block is

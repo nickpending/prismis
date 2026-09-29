@@ -322,12 +322,8 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 
 // UpdateContent refreshes the modal content based on current mode (exported for testing)
 func (m *SourceModal) UpdateContent() {
-	switch m.mode {
-	case "list":
-		// For list mode, update viewport content
+	if m.mode == "list" {
 		m.viewport.SetContent(m.renderListContentOnly())
-	case "confirm_remove":
-		m.SetContent(m.renderConfirmContentOnly())
 	}
 }
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
+from .llm_call import build_messages
 from .llm_client import complete
 from .observability import log as obs_log
 from .storage import Storage
@@ -284,10 +285,7 @@ Vote summary:
 
 Generate the complete updated context.md."""
 
-        return [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
+        return build_messages(system_prompt, user_prompt)
 
     def _validate_context_md(self, content: str) -> tuple[bool, str]:
         """Validate the generated context.md is well-formed.

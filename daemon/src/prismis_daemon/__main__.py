@@ -464,25 +464,18 @@ def main(
             asyncio.run(run_scheduler(config, test_mode=test_mode))
 
 
-def _append_deep_service_block(services_path: Path, console: Console) -> bool:
+def _append_deep_service_block(services_path: Path, console: Console) -> None:
     """Idempotently append the [services.prismis-openai-deep] block to services.toml.
 
     Shared by both migrate_config branches that converge a config to the dual-service
-    shape: the "service -> light_service" rename branch and the pre-llm-core install
-    branch. Callers guarantee services_path exists before calling this.
-
-    Returns True when the block was newly appended, False when it was already present.
-    The skip message is printed here, since it was byte-identical at both call sites
-    before consolidation. The success message is left to the caller: the two call
-    sites' original messages differ in whether they escape the console markup
-    bracket (one does, one doesn't -- the latter is a pre-existing, unconsolidated
-    quirk, not something this extraction changes), so printing it here would pick one
-    behavior for both callers.
+    shape. Callers guarantee services_path exists before calling this. The bracket in
+    the success message is escaped because rich reads an unescaped one as a style tag
+    and drops it from the output.
     """
     services_text = services_path.read_text()
     if "[services.prismis-openai-deep]" in services_text:
         console.print("[dim]Skipping prismis-openai-deep entry (already exists)[/dim]")
-        return False
+        return
 
     if not services_text.endswith("\n"):
         services_text += "\n"
@@ -494,7 +487,9 @@ def _append_deep_service_block(services_path: Path, console: Console) -> bool:
         'default_model = "gpt-5-mini"\n'
     )
     services_path.write_text(services_text)
-    return True
+    console.print(
+        f"[green]Added \\[services.prismis-openai-deep] to {services_path}[/green]"
+    )
 
 
 @app.command()
@@ -551,10 +546,7 @@ def migrate_config() -> None:
         # Append [services.prismis-openai-deep] to services.toml (idempotent)
         services_path = Path(config_home) / "llm-core" / "services.toml"
         if services_path.exists():
-            if _append_deep_service_block(services_path, console):
-                console.print(
-                    f"[green]Added \\[services.prismis-openai-deep] to {services_path}[/green]"
-                )
+            _append_deep_service_block(services_path, console)
         else:
             console.print(
                 f"[yellow]services.toml not found at {services_path}. "
@@ -668,10 +660,7 @@ value = "{resolved_key}"
     # light_service" rename branch above calls, so a single run of migrate-config on a
     # pre-llm-core config converges to the full dual-service shape — no intermediate
     # unloadable state between runs.
-    if _append_deep_service_block(services_path, console):
-        console.print(
-            f"[green]Added [services.prismis-openai-deep] to {services_path}[/green]"
-        )
+    _append_deep_service_block(services_path, console)
 
     # Step 5: Update prismis config.toml [llm] section
     # Converge to the dual-service shape in a single run: write light_service,

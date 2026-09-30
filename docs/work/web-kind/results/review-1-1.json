@@ -1,0 +1,18 @@
+{
+  "searched": [
+    "docs/work/web-kind/job-1.diff",
+    "docs/work/web-kind/work-order.json",
+    "docs/work/web-kind/results/plan-1.json",
+    "docs/work/web-kind/results/plan.json",
+    "docs/work/web-kind/results/built-1-1.json",
+    "docs/work/web-kind/journal.jsonl",
+    "daemon/src/prismis_daemon/storage.py",
+    "daemon/src/prismis_daemon/api.py",
+    "daemon/tests/integration/test_api_kinds_integration.py",
+    "daemon/tests/conftest.py",
+    "API.md",
+    "cli/src/cli/analyze.py"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

@@ -1,0 +1,12 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/static/index.html",
+    "daemon/tests/unit/test_web_kind_unit.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a6963ca608fd3d75c",
+    "branch": "worktree-agent-a6963ca608fd3d75c",
+    "base": "8df7d7ec9e682a7e480ac3461596a9101b38bff8"
+  }
+}

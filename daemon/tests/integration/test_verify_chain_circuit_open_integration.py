@@ -38,8 +38,8 @@ import http.server
 import threading
 import uuid
 from collections.abc import Iterator
-from email.utils import format_datetime
 from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from typing import Any
 
 import pytest
@@ -53,7 +53,6 @@ from prismis_daemon.circuit_breaker import (
 from prismis_daemon.config import Config
 from prismis_daemon.observability import (
     get_logger,
-    reset_logger,
     set_run_id,
 )
 from prismis_daemon.summarizer import ContentSummarizer
@@ -73,12 +72,9 @@ _ITEM_COUNT = 4
 
 
 @pytest.fixture(autouse=True)
-def _fresh_observability():
-    reset_logger()
+def _fresh_circuit_breaker():
     yield
-    set_run_id(None)
     reset_circuit_breaker(_ABSENT_SERVICE)
-    reset_logger()
 
 
 def _feed_body() -> bytes:

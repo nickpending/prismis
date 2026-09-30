@@ -22,30 +22,19 @@ network-free.
 import io
 import json
 import subprocess
-
-from conftest import strip_ansi
 from datetime import datetime
 from pathlib import Path
 
 import pytest
+from conftest import strip_ansi
 from rich.console import Console
 
 from prismis_daemon.__main__ import verify
-from prismis_daemon.observability import get_logger, reset_logger, set_run_id
+from prismis_daemon.observability import get_logger
 from prismis_daemon.verify_chain import run_chain
 
 _BAD_URL = "not-a-real-url"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-
-
-@pytest.fixture(autouse=True)
-def _fresh_observability():
-    """Bind the observability singleton to this test's sealed data dir, and unbind
-    after — it caches the directory it resolved when first constructed."""
-    reset_logger()
-    yield
-    set_run_id(None)
-    reset_logger()
 
 
 def _log_path() -> Path:

@@ -8,25 +8,9 @@ that call leaves -- rather than by a patched `_send_notification`.
 
 import uuid
 
-import pytest
-
 from prismis_daemon.notifier import Notifier
-from prismis_daemon.observability import get_logger, reset_logger, set_run_id
+from prismis_daemon.observability import get_logger, set_run_id
 from prismis_daemon.verify_chain import read_run_events
-
-
-@pytest.fixture(autouse=True)
-def _fresh_observability():
-    """Bind the observability logger to this test's sealed data dir, and unbind after.
-
-    Mirrors test_notifier_observability_unit.py's fixture of the same name -- the
-    logger is a module-level singleton that caches the base directory it resolved
-    when first constructed, and every test gets a different XDG_DATA_HOME.
-    """
-    reset_logger()
-    yield
-    set_run_id(None)
-    reset_logger()
 
 
 def _notification_events(run_id: str) -> list[dict]:

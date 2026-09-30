@@ -29,6 +29,7 @@ from pathlib import Path
 from unittest.mock import patch  # claudex-guard: allow-mock
 
 import pytest
+from conftest import configure_local_services
 
 from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.config import Config
@@ -36,13 +37,11 @@ from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.kind_classifier import KindClassifier
 from prismis_daemon.models import ContentItem
 from prismis_daemon.notifier import Notifier
-from prismis_daemon.observability import get_logger, reset_logger, set_run_id
+from prismis_daemon.observability import get_logger, set_run_id
 from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
 from prismis_daemon.verify_chain import read_run_events
-
-from conftest import configure_local_services
 
 # The decisions-endpoint provider boundary itself (Principle I's one permitted fake).
 _PATCH_SUBMIT = "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
@@ -77,19 +76,6 @@ def clean_circuit_registry() -> Iterator[None]:
     reset_circuit_breaker()
     yield
     reset_circuit_breaker()
-
-
-@pytest.fixture(autouse=True)
-def fresh_observability() -> Iterator[None]:
-    """Bind the observability logger to this test's sealed XDG_DATA_HOME.
-
-    Mirrors test_embeddings_observability_unit.py: the logger caches its base
-    directory at first use, and every test gets a different XDG_DATA_HOME.
-    """
-    reset_logger()
-    yield
-    set_run_id(None)
-    reset_logger()
 
 
 def _events_for(run_id: str) -> list[dict]:

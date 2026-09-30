@@ -16,29 +16,11 @@ no mock of Notifier or subprocess.
 
 import uuid
 
-import pytest
-
 from prismis_daemon.notifier import Notifier
-from prismis_daemon.observability import get_logger, reset_logger, set_run_id
+from prismis_daemon.observability import get_logger, set_run_id
 from prismis_daemon.verify_chain import read_run_events
 
 _HIGH_ITEM = {"priority": "high", "title": "A high priority item"}
-
-
-@pytest.fixture(autouse=True)
-def _fresh_observability():
-    """Bind the observability logger to this test's sealed data dir, and unbind after.
-
-    The logger is a module-level singleton that caches the base directory it resolved
-    when first constructed, and every test gets a different XDG_DATA_HOME — without the
-    reset a test reads a directory an earlier test established (and, where that earlier
-    test removed it, one that no longer exists). The run id is a module-level global for
-    the same reason it is reset here: pytest runs the suite in one process.
-    """
-    reset_logger()
-    yield
-    set_run_id(None)
-    reset_logger()
 
 
 def _notification_events(run_id: str) -> list[dict]:

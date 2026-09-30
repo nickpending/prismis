@@ -497,6 +497,8 @@ make dev-tui    # Run TUI with live reload
 make build
 ```
 
+`./.specify/verify.sh` — the project gate `make test` and CI both run — requires [gitleaks](https://github.com/gitleaks/gitleaks) on `PATH` to scan for committed secrets.
+
 ### Project Structure
 
 ```

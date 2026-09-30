@@ -108,6 +108,20 @@ while IFS= read -r pj; do
   fi
 done < <(find "$ROOT" -name package.json -not -path '*/node_modules/*' -not -path "$ROOT/.claude/worktrees/*" | sort)
 
+# ------------------------------------------------------------------- Secret scan
+# gitleaks scans the whole tree for committed secrets (gh #70). Unlike the per-unit
+# checks above, a missing binary FAILS this check rather than marking it uncovered —
+# a scanner that silently skips and reports PASS is exactly the ambient dependence
+# this gate exists to remove. Known fakes are allowlisted in .gitleaks.toml.
+if command -v gitleaks >/dev/null 2>&1; then
+  run_step "gitleaks(.)" gitleaks dir "$ROOT" --redact --no-banner --verbose --config "$ROOT/.gitleaks.toml" || true
+else
+  note_covered "gitleaks(.)"
+  echo "FAILED: gitleaks(.)"
+  printf '%s\n' "gitleaks binary not found on PATH — install it to run the secret scan (see README)" | sed 's/^/  | /'
+  FAIL=1
+fi
+
 # ----------------------------------------------------------------- the verdict
 # Two different absences, two different answers. A repo with no units AND no source is
 # a project not yet written — the sentinel tells the consuming gate not to send a fixer

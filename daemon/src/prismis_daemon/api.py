@@ -1084,6 +1084,46 @@ async def get_content(
         raise _server_error("Failed to get content", e) from e
 
 
+@app.get("/api/kinds", dependencies=[Depends(verify_api_key)])
+async def get_kinds(
+    since_hours: int | None = Query(
+        None, ge=1, le=720, description="Hours to look back (convenience parameter)"
+    ),
+    storage: Storage = Depends(get_storage),
+) -> dict:
+    """Get the kinds actually present among non-archived content (gh #84).
+
+    The web UI has no database of its own, so its kind filter is built from this
+    endpoint's response rather than a second hardcoded copy of the ten kinds
+    declared in kind_classifier.KINDS -- the same problem the TUI's own kind cycle
+    solves locally via GetDistinctKinds over its database.
+
+    Args:
+        since_hours: Hours to look back (1-720), the same convenience parameter
+            /api/entries takes. If omitted, considers all non-archived content.
+        storage: Storage instance injected by FastAPI
+
+    Returns:
+        JSON response with the sorted, de-duplicated list of kind values present
+        in the window. Empty list (not an error) when none qualify.
+    """
+    try:
+        since_dt: datetime | None = None
+        if since_hours:
+            since_dt = datetime.now(UTC) - timedelta(hours=since_hours)
+
+        kinds = storage.get_distinct_kinds(since=since_dt)
+
+        return {
+            "success": True,
+            "message": f"Retrieved {len(kinds)} kind(s)",
+            "data": {"kinds": kinds, "since_hours": since_hours},
+        }
+
+    except Exception as e:
+        raise _server_error("Failed to get kinds", e) from e
+
+
 @app.get("/api/search", dependencies=[Depends(verify_api_key)])
 async def semantic_search(
     q: str = Query(..., min_length=1, description="Search query"),

@@ -267,6 +267,37 @@ Get content items with filtering and pagination.
 
 ---
 
+### Available Kinds
+
+**`GET /api/kinds`**
+
+Get the kinds actually present among non-archived content, so a client can build a
+kind filter from what has actually been classified rather than a second hardcoded
+copy of the ten kinds declared in `kind_classifier.KINDS` (used by the web UI, which
+has no database of its own -- the TUI solves the same problem locally).
+
+**Query Parameters:**
+- `since_hours` (integer, optional, 1-720): Hours to look back, the same
+  convenience parameter `GET /api/entries` takes. If omitted, considers all
+  non-archived content.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Retrieved 3 kind(s)",
+  "data": {
+    "kinds": ["news", "release", "tutorial"],
+    "since_hours": null
+  }
+}
+```
+
+An empty `kinds` list means no non-archived content in the window carries a kind --
+not an error.
+
+---
+
 ### Update Entry Status
 
 **`PATCH /api/entries/{content_id}`**

@@ -21,3 +21,7 @@
 {"kind":"checkpointed","sha":"8dda6a8f415bcdf5f19d276db5419839015d6bf3","ts":"2026-09-30T23:22:01.381Z"}
 {"kind":"dispatched","action":"spawn-builder","resultPath":"docs/work/secret-scan/results/built-2-1.json","job":2,"ts":"2026-09-30T23:22:01.451Z"}
 {"kind":"dispatched","action":"spawn-builder","resultPath":"docs/work/secret-scan/results/built-3-1.json","job":3,"ts":"2026-09-30T23:22:11.921Z"}
+{"kind":"built","job":2,"files":[".specify/tests/gitleaks_plant_test.sh"],"worktree":{"path":"/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a240e49dbc3f91383","branch":"worktree-agent-a240e49dbc3f91383","base":"main"},"sha":"0245e3117fee7868196a29c1ce960ebab78902ce337818f6d66bbee0f7ba4f5a","submission":1,"ts":"2026-09-30T23:27:00.379Z"}
+{"kind":"verified","job":2,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)","duplication(.)"],"uncovered":[".sh(8 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-09-30T23:31:34.572Z"}
+{"kind":"diffed","job":2,"path":"docs/work/secret-scan/job-2.diff","from":"8fbd28e1afe352fa25f72193a10af5a4d041194c","to":"19be7546d9105c146c17b0e77bbe20bcfb55e4c4","ts":"2026-09-30T23:31:34.684Z"}
+{"kind":"dispatched","action":"spawn-badger","resultPath":"docs/work/secret-scan/results/review-2-1.json","job":2,"ts":"2026-09-30T23:31:34.714Z"}

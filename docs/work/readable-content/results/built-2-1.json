@@ -1,0 +1,19 @@
+{
+  "artifact": [
+    "tui/internal/ui/reader.go",
+    "tui/internal/ui/reader_test.go",
+    "tui/internal/ui/feed.go",
+    "tui/internal/ui/feed_test.go",
+    "daemon/src/prismis_daemon/api.py",
+    "daemon/src/prismis_daemon/api_models.py",
+    "daemon/src/prismis_daemon/static/index.html",
+    "daemon/tests/unit/test_web_title_only_unit.py",
+    "daemon/tests/integration/test_api_title_only_integration.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a4435e0e77b006952",
+    "branch": "worktree-agent-a4435e0e77b006952",
+    "base": "4ecf3347752b958b61db34e467612967dd7f2b02"
+  }
+}

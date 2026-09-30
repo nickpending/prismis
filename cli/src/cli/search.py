@@ -5,7 +5,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .api_client import APIClient
-from .format import format_priority
+from .format import format_kind, format_priority
 
 console = Console()
 
@@ -20,6 +20,12 @@ def search(
         "--source",
         "-s",
         help="Filter by source name (case-insensitive substring)",
+    ),
+    kind: str = typer.Option(
+        None,
+        "--kind",
+        "-k",
+        help="Filter by kind (single or comma-separated, e.g. release,question)",
     ),
     compact: bool = typer.Option(
         False, "--compact", help="Compact format (excludes content and analysis)"
@@ -37,6 +43,7 @@ def search(
         query: Search query string
         limit: Maximum number of results to return (1-50)
         source: Filter results to sources containing this substring
+        kind: Filter by kind (single or comma-separated, e.g. "release,question")
         compact: Return compact format for LLM consumption
         min_score: Minimum relevance score override (None uses server default)
         output_json: If True, output raw JSON instead of formatted table
@@ -57,6 +64,7 @@ def search(
             compact=compact,
             source=source,
             min_score=min_score,
+            kind=kind,
         )
 
         if output_json:
@@ -76,6 +84,7 @@ def search(
         table.add_column("ID", style="dim", width=10)
         table.add_column("Title", style="bold", width=50)
         table.add_column("Priority", justify="center", width=8)
+        table.add_column("Kind", justify="center", width=10)
         table.add_column("Score", justify="right", width=6)
         table.add_column("Published", style="dim", width=19)
 
@@ -93,6 +102,9 @@ def search(
             priority_val = (result.get("priority") or "N/A").upper()
             priority_display = format_priority(priority_val)
 
+            # Format kind (unclassified items carry no kind; show a dash)
+            kind_display = format_kind(result.get("kind"))
+
             # Format relevance score
             relevance = result.get("relevance_score", 0.0)
             score_display = f"{relevance:.3f}"
@@ -100,7 +112,14 @@ def search(
             # Format published date (already formatted from API)
             published = result.get("published_at", "N/A")
 
-            table.add_row(result_id, title, priority_display, score_display, published)
+            table.add_row(
+                result_id,
+                title,
+                priority_display,
+                kind_display,
+                score_display,
+                published,
+            )
 
         # Display table
         console.print("\n")

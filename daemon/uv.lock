@@ -1068,7 +1068,7 @@ requires-dist = [
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "sentence-transformers", specifier = ">=2.0.0" },
-    { name = "sqlite-vec", specifier = ">=0.1.0" },
+    { name = "sqlite-vec", specifier = ">=0.1.6" },
     { name = "torch", marker = "sys_platform != 'linux'" },
     { name = "torch", marker = "sys_platform == 'linux'", index = "https://download.pytorch.org/whl/cpu" },
     { name = "trafilatura" },

@@ -27,7 +27,7 @@ dependencies = [
     # Direct only so [tool.uv.sources] can route it: uv applies sources to direct
     # dependencies, and sentence-transformers would otherwise pull the CUDA build.
     "torch",
-    "sqlite-vec>=0.1.0",
+    "sqlite-vec>=0.1.6",
     "trafilatura",
     "typer",
     "uvicorn>=0.35.0",

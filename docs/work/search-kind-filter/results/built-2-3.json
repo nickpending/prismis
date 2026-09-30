@@ -1,0 +1,17 @@
+{
+  "artifact": [
+    "cli/src/cli/search.py",
+    "cli/src/cli/api_client.py",
+    "cli/src/cli/list.py",
+    "cli/src/cli/format.py",
+    "cli/tests/unit/test_search_kind_filter_unit.py",
+    "cli/tests/unit/test_format_priority_unit.py"
+  ],
+  "verified": true,
+  "findings": ["F-2-1"],
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a8127f2ade3b5781b",
+    "branch": "worktree-agent-a8127f2ade3b5781b",
+    "base": "96482a15e15cac6741802755f6413527b62f5db8"
+  }
+}

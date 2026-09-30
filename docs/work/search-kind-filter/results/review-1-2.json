@@ -1,0 +1,13 @@
+{
+  "searched": [
+    "docs/work/search-kind-filter/work-order.json",
+    "docs/work/search-kind-filter/results/plan.json",
+    "docs/work/search-kind-filter/job-1.diff (delta from 92228b21...to 019c8d50..., per journal.jsonl's diffed record)",
+    "docs/work/search-kind-filter/journal.jsonl (built/verified/finding/reviewed records for job 1 across all submissions)",
+    "daemon/src/prismis_daemon/storage.py (the new _kind_filter_sql helper and its four call sites)",
+    "daemon/pyproject.toml / cli/uv.lock (the lockfile reconciliation for the unlisted-change failure)",
+    "cli/pyproject.toml and cli/uv.lock (confirming sqlite-vec is a transitive workspace dependency there via the daemon path-dependency, so the floor bump legitimately requires re-locking cli/uv.lock too)"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

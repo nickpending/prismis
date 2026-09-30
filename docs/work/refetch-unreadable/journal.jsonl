@@ -27,3 +27,6 @@
 {"kind":"verified","job":2,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)","duplication(.)"],"uncovered":[".sh(8 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-09-30T18:23:05.408Z"}
 {"kind":"diffed","job":2,"path":"docs/work/refetch-unreadable/job-2.diff","from":"080d7bf8c3a7ccb5dc85dfbb438de7f01df5e434","to":"145300fbe4d57c8b4f6d096e372ac1411aac8558","ts":"2026-09-30T18:23:05.629Z"}
 {"kind":"dispatched","action":"resume-badger","resultPath":"docs/work/refetch-unreadable/results/review-2-2.json","job":2,"ts":"2026-09-30T18:23:05.668Z"}
+{"kind":"reviewed","job":2,"findings":[],"sha":"92a7cbd9ca103926fc5fa83cbbbfd9e4192c18a9b1cc8607e37973e29733d019","submission":2,"ts":"2026-09-30T18:24:50.445Z"}
+{"kind":"verified","job":2,"pass":false,"class":"approach","failed":["merge-conflict(docs/work/refetch-unreadable/.journal.checksum)","merge-conflict(docs/work/refetch-unreadable/journal.jsonl)"],"covered":[],"uncovered":[],"holdout":[],"ts":"2026-09-30T18:24:50.655Z"}
+{"kind":"dispatched","action":"spawn-fixer","resultPath":"docs/work/refetch-unreadable/results/built-2-4.json","job":2,"ts":"2026-09-30T18:24:50.702Z"}

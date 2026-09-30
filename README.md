@@ -33,6 +33,7 @@ Think of it as having a research assistant who reads everything and only interru
 - 🔬 **Deep Extraction** - Two-tier LLM synthesis on HIGH-priority items: Counterintuitive findings, buried ledes, "so what" actions, quotable lines
 - 👍 **Preference Learning** - Upvote/downvote content to train AI prioritization over time
 - 🔍 **Semantic Search** - Local embeddings enable vector similarity search across all content
+- 🏷️ **Content Kind** - Each item is tagged as one of ten kinds (release, news, analysis, vulnerability, incident, research, tutorial, experience, question, humor) by OpenRouter's Jev decisions model; filter by kind in the TUI, CLI, API and search
 - 🤖 **Context Assistant** - LLM analyzes flagged items to suggest context.md improvements with gap analysis
 - 🌐 **Remote TUI Mode** - Access your daemon from anywhere with incremental sync
 - 🎨 **Fabric Integration** - 200+ AI analysis patterns with tab completion (`:fabric <TAB>` to browse)
@@ -135,6 +136,7 @@ prismis --remote  # Remote mode with incremental sync from server daemon
 - `i` - Flag item as interesting (for context analysis)
 - `:` - Command mode (see below)
 - `S` - Manage sources
+- `K` - Cycle the kind filter
 - `?` - Show all keyboard shortcuts
 - `q` - Quit
 
@@ -144,6 +146,7 @@ prismis --remote  # Remote mode with incremental sync from server daemon
   - `:fabric summarize` - Create concise summary
   - `:fabric analyze_claims` - Fact-check claims
   - `:fabric explain_terms` - Explain technical terms
+- `:kind <kind>` - Filter by kind (e.g. `:kind vulnerability`)
 - `:context suggest` - Get LLM topic suggestions from flagged items (requires flagging with `i`)
 - `:context edit` - Open context.md in $EDITOR
 - `:context review` - Show count of flagged items ready for analysis
@@ -196,6 +199,7 @@ prismis-cli source remove 3
 
 # Semantic search across all content
 prismis-cli search "local-first database innovations"
+prismis-cli search "prompt injection" --kind tutorial,research   # only these kinds
 
 # Backfill deep-extraction synthesis on HIGH-priority items
 prismis-cli extract --priority high --limit 3   # Process 3 items
@@ -203,6 +207,9 @@ prismis-cli extract --priority high --limit 100 # Larger batch
 
 # Retry failed LLM analysis
 prismis-cli analyze repair
+
+# Classify the kind of items analysed before kind classification existed
+prismis-cli analyze kinds --since-days 30   # shows count and cost, asks to confirm
 
 # Clean up unprioritized content
 prismis-cli prune               # Remove all unprioritized items
@@ -242,6 +249,7 @@ prismis-cli get <entry-id> --raw | fabric --pattern extract_wisdom
 # List recent entries
 prismis-cli list --limit 10
 prismis-cli list --priority high --unread
+prismis-cli list --kind release,vulnerability
 
 # Export in JSON or CSV format
 prismis-cli export --format json > backup.json
@@ -334,6 +342,8 @@ edit ~/.config/prismis/.env
 # Change: OPENAI_API_KEY=sk-your-key-here
 ```
 
+`make install` installs the CLI with its local-mode commands (`analyze`, `embeddings`), which import the daemon and only work on the machine running it. On a machine that only talks to a remote daemon, `make install-cli` installs the client-only CLI; on the daemon host, reinstall the CLI after each update with `make install-cli-local`.
+
 ### Configuration
 
 Prismis follows XDG standards:
@@ -354,10 +364,11 @@ Prismis routes LLM calls through two services so routine work and deep synthesis
 [llm]
 light_service = "prismis-openai"        # required — used for priority/summary/context analysis
 deep_service  = "prismis-openai-deep"   # optional — second-tier synthesis on HIGH items
+kind_service  = "prismis-kind"          # optional — content kind classification
 auto_extract  = "high"                  # "high" | "medium" | "none" — gate for auto deep extraction
 ```
 
-The light service handles every routine call (fetch-cycle priority, summarization, context analyzer). The deep service runs the second-tier synthesis prompt that produces the Counterintuitive / Buried lede / So what / Pushback sections plus quotables. When `deep_service` is unset, the daemon runs in light-only mode (graceful degradation — deep extraction failures never block storage).
+The light service handles every routine call (fetch-cycle priority, summarization, context analyzer). The deep service runs the second-tier synthesis prompt that produces the Counterintuitive / Buried lede / So what / Pushback sections plus quotables. When `deep_service` is unset, the daemon runs in light-only mode (graceful degradation — deep extraction failures never block storage). The kind service classifies each newly analysed item into one of the ten content kinds; an item it isn't confident about (below 0.7) stays unclassified, and when `kind_service` is unset no kind call is made.
 
 Service definitions live in `~/.config/llm-core/services.toml` — shared with other apps on this machine and unchanged in path or schema by this migration (see decisions.md). Map service names to an adapter, base URL, default model, and API key. Examples:
 
@@ -381,6 +392,12 @@ base_url      = "https://openrouter.ai/api/v1"
 default_model = "anthropic/claude-3-haiku"
 key           = "openrouter"
 
+[services.prismis-kind]
+adapter       = "decisions"             # OpenRouter's Decisions endpoint, not chat completions
+base_url      = "https://openrouter.ai/api/alpha/decisions"   # the full endpoint URL
+default_model = "typesafe/jev-1.13"
+key           = "openrouter"
+
 [services.prismis-local]
 adapter       = "openai"
 base_url      = "http://localhost:8080/v1"   # any OpenAI-compatible local server
@@ -388,7 +405,7 @@ key_required  = false
 default_model = "llama2"
 ```
 
-Every prismis service must speak the OpenAI chat-completions wire format (`adapter = "openai"`) — the daemon's client talks to `base_url` directly, with no per-provider translation. API keys are resolved by `apiconf` from `~/.config/apiconf/config.toml`; `key = "openai"` references the entry named `openai` there. `key_required = false` skips apiconf entirely, for a server that takes no key. Run `prismis-daemon migrate-config` once after upgrading from a pre-iter-12 install — it idempotently rewrites the config to dual-service shape and adds the `[services.prismis-openai-deep]` stub.
+Every prismis service except the kind service must speak the OpenAI chat-completions wire format (`adapter = "openai"`) — the daemon's client talks to `base_url` directly, with no per-provider translation. API keys are resolved by `apiconf` from `~/.config/apiconf/config.toml`; `key = "openai"` references the entry named `openai` there. `key_required = false` skips apiconf entirely, for a server that takes no key. Run `prismis-daemon migrate-config` once after upgrading from a pre-iter-12 install — it idempotently rewrites the config to dual-service shape and adds the `[services.prismis-openai-deep]` stub.
 
 **Reddit API** (optional - improves reliability):
 ```bash

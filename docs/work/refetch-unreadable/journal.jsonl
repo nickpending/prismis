@@ -30,3 +30,7 @@
 {"kind":"reviewed","job":2,"findings":[],"sha":"92a7cbd9ca103926fc5fa83cbbbfd9e4192c18a9b1cc8607e37973e29733d019","submission":2,"ts":"2026-09-30T18:24:50.445Z"}
 {"kind":"verified","job":2,"pass":false,"class":"approach","failed":["merge-conflict(docs/work/refetch-unreadable/.journal.checksum)","merge-conflict(docs/work/refetch-unreadable/journal.jsonl)"],"covered":[],"uncovered":[],"holdout":[],"ts":"2026-09-30T18:24:50.655Z"}
 {"kind":"dispatched","action":"spawn-fixer","resultPath":"docs/work/refetch-unreadable/results/built-2-4.json","job":2,"ts":"2026-09-30T18:24:50.702Z"}
+{"kind":"built-rejected","job":2,"reasons":["no result at docs/work/refetch-unreadable/results/built-2-4.json: the child ended without writing it"],"cause":"not-written","sha":"","ts":"2026-09-30T18:25:37.477Z"}
+{"kind":"trapdoor","trapdoor":"infra","job":2,"attempts":1,"report":"job 2's result was refused by the validator: no result at docs/work/refetch-unreadable/results/built-2-4.json: the child ended without writing it","ts":"2026-09-30T18:25:37.585Z"}
+{"kind":"resumed","reason":"rebased job-2 branch onto its recorded base 9308c95 without the lane's own dispatch commit c1daecb; code unchanged, review still holds","ts":"2026-09-30T18:27:23.888Z"}
+{"kind":"dispatched","action":"spawn-fixer","resultPath":"docs/work/refetch-unreadable/results/built-2-5.json","job":2,"ts":"2026-09-30T18:27:24.007Z"}

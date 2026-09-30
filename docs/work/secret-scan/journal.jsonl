@@ -1,0 +1,2 @@
+{"kind":"opened","criteria":["SC-1","SC-2","SC-3","SC-4"],"sha":"68dcf29f844c5a6728ffe2ee746c35473aa4df7b","ts":"2026-09-30T22:19:22.789Z"}
+{"kind":"dispatched","action":"spawn-mason","resultPath":"docs/work/secret-scan/results/plan-1.json","ts":"2026-09-30T22:19:22.816Z"}

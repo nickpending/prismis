@@ -1,0 +1,90 @@
+{
+  "workOrder": "readable-content",
+  "what": "Get real content for items that currently reach analysis with none, and label honestly the ones that still have none (gh #80). Add one readability check. Fetch the article behind Reddit link posts using the RSS fetcher's article extractor. Mark every item whose stored content is not readable as title-only: it stays in the feed, skips deep extraction, and shows a marker in the TUI and web UI. Stop fetchers re-extracting items that are already stored readably, and re-admit a stored title-only item when a later fetch finds it readable. Run yt-dlp from the daemon's own environment with its curl-cffi extra.",
+  "why": "Measured on cerebro over the last 30 days (3,489 items, content under 300 chars; comment on gh #80):\n- Hacker News 150/1022 keep the feed's `<a href=...>Comments</a>` stub or JS-wall text after trafilatura fails.\n- Reddit link posts are stored as `Link: <url>` and the target is never fetched (r/netsec 65%, r/hacking 49%, r/cybersecurity 22%, r/OpenAI 16%).\n- YouTube 56/126 are stored as having no transcript: yt-dlp gets `HTTP Error 429: Too Many Requests` and reports 'no impersonate target is available', and nothing retries them.\nThe light and deep passes still run on these items, so their summaries and priorities are guesses from a title that look like real analysis.\n\nScrutiny on 2026-09-29 found five more facts, each read this run:\n(a) The daemon runs `shutil.which(\"yt-dlp\")` (the `YouTubeFetcher.__init__` in fetchers/youtube.py). On cerebro that resolves to ~/.local/bin/yt-dlp, a separate uv tool install without curl_cffi, not the yt-dlp the daemon's pyproject installs into its own tool env. Adding the extra to pyproject alone would change nothing in production. `uv run python -m yt_dlp --list-impersonate-targets` works from the daemon env and currently lists every target as unavailable.\n(b) Fetchers extract content for every discovered item on every cycle, and the orchestrator only then drops the ones already stored (the `get_existing_external_ids` filter in `fetch_source_content`). With 9 YouTube channels at max_items 5 and fetch_interval 120 min, that is up to 45 transcript downloads every two hours, mostly discarded. RSS re-runs trafilatura, and Reddit re-reads comments, the same way.\n(c) Real short content exists: a 184-char news blurb, and 117-char and 202-char Reddit self-post questions. A length floor would mislabel them title-only.\n(d) `analyze repair` builds its analysis through the shared `build_llm_analysis` helper in analysis.py and runs no deep extraction.\n(e) The file fetcher's external_id embeds the content hash, so it has to fetch to know whether anything changed.\n\nrudy decided on 2026-09-29: keep content-less items and mark them title-only; add yt-dlp's curl-cffi extra and retry missing transcripts.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "stored content shaped like each measured failure, and genuine short text. The failures: a Hacker News `<a href=...>Comments</a>` stub; a JavaScript-required notice; a Reddit `Link: <url>` with no other text; the YouTube no-transcript placeholder; the RSS fetcher's no-content fallback; empty or markup-only text. The genuine short text: a one-sentence news blurb, and a two-line Reddit question.",
+      "when": "the one shared readability check classifies it",
+      "then": "each failure shape is not readable, and genuine short text and ordinary article text are readable; there is no bare length floor. The check is one function in one module that every consumer calls. The placeholder texts prismis's own fetchers write (Reddit's link-only content, RSS's no-content fallback, YouTube's no-transcript content) are defined once in that module and imported by the fetchers that write them, so the writer and the check share one definition rather than two copies of a sentence",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'readable' && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "a Reddit link post whose URL is an external article, and link posts to images, videos or other reddit pages",
+      "when": "the Reddit fetcher builds the item",
+      "then": "the external article's text becomes the item's content alongside the link. It is fetched with the same article extractor the RSS fetcher uses, moved to one shared helper that both fetchers call and not copied. Image, video and reddit-internal links behave as they do today. A failed extraction falls back to today's content rather than dropping the item",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'reddit and link_post' && echo 'SC-2: PASS'",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "an item whose content the readability check calls not readable, and one it calls readable",
+      "when": "the orchestrator analyses them, and when `prismis-cli analyze repair` re-analyses them",
+      "then": "both are still summarised, prioritised and stored. The not-readable item's analysis carries title_only: true and the readable item's carries title_only: false. The flag is set in the shared `build_llm_analysis` helper in analysis.py, which both callers already use, from the content it is given; neither caller computes it itself. The orchestrator does not deep-extract a title-only item even when its priority passes the deep-extraction gate",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'title_only' && echo 'SC-3: PASS'",
+        "expect": "SC-3: PASS"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "an rss, reddit or youtube source with some items already stored readably (title_only false or absent), some stored title-only, and some new",
+      "when": "a fetch cycle runs",
+      "then": "the orchestrator gives the fetcher the external_ids already stored readably, and the fetcher skips content extraction for them: no trafilatura fetch, no comment read, no transcript download. A new item is processed as today. A stored title-only item is extracted again, and when its fresh content is readable the existing row's content is replaced and re-analysed in place (no duplicate row, not counted as new, no new-item notification). When its fresh content is still not readable it is not re-analysed. How long this keeps retrying is bounded by the fetcher's own discovery window (max_items and max_days_lookback), with no retry counter stored. force_refetch still processes every item. File sources are unchanged, because their external_id embeds the content hash",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'readmit or skip_known' && echo 'SC-4: PASS'",
+        "expect": "SC-4: PASS"
+      }
+    },
+    {
+      "id": "SC-5",
+      "given": "the daemon's own Python environment",
+      "when": "the YouTube fetcher runs yt-dlp",
+      "then": "it runs the yt-dlp installed in the daemon's own environment as `<the daemon's python> -m yt_dlp`, not whatever `yt-dlp` is first on PATH. daemon/pyproject.toml declares `yt-dlp[curl-cffi]`, and its comment about the PATH requirement is rewritten to say what is now true. In that environment, `python -m yt_dlp --list-impersonate-targets` lists at least one curl_cffi target as available",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'youtube and yt_dlp_env' && uv run python -m yt_dlp --list-impersonate-targets 2>&1 | grep curl_cffi | grep -vc unavailable | grep -qv '^0$' && echo 'SC-5: PASS'",
+        "expect": "SC-5: PASS"
+      }
+    },
+    {
+      "id": "SC-6",
+      "given": "items whose analysis has title_only true and items without it",
+      "when": "the TUI feed row, the TUI reader and the web UI card render them",
+      "then": "title-only items show a lower-case 'title only' marker in all three, and other items show none. The TUI reads the flag through the same analysis-metadata parse it already uses for kind. The web card gets it the way it gets kind",
+      "observation": {
+        "command": "cd tui && go test ./... -run TitleOnly && cd ../daemon && uv run pytest -q tests -k 'web and title_only' && echo 'SC-6: PASS'",
+        "expect": "SC-6: PASS"
+      }
+    },
+    {
+      "id": "SC-7",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Re-classifying or re-fetching items stored before this change and no longer inside a fetcher's discovery window (a backfill is a separate, costed decision).",
+    "Rendering JavaScript pages (a headless browser); JS-walled pages become title-only.",
+    "Fetching Hacker News's linked article through a different route than the RSS fetcher already uses.",
+    "Removing the separate yt-dlp uv tool install on cerebro; the daemon stops depending on it, and removing it is an operator decision at deploy."
+  ],
+  "stakes": [
+    "Reuse: the article extractor in fetchers/rss.py (trafilatura fetch_url and extract, with its fallback) is the one extractor; move it where both fetchers call it. The readability check is one function in one module. The title_only flag is set in one place, `build_llm_analysis`.",
+    "Principle I: tests use real collaborators. External HTTP is served from a local test server. yt-dlp is exercised through its real subprocess boundary only where a test can control the outcome. Only the LLM provider is faked.",
+    "Dependency: yt-dlp[curl-cffi] is yt-dlp's own documented extra. Add it to daemon/pyproject.toml and relock daemon/uv.lock. Relock cli/uv.lock too, since cli carries the daemon's metadata through its editable [local] dependency.",
+    "The TUI marker is lower case (rudy's rule for the TUI); colour is allowed.",
+    "After deploy, re-measure the per-source short-content share on cerebro with the query in the gh #80 grounding comment, check that the daemon's env lists a curl_cffi impersonate target as available, and report both."
+  ]
+}

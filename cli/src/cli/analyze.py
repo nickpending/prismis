@@ -193,8 +193,11 @@ def repair(
                     )
 
                     # Step 3: Build analysis dict (same daemon-side helper the
-                    # pipeline uses -- includes preference_influenced, SC-10)
-                    analysis = build_llm_analysis(summary_result, evaluation)
+                    # pipeline uses -- includes preference_influenced, SC-10,
+                    # and title_only, SC-3)
+                    analysis = build_llm_analysis(
+                        summary_result, evaluation, item["content"]
+                    )
 
                     # Merge with existing analysis (preserve any fetcher metrics)
                     if item.get("analysis"):

@@ -21,6 +21,7 @@ printing anything itself.
 from typing import Any
 
 from .evaluator import ContentEvaluation
+from .readability import is_readable
 from .storage import Storage
 from .summarizer import ContentSummary
 
@@ -49,19 +50,25 @@ def get_learned_preferences(
 
 
 def build_llm_analysis(
-    summary_result: ContentSummary, evaluation: ContentEvaluation
+    summary_result: ContentSummary,
+    evaluation: ContentEvaluation,
+    content: str | None,
 ) -> dict[str, Any]:
     """Assemble the analysis dict written after a summarize+evaluate pass.
 
     Args:
         summary_result: Output of ContentSummarizer.summarize_with_analysis
         evaluation: Output of ContentEvaluator.evaluate_content
+        content: The raw content the item was summarized/evaluated from --
+            used only to set `title_only` (SC-3); neither caller computes that
+            flag itself.
 
     Returns:
         The analysis dict both the daemon pipeline and `analyze repair` store.
         Always includes `preference_influenced` from `evaluation` -- the
         daemon pipeline always did; `analyze repair` previously did not,
-        which this consolidation fixes (SC-10).
+        which this consolidation fixes (SC-10). Always includes `title_only`,
+        true when `content` failed the shared readability check (gh #80).
     """
     return {
         "reading_summary": summary_result.reading_summary,
@@ -74,4 +81,5 @@ def build_llm_analysis(
         "priority_reasoning": evaluation.reasoning,
         "preference_influenced": evaluation.preference_influenced,
         "metadata": summary_result.metadata,
+        "title_only": not is_readable(content),
     }

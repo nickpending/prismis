@@ -14,6 +14,7 @@ from .evaluator import ContentEvaluator
 from .kind_classifier import KindClassifier
 from .notifier import Notifier
 from .observability import log as obs_log
+from .readability import is_readable
 from .storage import Storage
 from .summarizer import ContentSummarizer
 
@@ -150,9 +151,23 @@ class DaemonOrchestrator:
             else:
                 fetcher = self.rss_fetcher
 
-            # Step 2: Fetch all items from source using the appropriate fetcher
-            # All fetchers now use the same interface - pass the source dict
-            all_items = fetcher.fetch_content(source)
+            # Step 2: Fetch all items from source using the appropriate fetcher.
+            # existing_ids is every stored external_id; known_readable_ids is the
+            # subset stored readably (title_only false or absent, SC-4) -- file
+            # sources keep the two equal, since their external_id embeds the
+            # content hash and can't distinguish a title-only retry from a new
+            # item the way the other three fetchers' stable external_ids can.
+            existing_ids = self.storage.get_existing_external_ids(source["id"])
+            if source_type == "file":
+                all_items = fetcher.fetch_content(source)
+                known_readable_ids = existing_ids
+            else:
+                known_readable_ids = self.storage.get_readable_external_ids(
+                    source["id"]
+                )
+                all_items = fetcher.fetch_content(
+                    source, known_readable_ids=known_readable_ids
+                )
             stats["items_fetched"] = len(all_items)
 
             if not all_items:
@@ -165,18 +180,20 @@ class DaemonOrchestrator:
                 f"  📰 Fetched {len(all_items)} items from {source['name'] or source['url']}"
             )
 
-            # Step 2: Apply deduplication filtering
+            # Step 2: Apply deduplication filtering. Only items already stored
+            # readably are dropped here -- a stored title-only item stays in
+            # items_to_process so its fresh content gets a chance to become
+            # readable (SC-4); force_refetch still processes every item.
             if force_refetch:
-                # Process all items when forcing refetch
                 items_to_process = all_items
                 self.console.print(
                     f"  🔄 Force refetch: processing all {len(items_to_process)} items"
                 )
             else:
-                # Get existing external_ids for efficient filtering
-                existing_ids = self.storage.get_existing_external_ids(source["id"])
                 items_to_process = [
-                    item for item in all_items if item.external_id not in existing_ids
+                    item
+                    for item in all_items
+                    if item.external_id not in known_readable_ids
                 ]
 
                 filtered_count = len(all_items) - len(items_to_process)
@@ -193,6 +210,22 @@ class DaemonOrchestrator:
 
             # Step 3: Analyze and store items that need processing
             for i, item in enumerate(items_to_process, 1):
+                # A title-only item retried this cycle whose fresh content is
+                # still not readable is left alone rather than re-analysed
+                # (SC-4) -- nothing changed, so re-running the LLM pass would
+                # only spend money to store the same title_only=true result.
+                # force_refetch bypasses this too: it processes every item.
+                if (
+                    not force_refetch
+                    and item.external_id in existing_ids
+                    and item.external_id not in known_readable_ids
+                    and not is_readable(item.content)
+                ):
+                    self.console.print(
+                        f"    ⏭️  [{i}/{len(items_to_process)}] Still not readable, skipping: {item.title[:60]}"
+                    )
+                    continue
+
                 self.console.print(
                     f"    🔍 [{i}/{len(items_to_process)}] Analyzing: {item.title[:60]}..."
                 )
@@ -284,7 +317,9 @@ class DaemonOrchestrator:
                     )
 
                     # Step 3c: Build LLM analysis data
-                    llm_analysis = build_llm_analysis(summary_result, evaluation)
+                    llm_analysis = build_llm_analysis(
+                        summary_result, evaluation, item.content
+                    )
 
                     # Step 3d: Merge with existing analysis (preserve fetcher metrics)
                     existing_analysis = item.analysis or {}
@@ -343,11 +378,18 @@ class DaemonOrchestrator:
                     # Step 3e-bis: Deep extraction gate.
                     # Failure must NEVER raise into the pipeline (INV-002):
                     # the except clause logs and continues with light summary only.
-                    if self.deep_extractor and self._should_deep_extract(
-                        priority,
-                        self.config.auto_extract,
-                        source_type,
-                        self.config.deep_extract_exclude,
+                    # A title-only item never deep-extracts (SC-3) even when its
+                    # priority passes the gate below -- there is no real content
+                    # underneath the light summary to synthesize further.
+                    if (
+                        self.deep_extractor
+                        and not merged_analysis.get("title_only")
+                        and self._should_deep_extract(
+                            priority,
+                            self.config.auto_extract,
+                            source_type,
+                            self.config.deep_extract_exclude,
+                        )
                     ):
                         try:
                             extraction = self.deep_extractor.extract(

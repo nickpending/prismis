@@ -151,6 +151,7 @@ def _seed(
     summary: str | None = "A short summary of the item.",
     analysis: dict[str, Any] | None = None,
     fetched_at: datetime | None = None,
+    content: str = "Article body long enough to classify against.",
 ) -> str:
     """Insert one content row with full control over summary/analysis/fetched_at --
     seed_content (conftest.py) exposes neither, so this test file seeds its own."""
@@ -160,7 +161,7 @@ def _seed(
             external_id=str(uuid.uuid4()),
             title=title,
             url=f"http://example.com/{uuid.uuid4().hex[:8]}",
-            content="Article body long enough to classify against.",
+            content=content,
             summary=summary,
             analysis=analysis,
             fetched_at=fetched_at,
@@ -654,3 +655,79 @@ def test_repair_still_writes_preference_influenced_false_when_no_learned_prefere
     assert stored is not None
     assert "preference_influenced" in stored["analysis"], stored["analysis"]
     assert stored["analysis"]["preference_influenced"] is False, stored["analysis"]
+
+
+# ---------------------------------------------------------------------------
+# SC-3: `analyze repair` sets title_only through the shared build_llm_analysis
+# helper too -- not just the daemon pipeline.
+# ---------------------------------------------------------------------------
+
+
+def test_repair_sets_title_only_true_for_unreadable_content(local_env: Path) -> None:
+    """
+    SC-3: repairing an item whose stored content fails the shared readability
+    check stores title_only: true, even though it is still fully summarised,
+    prioritised and stored.
+    BREAKS: repair building its analysis dict without threading the item's
+    content into build_llm_analysis leaves title_only unset or always False,
+    regardless of what was actually stored.
+    """
+    storage = Storage(local_env)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
+    target_id = _seed(
+        storage,
+        source_id,
+        title="Needs Repair, No Real Content",
+        summary=None,
+        analysis=None,
+        content="No content available",
+    )
+    storage.close()
+
+    with patch(
+        _PATCH_COMPLETE, side_effect=_repair_llm_side_effect()
+    ):  # claudex-guard: allow-mock
+        result = runner.invoke(analyze_app, ["repair", "--force", "--limit", "1"])
+
+    assert result.exit_code == 0, result.output
+
+    reread = Storage(local_env)
+    stored = reread.get_content_by_id(target_id)
+    reread.close()
+
+    assert stored is not None
+    assert stored["analysis"]["title_only"] is True, stored["analysis"]
+
+
+def test_repair_sets_title_only_false_for_readable_content(local_env: Path) -> None:
+    """SC-3 companion: an item with genuine content is repaired with
+    title_only: false, proving the flag isn't hardcoded true."""
+    storage = Storage(local_env)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
+    target_id = _seed(
+        storage,
+        source_id,
+        title="Needs Repair, Real Content",
+        summary=None,
+        analysis=None,
+        content=(
+            "Researchers published a new decade-long study of patient records "
+            "this week, finding a pattern that held after controlling for age, "
+            "income, and prior health history."
+        ),
+    )
+    storage.close()
+
+    with patch(
+        _PATCH_COMPLETE, side_effect=_repair_llm_side_effect()
+    ):  # claudex-guard: allow-mock
+        result = runner.invoke(analyze_app, ["repair", "--force", "--limit", "1"])
+
+    assert result.exit_code == 0, result.output
+
+    reread = Storage(local_env)
+    stored = reread.get_content_by_id(target_id)
+    reread.close()
+
+    assert stored is not None
+    assert stored["analysis"]["title_only"] is False, stored["analysis"]

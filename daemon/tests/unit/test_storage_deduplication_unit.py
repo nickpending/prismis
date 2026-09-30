@@ -166,3 +166,80 @@ def test_get_by_external_id_returns_dict_or_none() -> None:
     import shutil
 
     shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# get_readable_external_ids (SC-4): the skip_known dedup set the orchestrator
+# hands fetchers, distinct from get_existing_external_ids's "all stored ids".
+# ---------------------------------------------------------------------------
+
+
+def test_get_readable_external_ids_excludes_title_only_items_skip_known(
+    tmp_path: Path,
+) -> None:
+    """
+    SC-4: an item stored with analysis.title_only true is excluded from the
+    readable set (so a later fetch retries it); an item with title_only false, or
+    with no title_only key at all, is included.
+    BREAKS: Reusing get_existing_external_ids (which returns every stored id) for
+    the fetcher's skip-known-readable set would also skip re-extracting
+    title-only items forever, since they would never leave the "known" set.
+    """
+    db_path = tmp_path / "test.db"
+    init_db(db_path)
+    storage = Storage(db_path)
+
+    source_id = storage.add_source("https://example.com/feed", "rss", "Test")
+
+    storage.create_or_update_content(
+        {
+            "source_id": source_id,
+            "external_id": "readable-explicit-false",
+            "title": "Readable Explicit False",
+            "url": "https://example.com/1",
+            "content": "Real content.",
+            "analysis": {"title_only": False},
+        }
+    )
+    storage.create_or_update_content(
+        {
+            "source_id": source_id,
+            "external_id": "readable-no-key",
+            "title": "Readable No Key",
+            "url": "https://example.com/2",
+            "content": "Real content.",
+            "analysis": {"reading_summary": "x"},
+        }
+    )
+    storage.create_or_update_content(
+        {
+            "source_id": source_id,
+            "external_id": "title-only-item",
+            "title": "Title Only Item",
+            "url": "https://example.com/3",
+            "content": "No content available",
+            "analysis": {"title_only": True},
+        }
+    )
+    storage.create_or_update_content(
+        {
+            "source_id": source_id,
+            "external_id": "no-analysis-at-all",
+            "title": "No Analysis At All",
+            "url": "https://example.com/4",
+            "content": "Real content.",
+            "analysis": None,
+        }
+    )
+
+    readable_ids = storage.get_readable_external_ids(source_id)
+
+    assert readable_ids == {
+        "readable-explicit-false",
+        "readable-no-key",
+        "no-analysis-at-all",
+    }
+    assert "title-only-item" not in readable_ids
+
+    all_ids = storage.get_existing_external_ids(source_id)
+    assert all_ids == readable_ids | {"title-only-item"}

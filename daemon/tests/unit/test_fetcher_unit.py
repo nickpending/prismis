@@ -1,7 +1,12 @@
 """Unit tests for RSSFetcher logic functions."""
 
+import http.server
+import threading
 import time
+from collections.abc import Iterator
 from datetime import UTC, datetime
+
+import pytest
 
 from prismis_daemon.fetchers.rss import RSSFetcher
 
@@ -133,3 +138,109 @@ def test_parse_published_date_handles_invalid_dates() -> None:
 
     # Should return None on parse failure
     assert parsed_date is None
+
+
+# ---------------------------------------------------------------------------
+# known_readable_ids (SC-4): the fetcher skips trafilatura entirely for an
+# entry the orchestrator already has stored readably.
+# ---------------------------------------------------------------------------
+
+_FEED_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>Skip Known Test Feed</title><link>{base}/</link><description>local</description>
+  <item><title>Known Readable Item</title><link>{base}/article</link>
+    <description>fallback description text</description>
+    <guid isPermaLink="false">known-readable-id</guid></item>
+</channel></rss>
+"""
+
+_ARTICLE_HTML = (
+    b"<!doctype html><html><body><article><h1>Real Article</h1>"
+    b"<p>A genuine article body, long enough for trafilatura to extract as the "
+    b"main content rather than boilerplate chrome around it.</p></article>"
+    b"</body></html>"
+)
+
+
+@pytest.fixture
+def rss_skip_known_server() -> Iterator[tuple[str, dict[str, int]]]:
+    """A local feed + article server that counts hits per path -- proof that
+    `known_readable_ids` skips the article fetch entirely, not merely that the
+    result gets discarded downstream."""
+    hits: dict[str, int] = {}
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            hits[self.path] = hits.get(self.path, 0) + 1
+            if self.path == "/feed.xml":
+                base = f"http://{self.headers.get('Host', '127.0.0.1')}"
+                body = _FEED_XML.format(base=base).encode()
+                self._send(body, "application/rss+xml")
+            elif self.path == "/article":
+                self._send(_ARTICLE_HTML, "text/html")
+            else:
+                self.send_error(404)
+
+        def _send(self, body: bytes, content_type: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    host, port = server.server_address[0], server.server_address[1]
+    assert isinstance(host, str)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://{host}:{port}", hits
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+
+
+def test_fetch_content_skip_known_readable_ids_skips_extraction(
+    rss_skip_known_server: tuple[str, dict[str, int]],
+) -> None:
+    """
+    SC-4: an entry whose external_id is already known-readable never has its
+    article fetched -- the orchestrator's dedup filter discards the result
+    either way, so extracting it would only be wasted work.
+    BREAKS: Threading known_readable_ids through fetch_content's dedup filter
+    downstream but not the extraction step above it still fetches every
+    already-readable article on every single cycle.
+    """
+    base_url, hits = rss_skip_known_server
+    fetcher = RSSFetcher(max_items=5)
+    source = {"url": f"{base_url}/feed.xml", "id": "src-1"}
+
+    items = fetcher.fetch_content(source, known_readable_ids={"known-readable-id"})
+
+    assert len(items) == 1
+    assert items[0].content == "fallback description text"
+    assert hits.get("/article") is None, (
+        "SC-4: a known-readable entry's article must not be fetched at all"
+    )
+
+
+def test_fetch_content_without_skip_still_fetches_the_article(
+    rss_skip_known_server: tuple[str, dict[str, int]],
+) -> None:
+    """Companion to the skip test: without known_readable_ids, the same entry's
+    article IS fetched, proving the skip above is meaningful rather than the
+    article simply being unreachable in this fixture."""
+    base_url, hits = rss_skip_known_server
+    fetcher = RSSFetcher(max_items=5)
+    source = {"url": f"{base_url}/feed.xml", "id": "src-1"}
+
+    items = fetcher.fetch_content(source)
+
+    assert len(items) == 1
+    assert items[0].content is not None
+    assert "genuine article body" in items[0].content
+    assert hits.get("/article") == 1

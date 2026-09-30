@@ -1,5 +1,7 @@
 """Unit tests for YouTubeFetcher logic functions."""
 
+import subprocess
+import sys
 
 from prismis_daemon.fetchers.youtube import YouTubeFetcher
 from prismis_daemon.models import ContentItem
@@ -167,6 +169,99 @@ def test_parse_upload_date_invalid() -> None:
     # Test garbage input
     result = fetcher._parse_upload_date("notadate")
     assert result is None
+
+
+def test_youtube_fetcher_yt_dlp_env_uses_the_daemon_own_python_module() -> None:
+    """
+    SC-5: the fetcher runs yt-dlp as `<this interpreter> -m yt_dlp`, not whatever
+    `yt-dlp` resolves to first on PATH.
+    BREAKS: `shutil.which("yt-dlp")` resolves to a separate `uv tool install
+    yt-dlp` when one is on PATH ahead of the daemon's own venv, silently running
+    an install with no curl-cffi extra regardless of what pyproject.toml declares.
+    """
+    fetcher = YouTubeFetcher()
+    assert fetcher.yt_dlp_cmd == [sys.executable, "-m", "yt_dlp"]
+
+
+def test_youtube_fetcher_yt_dlp_env_command_actually_runs(
+    tmp_path,
+) -> None:
+    """
+    SC-5: `<this interpreter> -m yt_dlp` is a real, runnable command in the
+    daemon's own environment -- exercised through the real subprocess boundary
+    with an outcome this test controls (--version makes no network call).
+    """
+    fetcher = YouTubeFetcher()
+
+    result = subprocess.run(
+        [*fetcher.yt_dlp_cmd, "--version"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip()
+
+
+def _video_fixture() -> dict:
+    return {
+        "title": "Already Readable Video",
+        "url": "https://www.youtube.com/watch?v=already-readable",
+        "upload_date": "20240815",
+        "id": "already-readable",
+        "view_count": 10,
+        "duration": 60,
+    }
+
+
+def _recording_yt_dlp_cmd(marker_path) -> list[str]:
+    """A real, runnable subprocess that records whether it was ever invoked --
+    swapped in for the daemon's own yt-dlp command (a public field this fetcher
+    builds at construction) so the proof runs through the real subprocess
+    boundary rather than patching `_extract_transcript` itself."""
+    script = f"open({str(marker_path)!r}, 'a').write('called\\n')"
+    return [sys.executable, "-c", script]
+
+
+def test_process_video_skip_known_readable_skips_transcript_download(tmp_path) -> None:
+    """
+    SC-4: a video whose external_id (its URL) is already stored readably skips
+    the transcript download entirely -- the orchestrator's dedup filter drops the
+    result either way.
+    BREAKS: Threading known_readable_ids through fetch_content but not
+    _process_video still shells out to yt-dlp for every already-readable video on
+    every single cycle.
+    """
+    fetcher = YouTubeFetcher()
+    marker = tmp_path / "invoked.marker"
+    fetcher.yt_dlp_cmd = _recording_yt_dlp_cmd(marker)
+    video = _video_fixture()
+
+    result = fetcher._process_video(
+        video, "source-uuid", known_readable_ids={video["url"]}
+    )
+
+    assert result is not None
+    assert "No transcript available" in (result.content or "")
+    assert not marker.exists(), (
+        "SC-4: yt-dlp must not run at all for a video already stored readably"
+    )
+
+
+def test_process_video_without_skip_still_invokes_yt_dlp(tmp_path) -> None:
+    """Companion to the skip test above: proves the recording command actually
+    would have been invoked absent the skip, so the previous test's negative
+    assertion is meaningful rather than vacuously true."""
+    fetcher = YouTubeFetcher()
+    marker = tmp_path / "invoked.marker"
+    fetcher.yt_dlp_cmd = _recording_yt_dlp_cmd(marker)
+    video = _video_fixture()
+
+    fetcher._process_video(video, "source-uuid", known_readable_ids=set())
+
+    assert marker.exists(), "the recording command should have run"
 
 
 def test_handle_missing_transcript() -> None:

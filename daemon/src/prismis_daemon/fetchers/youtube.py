@@ -1,10 +1,11 @@
 """YouTube content fetcher using yt-dlp."""
 
+import importlib.util
 import json
 import logging
 import re
-import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import UTC, datetime, timedelta
@@ -14,6 +15,7 @@ from typing import Any
 from ..config import Config
 from ..models import ContentItem
 from ..observability import log as obs_log
+from ..readability import format_youtube_no_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -37,22 +39,34 @@ class YouTubeFetcher:
 
         self.max_items = max_items or config.get_max_items("youtube")
         self.config = config
-        yt_dlp_path = shutil.which("yt-dlp")
-        if not yt_dlp_path:
+        # Run as `<this python> -m yt_dlp` (SC-5) rather than shelling out to
+        # whatever `yt-dlp` is first on PATH -- on a machine with a separate `uv
+        # tool install yt-dlp`, PATH resolution silently ran that install (without
+        # the curl-cffi extra below) instead of the daemon's own dependency.
+        if importlib.util.find_spec("yt_dlp") is None:
             raise Exception("yt-dlp not found. Please install it: pip install yt-dlp")
-        self.yt_dlp_path: str = yt_dlp_path
+        self.yt_dlp_cmd: list[str] = [sys.executable, "-m", "yt_dlp"]
 
-        logger.info(f"YouTube fetcher initialized with yt-dlp at {self.yt_dlp_path}")
+        logger.info(
+            f"YouTube fetcher initialized with yt-dlp via {sys.executable} -m yt_dlp"
+        )
 
-    def fetch_content(self, source: dict[str, Any]) -> list[ContentItem]:
+    def fetch_content(
+        self, source: dict[str, Any], known_readable_ids: set[str] | None = None
+    ) -> list[ContentItem]:
         """Fetch videos with transcripts from a YouTube channel.
 
         Args:
             source: Source dict with 'url' (YouTube channel URL) and 'id' (source UUID)
+            known_readable_ids: external_ids the orchestrator already has stored
+                readably (SC-4). A video matching one of these skips the transcript
+                download entirely -- the orchestrator's own dedup filter drops the
+                result anyway.
 
         Returns:
             List of ContentItem objects with video transcripts
         """
+        known_readable_ids = known_readable_ids or set()
 
         start_time = time.time()
 
@@ -86,7 +100,9 @@ class YouTubeFetcher:
                     logger.info(
                         f"Processing video {i}/{len(videos[: self.max_items])}: {video.get('title', 'Unknown')[:50]}..."
                     )
-                    item = self._process_video(video, source_id)
+                    item = self._process_video(
+                        video, source_id, known_readable_ids=known_readable_ids
+                    )
                     if item:
                         items.append(item)
                         logger.info(
@@ -171,7 +187,7 @@ class YouTubeFetcher:
         # — robust to titles containing '|' (which broke pipe-delimited parsing and
         # silently dropped affected videos) while keeping payload tiny (~210B/video).
         cmd = [
-            self.yt_dlp_path,
+            *self.yt_dlp_cmd,
             # yt-dlp otherwise reads user, home and working-directory config files,
             # which would change what prismis fetches from outside its config (#69).
             "--ignore-config",
@@ -263,19 +279,30 @@ class YouTubeFetcher:
             raise Exception("YouTube channel discovery timed out") from e
 
     def _process_video(
-        self, video: dict[str, Any], source_id: str
+        self,
+        video: dict[str, Any],
+        source_id: str,
+        known_readable_ids: set[str] | None = None,
     ) -> ContentItem | None:
         """Process a video to extract transcript and create ContentItem.
 
         Args:
             video: Video metadata dict
             source_id: Source UUID
+            known_readable_ids: external_ids already stored readably (SC-4) --
+                this video's transcript download is skipped when its URL is in
+                this set, since the orchestrator's dedup filter drops the result
+                either way.
 
         Returns:
             ContentItem with transcript or None if no transcript available
         """
         video_url = video["url"]
         video_title = video["title"]
+
+        if video_url in (known_readable_ids or set()):
+            logger.debug(f"Already stored readably, skipping download: {video_title}")
+            return self._handle_missing_transcript(video, source_id)
 
         logger.debug(f"Processing video: {video_title}")
 
@@ -311,7 +338,7 @@ class YouTubeFetcher:
 
             # Build yt-dlp command for transcript extraction
             cmd = [
-                self.yt_dlp_path,
+                *self.yt_dlp_cmd,
                 "--ignore-config",  # see _discover_channel_videos
                 "--write-auto-sub",  # Get auto-generated subtitles
                 "--write-sub",  # Also try manual subtitles
@@ -445,7 +472,7 @@ class YouTubeFetcher:
             external_id=video["url"],  # Use URL as external ID
             title=video["title"],
             url=video["url"],
-            content=f"Video title: {video['title']}\n\nNo transcript available for this video.",
+            content=format_youtube_no_transcript(video["title"]),
             published_at=self._parse_upload_date(video.get("upload_date")),
             fetched_at=datetime.now(UTC),
             priority="low",  # Mark as low priority since no transcript

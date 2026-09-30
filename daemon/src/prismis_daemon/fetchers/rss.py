@@ -7,11 +7,12 @@ from datetime import UTC, datetime, timedelta
 
 import feedparser
 import httpx
-from trafilatura import extract, fetch_url
 
+from ..article_extractor import extract_article
 from ..config import Config
 from ..models import ContentItem
 from ..observability import log as obs_log
+from ..readability import RSS_NO_CONTENT_FALLBACK
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +41,17 @@ class RSSFetcher:
         self.timeout = timeout
         self.client = httpx.Client(timeout=timeout, follow_redirects=True)
 
-    def fetch_content(self, source: dict) -> list[ContentItem]:
+    def fetch_content(
+        self, source: dict, known_readable_ids: set[str] | None = None
+    ) -> list[ContentItem]:
         """Fetch RSS feed and extract full content for each item.
 
         Args:
             source: Source dict with 'url' and 'id' keys
+            known_readable_ids: external_ids the orchestrator already has stored
+                readably (SC-4). An entry matching one of these skips the
+                trafilatura fetch entirely -- the orchestrator's own dedup filter
+                drops the result anyway, so the fetch would only be discarded work.
 
         Returns:
             List of ContentItem objects with full content extracted
@@ -52,6 +59,7 @@ class RSSFetcher:
         Raises:
             Exception: If feed parsing fails (wrapped with context)
         """
+        known_readable_ids = known_readable_ids or set()
         source_url = source.get("url", "")
         source_id = source.get("id", "")
         items = []
@@ -112,8 +120,14 @@ class RSSFetcher:
                         )
                         continue
 
-                    # Extract full article content with trafilatura
-                    content = self._extract_full_content(url, entry)
+                    # Extract full article content with trafilatura -- skipped for
+                    # an entry already stored readably (SC-4): the orchestrator's
+                    # dedup filter discards this item either way, so extracting
+                    # again would only be wasted network and CPU.
+                    if external_id in known_readable_ids:
+                        content = self._fallback_content(entry)
+                    else:
+                        content = self._extract_full_content(url, entry)
 
                     # Create ContentItem (use fetched_at if no published_at)
                     fetched_at = datetime.now(UTC)
@@ -233,7 +247,7 @@ class RSSFetcher:
         return None
 
     def _extract_full_content(self, url: str, entry: dict) -> str:
-        """Extract full article content using trafilatura.
+        """Extract full article content using the shared article extractor.
 
         Args:
             url: Article URL to fetch
@@ -242,32 +256,18 @@ class RSSFetcher:
         Returns:
             Full article text or summary/description as fallback
         """
-        try:
-            # Attempt to fetch and extract full content
-            logger.debug(f"Extracting full content from: {url}")
+        logger.debug(f"Extracting full content from: {url}")
+        content = extract_article(url)
+        if content:
+            logger.debug(f"Extracted {len(content)} chars from {url}")
+            return content
 
-            # Fetch the webpage (trafilatura doesn't support timeout param)
-            downloaded = fetch_url(url)
+        logger.debug(f"Trafilatura extraction failed for {url}, using fallback")
+        return self._fallback_content(entry)
 
-            if downloaded:
-                # Extract text content
-                content = extract(
-                    downloaded,
-                    include_comments=False,
-                    include_tables=True,
-                    no_fallback=False,
-                )
-
-                if content:
-                    logger.debug(f"Extracted {len(content)} chars from {url}")
-                    return content
-
-            logger.debug(f"Trafilatura extraction failed for {url}, using fallback")
-
-        except Exception as e:
-            logger.warning(f"Error extracting content from {url}: {e}")
-
-        # Fallback to RSS content
+    def _fallback_content(self, entry: dict) -> str:
+        """The feed entry's own content/summary/description, or the shared
+        no-content placeholder when none of those carry anything either."""
         fallback_content = ""
 
         # Try content field first
@@ -286,7 +286,7 @@ class RSSFetcher:
         if not fallback_content and entry.get("description"):
             fallback_content = entry["description"]
 
-        return fallback_content or "No content available"
+        return fallback_content or RSS_NO_CONTENT_FALLBACK
 
     def __del__(self):
         """Cleanup HTTP client on deletion."""

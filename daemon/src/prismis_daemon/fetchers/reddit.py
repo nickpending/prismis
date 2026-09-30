@@ -8,11 +8,13 @@ from typing import Any, cast
 
 import praw
 
+from ..article_extractor import extract_article
 from ..config import REDDIT_NOT_CONFIGURED, Config
 from ..http_deadline import DeadlineAdapter, deadline_session
 from ..praw_defaults import pin_praw_defaults
 from ..models import ContentItem
 from ..observability import log as obs_log
+from ..readability import format_reddit_link_only
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,14 @@ REDDIT_FETCH_BUDGET = 60.0
 
 class RedditNotConfiguredError(RuntimeError):
     """Raised when a Reddit fetch is attempted with no usable credentials."""
+
+
+def _is_reddit_domain(url: str) -> bool:
+    """Whether `url` points back at reddit itself -- another thread, a crosspost,
+    or one of reddit's own short links -- so a link post to it behaves as it does
+    today (no article fetch) rather than trafilatura scraping a Reddit page."""
+    normalized = url.lower()
+    return "reddit.com" in normalized or "redd.it" in normalized
 
 
 class RedditFetcher:
@@ -81,11 +91,17 @@ class RedditFetcher:
             logger.error(f"Failed to initialize Reddit client: {e}")
             self.reddit = None
 
-    def fetch_content(self, source: dict[str, Any]) -> list[ContentItem]:
+    def fetch_content(
+        self, source: dict[str, Any], known_readable_ids: set[str] | None = None
+    ) -> list[ContentItem]:
         """Fetch hot posts from a subreddit.
 
         Args:
             source: Source dict with 'url' (reddit URL) and 'id' (source UUID)
+            known_readable_ids: external_ids the orchestrator already has stored
+                readably (SC-4). A post matching one of these skips both the
+                comment read and the link-post article fetch -- the orchestrator's
+                own dedup filter drops the result anyway.
 
         Returns:
             List of ContentItem objects from Reddit posts
@@ -93,6 +109,7 @@ class RedditFetcher:
         Raises:
             Exception: If subreddit access fails
         """
+        known_readable_ids = known_readable_ids or set()
         if self.credentials_missing:
             raise RedditNotConfiguredError(REDDIT_NOT_CONFIGURED)
         if not self.reddit:
@@ -161,7 +178,9 @@ class RedditFetcher:
                     continue
 
                 # Convert to ContentItem
-                item = self._to_content_item(submission, source_id)
+                item = self._to_content_item(
+                    submission, source_id, known_readable_ids=known_readable_ids
+                )
                 items.append(item)
 
                 post_count += 1
@@ -344,18 +363,27 @@ class RedditFetcher:
             "author": str(submission.author) if submission.author else "[deleted]",
         }
 
-    def _to_content_item(self, submission, source_id: str) -> ContentItem:
+    def _to_content_item(
+        self,
+        submission,
+        source_id: str,
+        known_readable_ids: set[str] | None = None,
+    ) -> ContentItem:
         """Convert Reddit submission to ContentItem.
 
         Args:
             submission: PRAW submission object
             source_id: UUID of the source in database
+            known_readable_ids: external_ids already stored readably (SC-4) --
+                this post's comment read and link-post article fetch are skipped
+                when its external_id is in this set.
 
         Returns:
             Standardized ContentItem object
         """
         # Generate external_id from permalink (unique across Reddit)
         external_id = f"https://reddit.com{submission.permalink}"
+        already_readable = external_id in (known_readable_ids or set())
 
         # Get title
         title = submission.title
@@ -363,15 +391,26 @@ class RedditFetcher:
         # URL is the Reddit post URL
         url = f"https://reddit.com{submission.permalink}"
 
-        # For text posts, use selftext; for link posts, include URL in content
+        # For text posts, use selftext; for link posts, fetch the external
+        # article and include it alongside the link (SC-2). Images, videos and
+        # other reddit pages behave as before -- no fetch attempted. A failed
+        # extraction (or a post already stored readably, SC-4) leaves today's
+        # link-only content in place rather than dropping the item.
         content = ""
         if submission.is_self and submission.selftext:
             content = submission.selftext
         else:
-            content = f"Link: {submission.url}\n\n"
-            # If there's a text description with the link
+            content = f"{format_reddit_link_only(submission.url)}\n\n"
             if hasattr(submission, "selftext") and submission.selftext:
                 content += submission.selftext
+            elif (
+                not already_readable
+                and not self._is_image_post(submission)
+                and not _is_reddit_domain(submission.url)
+            ):
+                article_text = extract_article(submission.url)
+                if article_text:
+                    content += article_text
 
         # Handle deleted/missing content
         if (
@@ -381,8 +420,10 @@ class RedditFetcher:
         ):
             content = f"Link post to: {submission.url}"
 
-        # Fetch and append comments to content for LLM enrichment
-        comments = self._fetch_comments(submission)
+        # Fetch and append comments to content for LLM enrichment -- skipped for a
+        # post already stored readably (SC-4): the orchestrator's dedup filter
+        # discards this item either way, so reading comments would be wasted work.
+        comments = [] if already_readable else self._fetch_comments(submission)
         if comments:
             # Format comments as markdown discussion section with author attribution
             discussion = "\n\n## Discussion\n\n"

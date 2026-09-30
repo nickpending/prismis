@@ -31,9 +31,13 @@ dependencies = [
     "trafilatura",
     "typer",
     "uvicorn>=0.35.0",
-    # fetchers/youtube.py:39-42 hard-requires the yt-dlp binary on PATH and raises
-    # without it, so it is a runtime dependency, not an optional extra.
-    "yt-dlp",
+    # The `YouTubeFetcher.__init__` in fetchers/youtube.py runs yt-dlp as
+    # `<this interpreter> -m yt_dlp` from this environment (SC-5, gh #80) and
+    # raises if the package isn't importable here, so it is a runtime
+    # dependency, not an optional extra. [curl-cffi] adds yt-dlp's own
+    # browser-impersonation targets, which unblock the 429s yt-dlp got without
+    # them (gh #80's measured YouTube failures).
+    "yt-dlp[curl-cffi]",
     "openai>=3.19.2",
     "apiconf",
 ]

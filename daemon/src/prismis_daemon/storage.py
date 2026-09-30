@@ -650,6 +650,39 @@ class Storage:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get existing external_ids: {e}") from e
 
+    def get_readable_external_ids(self, source_id: str) -> set[str]:
+        """external_ids for `source_id` whose stored analysis marks them
+        readable -- title_only false or absent (SC-4).
+
+        The orchestrator hands this set (not `get_existing_external_ids`'s full
+        set) to the RSS/Reddit/YouTube fetchers so they skip re-extraction for
+        items already known to be real content, while a title-only item's
+        external_id stays out of this set so a later fetch cycle retries it.
+
+        Args:
+            source_id: UUID of the source to get readable external_ids for
+
+        Returns:
+            Set of external_id strings stored readably for the source
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            cursor = self.conn.execute(
+                """
+                SELECT external_id FROM content
+                WHERE source_id = ?
+                  AND (json_extract(analysis, '$.title_only') IS NULL
+                       OR json_extract(analysis, '$.title_only') = 0)
+                """,
+                (source_id,),
+            )
+            return {row[0] for row in cursor.fetchall()}
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get readable external_ids: {e}") from e
+
     def _get_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         """Find content by external_id (private helper method).
 

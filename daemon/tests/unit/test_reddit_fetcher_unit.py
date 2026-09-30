@@ -1,5 +1,8 @@
 """Unit tests for RedditFetcher logic functions."""
 
+import http.server
+import threading
+from collections.abc import Iterator
 from unittest.mock import Mock
 
 import pytest
@@ -9,6 +12,49 @@ from prismis_daemon.fetchers.reddit import RedditFetcher, RedditNotConfiguredErr
 from prismis_daemon.models import ContentItem
 
 from conftest import make_config
+
+_ARTICLE_HTML = b"""<!doctype html>
+<html><head><title>An External Article</title></head>
+<body><article>
+<h1>An External Article</h1>
+<p>This is a genuine article body, long enough for trafilatura's extraction
+heuristics to treat it as the main content rather than boilerplate chrome.</p>
+<p>A second paragraph adds enough additional real prose that the extracted text is
+unambiguously the article, not a stub.</p>
+</article></body></html>
+"""
+
+
+@pytest.fixture
+def link_post_article_server() -> Iterator[str]:
+    """A local server standing in for the external site a Reddit link post
+    points at (Principle I: real HTTP boundary, local server, not a mock)."""
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            if self.path == "/article":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Length", str(len(_ARTICLE_HTML)))
+                self.end_headers()
+                self.wfile.write(_ARTICLE_HTML)
+            else:
+                self.send_error(404)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    host, port = server.server_address[0], server.server_address[1]
+    assert isinstance(host, str)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://{host}:{port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
 
 
 def test_parse_subreddit_name_full_url() -> None:
@@ -232,16 +278,12 @@ def test_to_content_item_self_post() -> None:
     assert item.analysis["metrics"]["score"] == 25
 
 
-def test_to_content_item_link_post() -> None:
-    """Test ContentItem conversion for link posts."""
-    fetcher = RedditFetcher()
-
-    # Mock link post submission
+def _link_post_submission(url: str) -> Mock:
     submission = Mock()
     submission.permalink = "/r/programming/comments/456/cool_article/"
     submission.title = "Cool Programming Article"
     submission.is_self = False
-    submission.url = "https://example.com/programming-article"
+    submission.url = url
     submission.selftext = ""
     submission.created_utc = 1640995200
     submission.score = 100
@@ -251,6 +293,19 @@ def test_to_content_item_link_post() -> None:
     submission.subreddit.__str__ = lambda self: "programming"
     submission.author = Mock()
     submission.author.__str__ = lambda self: "developer456"
+    return submission
+
+
+def test_to_content_item_link_post_falls_back_to_link_only_on_failed_extraction(
+    no_network: None,
+) -> None:
+    """
+    SC-2: a failed extraction (here, every outbound request is routed at a proxy
+    port nothing listens on) falls back to today's link-only content rather than
+    dropping the item.
+    """
+    fetcher = RedditFetcher()
+    submission = _link_post_submission("https://example.com/programming-article")
 
     item = fetcher._to_content_item(submission, "test-source-id")
 
@@ -259,6 +314,93 @@ def test_to_content_item_link_post() -> None:
     assert item.url == "https://reddit.com/r/programming/comments/456/cool_article/"
     assert item.analysis is not None
     assert item.analysis["metrics"]["score"] == 100
+
+
+def test_to_content_item_link_post_fetches_the_external_article(
+    link_post_article_server: str,
+) -> None:
+    """
+    SC-2: the external article's text becomes part of the item's content
+    alongside the link, fetched with the same article extractor the RSS fetcher
+    uses.
+    BREAKS: A helper that never actually calls the extractor leaves the item's
+    content at "Link: <url>" even when the article was fetchable.
+    """
+    fetcher = RedditFetcher()
+    submission = _link_post_submission(f"{link_post_article_server}/article")
+
+    item = fetcher._to_content_item(submission, "test-source-id")
+
+    assert item.content is not None
+    assert item.content.startswith(f"Link: {link_post_article_server}/article")
+    assert "genuine article body" in item.content
+
+
+def test_to_content_item_link_post_skips_fetch_for_reddit_internal_link() -> None:
+    """
+    SC-2: a link post to another reddit page behaves as it does today -- no
+    article fetch attempted, content stays link-only.
+    """
+    fetcher = RedditFetcher()
+    submission = _link_post_submission(
+        "https://www.reddit.com/r/other/comments/999/crosspost/"
+    )
+
+    item = fetcher._to_content_item(submission, "test-source-id")
+
+    assert item.content == (
+        "Link: https://www.reddit.com/r/other/comments/999/crosspost/\n\n"
+    )
+
+
+def test_to_content_item_link_post_skips_fetch_for_image_link() -> None:
+    """SC-2: link posts to images behave as they do today -- no fetch attempted."""
+    fetcher = RedditFetcher()
+    submission = _link_post_submission("https://i.redd.it/abc123.jpg")
+
+    item = fetcher._to_content_item(submission, "test-source-id")
+
+    assert item.content == "Link: https://i.redd.it/abc123.jpg\n\n"
+
+
+class _TrackedComments:
+    """Records whether comment replacement was ever attempted, without the
+    swallow-everything try/except in `_fetch_comments` hiding the answer."""
+
+    def __init__(self) -> None:
+        self.accessed = False
+
+    def replace_more(self, limit: int | None = None) -> None:
+        self.accessed = True
+
+    def list(self) -> list:
+        return []
+
+
+def test_to_content_item_link_post_skip_known_readable_skips_article_and_comments(
+    link_post_article_server: str,
+) -> None:
+    """
+    SC-4: a post already stored readably gets no article fetch and no comment
+    read -- the orchestrator's dedup filter drops the result either way.
+    BREAKS: Threading known_readable_ids through only the article-fetch branch
+    (and not `_fetch_comments`) still reads comments for an item about to be
+    discarded, on every single fetch cycle it stays title-only.
+    """
+    fetcher = RedditFetcher()
+    submission = _link_post_submission(f"{link_post_article_server}/article")
+    tracked_comments = _TrackedComments()
+    submission.comments = tracked_comments
+    external_id = "https://reddit.com/r/programming/comments/456/cool_article/"
+
+    item = fetcher._to_content_item(
+        submission, "test-source-id", known_readable_ids={external_id}
+    )
+
+    assert item.content == f"Link: {link_post_article_server}/article\n\n"
+    assert tracked_comments.accessed is False, (
+        "SC-4: comments must not be read for a post already stored readably"
+    )
 
 
 def test_to_content_item_deleted_content() -> None:

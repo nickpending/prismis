@@ -1,0 +1,56 @@
+{
+  "artifact": [
+    "docs/work/readable-content/results/plan-1.json"
+  ],
+  "verified": false,
+  "jobs": [
+    {
+      "number": 1,
+      "title": "Readable-content pipeline: shared readability check, shared article extractor, Reddit link-post fetch, title_only flag + deep-extraction gate, known-readable skip/readmit dedup, and yt-dlp run from the daemon's own environment",
+      "files": [
+        "daemon/src/prismis_daemon/readability.py",
+        "daemon/src/prismis_daemon/article_extractor.py",
+        "daemon/src/prismis_daemon/fetchers/rss.py",
+        "daemon/src/prismis_daemon/fetchers/reddit.py",
+        "daemon/src/prismis_daemon/fetchers/youtube.py",
+        "daemon/src/prismis_daemon/analysis.py",
+        "daemon/src/prismis_daemon/orchestrator.py",
+        "daemon/src/prismis_daemon/storage.py",
+        "cli/src/cli/analyze.py",
+        "daemon/pyproject.toml",
+        "daemon/uv.lock",
+        "cli/uv.lock",
+        "daemon/tests/unit/test_readability_unit.py",
+        "daemon/tests/unit/test_article_extractor_unit.py",
+        "daemon/tests/unit/test_reddit_fetcher_unit.py",
+        "daemon/tests/unit/test_fetcher_unit.py",
+        "daemon/tests/unit/test_youtube_fetcher_unit.py",
+        "daemon/tests/unit/test_title_only_unit.py",
+        "daemon/tests/unit/test_storage_deduplication_unit.py",
+        "daemon/tests/integration/test_fetch_dedup_readmit_integration.py",
+        "cli/tests/unit/test_analyze_kinds_unit.py"
+      ],
+      "depends": [],
+      "delivers": ["SC-1", "SC-2", "SC-3", "SC-4", "SC-5", "SC-7"],
+      "red": true
+    },
+    {
+      "number": 2,
+      "title": "title_only marker in the TUI feed row/reader and the web UI card, read the same way each already reads kind",
+      "files": [
+        "tui/internal/ui/reader.go",
+        "tui/internal/ui/reader_test.go",
+        "tui/internal/ui/feed.go",
+        "tui/internal/ui/feed_test.go",
+        "daemon/src/prismis_daemon/api.py",
+        "daemon/src/prismis_daemon/api_models.py",
+        "daemon/src/prismis_daemon/static/index.html",
+        "daemon/tests/unit/test_web_title_only_unit.py",
+        "daemon/tests/integration/test_api_title_only_integration.py"
+      ],
+      "depends": [],
+      "delivers": ["SC-6"],
+      "red": true
+    }
+  ]
+}

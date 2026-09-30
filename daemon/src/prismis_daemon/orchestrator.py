@@ -12,6 +12,7 @@ from .deep_extractor import ContentDeepExtractor
 from .embeddings import Embedder
 from .evaluator import ContentEvaluator
 from .kind_classifier import KindClassifier
+from .models import ContentItem
 from .notifier import Notifier
 from .observability import log as obs_log
 from .readability import is_readable
@@ -102,6 +103,192 @@ class DaemonOrchestrator:
         if auto_extract == "high":
             return priority == "high"
         return False
+
+    def analyze_and_store_item(
+        self,
+        item: ContentItem,
+        source: dict[str, Any],
+        learned_preferences: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Summarize, evaluate and store one item; return what was stored.
+
+        The per-item pipeline shared by the fetch loop and (job 2) refetch:
+        summarize, evaluate, build_llm_analysis, merge with fetcher metrics,
+        kind classification, the deep-extraction gate (skipped for a
+        title_only item), create_or_update_content, embedding.
+
+        Kind classification and deep extraction failures never raise
+        (INV-002): each is caught here and reported back in the return dict
+        for the caller to fold into its own stats, rather than failing the
+        item.
+
+        Args:
+            item: ContentItem with content, title, url and any fetcher
+                analysis (e.g. metrics) already set.
+            source: Source dict with at least "type" and "name".
+            learned_preferences: Optional learned preferences for the evaluator.
+
+        Returns:
+            None if summarization returned nothing (nothing was stored,
+            mirroring the fetch loop's own skip). Otherwise a dict with
+            content_id, is_new, item_dict, priority, evaluation,
+            merged_analysis, kind_classify_failure and deep_extract_failure
+            (the last two None when nothing failed).
+        """
+        source_type = source.get("type", "rss")
+
+        metadata = item.analysis.get("metrics", {}) if item.analysis else {}
+
+        summary_result = self.summarizer.summarize_with_analysis(
+            content=item.content or "",
+            title=item.title,
+            url=item.url,
+            source_type=source_type,
+            source_name=source.get("name", ""),
+            metadata=metadata,
+        )
+
+        if not summary_result:
+            return None
+
+        mode = summary_result.metadata.get("summarization_mode", "standard")
+        word_count = summary_result.metadata.get("word_count", 0)
+        self.console.print(
+            f"       📝 Summarized with [cyan]{mode}[/cyan] mode ({word_count:,} words)"
+        )
+
+        evaluation = self.evaluator.evaluate_content(
+            content=item.content or "",
+            title=item.title,
+            url=item.url,
+            context=self.config.context,
+            learned_preferences=learned_preferences,
+        )
+
+        llm_analysis = build_llm_analysis(summary_result, evaluation, item.content)
+
+        existing_analysis = item.analysis or {}
+        merged_analysis = self._merge_analysis(existing_analysis, llm_analysis)
+
+        # Kind classification (gh #77), after the light pass. Failure must NEVER
+        # raise into the pipeline (INV-002): caught below and returned for the
+        # caller to record, while the item still stores with its light summary
+        # and priority, just with no kind key in its analysis. No classifier
+        # configured means no call at all (SC-4).
+        kind_classify_failure: str | None = None
+        if self.kind_classifier:
+            try:
+                kind_result = self.kind_classifier.classify(
+                    title=item.title,
+                    source_type=source_type,
+                    source_name=source.get("name", ""),
+                    summary=summary_result.summary or "",
+                    reading_summary=summary_result.reading_summary or "",
+                    raw_content=item.content or "",
+                )
+                merged_analysis["kind"] = kind_result.kind
+                merged_analysis["kind_confidence"] = kind_result.confidence
+            except Exception as e:
+                kind_classify_failure = (
+                    f"Kind classification failed for '{item.title}': {e}"
+                )
+                logger.warning(kind_classify_failure)
+                self.console.print(
+                    f"       ⚠️  Kind classification failed: {e}",
+                    style="yellow",
+                )
+                # Do NOT re-raise — pipeline continues without a kind (INV-002)
+
+        item_dict = item.to_dict()
+        # File sources always HIGH priority (user explicitly added)
+        priority = (
+            item.priority
+            if source_type == "file" and item.priority
+            else (evaluation.priority.value if evaluation.priority else None)
+        )
+        item_dict.update(
+            {
+                "summary": summary_result.summary,
+                "analysis": merged_analysis,
+                "priority": priority,
+            }
+        )
+
+        # Deep extraction gate. Failure must NEVER raise into the pipeline
+        # (INV-002): caught below and returned, logging and continuing with
+        # the light summary only. A title-only item never deep-extracts
+        # (SC-3) even when its priority passes the gate below -- there is no
+        # real content underneath the light summary to synthesize further.
+        deep_extract_failure: str | None = None
+        if (
+            self.deep_extractor
+            and not merged_analysis.get("title_only")
+            and self._should_deep_extract(
+                priority,
+                self.config.auto_extract,
+                source_type,
+                self.config.deep_extract_exclude,
+            )
+        ):
+            try:
+                extraction = self.deep_extractor.extract(
+                    content=item.content or "",
+                    title=item.title,
+                    url=item.url,
+                )
+                if extraction:
+                    merged_analysis["deep_extraction"] = extraction
+                    item_dict["analysis"] = merged_analysis
+                    self.console.print("       🧠 Deep extraction added")
+            except Exception as e:
+                # Not raised (INV-002), but returned: without this the
+                # light-only item is indistinguishable from one that was
+                # never meant to be deep-extracted (#72).
+                deep_extract_failure = f"Deep extraction failed for '{item.title}': {e}"
+                logger.warning(deep_extract_failure)
+                self.console.print(
+                    f"       ⚠️  Deep extraction failed: {e}",
+                    style="yellow",
+                )
+                # Do NOT re-raise — pipeline continues with light summary only (INV-002)
+
+        content_id, is_new = self.storage.create_or_update_content(item_dict)
+
+        # Generate and store embedding for semantic search. Uses summary +
+        # synthesis (when present) so search reflects the richer
+        # deep-extraction text.
+        try:
+            text_for_embedding = summary_result.summary or item.content or ""
+            synth = merged_analysis.get("deep_extraction", {}).get("synthesis")
+            if synth:
+                text_for_embedding = f"{text_for_embedding}\n\n{synth}"
+            embedding = self.embedder.generate_embedding(
+                text=text_for_embedding,
+                title=item.title,
+            )
+            self.storage.add_embedding(content_id, embedding)
+            self.console.print(
+                f"       🔗 Indexed for semantic search ({len(embedding)} dims)"
+            )
+        except Exception as embed_error:
+            # Log embedding failure but don't block content storage
+            logger.warning(
+                f"Failed to generate embedding for {content_id}: {embed_error}"
+            )
+            self.console.print(
+                "       ⚠️  Embedding generation failed", style="yellow"
+            )
+
+        return {
+            "content_id": content_id,
+            "is_new": is_new,
+            "item_dict": item_dict,
+            "priority": priority,
+            "evaluation": evaluation,
+            "merged_analysis": merged_analysis,
+            "kind_classify_failure": kind_classify_failure,
+            "deep_extract_failure": deep_extract_failure,
+        }
 
     def fetch_source_content(
         self,
@@ -296,169 +483,29 @@ class DaemonOrchestrator:
                             stats["items_new"] += 1
                         continue
 
-                    # Pass source name and metadata for context
-                    metadata = {}
-                    if hasattr(item, "analysis") and item.analysis:
-                        metadata = item.analysis.get("metrics", {})
-
-                    summary_result = self.summarizer.summarize_with_analysis(
-                        content=item.content,
-                        title=item.title,
-                        url=item.url,
-                        source_type=source.get("type", "rss"),
-                        source_name=source.get("name", ""),
-                        metadata=metadata,
+                    # Steps 3b-3f: summarize, evaluate, build_llm_analysis, merge
+                    # with fetcher metrics, kind classification, the
+                    # deep-extraction gate, storage and embedding all live in
+                    # one method shared with refetch (SC-1).
+                    result = self.analyze_and_store_item(
+                        item, source, learned_preferences
                     )
-
-                    if not summary_result:
+                    if result is None:
                         # Skip if summarization failed
                         continue
 
-                    # Show summarization mode
-                    mode = summary_result.metadata.get("summarization_mode", "standard")
-                    word_count = summary_result.metadata.get("word_count", 0)
-                    self.console.print(
-                        f"       📝 Summarized with [cyan]{mode}[/cyan] mode ({word_count:,} words)"
-                    )
-
-                    # Step 3b: Evaluate priority against user context
-                    evaluation = self.evaluator.evaluate_content(
-                        content=item.content,
-                        title=item.title,
-                        url=item.url,
-                        context=self.config.context,
-                        learned_preferences=learned_preferences,
-                    )
-
-                    # Step 3c: Build LLM analysis data
-                    llm_analysis = build_llm_analysis(
-                        summary_result, evaluation, item.content
-                    )
-
-                    # Step 3d: Merge with existing analysis (preserve fetcher metrics)
-                    existing_analysis = item.analysis or {}
-                    merged_analysis = self._merge_analysis(
-                        existing_analysis, llm_analysis
-                    )
-
-                    # Step 3d-bis: Kind classification (gh #77), after the light pass.
-                    # Failure must NEVER raise into the pipeline (INV-002): the except
-                    # clause records the failure in stats and continues -- the item is
-                    # still stored with its light summary and priority, just with no
-                    # kind key in its analysis. No classifier configured means no call
-                    # at all (SC-4).
-                    if self.kind_classifier:
-                        try:
-                            kind_result = self.kind_classifier.classify(
-                                title=item.title,
-                                source_type=source.get("type", "rss"),
-                                source_name=source.get("name", ""),
-                                summary=summary_result.summary or "",
-                                reading_summary=summary_result.reading_summary or "",
-                                raw_content=item.content or "",
-                            )
-                            merged_analysis["kind"] = kind_result.kind
-                            merged_analysis["kind_confidence"] = kind_result.confidence
-                        except Exception as e:
-                            error_msg = (
-                                f"Kind classification failed for '{item.title}': {e}"
-                            )
-                            stats["kind_classify_failures"].append(error_msg)
-                            logger.warning(error_msg)
-                            self.console.print(
-                                f"       ⚠️  Kind classification failed: {e}",
-                                style="yellow",
-                            )
-                            # Do NOT re-raise — pipeline continues without a kind (INV-002)
-
-                    # Step 3e: Convert ContentItem to dict and add merged analysis
-                    item_dict = item.to_dict()
-                    # File sources always HIGH priority (user explicitly added)
-                    priority = (
-                        item.priority
-                        if source.get("type") == "file" and item.priority
-                        else (
-                            evaluation.priority.value if evaluation.priority else None
+                    if result["kind_classify_failure"]:
+                        stats["kind_classify_failures"].append(
+                            result["kind_classify_failure"]
                         )
-                    )
-                    item_dict.update(
-                        {
-                            "summary": summary_result.summary,
-                            "analysis": merged_analysis,
-                            "priority": priority,
-                        }
-                    )
+                    if result["deep_extract_failure"]:
+                        stats["deep_extract_failures"].append(
+                            result["deep_extract_failure"]
+                        )
 
-                    # Step 3e-bis: Deep extraction gate.
-                    # Failure must NEVER raise into the pipeline (INV-002):
-                    # the except clause logs and continues with light summary only.
-                    # A title-only item never deep-extracts (SC-3) even when its
-                    # priority passes the gate below -- there is no real content
-                    # underneath the light summary to synthesize further.
-                    if (
-                        self.deep_extractor
-                        and not merged_analysis.get("title_only")
-                        and self._should_deep_extract(
-                            priority,
-                            self.config.auto_extract,
-                            source_type,
-                            self.config.deep_extract_exclude,
-                        )
-                    ):
-                        try:
-                            extraction = self.deep_extractor.extract(
-                                content=item.content,
-                                title=item.title,
-                                url=item.url,
-                            )
-                            if extraction:
-                                merged_analysis["deep_extraction"] = extraction
-                                item_dict["analysis"] = merged_analysis
-                                self.console.print("       🧠 Deep extraction added")
-                        except Exception as e:
-                            # Not raised (INV-002), but returned: without this the
-                            # light-only item is indistinguishable from one that was
-                            # never meant to be deep-extracted (#72).
-                            error_msg = f"Deep extraction failed for '{item.title}': {e}"
-                            stats["deep_extract_failures"].append(error_msg)
-                            logger.warning(error_msg)
-                            self.console.print(
-                                f"       ⚠️  Deep extraction failed: {e}",
-                                style="yellow",
-                            )
-                            # Do NOT re-raise — pipeline continues with light summary only (INV-002)
-
-                    # Step 3e: Store with deduplication tracking
-                    content_id, is_new = self.storage.create_or_update_content(
-                        item_dict
-                    )
-
-                    # Step 3f: Generate and store embedding for semantic search
-                    try:
-                        # Use summary + synthesis (when present) so search reflects
-                        # the richer deep-extraction text.
-                        text_for_embedding = summary_result.summary or item.content
-                        synth = merged_analysis.get("deep_extraction", {}).get(
-                            "synthesis"
-                        )
-                        if synth:
-                            text_for_embedding = f"{text_for_embedding}\n\n{synth}"
-                        embedding = self.embedder.generate_embedding(
-                            text=text_for_embedding,
-                            title=item.title,
-                        )
-                        self.storage.add_embedding(content_id, embedding)
-                        self.console.print(
-                            f"       🔗 Indexed for semantic search ({len(embedding)} dims)"
-                        )
-                    except Exception as embed_error:
-                        # Log embedding failure but don't block content storage
-                        logger.warning(
-                            f"Failed to generate embedding for {content_id}: {embed_error}"
-                        )
-                        self.console.print(
-                            "       ⚠️  Embedding generation failed", style="yellow"
-                        )
+                    is_new = result["is_new"]
+                    item_dict = result["item_dict"]
+                    evaluation = result["evaluation"]
 
                     if is_new:
                         stats["items_new"] += 1

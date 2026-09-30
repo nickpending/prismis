@@ -1,6 +1,7 @@
 """Content summarization with rich analysis extraction using LLM."""
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,6 +28,23 @@ class ContentSummary:
     tools: list[str]  # Novel/interesting tools and libraries mentioned
     urls: list[str]  # URLs referenced in the content
     metadata: dict[str, Any]
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _tools_named_in(tools: list[Any], content: str) -> list[str]:
+    """Keep only the tools the content actually names (gh #78: extracted tools the
+    content never mentions are invented). Compared with case and punctuation removed,
+    so "kotlin-compose" still matches "Kotlin Compose"."""
+    haystack = _squash(content)
+    kept = [
+        t for t in tools if isinstance(t, str) and _squash(t) and _squash(t) in haystack
+    ]
+    if len(kept) < len(tools):
+        logger.debug(f"Dropped {len(tools) - len(kept)} tool(s) not named in content")
+    return kept
 
 
 class ContentSummarizer:
@@ -123,7 +141,7 @@ class ContentSummarizer:
                     return None
 
             # Ensure optional fields exist with defaults
-            parsed.setdefault("tools", [])
+            parsed["tools"] = _tools_named_in(parsed.get("tools") or [], content)
             parsed.setdefault("urls", [])
 
             # Create ContentSummary object
@@ -257,27 +275,13 @@ EXAMPLES of NON-QUOTES (never extract these):
 REMEMBER: Better to have zero quotes than to extract mundane sentences. Only the gems.
 
 STEP 4: EXTRACT SUBSTANTIVE TOOLS
-Extract tools that are discussed SUBSTANTIVELY in the content.
+A tool is named software a reader could go and get: an application, CLI, library, framework, service or platform. List one when the content is substantively about it: building, using, reviewing, demoing, announcing, promoting, comparing or recommending it, or explaining what it does. Hype counts; a bare mention does not.
 
-Only include tools that meet these criteria:
-- The article explains what problem they solve or why they're useful
-- The author has actually used them or provides meaningful insight about them
-- They are central to the article's discussion (not just mentioned in passing)
-- The content provides enough context for a reader to understand WHY they'd want to investigate this tool
+If the content's main subject is a tool, list that tool first. Name the tool itself, not its parts or features.
 
-Examples of substantive discussion:
-- "We switched to X because Y wasn't handling Z use case, and here's what we learned..."
-- "Tool X solves the problem of Y by doing Z differently than existing approaches..."
-- "I've been experimenting with X and found it reduces Y by 50%..."
+Not tools: AI models themselves (gpt-5, opus, llama-3; apps built on them, like ChatGPT or Claude Code, are tools), a product's features or settings, and names from code (functions, variables, flags).
 
-DO NOT include tools that are:
-- Just mentioned in a list without context
-- Part of standard tech stacks unless specifically discussed
-- Referenced without explanation of their purpose or benefits
-- Obvious or well-known unless the article provides new insights about them
-
-Maximum 5 tools to keep focused on the most valuable ones
-Format: lowercase unless it's a proper name
+Copy each name as the content writes it. Maximum 5. Empty when nothing qualifies.
 
 STEP 5: FIND REFERENCED URLS
 Extract actual URLs referenced or linked WITHIN the content.

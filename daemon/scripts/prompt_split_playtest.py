@@ -30,6 +30,7 @@ import argparse
 import json
 import random
 import re
+import sqlite3
 import statistics
 import subprocess
 import sys
@@ -107,15 +108,45 @@ def _call(service: str, system_prompt: str, user_prompt: str, action: str) -> di
     }
 
 
+def items_by_id(db_path: Path, ids_from: Path) -> list[dict]:
+    """The exact items an earlier run used, so a re-measure compares like with like.
+
+    sample_items draws from the live database, so the same seed picks different
+    items once new content has arrived.
+    """
+    ids = [json.loads(line)["id"] for line in ids_from.open()]
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = {
+            r["id"]: dict(r)
+            for r in conn.execute(
+                "SELECT c.id, c.title, c.url, c.content, c.summary, c.priority,"
+                " c.analysis, s.type AS source_type, s.name AS source_name"
+                " FROM content c JOIN sources s ON s.id = c.source_id"
+                f" WHERE c.id IN ({','.join('?' * len(ids))})",
+                ids,
+            )
+        }
+    finally:
+        conn.close()
+    missing = [i for i in ids if i not in rows]
+    if missing:
+        raise SystemExit(f"{len(missing)} item(s) no longer in the database: {missing}")
+    return [rows[i] for i in ids]
+
+
 def generate(args: argparse.Namespace) -> int:
     from prismis_daemon.summarizer import ContentSummarizer
 
     summarizer = ContentSummarizer(args.service)
-    items = [
-        i
-        for i in sample_items(args.db, args.per_stratum, args.seed)
-        if i["source_type"] != "file"  # file sources use the diff prompt, no STEPs
-    ]
+    sampled = (
+        items_by_id(args.db, args.ids_from)
+        if args.ids_from
+        else sample_items(args.db, args.per_stratum, args.seed)
+    )
+    # file sources use the diff prompt, which has no STEPs to split
+    items = [i for i in sampled if i["source_type"] != "file"]
     calls = 1 if args.single_only else 1 + len(GROUPS)
     print(f"{len(items)} items, {calls} calls each, service {args.service}")
 
@@ -376,6 +407,11 @@ def main() -> int:
     gen.add_argument("--seed", type=int, default=1337)
     gen.add_argument("--db", type=Path, default=DEFAULT_DB)
     gen.add_argument("--out", type=Path, required=True)
+    gen.add_argument(
+        "--ids-from",
+        type=Path,
+        help="re-run exactly the items in an earlier run's JSONL instead of sampling",
+    )
     gen.add_argument(
         "--single-only",
         action="store_true",

@@ -256,3 +256,43 @@ def test_summarize_records_success_and_closes_a_half_open_circuit() -> None:
         assert circuit.state == CircuitState.CLOSED
     finally:
         reset_circuit_breaker()
+
+
+def test_summarize_with_analysis_drops_tools_the_content_never_names() -> None:
+    """gh #78: a tool the content never mentions is invented, so it is dropped; a
+    tool the content names survives even when case and punctuation differ."""
+    reset_circuit_breaker()
+    summarizer = ContentSummarizer(SERVICE)
+
+    fake_result = MagicMock()  # claudex-guard: allow-mock
+    fake_result.text = json.dumps(
+        {
+            "summary": "s",
+            "reading_summary": "# r",
+            "alpha_insights": [],
+            "patterns": [],
+            "quotes": [],
+            "tools": ["kotlin-compose", "ripgrep", "invented-tool"],
+            "urls": [],
+        }
+    )
+    fake_result.tokens.input = 1
+    fake_result.tokens.output = 1
+    fake_result.cost = 0.0
+    fake_result.model = "m"
+    fake_result.duration_ms = 1
+
+    try:
+        with patch(_LLM_COMPLETE_MOCK) as mock_complete:  # claudex-guard: allow-mock
+            mock_complete.return_value = fake_result
+            result = summarizer.summarize_with_analysis(
+                content="We moved the UI to Kotlin Compose and search with ripgrep.",
+                title="t",
+                url="https://example.com",
+                source_type="rss",
+            )
+    finally:
+        reset_circuit_breaker()
+
+    assert result is not None
+    assert result.tools == ["kotlin-compose", "ripgrep"]

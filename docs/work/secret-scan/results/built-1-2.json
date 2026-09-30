@@ -1,0 +1,21 @@
+{
+  "artifact": [
+    ".specify/verify.sh",
+    ".gitleaks.toml",
+    "README.md"
+  ],
+  "verified": true,
+  "findings": [
+    "F-1-1",
+    "F-1-2",
+    "F-1-3"
+  ],
+  "unreproduced": [
+    "F-1-1"
+  ],
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-aa6d3b7724e3c3631",
+    "branch": "worktree-agent-aa6d3b7724e3c3631",
+    "base": "main"
+  }
+}

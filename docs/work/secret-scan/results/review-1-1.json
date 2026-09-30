@@ -1,0 +1,40 @@
+{
+  "searched": [
+    "docs/work/secret-scan/job-1.diff",
+    "docs/work/secret-scan/work-order.json",
+    "docs/work/secret-scan/results/plan.json",
+    "docs/work/secret-scan/results/plan-1.json",
+    "docs/work/secret-scan/results/built-1-1.json",
+    "docs/work/secret-scan/journal.jsonl",
+    "docs/work/*/journal.jsonl (cross-check for prior 'gitleaks' / 'duplication(.)' occurrences in verified records)",
+    ".specify/verify.sh (main, pre-diff)",
+    ".claude/worktrees/agent-aa6d3b7724e3c3631/.specify/verify.sh (post-diff, job's own worktree)",
+    ".claude/worktrees/agent-aa6d3b7724e3c3631/.gitleaks.toml",
+    "daemon/tests/unit/test_dep_pin_unit.py",
+    "daemon/tests/unit/test_llm_startup_validation_unit.py",
+    "daemon/tests/integration/test_context_assistant.py",
+    "/opt/homebrew/Cellar/gitleaks/8.30.1/bin/gitleaks (embedded strings: source-type symbols, default allowlist regexes)",
+    "repository filesystem: daemon/.venv, .claude/worktrees/*, node_modules, *.db globs"
+  ],
+  "exhaustive": true,
+  "findings": [
+    {
+      "file": "docs/work/secret-scan/journal.jsonl",
+      "line": 7,
+      "summary": "SC-1 (delivered by this job) requires that gitleaks 'appears in the gate's covered list'. The gate's own verified record for job 1 lists covered checks (typecheck/lint/tests per package, duplication(.)) and does not include 'gitleaks(.)' anywhere in covered, uncovered, or failed — the step job 1 added to .specify/verify.sh has no record of ever executing. A sweep of every other work order's journal in docs/work/ shows 'gitleaks(.)' has never appeared in any verified record's covered or failed list, and no test in this diff (the plant-and-check script is job 2, not yet built) exercises it either. SC-1's own criterion for this job is unproven by anything in evidence.",
+      "severity": "high"
+    },
+    {
+      "file": ".specify/verify.sh",
+      "line": 117,
+      "summary": "The new 'gitleaks dir \"$ROOT\"' invocation has no path exclusion at all, unlike every other unit-discovery loop in this same file, which explicitly excludes \"$ROOT/.claude/worktrees/*\" (see the comment at line 64-67 citing workshop#40: a live sibling worktree gets adopted as units of the main checkout). gitleaks' 'dir' source mode is a raw filesystem walk (confirmed via the embedded 'path/filepath.WalkDir' symbol and the distinct 'sources.Files' vs 'sources.Git'/'sources.GitCmd' types in the installed v8.30.1 binary) that does not consult git or .gitignore, and the binary's own default allowlist path regex for virtualenvs ('(?:^|/)(?:v?env|virtualenv)/lib...') requires an undotted 'venv'/'env' segment, so it does not match this repo's dotted '.venv' convention. On this tree, daemon/.venv alone holds 35,000+ untracked files, and there are currently four live '.claude/worktrees/*' sibling checkouts (each with its own .venv and caches) present on disk. Nothing in this job's .gitleaks.toml or the verify.sh invocation excludes any of it, so 'gitleaks dir' will walk all of it on every gate run — reproducing, for secret-scanning, the exact defect (find adopting a sibling worktree) the codebase already fixed once for the other unit-discovery loops. This also directly answers the coordinator's first question: 'gitleaks dir' does scan gitignored/untracked paths that 'gitleaks git' (CI, tracked-history only) never sees, so the local gate and CI can disagree, and the local gate additionally risks scanning another in-flight job's uncommitted worktree content.",
+      "severity": "high"
+    },
+    {
+      "file": ".gitleaks.toml",
+      "line": 20,
+      "summary": "The allowlist regexes under generic-api-key (lines 20-32) and curl-auth-header (line 38-40) are literal fake-value strings with no '^'/'$' anchors, evaluated with regexTarget = \"match\". gitleaks' allowlist regex check is an unanchored substring test (Go regexp.MatchString), not a full-value equality test, so any extracted secret that merely contains one of these literals as a substring — e.g. a longer, more-entropic real key formed by appending characters after one of the fake values — would also be silently allowlisted. This falls short of the work order's stake that allowlists stay 'narrow: exact fake values or fingerprints ... so a real key pasted into a test file is still caught': as written, a real key sharing a prefix with a fixture is not guaranteed to be caught.",
+      "severity": "medium"
+    }
+  ]
+}

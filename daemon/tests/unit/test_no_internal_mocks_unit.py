@@ -60,9 +60,27 @@ def _dotted(node: ast.expr) -> str | None:
     return None
 
 
+def _module_strings(tree: ast.Module) -> dict[str, str]:
+    """Module-level `NAME = "..."` constants, so `patch(NAME)` is read like the literal (gh #81)."""
+    strings: dict[str, str] = {}
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign):
+            targets, value = stmt.targets, stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            targets, value = [stmt.target], stmt.value
+        else:
+            continue
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    strings[target.id] = value.value
+    return strings
+
+
 class _Scanner(ast.NodeVisitor):
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, strings: dict[str, str] | None = None) -> None:
         self.path = path
+        self.strings = strings or {}
         self.own_names: set[str] = set()
         self.local_functions: set[str] = set()
         self.violations: list[Violation] = []
@@ -82,6 +100,14 @@ class _Scanner(ast.NodeVisitor):
         if node.module and _is_own(node.module) and node.level == 0:
             for alias in node.names:
                 self.own_names.add(alias.asname or alias.name)
+
+    def _string(self, node: ast.expr) -> str | None:
+        """A string argument, whether written literally or through a module constant."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name):
+            return self.strings.get(node.id)
+        return None
 
     def _own_root(self, node: ast.expr) -> str | None:
         """The dotted name of node when it is rooted in something from our packages."""
@@ -131,25 +157,28 @@ class _Scanner(ast.NodeVisitor):
         func = _dotted(node.func) or ""
         name = func.rsplit(".", 1)[-1]
         args = node.args
-        if name == "patch" and args and isinstance(args[0], ast.Constant):
-            target = str(args[0].value)
-            if _is_own(target):
+        if name == "patch" and args:
+            target = self._string(args[0])
+            if target and _is_own(target):
                 self._flag(node, target)
         elif (func.endswith("patch.object") or name == "setattr") and args:
             first = args[0]
             # monkeypatch.setattr("pkg.mod.x", v) names its target as one string.
-            if isinstance(first, ast.Constant) and _is_own(str(first.value)):
-                self._flag(node, str(first.value))
-            elif len(args) >= 2 and isinstance(args[1], ast.Constant):
+            whole = self._string(first)
+            attr = self._string(args[1]) if len(args) >= 2 else None
+            if whole and _is_own(whole):
+                self._flag(node, whole)
+            elif attr:
                 root = self._own_root(first)
                 if root:
-                    self._flag(node, f"{root}.{args[1].value!s}")
+                    self._flag(node, f"{root}.{attr}")
         self.generic_visit(node)
 
 
 def scan(path: Path) -> list[Violation]:
-    scanner = _Scanner(path)
-    scanner.visit(ast.parse(path.read_text(), filename=str(path)))
+    tree = ast.parse(path.read_text(), filename=str(path))
+    scanner = _Scanner(path, _module_strings(tree))
+    scanner.visit(tree)
     return scanner.violations
 
 
@@ -202,8 +231,27 @@ def test_no_test_patches_prismis_internals() -> None:
             'def t(monkeypatch):\n    monkeypatch.setattr("cli.extract.APIClient", object)\n',
             "cli.extract.APIClient",
         ),
+        (
+            "from unittest.mock import patch\n"
+            '_TARGET = "prismis_daemon.storage.get_db_connection"\n'
+            "def t():\n    with patch(_TARGET):\n        pass\n",
+            "prismis_daemon.storage.get_db_connection",
+        ),
+        (
+            "from unittest.mock import patch\nfrom prismis_daemon.storage import Storage\n"
+            '_METHOD: str = "get_active_sources"\n'
+            "def t():\n    with patch.object(Storage, _METHOD):\n        pass\n",
+            "Storage.get_active_sources",
+        ),
     ],
-    ids=["patch-string", "patch-object", "attribute-lambda", "monkeypatch-string"],
+    ids=[
+        "patch-string",
+        "patch-object",
+        "attribute-lambda",
+        "monkeypatch-string",
+        "patch-constant",
+        "patch-object-constant",
+    ],
 )
 def test_guard_detects_a_planted_internal_patch(
     source: str, target: str, tmp_path: Path

@@ -807,6 +807,51 @@ class Storage:
             since_str = since.isoformat() if since else "beginning"
             raise sqlite3.Error(f"Failed to get content since {since_str}: {e}") from e
 
+    def get_distinct_kinds(self, since: datetime | None = None) -> list[str]:
+        """Get the sorted, de-duplicated kind values present in non-archived
+        content (SC-1, gh #84).
+
+        Mirrors the TUI's GetDistinctKinds (tui/internal/db/queries.go:581-611),
+        scoped to non-archived only -- the web UI has no archived view to toggle,
+        so unlike the TUI's showArchived flag this always excludes archived rows.
+        json_valid guards json_extract against a row whose analysis is empty or
+        not JSON at all (a classifier failure or a pre-classification item, per
+        INV-002) -- without it, one such row would error the whole query instead
+        of just being skipped. A null or missing "kind" key (unclassified) is
+        excluded by the IS NOT NULL check, same as the TUI's version.
+
+        Args:
+            since: Only consider content fetched after this instant. If None,
+                considers all non-archived content regardless of time.
+
+        Returns:
+            Sorted list of kind strings (e.g. ["news", "release", "tutorial"]).
+            Empty list, not an error, when nothing qualifies.
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            query = """
+                SELECT DISTINCT json_extract(analysis, '$.kind') AS kind
+                FROM content
+                WHERE archived_at IS NULL
+                  AND json_valid(analysis)
+                  AND json_extract(analysis, '$.kind') IS NOT NULL
+                  AND json_extract(analysis, '$.kind') != ''
+            """
+            params: list[Any] = []
+            if since is not None:
+                query += " AND datetime(fetched_at) > datetime(?)"
+                params.append(since.isoformat())
+            query += " ORDER BY kind"
+
+            cursor = self.conn.execute(query, tuple(params))
+            return [row["kind"] for row in cursor.fetchall()]
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get distinct kinds: {e}") from e
+
     def mark_content_read(self, content_id: str) -> bool:
         """Mark a content item as read.
 

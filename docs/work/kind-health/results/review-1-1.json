@@ -1,0 +1,31 @@
+{
+  "searched": [
+    "docs/work/kind-health/work-order.json",
+    "docs/work/kind-health/results/plan.json",
+    "docs/work/kind-health/results/plan-1.json",
+    "docs/work/kind-health/results/built-1-1.json",
+    "docs/work/kind-health/journal.jsonl",
+    "docs/work/kind-health/job-1.diff",
+    "daemon/src/prismis_daemon/kind_classifier.py",
+    "daemon/src/prismis_daemon/llm_validator.py",
+    "daemon/src/prismis_daemon/__main__.py",
+    "daemon/src/prismis_daemon/config.py",
+    "daemon/src/prismis_daemon/orchestrator.py",
+    "daemon/src/prismis_daemon/verify_chain.py",
+    "daemon/src/prismis_daemon/llm_client.py",
+    "daemon/tests/unit/test_kind_classifier_unit.py",
+    "daemon/tests/unit/test_verify_subcommand_unit.py",
+    "daemon/tests/unit/test_llm_startup_validation_unit.py",
+    "daemon/tests/unit/test_no_internal_mocks_unit.py",
+    "daemon/tests/integration/test_kind_pipeline_integration.py"
+  ],
+  "exhaustive": true,
+  "findings": [
+    {
+      "file": "daemon/src/prismis_daemon/kind_classifier.py",
+      "line": 136,
+      "summary": "The work order's stakes require the health-check call to be logged as an llm.call event with its cost like every other classify call, and health_check does emit that obs_log call with cost_usd and duration_ms. But no test in the diff asserts this: test_kind_classifier_unit.py's five new health_check tests (test_health_check_succeeds_when_the_call_names_one_of_the_ten_kinds, test_health_check_raises_when_the_call_itself_fails, test_health_check_raises_when_the_answer_names_no_kind, test_health_check_raises_when_the_kind_answer_is_absent, test_health_check_uses_submit_decision_not_a_second_request_builder) never inspect obs_log's output, unlike the existing convention for classify() itself (daemon/tests/integration/test_kind_pipeline_integration.py asserts on the classify_kind event and its cost_usd directly). A regression that dropped or malformed health_check's obs_log call would pass every test in this diff.",
+      "severity": "low"
+    }
+  ]
+}

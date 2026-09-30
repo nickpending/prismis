@@ -1,0 +1,58 @@
+{
+  "workOrder": "secret-scan",
+  "what": "Scan for committed secrets with gitleaks, both in the project gate (`.specify/verify.sh`, which CI already runs) and across the full git history in CI. Every known fake is allowlisted where it lives, so any new real-looking credential fails the gate (gh #70).",
+  "why": "The repo is public and nothing scans for committed credentials (gh #70). Grep cannot do it, because a useful test fake looks like a real key. rudy chose gitleaks on 2026-09-30: MIT licence, single binary, allowlist kept in repo config. For comparison, gitleaks has 29.6k GitHub stars and trufflehog 28.2k (AGPL, built around live key verification); both were updated 2026-09-30.\n\nA full-history sweep on 2026-09-30 (`gitleaks git . --redact`, v8.30.1) found 16 findings and no real secret:\n- 9 curl-auth-header in README.md history: the placeholder `your-api-key`.\n- 1 generic-api-key in daemon/tests/unit/test_dep_pin_unit.py: `_APICONF_VALIDATED_SHA`, a pinned git commit SHA.\n- 6 generic-api-key fake credentials in tests: test_context_assistant.py (fake_llm_service_key, fake_api_key), test_llm_startup_validation_unit.py (api_key, two commits), test_analyzer_integration.py (api_key), plus docs/work/no-internal-mocks/job-1.diff, which quotes test_context_assistant.py.\nThe default dev API key used across the tests since e2ffa94 is low-entropy, so gitleaks does not flag it; gh #70 records it as operator-assessed public.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "the repository's working tree",
+      "when": "`.specify/verify.sh` runs",
+      "then": "it runs `gitleaks dir` over the tree with the repo's gitleaks config as a named check (it appears in the gate's covered list), and the check passes on today's tree. When the gitleaks binary is missing the gate fails and says so; it does not skip the check. The fake credentials that exist in today's files are allowlisted where they live, with an inline `gitleaks:allow` comment on the line or an allowlist entry in the repo's gitleaks config, and never by file line number, which drifts.",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | grep -E 'VERIFY_COVERED:.*gitleaks' && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "a newly added file containing a realistic-looking credential that is not allowlisted",
+      "when": "the gate's gitleaks check runs",
+      "then": "the check fails and names the file; after the file is removed it passes again. This is proved by a test or check script that plants the credential in a temporary copy of the tree, not by a one-time manual run.",
+      "observation": {
+        "command": "bash .specify/tests/gitleaks_plant_test.sh && echo 'SC-2: PASS'",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "the full git history",
+      "when": "CI runs",
+      "then": "a CI step installs gitleaks pinned to an exact version with its checksum verified, the same way this workflow pins its other tools, and runs `gitleaks git` over the full history (checkout with full fetch depth). The 16 historical findings above are ignored by fingerprint in a committed `.gitleaksignore`, one entry per finding. Any other finding fails the job.",
+      "observation": {
+        "command": "gitleaks git . --no-banner --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore && grep -q 'gitleaks git' .github/workflows/ci.yml && echo 'SC-3: PASS'",
+        "expect": "SC-3: PASS"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Rotating or removing the default dev API key the tests use (operator-assessed public, gh #70).",
+    "Rewriting git history.",
+    "Pinned-dependency update automation (gh #66)."
+  ],
+  "stakes": [
+    "Never print or log a secret value. Scans and reports run with --redact, and allowlist entries name fingerprints or the fake values the tests already contain, never a real credential.",
+    "Allowlists stay narrow: exact fake values or fingerprints, never a whole directory such as tests/, so a real key pasted into a test file is still caught.",
+    "The gate fails when gitleaks is absent; a skipped check that reports PASS is the ambient dependence verify.sh exists to remove.",
+    "README gains one line saying gitleaks is required to run the gate."
+  ]
+}

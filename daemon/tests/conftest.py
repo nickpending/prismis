@@ -16,6 +16,7 @@ import pytest
 from prismis_daemon import config, database
 from prismis_daemon.defaults import DEFAULT_CONFIG_TOML, DEFAULT_CONTEXT_MD
 from prismis_daemon.models import ContentItem
+from prismis_daemon.observability import reset_logger, set_run_id
 from prismis_daemon.storage import Storage
 
 # The API key the sealed config is written with. Every test that authenticates against
@@ -37,6 +38,21 @@ os.environ.pop("FORCE_COLOR", None)
 
 
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_observability_logger() -> Iterator[None]:
+    """Give every test its own observability logger and no run id.
+
+    The logger is a process-wide singleton that fixes its directory from
+    XDG_DATA_HOME on first use; without this, a test that set XDG_DATA_HOME to a
+    temp dir left later tests writing into that deleted dir (gh #86).
+    """
+    reset_logger()
+    set_run_id(None)
+    yield
+    reset_logger()
+    set_run_id(None)
 
 
 def strip_ansi(text: str) -> str:

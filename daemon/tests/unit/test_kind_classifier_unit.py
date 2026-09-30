@@ -20,6 +20,7 @@ unmocked.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator
 from unittest.mock import patch  # claudex-guard: allow-mock
 
@@ -33,6 +34,8 @@ from prismis_daemon.kind_classifier import (
     _build_state,
     health_check,
 )
+from prismis_daemon.observability import get_logger, reset_logger, set_run_id
+from prismis_daemon.verify_chain import read_run_events
 
 # Patch target -- the decisions-endpoint provider boundary itself, which the
 # constitution permits standing in for (Principle I).
@@ -45,6 +48,34 @@ def clean_circuit_registry() -> Iterator[None]:
     reset_circuit_breaker()
     yield
     reset_circuit_breaker()
+
+
+@pytest.fixture(autouse=True)
+def fresh_observability() -> Iterator[None]:
+    """Bind the observability logger to this test's sealed XDG_DATA_HOME (F-1-1).
+
+    Mirrors test_kind_pipeline_integration.py's fixture of the same name: the logger
+    caches its base directory at first use, and isolated_xdg_env (tests/conftest.py)
+    points XDG_DATA_HOME at a fresh directory per test, so a cached instance from an
+    earlier test would write into a directory this test never reads back from.
+    """
+    reset_logger()
+    yield
+    set_run_id(None)
+    reset_logger()
+
+
+def _events_for(run_id: str) -> list[dict]:
+    """Read back every llm.call event this run_id logged, from the real JSONL file."""
+    return read_run_events(get_logger().base_dir, run_id)
+
+
+def _classify_kind_events(run_id: str) -> list[dict]:
+    return [
+        e
+        for e in _events_for(run_id)
+        if e.get("event") == "llm.call" and e.get("action") == "classify_kind"
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -332,50 +363,89 @@ def test_build_state_handles_empty_raw_content() -> None:
 def test_health_check_succeeds_when_the_call_names_one_of_the_ten_kinds() -> None:
     """
     SC-1: a call that succeeds and answers with one of the ten declared kinds passes
-    the health check -- no exception.
+    the health check -- no exception -- and is logged as an llm.call event with its
+    cost, exactly like every other classify call (the work order's stakes).
     BREAKS: A working kind service is reported as unreachable because health_check
-    rejects a perfectly good answer.
+    rejects a perfectly good answer, or the call succeeds silently with no
+    observability event -- a regression that drops health_check's obs_log call would
+    pass this test if it only checked for the absence of an exception.
     """
+    run_id = str(uuid.uuid4())
+    set_run_id(run_id)
     fake = _FakeDecisionCall(_kind_answer("release", 0.95))
 
     with patch(_PATCH_SUBMIT, return_value=fake):
         health_check("prismis-openrouter-kind")  # must not raise
 
+    events = _classify_kind_events(run_id)
+    assert len(events) == 1, f"expected exactly one classify_kind event, got {events}"
+    event = events[0]
+    assert event["status"] == "success"
+    assert event["cost_usd"] == pytest.approx(fake.cost)
+    assert event["model"] == fake.model
+
 
 def test_health_check_raises_when_the_call_itself_fails() -> None:
     """
     SC-1: an unreachable endpoint, non-2xx status, or any other submit_decision
-    failure propagates out of health_check -- exactly what submit_decision raises.
+    failure propagates out of health_check -- exactly what submit_decision raises --
+    and is logged as an llm.call event naming the error.
     BREAKS: A misconfigured base_url/key/model is swallowed, so verify and startup
-    validation both report the kind service as healthy.
+    validation both report the kind service as healthy, or the failure is raised
+    without a matching observability event -- silent to anyone reading the logs
+    rather than watching the process exit.
     """
+    run_id = str(uuid.uuid4())
+    set_run_id(run_id)
+
     with patch(_PATCH_SUBMIT, side_effect=RuntimeError("connection refused")):
         with pytest.raises(RuntimeError, match="connection refused"):
             health_check("prismis-openrouter-kind")
+
+    events = _classify_kind_events(run_id)
+    assert len(events) == 1, f"expected exactly one classify_kind event, got {events}"
+    event = events[0]
+    assert event["status"] == "error"
+    assert "connection refused" in event["error"]
 
 
 def test_health_check_raises_when_the_answer_names_no_kind() -> None:
     """
     SC-1: a call that succeeds but answers with a choice outside the ten declared
     kinds raises -- a health check that "succeeds" on an answer naming no kind proves
-    nothing (the work order's stakes).
+    nothing (the work order's stakes) -- and the logged event reflects that failure
+    (status="error"), not the call's own HTTP success.
     BREAKS: health_check reuses classify()'s fail-closed-to-None parsing and reports
-    "healthy" on a response that never actually named a kind.
+    "healthy" on a response that never actually named a kind, or logs status="success"
+    for a call that health_check itself is about to reject.
     """
+    run_id = str(uuid.uuid4())
+    set_run_id(run_id)
     fake = _FakeDecisionCall(_kind_answer("not-a-real-kind", 0.95))
 
     with patch(_PATCH_SUBMIT, return_value=fake):
         with pytest.raises(ValueError, match="names no kind"):
             health_check("prismis-openrouter-kind")
 
+    events = _classify_kind_events(run_id)
+    assert len(events) == 1, f"expected exactly one classify_kind event, got {events}"
+    assert events[0]["status"] == "error"
+
 
 def test_health_check_raises_when_the_kind_answer_is_absent() -> None:
-    """A response missing the "kind" answer entirely also fails the health check."""
+    """A response missing the "kind" answer entirely also fails the health check,
+    and is logged as an llm.call event with status="error"."""
+    run_id = str(uuid.uuid4())
+    set_run_id(run_id)
     fake = _FakeDecisionCall({})
 
     with patch(_PATCH_SUBMIT, return_value=fake):
         with pytest.raises(ValueError, match="names no kind"):
             health_check("prismis-openrouter-kind")
+
+    events = _classify_kind_events(run_id)
+    assert len(events) == 1, f"expected exactly one classify_kind event, got {events}"
+    assert events[0]["status"] == "error"
 
 
 def test_health_check_uses_submit_decision_not_a_second_request_builder() -> None:

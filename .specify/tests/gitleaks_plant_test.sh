@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 # Proves the gate's gitleaks check (SC-2, gh #70) actually catches a real-looking
-# credential and clears once it's gone — not by a one-time manual run, but by a
-# script that plants a freshly generated, unallowlisted credential into a temporary
-# copy of the tracked tree, runs the same gitleaks invocation `.specify/verify.sh`
-# runs, and asserts it fails and names the planted file; then removes the file and
-# asserts the identical invocation passes again. macOS bash 3.2 safe.
+# credential and clears once it's gone — by driving the real `.specify/verify.sh`
+# secret-scan step itself, never a re-typed copy of its mirror-and-scan logic. If
+# that step's invocation ever changes (a new flag, a different config path, a
+# different `git ls-files` filter), this test picks up the change automatically
+# because it runs the file, not a description of it.
 #
-# The credential is generated at runtime and never echoed: gitleaks itself is asked
-# to --redact, and only its (already redacted) output is ever printed.
+# It builds a throwaway, standalone git repo holding only a fresh copy of
+# .specify/verify.sh and .gitleaks.toml — no pyproject.toml/go.mod/Cargo.toml/
+# package.json anywhere in it, so every other unit loop in verify.sh finds
+# nothing and stays instant; only the unconditional secret-scan step does real
+# work. It plants a freshly generated, unallowlisted credential in that repo,
+# runs the unmodified verify.sh against it, and asserts on the gate's own
+# `FAILED: gitleaks(.)` line and the planted filename — exactly what `run_step`
+# prints when the gate's real gitleaks invocation fails. Then it removes the
+# file and asserts that line is gone. macOS bash 3.2 safe.
+#
+# The credential is generated at runtime and never echoed: verify.sh's own
+# gitleaks invocation already runs with --redact, and only its output is printed.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -17,22 +27,20 @@ if ! command -v gitleaks >/dev/null 2>&1; then
   exit 1
 fi
 
-MIRROR="$(mktemp -d)"
-trap 'rm -rf "$MIRROR"' EXIT
+GATE_TREE="$(mktemp -d)"
+trap 'rm -rf "$GATE_TREE"' EXIT
 
-# Mirror exactly what the gate mirrors — the tracked-or-would-be-tracked tree built
-# from `git ls-files`, never a raw filesystem walk — see .specify/verify.sh.
-while IFS= read -r -d '' f; do
-  mkdir -p "$MIRROR/$(dirname "$f")"
-  cp "$ROOT/$f" "$MIRROR/$f"
-done < <(git -C "$ROOT" ls-files -z --cached --others --exclude-standard)
+git init -q "$GATE_TREE"
+mkdir -p "$GATE_TREE/.specify"
+cp "$ROOT/.specify/verify.sh" "$GATE_TREE/.specify/verify.sh"
+cp "$ROOT/.gitleaks.toml" "$GATE_TREE/.gitleaks.toml"
 
-scan() {
-  gitleaks dir "$MIRROR" --redact --no-banner --verbose --config "$ROOT/.gitleaks.toml"
+run_gate() {
+  bash "$GATE_TREE/.specify/verify.sh" 2>&1 || true
 }
 
 PLANTED_REL="src/planted_credential_test_fixture.py"
-PLANTED="$MIRROR/$PLANTED_REL"
+PLANTED="$GATE_TREE/$PLANTED_REL"
 SECRET="sk-live-$(openssl rand -hex 20)"
 mkdir -p "$(dirname "$PLANTED")"
 printf 'api_key = "%s"\n' "$SECRET" >"$PLANTED"
@@ -40,29 +48,32 @@ unset SECRET
 
 FAIL=0
 
-# Phase 1: the planted, unallowlisted credential must fail the check and the
-# failure must name the file it lives in — a check that fails without saying
-# where is not one anyone can act on.
-if OUT="$(scan 2>&1)"; then
-  echo "FAIL: gitleaks passed with an unallowlisted planted credential present"
+# Phase 1: the planted, unallowlisted credential must make the gate's own
+# gitleaks step fail, and the gate's own failure line must name the file — a
+# check that fails without saying where is not one anyone can act on.
+OUT="$(run_gate)"
+if ! printf '%s\n' "$OUT" | grep -qF 'FAILED: gitleaks(.)'; then
+  echo "FAIL: the gate did not report FAILED: gitleaks(.) with the planted credential present"
+  printf '%s\n' "$OUT" | sed 's/^/  | /'
   FAIL=1
 elif ! printf '%s\n' "$OUT" | grep -q "$PLANTED_REL"; then
-  echo "FAIL: gitleaks failed but did not name the planted file ($PLANTED_REL)"
+  echo "FAIL: the gate failed gitleaks but did not name the planted file ($PLANTED_REL)"
   printf '%s\n' "$OUT" | sed 's/^/  | /'
   FAIL=1
 else
-  echo "OK: gitleaks failed and named the planted file"
+  echo "OK: the gate's own gitleaks step failed and named the planted file"
 fi
 
-# Phase 2: once the file is gone, the same invocation must pass again — proving
-# the failure above was the planted file and not some pre-existing finding.
+# Phase 2: once the file is gone, the same gate run must no longer report that
+# failure — proving the failure above was the planted file, not something else.
 rm -f "$PLANTED"
-if OUT2="$(scan 2>&1)"; then
-  echo "OK: gitleaks passed once the planted file was removed"
-else
-  echo "FAIL: gitleaks still failed after the planted file was removed"
+OUT2="$(run_gate)"
+if printf '%s\n' "$OUT2" | grep -qF 'FAILED: gitleaks(.)'; then
+  echo "FAIL: the gate still reported FAILED: gitleaks(.) after the planted file was removed"
   printf '%s\n' "$OUT2" | sed 's/^/  | /'
   FAIL=1
+else
+  echo "OK: the gate's own gitleaks step passed once the planted file was removed"
 fi
 
 if [ "$FAIL" -ne 0 ]; then

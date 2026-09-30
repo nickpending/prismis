@@ -1,2 +1,4 @@
 {"kind":"opened","criteria":["SC-1","SC-2","SC-3","SC-4"],"sha":"68dcf29f844c5a6728ffe2ee746c35473aa4df7b","ts":"2026-09-30T22:19:22.789Z"}
 {"kind":"dispatched","action":"spawn-mason","resultPath":"docs/work/secret-scan/results/plan-1.json","ts":"2026-09-30T22:19:22.816Z"}
+{"kind":"planned","jobs":{"1":{"files":[".specify/verify.sh",".gitleaks.toml","README.md","daemon/tests/integration/test_context_assistant.py","daemon/tests/unit/test_llm_startup_validation_unit.py","daemon/tests/unit/test_dep_pin_unit.py"],"depends":[],"delivers":["SC-1","SC-4"]},"2":{"files":[".specify/tests/gitleaks_plant_test.sh"],"depends":[1],"delivers":["SC-2"]},"3":{"files":[".github/workflows/ci.yml",".gitleaksignore"],"depends":[1],"delivers":["SC-3"]}},"sha":"cb39e9c1b911327a630372f5cf399efa60ac8329803e3988bd56d4958faac996","submission":1,"ts":"2026-09-30T22:23:48.384Z"}
+{"kind":"checkpointed","sha":"ac17dbc3238eee1038195963c4ea30b87f300ae5","ts":"2026-09-30T22:23:48.424Z"}

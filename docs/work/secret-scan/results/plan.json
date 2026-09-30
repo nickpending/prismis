@@ -1,0 +1,51 @@
+{
+  "artifact": [
+    "docs/work/secret-scan/results/plan-1.json"
+  ],
+  "verified": false,
+  "jobs": [
+    {
+      "number": 1,
+      "title": "Wire gitleaks into the project gate as a named check, with a narrow allowlist for today's fake credentials",
+      "files": [
+        ".specify/verify.sh",
+        ".gitleaks.toml",
+        "README.md",
+        "daemon/tests/integration/test_context_assistant.py",
+        "daemon/tests/unit/test_llm_startup_validation_unit.py",
+        "daemon/tests/unit/test_dep_pin_unit.py"
+      ],
+      "delivers": [
+        "SC-1",
+        "SC-4"
+      ]
+    },
+    {
+      "number": 2,
+      "title": "Prove the gate's gitleaks check catches a planted secret and clears once it is removed, via an automated plant-and-check script",
+      "files": [
+        ".specify/tests/gitleaks_plant_test.sh"
+      ],
+      "depends": [
+        1
+      ],
+      "delivers": [
+        "SC-2"
+      ]
+    },
+    {
+      "number": 3,
+      "title": "Scan full git history in CI with a checksum-verified, pinned gitleaks binary and a fingerprinted ignore file for the known historical findings",
+      "files": [
+        ".github/workflows/ci.yml",
+        ".gitleaksignore"
+      ],
+      "depends": [
+        1
+      ],
+      "delivers": [
+        "SC-3"
+      ]
+    }
+  ]
+}

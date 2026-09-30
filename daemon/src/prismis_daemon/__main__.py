@@ -15,7 +15,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
 from rich.console import Console
 
-from . import llm_client
+from . import kind_classifier, llm_client
 from .config import Config
 from .context_auto_updater import run_context_update
 from .defaults import ensure_config
@@ -374,7 +374,7 @@ def validate_llm_config(config: Config) -> None:
     try:
         console.print("🧪 Testing LLM service connections...")
         result = _validate_llm_services(
-            config.llm_light_service, config.llm_deep_service
+            config.llm_light_service, config.llm_deep_service, config.llm_kind_service
         )
         console.print(
             f"[green]✅ Light service: {config.llm_light_service} ({result['light']})[/green]"
@@ -385,10 +385,24 @@ def validate_llm_config(config: Config) -> None:
             )
         elif result["deep"] == "unreachable":
             console.print(
-                f"[yellow]⚠️  Deep service: {config.llm_deep_service} unreachable — deep extraction disabled[/yellow]"
+                f"[yellow]⚠️  Deep service: {config.llm_deep_service} unreachable — "
+                f"deep extraction will fail per item: the item keeps its light "
+                f"summary and the failure is counted in deep_extract_failures[/yellow]"
             )
         else:
             console.print("[dim]Deep service: not configured[/dim]")
+        if result["kind"] == "ok":
+            console.print(
+                f"[green]✅ Kind service: {config.llm_kind_service} ({result['kind']})[/green]"
+            )
+        elif result["kind"] == "unreachable":
+            console.print(
+                f"[yellow]⚠️  Kind service: {config.llm_kind_service} unreachable — "
+                f"items are stored without a kind and the failure is counted in "
+                f"kind_classify_failures[/yellow]"
+            )
+        else:
+            console.print("[dim]Kind service: not configured[/dim]")
     except ValueError as e:
         console.print(f"[bold red]❌ LLM configuration error: {e}[/bold red]")
         sys.exit(1)
@@ -707,7 +721,8 @@ def verify(
     """Run post-deployment smoke check: config, services, sources.
 
     Read-only checks. Safe to run against a production daemon.
-    Exits 0 on all pass, 1 on any failure. Deep service 'not configured' is info.
+    Exits 0 on all pass, 1 on any failure. Deep and kind service 'not configured' is
+    info, not a failure.
 
     With --chain, instead drives one --source URL through the real pipeline against a
     throwaway database and reports every link.
@@ -760,7 +775,24 @@ def verify(
             )
             failures += 1
 
-    # 4. Active sources
+    # 4. Kind service (gh #82) -- a single call through kind_classifier's own
+    # submit_decision, not llm_client.health_check: OpenRouter's model list doesn't
+    # carry the decisions model and the decisions endpoint only answers a POST.
+    if config.llm_kind_service is None:
+        console.print("[yellow]○ kind service: not configured[/yellow]")
+    else:
+        try:
+            kind_classifier.health_check(service=config.llm_kind_service)
+            console.print(
+                f"[green]✓ kind service reachable ({config.llm_kind_service})[/green]"
+            )
+        except Exception as e:
+            console.print(
+                f"[red]✗ kind service unreachable ({config.llm_kind_service}): {e}[/red]"
+            )
+            failures += 1
+
+    # 5. Active sources
     try:
         storage = Storage()
         sources = storage.get_active_sources()

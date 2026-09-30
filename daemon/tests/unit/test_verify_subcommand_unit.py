@@ -7,9 +7,13 @@ Invariants protected:
   - Deep service configured but unreachable -> FAIL rollup (exit 1)
   - Zero active sources -> FAIL rollup (exit 1)
   - All checks pass -> exit 0
+  - Kind service reachable -> ok, not a failure (gh #82, SC-1)
+  - Kind service unreachable, or answering with no kind -> FAIL rollup (exit 1)
+  - Kind service None -> info only, NOT a failure
 
 Success criteria covered:
   SC-15: verify command
+  SC-1 (kind-health, gh #82): kind service check in verify
 """
 
 import tempfile
@@ -26,6 +30,11 @@ from prismis_daemon.storage import Storage
 # same pattern as test_dual_service_config_unit.py's
 # "prismis_daemon.llm_validator.llm_client.health_check".
 _HEALTH_CHECK_MOCK = "prismis_daemon.__main__.llm_client.health_check"  # claudex-guard: allow-mock
+
+# The kind service has no equivalent to llm_client.health_check (gh #82's "why"):
+# the only boundary standing in for the provider here is submit_decision itself,
+# per Principle I -- verify()'s own kind-service check runs for real.
+_SUBMIT_DECISION_MOCK = "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
 
 # --- TOML fixtures ------------------------------------------------------------
 
@@ -114,6 +123,49 @@ auto_update_min_votes = 5
 backup_count = 3
 """
 
+_KIND_SERVICE_CONFIG = """\
+[daemon]
+fetch_interval = 30
+max_items_rss = 25
+max_items_reddit = 50
+max_items_youtube = 10
+max_items_file = 5
+max_days_lookback = 30
+
+[llm]
+light_service = "prismis-openai"
+kind_service = "prismis-openrouter-kind"
+
+[reddit]
+client_id = "env:REDDIT_CLIENT_ID"
+client_secret = "env:REDDIT_CLIENT_SECRET"
+user_agent = "test"
+max_comments = 100
+
+[notifications]
+high_priority_only = true
+command = "echo"
+
+[api]
+key = "test-api-key"
+
+[archival]
+enabled = false
+
+[archival.windows]
+high_read = 30
+medium_unread = 14
+medium_read = 30
+low_unread = 7
+low_read = 30
+
+[context]
+auto_update_enabled = false
+auto_update_interval_days = 7
+auto_update_min_votes = 5
+backup_count = 3
+"""
+
 # --- Helpers ------------------------------------------------------------------
 
 
@@ -136,6 +188,21 @@ def _seed_source(test_db: Path) -> None:
         ("https://example.com/feed.xml", "rss", "Test Feed"),
     )
     storage.conn.commit()
+
+
+class _FakeDecisionCall:
+    """Minimal stand-in for kind_classifier.DecisionCall (SC-1)."""
+
+    def __init__(self, answers: dict, model: str = "typesafe/jev-1.13-test") -> None:
+        self.answers = answers
+        self.model = model
+        self.cost = 0.00004
+        self.duration_ms = 12
+
+
+def _kind_answer(choice: object) -> dict:
+    """Build a decisions-response answers dict naming `choice` as the kind."""
+    return {"kind": {"type": "choice", "choice": choice, "confidence": 0.95}}
 
 
 # --- Tests --------------------------------------------------------------------
@@ -367,6 +434,166 @@ def test_verify_deep_check_uses_deep_service_name_not_light(monkeypatch, test_db
         assert calls[1] == "prismis-openai-deep", (
             f"Second call must use deep service name, not light; got {calls[1]}"
         )
+    finally:
+        import shutil
+
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# --- SC-1 (kind-health, gh #82): kind service check ---------------------------
+
+
+def test_verify_kind_service_reachable_reports_ok(monkeypatch, test_db, capsys) -> None:
+    """
+    SC-1: a configured kind service whose decisions call succeeds and names one of
+    the ten kinds is reported reachable, and does not count as a failure.
+    BREAKS: A working kind service reports as unreachable, or verify never checks it
+    at all -- a misconfigured base_url/key/model goes undetected until every classify
+    call fails in production (gh #82).
+    """
+    tmpdir, _ = _make_config_dir(_KIND_SERVICE_CONFIG)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmpdir))
+    _seed_source(test_db)
+
+    try:
+        with patch(_HEALTH_CHECK_MOCK) as mock_hc:
+            mock_hc.return_value = None  # light service reachable
+            with patch(
+                _SUBMIT_DECISION_MOCK,
+                return_value=_FakeDecisionCall(_kind_answer("release")),
+            ):
+                with pytest.raises(SystemExit) as exc_info:
+                    verify()
+
+        out = capsys.readouterr().out
+        assert exc_info.value.code == 0
+        assert "kind service reachable" in out
+    finally:
+        import shutil
+
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_verify_kind_service_unreachable_counts_failure_and_exits_1(
+    monkeypatch, test_db, capsys
+) -> None:
+    """
+    SC-1: a kind service whose decisions call fails (unreachable endpoint, non-2xx,
+    auth) is reported unreachable with the error, counted as a failure, and fails
+    the rollup.
+    BREAKS: A misconfigured kind service's base_url/key/model triple goes unverified
+    at deploy time; every classify call fails at runtime with no signal (gh #82).
+    """
+    tmpdir, _ = _make_config_dir(_KIND_SERVICE_CONFIG)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmpdir))
+    _seed_source(test_db)
+
+    try:
+        with patch(_HEALTH_CHECK_MOCK) as mock_hc:
+            mock_hc.return_value = None
+            with patch(
+                _SUBMIT_DECISION_MOCK,
+                side_effect=RuntimeError("connection refused"),
+            ):
+                with pytest.raises(SystemExit) as exc_info:
+                    verify()
+
+        out = capsys.readouterr().out
+        assert exc_info.value.code == 1
+        assert "kind service unreachable" in out
+        assert "connection refused" in out
+    finally:
+        import shutil
+
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_verify_kind_service_answer_names_no_kind_counts_as_failure(
+    monkeypatch, test_db
+) -> None:
+    """
+    SC-1: a kind service that answers but names no kind (not one of the ten) counts
+    as a failure -- a health check that "succeeds" on an answer naming no kind proves
+    nothing (the work order's stakes).
+    BREAKS: A service returning garbage choices (wrong model, prompt drift) reports as
+    healthy just because the HTTP call itself succeeded.
+    """
+    tmpdir, _ = _make_config_dir(_KIND_SERVICE_CONFIG)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmpdir))
+    _seed_source(test_db)
+
+    try:
+        with patch(_HEALTH_CHECK_MOCK) as mock_hc:
+            mock_hc.return_value = None
+            with patch(
+                _SUBMIT_DECISION_MOCK,
+                return_value=_FakeDecisionCall(_kind_answer("not-a-kind")),
+            ):
+                with pytest.raises(SystemExit) as exc_info:
+                    verify()
+
+        assert exc_info.value.code == 1
+    finally:
+        import shutil
+
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_verify_kind_service_not_configured_reports_info_not_failure(
+    monkeypatch, test_db, capsys
+) -> None:
+    """
+    SC-1: with no kind_service configured, verify reports "not configured" and does
+    not count a failure.
+    BREAKS: Operators without kind classification enabled get a spurious FAIL on
+    every verify run.
+    """
+    tmpdir, _ = _make_config_dir(_LIGHT_ONLY_CONFIG)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmpdir))
+    _seed_source(test_db)
+
+    try:
+        with patch(_HEALTH_CHECK_MOCK) as mock_hc:
+            mock_hc.return_value = None
+            with pytest.raises(SystemExit) as exc_info:
+                verify()
+
+        out = capsys.readouterr().out
+        assert exc_info.value.code == 0
+        assert "kind service: not configured" in out
+    finally:
+        import shutil
+
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_verify_kind_service_check_calls_submit_decision_exactly_once(
+    monkeypatch, test_db
+) -> None:
+    """
+    SC-1: the kind service check is a single call made through kind_classifier's own
+    submit_decision -- not a second request builder duplicating it.
+    BREAKS: A hand-rolled second request bypasses submit_decision's error handling
+    and diverges from what the real classify() call sends.
+    """
+    tmpdir, _ = _make_config_dir(_KIND_SERVICE_CONFIG)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmpdir))
+    _seed_source(test_db)
+
+    calls = []
+
+    def _capture(state: dict, *, service: str, model: str | None = None):
+        calls.append(service)
+        return _FakeDecisionCall(_kind_answer("release"))
+
+    try:
+        with patch(_HEALTH_CHECK_MOCK) as mock_hc:
+            mock_hc.return_value = None
+            with patch(_SUBMIT_DECISION_MOCK, side_effect=_capture):
+                with pytest.raises(SystemExit):
+                    verify()
+
+        assert calls == ["prismis-openrouter-kind"]
     finally:
         import shutil
 

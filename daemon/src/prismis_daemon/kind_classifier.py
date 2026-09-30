@@ -173,6 +173,65 @@ def submit_decision(
     )
 
 
+# SC-1: a small, fixed state for the health-check probe -- not real content, just
+# enough shape to run the same request classify() would build.
+_HEALTH_CHECK_STATE = _build_state(
+    title="Health check",
+    source_type="rss",
+    source_name="prismis-health-check",
+    summary="A routine reachability probe, not real content.",
+    reading_summary="",
+    raw_content="",
+)
+
+
+def health_check(service: str) -> None:
+    """Verify the kind service is reachable and its decisions model actually classifies (SC-1).
+
+    llm_client.health_check cannot serve this service: it lists models, OpenRouter's
+    model list does not include typesafe/jev-1.13, and the decisions endpoint only
+    answers a POST (a GET returns 404). One classify call, made through the same
+    submit_decision() the real classify() call uses -- not a second request builder
+    -- is the only check that exercises the configured base_url, key and model
+    together.
+
+    Raises on anything submit_decision raises (unresolvable service, missing key,
+    unreachable endpoint, non-2xx status, a body that isn't even JSON) and also
+    raises when the call succeeds but the answer doesn't name one of the ten kinds --
+    a health check that "succeeds" on an answer naming no kind proves nothing.
+    """
+    try:
+        result = submit_decision(_HEALTH_CHECK_STATE, service=service)
+    except Exception as e:
+        obs_log(
+            "llm.call",
+            action="classify_kind",
+            model=service,
+            status="error",
+            error=str(e),
+        )
+        raise
+
+    answer = result.answers.get(_QUESTION_NAME)
+    choice = answer.get("choice") if isinstance(answer, dict) else None
+    named_a_kind = choice in KINDS
+
+    obs_log(
+        "llm.call",
+        action="classify_kind",
+        model=result.model,
+        cost_usd=result.cost,
+        duration_ms=result.duration_ms,
+        status="success" if named_a_kind else "error",
+    )
+
+    if not named_a_kind:
+        raise ValueError(
+            f"Kind service '{service}' answered with a choice that names no kind: "
+            f"{choice!r}"
+        )
+
+
 def _parse_kind(answers: dict[str, Any]) -> KindResult:
     """Fail-closed shape validation (SC-1): a response that can't be trusted to name
     one of the ten kinds at sufficient confidence comes back unclassified -- never

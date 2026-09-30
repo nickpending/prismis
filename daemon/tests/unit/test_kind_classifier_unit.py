@@ -5,6 +5,9 @@ Invariants protected:
   threshold comes back classified, below the threshold or not one of the ten declared
   kinds comes back unclassified. The ten kinds and their definitions live once, in
   KINDS.
+- SC-1 (kind-health, gh #82): health_check() proves the configured base_url, key and
+  model together through the same submit_decision() classify() uses, and rejects an
+  answer that doesn't name one of the ten kinds even though the call itself succeeded.
 - SC-2: _build_state() bounds the request regardless of raw_content's length: title,
   source type, source name and the light summary pass through whole; reading_summary
   is capped at 4000 chars and raw_content at 1000, for content from empty to ~300k
@@ -28,6 +31,7 @@ from prismis_daemon.kind_classifier import (
     KINDS,
     KindClassifier,
     _build_state,
+    health_check,
 )
 
 # Patch target -- the decisions-endpoint provider boundary itself, which the
@@ -317,3 +321,79 @@ def test_build_state_handles_empty_raw_content() -> None:
         raw_content="",
     )
     assert state["raw_content"] == ""
+
+
+# ---------------------------------------------------------------------------
+# SC-1 (gh #82): health_check() -- the kind-service reachability probe used by
+# `prismis-daemon verify` and startup validation.
+# ---------------------------------------------------------------------------
+
+
+def test_health_check_succeeds_when_the_call_names_one_of_the_ten_kinds() -> None:
+    """
+    SC-1: a call that succeeds and answers with one of the ten declared kinds passes
+    the health check -- no exception.
+    BREAKS: A working kind service is reported as unreachable because health_check
+    rejects a perfectly good answer.
+    """
+    fake = _FakeDecisionCall(_kind_answer("release", 0.95))
+
+    with patch(_PATCH_SUBMIT, return_value=fake):
+        health_check("prismis-openrouter-kind")  # must not raise
+
+
+def test_health_check_raises_when_the_call_itself_fails() -> None:
+    """
+    SC-1: an unreachable endpoint, non-2xx status, or any other submit_decision
+    failure propagates out of health_check -- exactly what submit_decision raises.
+    BREAKS: A misconfigured base_url/key/model is swallowed, so verify and startup
+    validation both report the kind service as healthy.
+    """
+    with patch(_PATCH_SUBMIT, side_effect=RuntimeError("connection refused")):
+        with pytest.raises(RuntimeError, match="connection refused"):
+            health_check("prismis-openrouter-kind")
+
+
+def test_health_check_raises_when_the_answer_names_no_kind() -> None:
+    """
+    SC-1: a call that succeeds but answers with a choice outside the ten declared
+    kinds raises -- a health check that "succeeds" on an answer naming no kind proves
+    nothing (the work order's stakes).
+    BREAKS: health_check reuses classify()'s fail-closed-to-None parsing and reports
+    "healthy" on a response that never actually named a kind.
+    """
+    fake = _FakeDecisionCall(_kind_answer("not-a-real-kind", 0.95))
+
+    with patch(_PATCH_SUBMIT, return_value=fake):
+        with pytest.raises(ValueError, match="names no kind"):
+            health_check("prismis-openrouter-kind")
+
+
+def test_health_check_raises_when_the_kind_answer_is_absent() -> None:
+    """A response missing the "kind" answer entirely also fails the health check."""
+    fake = _FakeDecisionCall({})
+
+    with patch(_PATCH_SUBMIT, return_value=fake):
+        with pytest.raises(ValueError, match="names no kind"):
+            health_check("prismis-openrouter-kind")
+
+
+def test_health_check_uses_submit_decision_not_a_second_request_builder() -> None:
+    """
+    SC-1: the health check is a single call made through kind_classifier's own
+    submit_decision -- not a hand-rolled second request builder that could drift
+    from what the real classify() call sends.
+    BREAKS: A duplicated httpx call bypasses submit_decision's error handling and
+    diverges from the real decisions request.
+    """
+    calls: list[tuple[dict, str]] = []
+
+    def _capture(state: dict, *, service: str, model: str | None = None):
+        calls.append((state, service))
+        return _FakeDecisionCall(_kind_answer("release", 0.95))
+
+    with patch(_PATCH_SUBMIT, side_effect=_capture):
+        health_check("prismis-openrouter-kind")
+
+    assert len(calls) == 1, "health_check must call submit_decision exactly once"
+    assert calls[0][1] == "prismis-openrouter-kind"

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -99,13 +100,8 @@ func TestSourceModal_LoadSources_EmptyList(t *testing.T) {
 }
 
 func TestSourceModal_ErrorMessageDisplay(t *testing.T) {
-	// Create a new source modal with one existing source - this mirrors the real
-	// trigger for errorMsg (a pause/remove/edit failing on an existing source,
-	// model.go's operations.SourceOperationMsg handler), not an empty source list.
-	// The source modal's viewport is a fixed 5 rows tall (SetSize hard-codes a
-	// small modal size); a scenario with zero sources plus the "No sources
-	// configured" filler pushes the error line past that window, so it would
-	// never actually be visible - this test must not assert on that case.
+	// One existing source mirrors the real trigger for errorMsg: a pause/remove/edit
+	// failing on an existing source (model.go's operations.SourceOperationMsg handler).
 	modal := NewSourceModal()
 	modal.visible = true
 	modal.mode = "list"
@@ -118,6 +114,32 @@ func TestSourceModal_ErrorMessageDisplay(t *testing.T) {
 	// Verify error message appears in what the modal actually displays.
 	if !strings.Contains(modal.View(CleanCyberTheme), "Subreddit r/ai does not exist") {
 		t.Errorf("Expected error message in content, got: %s", modal.View(CleanCyberTheme))
+	}
+}
+
+// TestSourceModal_ErrorVisibleWhateverTheListLength covers gh #87: the list-mode error
+// line used to be the last line inside the scrolled viewport, so with no sources (the
+// "No sources configured" filler) or more sources than the viewport holds it fell below
+// the visible window and the user never saw why their action failed.
+func TestSourceModal_ErrorVisibleWhateverTheListLength(t *testing.T) {
+	many := make([]db.Source, 12)
+	for i := range many {
+		many[i] = db.Source{ID: fmt.Sprintf("%d", i), Name: fmt.Sprintf("Source %d", i), Type: "rss", Active: true}
+	}
+	for name, sources := range map[string][]db.Source{"no sources": {}, "twelve sources": many} {
+		t.Run(name, func(t *testing.T) {
+			modal := NewSourceModal()
+			modal.SetSize(120, 40)
+			modal.visible = true
+			modal.mode = "list"
+			modal.LoadSources(sources)
+			modal.errorMsg = "Subreddit r/ai does not exist"
+			modal.UpdateContent()
+
+			if view := modal.View(CleanCyberTheme); !strings.Contains(view, "Subreddit r/ai does not exist") {
+				t.Errorf("error line not visible with %s; view:\n%s", name, view)
+			}
+		})
 	}
 }
 

@@ -416,8 +416,15 @@ func (m SourceModal) View(theme StyleTheme) string {
 	var mainContentStr string
 
 	if m.mode == "list" {
-		// For list mode, use viewport
-		content.WriteString(m.viewport.View())
+		// The error sits below the scrolled list, not inside it (gh #87): inside,
+		// an empty or long list pushed it out of the visible window.
+		vp := m.viewport
+		errorLines := appendErrorLine(theme, nil, m.errorMsg)
+		vp.Height = max(vp.Height-len(errorLines), 1)
+		content.WriteString(vp.View())
+		for _, line := range errorLines {
+			content.WriteString("\n" + line)
+		}
 		mainContentStr = content.String()
 	} else {
 		// For other modes, render content directly
@@ -560,14 +567,11 @@ func (m SourceModal) renderListContentOnly() string {
 		}
 	}
 
-	lines = appendErrorLine(theme, lines, m.errorMsg)
-
 	return strings.Join(lines, "\n")
 }
 
-// appendErrorLine appends the blank-line-then-rendered-error tail every content-only
-// renderer ends with, when there is an error to show. A no-op (returns lines unchanged)
-// when errorMsg is empty.
+// appendErrorLine appends a blank line and the rendered error when there is one;
+// returns lines unchanged when errorMsg is empty.
 func appendErrorLine(theme StyleTheme, lines []string, errorMsg string) []string {
 	if errorMsg != "" {
 		lines = append(lines, "")

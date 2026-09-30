@@ -17,7 +17,7 @@ row's content alone and patches `title_only: true` onto its existing analysis
 with no LLM call.
 
 `--dry-run` reports the selection count and an upper-bound cost estimate
-derived from the median real summarize/evaluate/classify_kind cost in the
+derived from the 99th-percentile real summarize/evaluate/classify_kind cost in the
 observability log, making no extraction, LLM call or write. A real run reports
 each item's outcome and ends with the counts and the summed real cost of the
 calls it actually made.
@@ -26,8 +26,8 @@ calls it actually made.
 from __future__ import annotations
 
 import json
+import math
 import logging
-import statistics
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -52,7 +52,7 @@ REFETCH_TYPES = ("youtube", "rss", "reddit")
 
 # The obs_log "action" values a summarize+evaluate+classify_kind pass through
 # analyze_and_store_item can log (llm_call.py, kind_classifier.py) -- the three
-# the dry-run cost estimate sums a median of.
+# the dry-run cost estimate sums the 99th percentile of.
 _COST_ACTIONS = ("summarize", "evaluate", "classify_kind")
 
 
@@ -113,14 +113,13 @@ def _iter_events(base_dir: Path) -> list[dict[str, Any]]:
     return events
 
 
-def median_cost_estimate(base_dir: Path) -> float:
-    """Upper-bound per-item LLM cost (SC-3): the summed median real cost of a
-    summarize, evaluate and classify_kind call across every observability
-    file in `base_dir`. Derived from what the configured service actually
-    billed, not a hard-coded constant -- an action with no successful, priced
-    call on record contributes 0 rather than raising, so a fresh install with
-    an unpriced service (api.openai.com returns no cost) reports a $0 floor
-    instead of failing the dry run.
+def upper_bound_cost_estimate(base_dir: Path) -> float:
+    """Upper-bound per-item LLM cost (SC-3): the summed 99th-percentile real cost
+    of a summarize, evaluate and classify_kind call across every observability
+    file in `base_dir`. A median is not a bound: items a refetch recovers are the
+    long ones (a full transcript), and the 2026-09-30 youtube backfill cost $0.0077
+    per item against a $0.0030 median. An action with no successful, priced call
+    on record contributes 0, so an unpriced service reports a $0 floor.
     """
     costs: dict[str, list[float]] = {action: [] for action in _COST_ACTIONS}
     for entry in _iter_events(base_dir):
@@ -132,7 +131,12 @@ def median_cost_estimate(base_dir: Path) -> float:
         ):
             costs[entry["action"]].append(float(entry["cost_usd"]))
 
-    return sum(statistics.median(values) for values in costs.values() if values)
+    return sum(_percentile_99(values) for values in costs.values() if values)
+
+
+def _percentile_99(values: list[float]) -> float:
+    ordered = sorted(values)
+    return ordered[math.ceil(0.99 * len(ordered)) - 1]
 
 
 def _real_cost_since(base_dir: Path, run_id: str) -> float:
@@ -167,7 +171,9 @@ def _real_cost_since(base_dir: Path, run_id: str) -> float:
     return total
 
 
-def _reextract_item(orchestrator: DaemonOrchestrator, row: dict[str, Any]) -> ContentItem:
+def _reextract_item(
+    orchestrator: DaemonOrchestrator, row: dict[str, Any]
+) -> ContentItem:
     """Re-run `row`'s source type's own single-item extraction path and
     return an updated ContentItem carrying whatever content it found.
 
@@ -185,7 +191,9 @@ def _reextract_item(orchestrator: DaemonOrchestrator, row: dict[str, Any]) -> Co
     elif source_type == "rss":
         content = extract_article(row["url"]) or ""
     elif source_type == "reddit":
-        return orchestrator.reddit_fetcher.refetch_one(row["external_id"], row["source_id"])
+        return orchestrator.reddit_fetcher.refetch_one(
+            row["external_id"], row["source_id"]
+        )
     else:
         raise ValueError(f"refetch does not support source type {source_type!r}")
 
@@ -267,7 +275,7 @@ def run_refetch(
     rows = orchestrator.storage.get_unreadable_content(source_type, limit)
 
     if dry_run:
-        per_item_cost = median_cost_estimate(get_obs_logger().base_dir)
+        per_item_cost = upper_bound_cost_estimate(get_obs_logger().base_dir)
         return RefetchReport(
             source_type=source_type,
             dry_run=True,

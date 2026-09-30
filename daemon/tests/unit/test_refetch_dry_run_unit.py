@@ -1,10 +1,11 @@
 """Unit tests for refetch.py's --dry-run cost estimate (SC-3, refetch-unreadable).
 
-SC-3: the dry-run cost estimate is the summed MEDIAN real summarize, evaluate
-and classify_kind cost per item in the observability log -- not a hard-coded
-constant, not a mean, not a sum of every cost ever logged. These tests seed
-the observability log directly (real ObservabilityLogger, real JSONL files)
-and drive `median_cost_estimate`/`run_refetch` against it, rather than reading
+SC-3: the dry-run cost estimate is an upper bound: the summed 99th-percentile
+real summarize, evaluate and classify_kind cost per item in the observability
+log -- not a hard-coded constant, not a median or mean, not a sum of every cost
+ever logged. These tests seed the observability log directly (real
+ObservabilityLogger, real JSONL files) and drive
+`upper_bound_cost_estimate`/`run_refetch` against it, rather than reading
 the arithmetic off the source.
 
 Real Storage and a real DaemonOrchestrator throughout (Principle I); the
@@ -26,7 +27,7 @@ from prismis_daemon.notifier import Notifier
 from prismis_daemon.observability import get_logger as get_obs_logger
 from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.readability import format_youtube_no_transcript
-from prismis_daemon.refetch import median_cost_estimate, run_refetch
+from prismis_daemon.refetch import run_refetch, upper_bound_cost_estimate
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
 
@@ -115,32 +116,32 @@ def test_dry_run_reports_the_selection_and_makes_no_extraction_or_write(
         assert row["analysis"] is None or not row["analysis"].get("title_only")
 
 
-def test_dry_run_cost_estimate_is_the_summed_median_real_cost_per_action(
+def test_dry_run_cost_estimate_is_the_summed_p99_real_cost_per_action(
     test_db: Path, isolated_xdg_env: Path
 ) -> None:
-    """SC-3: the estimate sums, per action, the MEDIAN of that action's
-    successful real cost_usd entries in the observability log -- an outlier
-    call must not skew it, a failed call's cost must not count, and an
-    unrelated action (deep_extract) must not count either.
-    BREAKS: Summing every logged cost instead of taking a median per action,
-    or hard-coding a flat per-item constant, both produce a different number
-    here than the one this test computes independently.
+    """SC-3: the estimate sums, per action, the 99th percentile of that action's
+    successful real cost_usd entries, so an expensive call counts (it is a bound,
+    not a typical cost); a failed call's cost and an unrelated action
+    (deep_extract) do not.
+    BREAKS: A median or mean per action (the 2026-09-30 youtube backfill cost
+    $0.0077 per item against a $0.0030 median estimate), summing every logged
+    cost, or a flat constant all give a different number here.
     """
     config = Config.from_file()
     storage = Storage(test_db)
     orchestrator = _build_orchestrator(config, storage, _PoisonFetcher())
 
     logger = get_obs_logger()
-    # summarize: median of [0.01, 0.01, 0.10] = 0.01 -- chosen asymmetric so a
-    # mean (~0.04) would produce a visibly different, wrong estimate below.
+    # summarize: p99 of [0.01, 0.01, 0.10] = 0.10 -- a median (0.01) or mean
+    # (0.04) would produce a visibly different estimate below.
     for cost in (0.01, 0.10, 0.01):
         logger.log("llm.call", action="summarize", status="success", cost_usd=cost)
-    # evaluate: median of [0.004, 0.006] = 0.005
+    # evaluate: p99 of [0.004, 0.006] = 0.006
     for cost in (0.004, 0.006):
         logger.log("llm.call", action="evaluate", status="success", cost_usd=cost)
-    # classify_kind: median of [0.001] = 0.001
+    # classify_kind: p99 of [0.001] = 0.001
     logger.log("llm.call", action="classify_kind", status="success", cost_usd=0.001)
-    # noise that must not count toward the median: a failed call, an
+    # noise that must not count toward the estimate: a failed call, an
     # unrelated action, and a non-numeric cost (api.openai.com-shaped).
     logger.log("llm.call", action="summarize", status="error", cost_usd=99.0)
     logger.log("llm.call", action="deep_extract", status="success", cost_usd=5.0)
@@ -151,8 +152,8 @@ def test_dry_run_cost_estimate_is_the_summed_median_real_cost_per_action(
     _seed_unreadable_youtube_item(storage, "two")
     _seed_unreadable_youtube_item(storage, "three")
 
-    expected_per_item = 0.01 + 0.005 + 0.001
-    assert median_cost_estimate(get_obs_logger().base_dir) == pytest.approx(
+    expected_per_item = 0.10 + 0.006 + 0.001
+    assert upper_bound_cost_estimate(get_obs_logger().base_dir) == pytest.approx(
         expected_per_item
     )
 

@@ -14,11 +14,13 @@ this suite uses.
 from __future__ import annotations
 
 import http.server
+import json as jsonlib
 import os
 import sys
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch  # claudex-guard: allow-mock
 
 import pytest
 
@@ -26,6 +28,7 @@ from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.config import Config
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.fetchers.youtube import YouTubeFetcher
+from prismis_daemon.llm_client import CompleteResult, TokenUsage
 from prismis_daemon.models import ContentItem
 from prismis_daemon.notifier import Notifier
 from prismis_daemon.orchestrator import DaemonOrchestrator
@@ -35,6 +38,11 @@ from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
 
 from conftest import configure_local_services
+
+# complete() -- the LLM provider boundary Principle I permits faking (it backs
+# every "complete" attribute the internal-mock guard allowlists), patched at
+# the name llm_call.py actually calls.
+_PATCH_COMPLETE = "prismis_daemon.llm_call.complete"  # claudex-guard: allow-mock
 
 _ARTICLE_HTML = (
     b"<!doctype html><html><body><article>"
@@ -159,11 +167,21 @@ def test_refetch_rss_recovers_readable_items_and_patches_still_unreadable_ones(
     a real article is re-extracted, re-analysed through the same pipeline
     (SC-1) and stored in place; the one whose URL still 404s is left with its
     stored content untouched and gets title_only: true patched on with no LLM
-    call. SC-3: the real run reports both outcomes and a nonzero summed cost.
+    call. SC-3: the real run reports both outcomes.
     BREAKS: A refetch that calls analyze_and_store_item for every selected row
     regardless of readability would spend an LLM call patching the
     still-unreadable item's title_only flag, which this proves against by
     checking its content is byte-identical to what was seeded.
+
+    real_cost here is exactly 0.0, not merely proven non-negative: local_
+    pipeline_stub's /v1/chat/completions response carries no usage.cost field
+    (conftest.py), and llm_client.complete() only requests OpenRouter's cost
+    extension for an openrouter.ai host, so every call this test makes really
+    does report no cost -- this is what the stub actually guarantees, not a
+    placeholder for "some number >= 0". The run_id/status/event filtering
+    _real_cost_since applies to arrive at a nonzero sum is proven separately,
+    with a known per-call cost, by
+    test_refetch_real_run_sums_the_real_cost_of_its_own_llm_calls below.
     """
     config = _real_config(local_pipeline_stub)
     storage = Storage(test_db)
@@ -196,7 +214,10 @@ def test_refetch_rss_recovers_readable_items_and_patches_still_unreadable_ones(
     assert report.recovered == 1
     assert report.still_title_only == 1
     assert report.failed == 0
-    assert report.real_cost is not None and report.real_cost >= 0.0
+    assert report.real_cost == 0.0, (
+        "local_pipeline_stub reports no cost_usd for any call -- see the "
+        "docstring above for why this is the stub's real guarantee"
+    )
 
     recovered_row = storage.conn.execute(
         "SELECT id FROM content WHERE external_id = ?", ("recoverable-rss",)
@@ -311,3 +332,140 @@ def test_refetch_dry_run_against_real_storage_makes_no_write(
     assert stored["content"] == RSS_NO_CONTENT_FALLBACK
     assert stored["summary"] is None
     assert stored["analysis"] is None
+
+
+def _fake_complete_result(cost: float) -> CompleteResult:
+    """A CompleteResult carrying a known cost -- stands in for complete()
+    itself (the LLM provider boundary), not for prismis's own summarize/
+    evaluate logic, which still runs for real against this canned JSON."""
+    payload = {
+        "summary": "A stubbed summary.",
+        "reading_summary": "A stubbed reading summary.",
+        "alpha_insights": [],
+        "patterns": [],
+        "entities": [],
+        "quotes": [],
+        "tools": [],
+        "urls": [],
+        "priority": "low",
+        "matched_interests": [],
+        "reasoning": "stubbed",
+    }
+    return CompleteResult(
+        text=jsonlib.dumps(payload),
+        model="stub-model",
+        provider="stub",
+        tokens=TokenUsage(input=10, output=10),
+        finish_reason="stop",
+        duration_ms=5,
+        cost=cost,
+    )
+
+
+def test_refetch_real_run_sums_the_real_cost_of_its_own_llm_calls(
+    test_db: Path, isolated_xdg_env: Path, article_server: _ArticleServer
+) -> None:
+    """
+    SC-3 (review finding F-2-2): a real run's reported cost is the sum of
+    THIS run's own llm.call cost_usd events -- proved with a known per-call
+    cost (complete(), the one LLM boundary faked here) so the expected total
+    is independently computable, unlike local_pipeline_stub's stub (which
+    reports no cost at all and so cannot tell correct run_id/status/event
+    filtering in _real_cost_since apart from broken filtering -- both give 0).
+    BREAKS: a run_id mismatch, a missing status=="success" check, or summing
+    every llm.call ever logged instead of just this run's, each produce a
+    total other than 2 * per_call_cost here.
+    """
+    config = Config.from_file()
+    storage = Storage(test_db)
+    orchestrator = _build_orchestrator(config, storage)
+
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Test Feed")
+    storage.add_content(
+        ContentItem(
+            source_id=source_id,
+            external_id="recoverable-rss",
+            title="Recoverable RSS Item",
+            url=f"{article_server.base_url}/recoverable",
+            content=RSS_NO_CONTENT_FALLBACK,
+        )
+    )
+
+    per_call_cost = 0.00042
+    fake = _fake_complete_result(per_call_cost)
+    with patch(_PATCH_COMPLETE, return_value=fake):
+        report = run_refetch(orchestrator, "rss", limit=10)
+
+    assert report.recovered == 1
+    # summarize_with_analysis + evaluate_content each make exactly one
+    # complete() call for the one recovered item.
+    assert report.real_cost == pytest.approx(per_call_cost * 2)
+
+
+def _seed_upvote_with_topic(
+    storage: Storage, source_id: str, external_id: str, topic: str
+) -> None:
+    content_id = storage.add_content(
+        ContentItem(
+            source_id=source_id,
+            external_id=external_id,
+            title=f"Article {external_id}",
+            url=f"https://example.com/{external_id}",
+            content="Feedback seed content.",
+            analysis={"matched_interests": [topic]},
+        )
+    )
+    assert content_id is not None
+    storage.update_content_status(content_id, user_feedback="up")
+
+
+def test_refetch_sources_learned_preferences_like_run_once_does(
+    test_db: Path, isolated_xdg_env: Path, local_pipeline_stub: str, article_server: _ArticleServer
+) -> None:
+    """
+    SC-2 (review finding F-2-1): a recovered item is evaluated with the
+    user's learned preferences, sourced the same way run_once does --
+    analysis.get_learned_preferences(self.storage) -- not with None. Proved
+    by the evaluator's own preference_influenced flag, which ContentEvaluator
+    sets to True only when a truthy learned_preferences string reached
+    evaluate_content, and is stored verbatim by build_llm_analysis.
+    BREAKS: _refetch_one calling analyze_and_store_item with no third
+    argument (defaulting to None) stores preference_influenced: False here,
+    silently diverging from the one analysis path SC-1 established.
+    """
+    config = _real_config(local_pipeline_stub)
+    storage = Storage(test_db)
+    orchestrator = _build_orchestrator(config, storage)
+
+    feedback_source_id = storage.add_source(
+        "https://feeds.example.com/feedback-source", "rss", "Feedback Source"
+    )
+    # get_learned_preferences requires >= 5 votes in the last 30 days
+    # (analysis.py's own min_votes default) before it returns anything.
+    for i in range(5):
+        _seed_upvote_with_topic(
+            storage, feedback_source_id, f"upvoted-{i}", "security tooling"
+        )
+
+    rss_source_id = storage.add_source(
+        "https://feeds.example.com/rss", "rss", "Test Feed"
+    )
+    storage.add_content(
+        ContentItem(
+            source_id=rss_source_id,
+            external_id="recoverable-rss",
+            title="Recoverable RSS Item",
+            url=f"{article_server.base_url}/recoverable",
+            content=RSS_NO_CONTENT_FALLBACK,
+        )
+    )
+
+    report = run_refetch(orchestrator, "rss", limit=10)
+
+    assert report.recovered == 1
+    recovered_row = storage.conn.execute(
+        "SELECT id FROM content WHERE external_id = ?", ("recoverable-rss",)
+    ).fetchone()
+    recovered = storage.get_content_by_id(recovered_row["id"])
+    assert recovered is not None
+    assert recovered["analysis"]["preference_influenced"] is True

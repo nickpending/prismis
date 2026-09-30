@@ -26,6 +26,7 @@ calls it actually made.
 from __future__ import annotations
 
 import json
+import logging
 import statistics
 import uuid
 from dataclasses import dataclass, field
@@ -33,6 +34,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .analysis import get_learned_preferences
 from .article_extractor import extract_article
 from .models import ContentItem
 from .observability import get_logger as get_obs_logger
@@ -40,6 +42,8 @@ from .observability import log as obs_log
 from .observability import set_run_id
 from .orchestrator import DaemonOrchestrator
 from .readability import is_readable
+
+logger = logging.getLogger(__name__)
 
 # File sources are out of scope (their external_id embeds the content hash, and
 # none are unreadable); `analyze repair` stays the separate, narrower command it
@@ -195,7 +199,11 @@ def _reextract_item(orchestrator: DaemonOrchestrator, row: dict[str, Any]) -> Co
     )
 
 
-def _refetch_one(orchestrator: DaemonOrchestrator, row: dict[str, Any]) -> RefetchOutcome:
+def _refetch_one(
+    orchestrator: DaemonOrchestrator,
+    row: dict[str, Any],
+    learned_preferences: str | None,
+) -> RefetchOutcome:
     """Re-extract, and where it recovers re-analyse, one selected row.
 
     Wrapped in one try/except (mirrors fetch_source_content's own per-item
@@ -209,7 +217,9 @@ def _refetch_one(orchestrator: DaemonOrchestrator, row: dict[str, Any]) -> Refet
 
         if is_readable(item.content):
             source = {"type": row["source_type"], "name": row.get("source_name") or ""}
-            result = orchestrator.analyze_and_store_item(item, source)
+            result = orchestrator.analyze_and_store_item(
+                item, source, learned_preferences
+            )
             if result is None:
                 return RefetchOutcome(
                     external_id, title, "failed", "summarization returned nothing"
@@ -265,12 +275,28 @@ def run_refetch(
             estimated_cost=per_item_cost * len(rows),
         )
 
+    # Sourced once per run, exactly like run_once (orchestrator.py's own
+    # cycle), and threaded into every item's analyze_and_store_item call --
+    # the same path fetch_source_content takes it through. Not critical:
+    # a lookup failure falls back to None rather than failing the run.
+    learned_preferences = None
+    try:
+        learned_preferences, total_votes = get_learned_preferences(orchestrator.storage)
+        if learned_preferences:
+            obs_log(
+                "refetch.learned_preferences",
+                source_type=source_type,
+                total_votes=total_votes,
+            )
+    except Exception as e:
+        logger.warning(f"Failed to fetch feedback statistics: {e}")
+
     run_id = str(uuid.uuid4())
     set_run_id(run_id)
     try:
         outcomes = []
         for row in rows:
-            outcome = _refetch_one(orchestrator, row)
+            outcome = _refetch_one(orchestrator, row, learned_preferences)
             outcomes.append(outcome)
             obs_log(
                 "refetch.item",

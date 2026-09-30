@@ -1,0 +1,19 @@
+# Historical gitleaks findings, ignored by fingerprint for CI's full-history scan
+# (gh #70). `gitleaks git . --config .gitleaks.toml` already drops every finding
+# whose secret VALUE matches an allowlist regex in .gitleaks.toml, across every
+# commit that literal ever appeared in — which covers the README placeholder and
+# the fixtures .gitleaks.toml already lists. This file exists only for a finding
+# that config can't reach: a fake credential in a test file that no longer exists
+# in the working tree, so there is no live line to attach a `gitleaks:allow`
+# comment to and no current file for .gitleaks.toml's allowlist to describe.
+#
+# Regenerate by running, from a full clone:
+#   gitleaks git . --redact --no-banner --config .gitleaks.toml \
+#     --report-format json --report-path /tmp/gitleaks-report.json
+# and copying the Fingerprint field of whatever still appears.
+#
+# api_key fixture asserting the analyzer never leaks a credential into its output —
+# daemon/tests/integration/test_analyzer_integration.py, introduced at e2ffa94 (the
+# initial commit) and removed at 6ea0b86 (`refactor: remove dead analyzer.py code
+# and improve LLM prompt structure`), so it exists only in history.
+e2ffa94fd3c04ecd1b01d8492c34fc725138bb95:daemon/tests/integration/test_analyzer_integration.py:generic-api-key:187

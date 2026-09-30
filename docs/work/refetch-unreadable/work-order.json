@@ -1,0 +1,58 @@
+{
+  "workOrder": "refetch-unreadable",
+  "what": "Add `prismis-daemon refetch --type youtube|rss|reddit`, which re-extracts content for stored items the readability check calls not readable and re-analyses in place the ones that now come back readable. The per-item analysis moves out of the orchestrator's fetch loop into one method that both the fetch loop and refetch call. Items still not readable get title_only: true on their existing analysis without an LLM call.",
+  "why": "Measured on cerebro 2026-09-30 (non-archived items): youtube 96/687, rss 1069/13102, reddit 1346/12960 stored with content readability.is_readable() rejects. #80's retry only reaches items inside a fetcher's discovery window, and only items whose analysis already carries title_only; items analysed before #80 have no title_only key, so get_readable_external_ids treats them as readable and they are never retried. The causes are now fixed: YouTube's translated 'en' caption track got HTTP 429 while en-orig downloads (54a7122), and Reddit link posts never fetched their article (#80). For example osZZjdMZVvA, UOcHfR3_tys and Se8jHLliLXE recovered 14k-25k character transcripts once retried. rudy asked for the backfill on 2026-09-30.\n\nThe orchestrator's per-item analysis (summarize, evaluate, build_llm_analysis, kind classification, the deep-extraction gate, storage, embedding) lives inline in fetch_source_content's loop. `analyze repair` has its own narrower copy (no kind, no deep extraction, no embedding). A refetch that re-used repair would store items missing their kind and embedding, and a third inline copy would drift.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "the orchestrator's fetch loop",
+      "when": "an item is analysed and stored",
+      "then": "the work runs through one orchestrator method that takes an item and its source and returns what it stored: summarize, evaluate, build_llm_analysis, merge with fetcher metrics, kind classification, the deep-extraction gate with the title_only skip, create_or_update_content, embedding. fetch_source_content calls it for each item and behaves as it did (stats, notifications of new HIGH items, INV-002 failure handling); the existing orchestrator tests still pass unchanged",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'orchestrator' && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "stored, non-archived youtube, rss and reddit items whose content is not readable, and readable items of the same types",
+      "when": "`prismis-daemon refetch --type <type>` runs",
+      "then": "only the not-readable items of that type are selected, oldest first, bounded by --limit. Each is re-extracted through its own fetcher's single-item path: the YouTube transcript extraction for the stored video URL, the shared article extractor for an rss item's URL, and the Reddit fetcher building the item from the stored submission via PRAW. Content that is now readable replaces the stored content and is re-analysed in place through SC-1's method (same row, no duplicate, no new-item notification). Content still not readable leaves the row's content alone and sets title_only: true on its existing analysis without an LLM call. Readable items are never touched",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'refetch' && echo 'SC-2: PASS'",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "the same selection",
+      "when": "`prismis-daemon refetch --type <type> --dry-run` runs",
+      "then": "it prints how many items would be re-extracted and an upper-bound LLM cost, derived from the median real summarize, evaluate and classify_kind cost per item in the observability log (not a hard-coded constant), and makes no extraction, LLM call or write. A real run prints per-item outcome (recovered, still title-only, failed) and ends with the counts and the summed real cost of the calls it made",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'refetch and dry_run' && echo 'SC-3: PASS'",
+        "expect": "SC-3: PASS"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "File sources (their external_id embeds the content hash, and none are unreadable).",
+    "Running the backfill itself; that is an operator step after deploy, youtube first.",
+    "Changing `analyze repair`."
+  ],
+  "stakes": [
+    "Reuse: SC-1's method is the one analysis path; refetch must not add a second copy of summarize/evaluate/kind/deep/embed. Re-extraction reuses each fetcher's existing single-item code (YouTubeFetcher's transcript extraction, article_extractor.extract_article, RedditFetcher's item builder) and readability.is_readable for selection.",
+    "Principle I: tests use real Storage, a real orchestrator and real fetcher code; external HTTP is served from a local test server, yt-dlp runs as a real subprocess stand-in, PRAW's network is the boundary, and only the LLM provider is faked.",
+    "Anything unattended records what it decided and why: each refetched item logs an obs event with its outcome.",
+    "Cost: the dry run exists so the operator sees the count and cost before a bulk run spends money."
+  ]
+}

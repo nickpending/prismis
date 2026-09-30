@@ -1,0 +1,25 @@
+{
+  "searched": [
+    "docs/work/readable-content/work-order.json",
+    "docs/work/readable-content/results/plan.json",
+    "docs/work/readable-content/job-2.diff",
+    "docs/work/readable-content/journal.jsonl",
+    "docs/work/readable-content/results/built-2-1.json",
+    "docs/work/readable-content/results/built-2-2.json",
+    "daemon/src/prismis_daemon/api.py",
+    "daemon/src/prismis_daemon/api_models.py",
+    "daemon/src/prismis_daemon/static/index.html",
+    "daemon/tests/unit/test_web_title_only_unit.py",
+    "daemon/tests/integration/test_api_title_only_integration.py",
+    "daemon/tests/unit/test_web_kind_unit.py",
+    "daemon/tests/conftest.py",
+    "daemon/src/prismis_daemon/storage.py",
+    "tui/internal/ui/reader.go",
+    "tui/internal/ui/reader_test.go",
+    "tui/internal/ui/feed.go",
+    "tui/internal/ui/feed_test.go",
+    ".claude/worktrees/agent-a4435e0e77b006952 (job 2's build worktree, for full-file context the diff's hunks don't show)"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

@@ -157,6 +157,103 @@ func TestReaderKindDisplay(t *testing.T) {
 	}
 }
 
+// TestFeedTitleOnlyDisplay_MarkerShown verifies the feed row shows the lower-case
+// "title only" marker (SC-6) for an item whose analysis carries title_only: true.
+func TestFeedTitleOnlyDisplay_MarkerShown(t *testing.T) {
+	items := []db.ContentItem{
+		{ID: "1", Title: "Not Readable Item", Priority: "high", Analysis: `{"title_only":true}`},
+	}
+
+	model := Model{
+		items:    items,
+		cursor:   0,
+		view:     "list",
+		priority: "all",
+		loading:  false,
+		width:    100,
+		height:   30,
+		viewport: viewport.New(100, 30),
+	}
+
+	output := model.View()
+	if !strings.Contains(output, "title only") {
+		t.Errorf("Expected feed row to show 'title only' marker. Got: %s", output)
+	}
+}
+
+// TestFeedTitleOnlyDisplay_NoMarkerWhenReadable verifies an item without
+// title_only (absent, or explicitly false) shows no marker at all.
+func TestFeedTitleOnlyDisplay_NoMarkerWhenReadable(t *testing.T) {
+	items := []db.ContentItem{
+		{ID: "1", Title: "Readable Item", Priority: "high", Analysis: `{"title_only":false}`},
+		{ID: "2", Title: "No Flag Item", Priority: "medium", Analysis: `{"kind":"news"}`},
+	}
+
+	model := Model{
+		items:    items,
+		cursor:   0,
+		view:     "list",
+		priority: "all",
+		loading:  false,
+		width:    100,
+		height:   30,
+		viewport: viewport.New(100, 30),
+	}
+
+	output := model.View()
+	if strings.Contains(output, "title only") {
+		t.Errorf("Readable items must show no 'title only' marker. Got: %s", output)
+	}
+}
+
+// TestReaderTitleOnlyDisplay verifies the reader header shows the "title only"
+// marker (SC-6) for an item whose analysis carries title_only: true.
+func TestReaderTitleOnlyDisplay(t *testing.T) {
+	items := []db.ContentItem{
+		{ID: "1", Title: "Reader Article", Content: "Body.", Analysis: `{"title_only":true}`},
+	}
+
+	model := Model{
+		items:    items,
+		cursor:   0,
+		view:     "reader",
+		loading:  false,
+		width:    100,
+		height:   30,
+		viewport: viewport.New(100, 30),
+	}
+	model.updateReaderContent()
+
+	output := model.View()
+	if !strings.Contains(output, "title only") {
+		t.Errorf("Expected reader header to show 'title only' marker. Got: %s", output)
+	}
+}
+
+// TestReaderTitleOnlyDisplay_NoMarkerWhenReadable verifies the reader header shows
+// no "title only" marker for an item whose analysis doesn't carry title_only: true.
+func TestReaderTitleOnlyDisplay_NoMarkerWhenReadable(t *testing.T) {
+	items := []db.ContentItem{
+		{ID: "1", Title: "Reader Article", Content: "Body.", Analysis: `{"title_only":false,"kind":"tutorial"}`},
+	}
+
+	model := Model{
+		items:    items,
+		cursor:   0,
+		view:     "reader",
+		loading:  false,
+		width:    100,
+		height:   30,
+		viewport: viewport.New(100, 30),
+	}
+	model.updateReaderContent()
+
+	output := model.View()
+	if strings.Contains(output, "title only") {
+		t.Errorf("Readable items must show no 'title only' marker in the reader. Got: %s", output)
+	}
+}
+
 // TestFeedNoEntityTags verifies the feed row shows no tag list for an item whose
 // stored analysis still carries an entities array (older items analysed before the
 // entities field was dropped from the summarizer). The row must render the title

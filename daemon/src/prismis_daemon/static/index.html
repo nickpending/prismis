@@ -375,6 +375,17 @@
             font-weight: 500;
         }
 
+        .title-only-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            background-color: rgba(255, 136, 0, 0.08);
+            color: #FF8800;
+            border: 1px solid #333333;
+            font-weight: 500;
+        }
+
         .duplicate-badge {
             display: inline-block;
             padding: 3px 8px;
@@ -1262,6 +1273,14 @@
                     ? `<span class="kind-badge">${this.escapeHtml(String(item.kind).toLowerCase())}</span>`
                     : '';
 
+                // Title-only marker (SC-6): the item's stored content wasn't
+                // readable, so it stayed in the feed as a title-only row rather
+                // than being dropped. Lower case, like the kind badge; shown only
+                // when item.title_only is true.
+                const titleOnlyBadge = item.title_only
+                    ? `<span class="title-only-badge">title only</span>`
+                    : '';
+
                 // Calculate interest matching badge
                 let interestBadge = '';
                 if (item.analysis && typeof item.analysis === 'object') {
@@ -1314,6 +1333,7 @@
                         <div class="item-meta">
                             <span class="priority-badge badge-${item.priority || 'none'} ${learnedClass}" title="${(item.priority || 'none').toUpperCase()}${learnedTitle}">${(item.priority || 'none').toUpperCase()}</span>
                             ${kindBadge}
+                            ${titleOnlyBadge}
                             <span>${this.escapeHtml(item.source_name || 'Unknown Source')}</span>
                             <span>${timeAgo}</span>
                             ${duplicateBadge}

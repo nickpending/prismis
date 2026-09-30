@@ -191,6 +191,26 @@ func TestUnifiedQuotes(t *testing.T) {
 	}
 }
 
+// TestParseMetadata_TitleOnly verifies parseMetadata reads title_only (SC-6) the
+// same way it already reads kind: true when the analysis JSON says so, false
+// (the zero value) when absent or explicitly false.
+func TestParseMetadata_TitleOnly(t *testing.T) {
+	metadata := parseMetadata(`{"title_only":true,"kind":"news"}`)
+	if !metadata.TitleOnly {
+		t.Error("TitleOnly should be true when analysis.title_only is true")
+	}
+
+	metadata = parseMetadata(`{"title_only":false,"kind":"news"}`)
+	if metadata.TitleOnly {
+		t.Error("TitleOnly should be false when analysis.title_only is explicitly false")
+	}
+
+	metadata = parseMetadata(`{"kind":"news"}`)
+	if metadata.TitleOnly {
+		t.Error("TitleOnly should be false (zero value) when title_only is absent")
+	}
+}
+
 // TestReaderViewWithMetadata tests reader displays analysis metadata
 func TestReaderViewWithMetadata(t *testing.T) {
 	analysisJSON := `{

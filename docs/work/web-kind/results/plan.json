@@ -1,0 +1,30 @@
+{
+  "artifact": [
+    "docs/work/web-kind/results/plan-1.json"
+  ],
+  "verified": false,
+  "jobs": [
+    {
+      "number": 1,
+      "title": "GET /api/kinds: a Storage.get_distinct_kinds(since) query (sorted, de-duplicated, non-archived, json_valid-guarded, NULL/empty kind excluded -- mirrors the TUI's GetDistinctKinds in tui/internal/db/queries.go:581-611 but scoped to non-archived only) wired into a new authenticated endpoint that accepts the same optional since_hours convenience parameter /api/entries takes, returns an empty list (not an error) when nothing matches, and is documented in API.md alongside the other /api/* endpoints",
+      "files": [
+        "daemon/src/prismis_daemon/storage.py",
+        "daemon/src/prismis_daemon/api.py",
+        "API.md",
+        "daemon/tests/integration/test_api_kinds_integration.py"
+      ],
+      "depends": [],
+      "delivers": ["SC-1", "SC-3"]
+    },
+    {
+      "number": 2,
+      "title": "Web UI kind badge and filter: item cards render a lower-case kind badge from item.kind when present; a kind <select> populated from GET /api/kinds' response with an all-kinds default; choosing a kind adds kind=<kind> to the /api/entries request instead of filtering the loaded array in the browser; the chosen kind survives the 30s auto-refresh; no literal from the ten kind names appears in the page source",
+      "files": [
+        "daemon/src/prismis_daemon/static/index.html",
+        "daemon/tests/unit/test_web_kind_unit.py"
+      ],
+      "depends": [],
+      "delivers": ["SC-2"]
+    }
+  ]
+}

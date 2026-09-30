@@ -1,0 +1,47 @@
+{
+  "workOrder": "kind-health",
+  "what": "Check the kind service at daemon startup and in `prismis-daemon verify` the way the light and deep services are checked, using one real classify call through the existing decisions path, and make the startup warnings say what actually happens when an optional service is unreachable (gh #82).",
+  "why": "validate_llm_config (startup) and `prismis-daemon verify` in daemon/src/prismis_daemon/__main__.py check the light and deep services but not [llm] kind_service. A misconfigured kind service (wrong base_url, missing key) makes every classify call fail; INV-002 stores each item anyway with no kind and counts the failure in kind_classify_failures, so neither a restart nor the deploy procedure's verify step reports it. llm_client.health_check cannot serve the kind service: it lists models, OpenRouter's model list does not include typesafe/jev-1.13, and the decisions endpoint only answers a POST (a GET returns 404). One classify call is the only check that exercises the configured base_url, key and model together; it costs about $0.00004, approved by rudy. Separately, the startup warning for an unreachable deep service says 'deep extraction disabled', but build_orchestrator still constructs the deep extractor whenever deep_service is set, so the message describes behaviour the daemon does not have.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a configured kind service whose decisions call succeeds, and one whose call fails (unreachable endpoint, non-2xx status, or an answer that names no kind)",
+      "when": "`prismis-daemon verify` runs",
+      "then": "it reports the kind service reachable in the first case; in the second it reports it unreachable with the error, counts it as a failure and exits non-zero; with no kind_service configured it reports 'not configured' and does not count a failure. The check is a single call made through kind_classifier's own submit_decision, not a second request builder",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'verify and kind_service' && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "the same three configurations",
+      "when": "the daemon starts (validate_llm_config)",
+      "then": "the kind service's status is checked and printed alongside light and deep; an unreachable kind service is non-fatal like deep, and its warning says what really happens (items are stored without a kind and the failures are counted), and the deep warning is corrected to match what build_orchestrator actually does",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'startup and kind_service' && echo 'SC-2: PASS'",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Changing whether an unreachable deep or kind service disables its step at runtime; this only makes the messages true.",
+    "Any change to the ten kinds, the threshold, or the classify prompt."
+  ],
+  "stakes": [
+    "Principle I: tests fake only submit_decision (the provider boundary already on the no-internal-mocks allowlist) and llm_client's provider calls; config, the validator and the verify command run for real.",
+    "Reuse: the health check lives with the classifier in kind_classifier.py and calls submit_decision with a small fixed state; llm_validator.validate_llm_services gains the kind service beside deep rather than a parallel validator.",
+    "A health check that 'succeeds' on an answer naming no kind proves nothing: the call must return a choice that is one of KINDS.",
+    "The health-check call is logged as an llm.call event with its cost like every other classify call."
+  ]
+}

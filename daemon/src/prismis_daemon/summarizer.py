@@ -220,7 +220,7 @@ STEP 1: CREATE SUMMARIES
   * ## Overview section - brief context/background (2-3 sentences)
   * ## Key Points - bullet list of main takeaways
   * ## Summary - THE MAIN SECTION! Comprehensive narrative covering what was discussed, arguments made, flow of ideas. This should be substantive enough that someone could skip the original unless they want full nuance.
-  * ## Takeaways - what this means and why it matters
+  * ## Takeaways - what this means and why it matters. This is the last section; each heading appears exactly once
   * Write clean, readable markdown for web display
   * NO HTML, NO broken formatting, ONLY clean markdown
   * IMPORTANT: Use \\n for newlines (not actual line breaks), escape quotes with \\"
@@ -292,7 +292,7 @@ Do NOT make up URLs - only extract ones actually mentioned in the content
 OUTPUT FORMAT:
 {
   "summary": "Brief summary of the article's main points",
-  "reading_summary": "# Title Here\\n\\n## Overview\\nBrief context and background (2-3 sentences)\\n\\n## Key Points\\n- Main takeaway 1\\n- Main takeaway 2\\n- Main takeaway 3\\n\\n## Summary\\nThis is the MEAT of the content. Write a comprehensive narrative that covers what was actually discussed, the arguments made, the flow of ideas, and important details. Someone should be able to read this and understand the content without needing the original (unless they want full nuance). This should be the longest section.\\n\\n## Takeaways\\nWhat this means and why it matters...",
+  "reading_summary": "# <title>\\n\\n## Overview\\n<2-3 sentences of context>\\n\\n## Key Points\\n- <takeaway>\\n- <takeaway>\\n\\n## Summary\\n<the longest section: the comprehensive narrative>\\n\\n## Takeaways\\n<what this means and why it matters>",
   "alpha_insights": [
     "Universal principle or truth grounded in the content",
     "Another universal principle from the content"

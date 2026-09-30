@@ -116,7 +116,8 @@ def generate(args: argparse.Namespace) -> int:
         for i in sample_items(args.db, args.per_stratum, args.seed)
         if i["source_type"] != "file"  # file sources use the diff prompt, no STEPs
     ]
-    print(f"{len(items)} items, {1 + len(GROUPS)} calls each, service {args.service}")
+    calls = 1 if args.single_only else 1 + len(GROUPS)
+    print(f"{len(items)} items, {calls} calls each, service {args.service}")
 
     with args.out.open("w") as out:
         for idx, item in enumerate(items, 1):
@@ -133,10 +134,16 @@ def generate(args: argparse.Namespace) -> int:
                 {},
             )
             single = _call(args.service, system_prompt, user_prompt, "summarize")
-            split = {
-                group: _call(args.service, prompt, user_prompt, f"summarize_{group}")
-                for group, prompt in split_prompts(system_prompt).items()
-            }
+            split = (
+                {}
+                if args.single_only
+                else {
+                    group: _call(
+                        args.service, prompt, user_prompt, f"summarize_{group}"
+                    )
+                    for group, prompt in split_prompts(system_prompt).items()
+                }
+            )
             record = {
                 "id": item["id"],
                 "title": item["title"],
@@ -369,6 +376,11 @@ def main() -> int:
     gen.add_argument("--seed", type=int, default=1337)
     gen.add_argument("--db", type=Path, default=DEFAULT_DB)
     gen.add_argument("--out", type=Path, required=True)
+    gen.add_argument(
+        "--single-only",
+        action="store_true",
+        help="run only the production prompt, to re-measure a change to it",
+    )
 
     jdg = sub.add_parser("judge")
     jdg.add_argument("--in", dest="inp", type=Path, required=True)

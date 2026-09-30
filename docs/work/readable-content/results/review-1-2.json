@@ -1,0 +1,13 @@
+{
+  "searched": [
+    "docs/work/readable-content/work-order.json",
+    "docs/work/readable-content/results/plan.json",
+    "docs/work/readable-content/job-1.diff (delta 0a9b800 -> 9d226903, the fix for F-1-1/F-1-2)",
+    "docs/work/readable-content/journal.jsonl",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/src/prismis_daemon/orchestrator.py (full fetch_source_content, lines 140-260)",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/integration/test_fetch_dedup_readmit_integration.py (new force_refetch regression test, and its surrounding fixtures)",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/unit/test_youtube_fetcher_unit.py (new curl_cffi impersonate-target test, and its surrounding fixtures)"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

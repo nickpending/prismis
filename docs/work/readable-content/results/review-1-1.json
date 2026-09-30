@@ -1,0 +1,46 @@
+{
+  "searched": [
+    "docs/work/readable-content/work-order.json",
+    "docs/work/readable-content/results/plan.json",
+    "docs/work/readable-content/job-1.diff (full, both pages)",
+    "docs/work/readable-content/journal.jsonl",
+    ".specify/verify.sh",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/src/prismis_daemon/readability.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/src/prismis_daemon/article_extractor.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/src/prismis_daemon/analysis.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/src/prismis_daemon/orchestrator.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/src/prismis_daemon/storage.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/src/prismis_daemon/fetchers/rss.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/src/prismis_daemon/fetchers/reddit.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/src/prismis_daemon/fetchers/youtube.py",
+    ".claude/worktrees/agent-a1888757fc8476580/cli/src/cli/analyze.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/unit/test_readability_unit.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/unit/test_article_extractor_unit.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/unit/test_reddit_fetcher_unit.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/unit/test_fetcher_unit.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/unit/test_youtube_fetcher_unit.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/unit/test_title_only_unit.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/unit/test_storage_deduplication_unit.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/integration/test_fetch_dedup_readmit_integration.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/integration/test_storage_deduplication_integration.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/tests/integration/test_daemon_integration.py",
+    ".claude/worktrees/agent-a1888757fc8476580/cli/tests/unit/test_analyze_kinds_unit.py",
+    ".claude/worktrees/agent-a1888757fc8476580/daemon/src/prismis_daemon/__main__.py (force_refetch call sites)",
+    "grep sweep of the worktree for build_llm_analysis, is_readable/title_only, trafilatura imports, and force_refetch across daemon/cli/tui"
+  ],
+  "exhaustive": true,
+  "findings": [
+    {
+      "file": "daemon/src/prismis_daemon/orchestrator.py",
+      "line": 160,
+      "summary": "`known_readable_ids` (from `storage.get_readable_external_ids`) is computed and handed to `fetcher.fetch_content(source, known_readable_ids=known_readable_ids)` unconditionally -- the branch is keyed only on `source_type == \"file\"`, never on `force_refetch`. SC-4's own \"then\" clause says 'force_refetch still processes every item', and the pre-existing meaning of force_refetch throughout this file ('Process all items when forcing refetch') was always full re-extraction plus full re-analysis. Because none of the three fetchers' `known_readable_ids` skip paths know about `force_refetch`, a forced refetch of a source now silently reuses stale/degraded content for every item already stored readably instead of re-fetching it: RSS's `_extract_full_content` (fetchers/rss.py:127-130) substitutes `_fallback_content(entry)` for the real trafilatura extraction whenever `external_id in known_readable_ids`; Reddit's `_to_content_item` (fetchers/reddit.py:386,403-413,426) sets `already_readable=True` and skips both the article fetch and the comment read, leaving content at the bare `Link: <url>` placeholder; YouTube's `_process_video` (fetchers/youtube.py:303-305) returns `_handle_missing_transcript(...)` immediately, discarding a real transcript download in favor of the 'No transcript available' placeholder. Each of these degraded contents is then fed straight through `is_readable`/`build_llm_analysis` inside the same force-refetch cycle (items_to_process = all_items, and the force_refetch branch also bypasses the 'still not readable, skip re-analysis' guard), so a previously readable item's stored row can be overwritten with `title_only: true` and placeholder content purely because it was force-refetched -- the opposite of what forcing a refetch is for. No test in the diff exercises force_refetch together with an item already stored readably (grep for `force_refetch` across daemon/tests turns up only the pre-existing, unmodified `test_force_refetch_processes_all_items`, which simulates the dedup filter with plain dicts and never touches a fetcher or `known_readable_ids`).",
+      "severity": "high"
+    },
+    {
+      "file": "daemon/src/prismis_daemon/fetchers/youtube.py",
+      "line": 46,
+      "summary": "SC-5's own acceptance clause is 'In that environment, `python -m yt_dlp --list-impersonate-targets` lists at least one curl_cffi target as available' -- the actual fix for the measured 429/no-impersonate-target failures gh #80 grounds this whole job in. The diff's new tests (`test_youtube_fetcher_yt_dlp_env_uses_the_daemon_own_python_module` and `test_youtube_fetcher_yt_dlp_env_command_actually_runs` in daemon/tests/unit/test_youtube_fetcher_unit.py) only prove the fetcher builds `[sys.executable, \"-m\", \"yt_dlp\"]` and that this command runs `--version` successfully; neither, nor anything else in the diff, runs `--list-impersonate-targets` and checks a curl_cffi target is present/available. A grep of the whole worktree for `curl_cffi`/`impersonate` outside pyproject.toml/uv.lock/the file itself finds nothing in any test. The wiring (running yt-dlp from the daemon's own env) is proven; the extra's actual effect -- the reason it was added -- is not.",
+      "severity": "medium"
+    }
+  ]
+}

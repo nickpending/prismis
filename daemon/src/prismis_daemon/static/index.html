@@ -83,7 +83,8 @@
             gap: 16px;
         }
 
-        .sort-control select {
+        .sort-control select,
+        .kind-control select {
             appearance: none;
             -webkit-appearance: none;
             background: linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%);
@@ -102,17 +103,20 @@
             letter-spacing: 0.05em;
         }
 
-        .sort-control select:hover {
+        .sort-control select:hover,
+        .kind-control select:hover {
             border-color: #00D9FF;
             background: linear-gradient(180deg, #333333 0%, #222222 100%);
         }
 
-        .sort-control select:focus {
+        .sort-control select:focus,
+        .kind-control select:focus {
             outline: none;
             border-color: #00D9FF;
         }
 
-        .sort-control select option {
+        .sort-control select option,
+        .kind-control select option {
             background: #1a1a1a;
             color: #EEEEEE;
             padding: 8px;
@@ -358,6 +362,17 @@
             border: 1px solid #E6CCFF;
             margin-left: 8px;
             font-weight: 600;
+        }
+
+        .kind-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            background-color: rgba(0, 217, 255, 0.08);
+            color: #00D9FF;
+            border: 1px solid #333333;
+            font-weight: 500;
         }
 
         .duplicate-badge {
@@ -730,6 +745,11 @@
     <div class="status-bar">
         <div class="status-info" id="statusInfo">Loading...</div>
         <div class="status-right">
+            <div class="kind-control">
+                <select id="kindSelect" title="Filter by kind">
+                    <option value="">All Kinds</option>
+                </select>
+            </div>
             <div class="sort-control">
                 <select id="sortSelect" title="Sort order">
                     <option value="priority">Priority</option>
@@ -771,6 +791,7 @@
             constructor() {
                 this.apiKey = localStorage.getItem('prismis_api_key');
                 this.sortBy = localStorage.getItem('prismis_sort') || 'priority';
+                this.kindFilter = localStorage.getItem('prismis_kind') || '';
                 this.content = [];
                 this.cachedContent = [];
                 this.refreshInterval = null;
@@ -795,10 +816,19 @@
                     sortSelect.value = this.sortBy;
                 }
 
+                // Initialize kind dropdown from stored preference (the all-kinds
+                // default option always ships in the markup; the rest of the
+                // choices arrive once loadKinds() resolves).
+                const kindSelect = document.getElementById('kindSelect');
+                if (kindSelect) {
+                    kindSelect.value = this.kindFilter;
+                }
+
                 if (!this.apiKey) {
                     this.showApiKeyModal();
                 } else {
                     this.hideApiKeyModal();
+                    this.loadKinds();
                     this.loadContent();
                     this.startAutoRefresh();
                 }
@@ -832,6 +862,14 @@
                 document.getElementById('sortSelect').addEventListener('change', (e) => {
                     this.sortBy = e.target.value;
                     localStorage.setItem('prismis_sort', this.sortBy);
+                    this.loadContent();
+                });
+
+                // Kind dropdown: filters server-side via /api/entries?kind=,
+                // not by re-filtering the already-loaded array.
+                document.getElementById('kindSelect').addEventListener('change', (e) => {
+                    this.kindFilter = e.target.value;
+                    localStorage.setItem('prismis_kind', this.kindFilter);
                     this.loadContent();
                 });
 
@@ -880,6 +918,13 @@
                         sort_by: this.sortBy,
                         skip_dedup: 'false'  // Enable duplicate detection and grouping
                     });
+
+                    // Kind filtering happens server-side, before the 100-item limit
+                    // above -- filtering the loaded array here would repeat the
+                    // filter-after-limit defect search-kind-filter already fixed.
+                    if (this.kindFilter) {
+                        params.set('kind', this.kindFilter);
+                    }
 
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
@@ -941,6 +986,43 @@
                     }
                 } finally {
                     this.isLoading = false;
+                }
+            }
+
+            async loadKinds() {
+                // Builds the kind control's choices from GET /api/kinds' response
+                // (SC-2) rather than a second hardcoded list of the ten kinds --
+                // the same problem the TUI's own kind cycle solves locally via
+                // GetDistinctKinds over its database.
+                const select = document.getElementById('kindSelect');
+                if (!select) return;
+
+                try {
+                    const response = await fetch('/api/kinds', {
+                        headers: {
+                            'X-API-Key': this.apiKey
+                        }
+                    });
+
+                    if (!response.ok) return;
+
+                    const data = await response.json();
+                    if (!data.success) return;
+
+                    const kinds = data.data.kinds || [];
+                    const previousValue = this.kindFilter;
+
+                    select.innerHTML = '<option value="">All Kinds</option>';
+                    kinds.forEach((kind) => {
+                        const option = document.createElement('option');
+                        option.value = kind;
+                        option.textContent = kind;
+                        select.appendChild(option);
+                    });
+
+                    select.value = previousValue;
+                } catch (error) {
+                    console.error('Failed to load kinds:', error);
                 }
             }
 
@@ -1172,6 +1254,14 @@
                 const publishedDate = new Date(item.published_at).toLocaleDateString();
                 const timeAgo = this.timeAgo(new Date(item.published_at));
 
+                // Kind badge: only when classified (SC-2). Lower-cased to match
+                // the TUI's own kind rendering convention; item.kind already
+                // arrives lower case from kind_classifier.KINDS, but toLowerCase()
+                // makes that guarantee explicit here rather than borrowed.
+                const kindBadge = item.kind
+                    ? `<span class="kind-badge">${this.escapeHtml(String(item.kind).toLowerCase())}</span>`
+                    : '';
+
                 // Calculate interest matching badge
                 let interestBadge = '';
                 if (item.analysis && typeof item.analysis === 'object') {
@@ -1223,6 +1313,7 @@
                         </div>
                         <div class="item-meta">
                             <span class="priority-badge badge-${item.priority || 'none'} ${learnedClass}" title="${(item.priority || 'none').toUpperCase()}${learnedTitle}">${(item.priority || 'none').toUpperCase()}</span>
+                            ${kindBadge}
                             <span>${this.escapeHtml(item.source_name || 'Unknown Source')}</span>
                             <span>${timeAgo}</span>
                             ${duplicateBadge}

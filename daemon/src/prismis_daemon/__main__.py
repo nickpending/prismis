@@ -28,6 +28,7 @@ from .locking import acquire_daemon_lock
 from .notifier import Notifier
 from .observability import get_logger as get_obs_logger
 from .orchestrator import DaemonOrchestrator
+from .refetch import REFETCH_TYPES, RefetchReport, run_refetch
 from .storage import Storage
 from .summarizer import ContentSummarizer
 
@@ -815,6 +816,86 @@ def verify(
         console.print(
             f"\n[bold red]verify: FAIL ({failures} check(s) failed)[/bold red]"
         )
+        sys.exit(1)
+
+
+_REFETCH_STATUS_LABEL = {
+    "recovered": "[green]recovered[/green]",
+    "still_title_only": "[yellow]still title-only[/yellow]",
+    "failed": "[red]failed[/red]",
+}
+
+
+def _print_refetch_report(report: RefetchReport, console: Console) -> None:
+    """Render a RefetchReport the way refetch's dry-run and real-run modes
+    each describe in SC-3: a dry run prints the count and cost estimate and
+    stops there; a real run prints each item's outcome, then the counts and
+    the summed real cost."""
+    if report.dry_run:
+        console.print(
+            f"Would re-extract {report.selected} {report.source_type} item(s)"
+        )
+        console.print(
+            f"Estimated upper-bound LLM cost: ${report.estimated_cost or 0.0:.4f}"
+        )
+        return
+
+    for outcome in report.outcomes:
+        label = _REFETCH_STATUS_LABEL[outcome.status]
+        detail = f" -- {outcome.detail}" if outcome.detail else ""
+        console.print(f"  {label}: {outcome.title[:60]}{detail}")
+
+    console.print(
+        f"\n{report.recovered} recovered, {report.still_title_only} still "
+        f"title-only, {report.failed} failed ({report.selected} selected)"
+    )
+    console.print(f"Real LLM cost: ${report.real_cost or 0.0:.4f}")
+
+
+@app.command()
+def refetch(
+    source_type: Annotated[
+        str,
+        typer.Option("--type", help="Source type: youtube|rss|reddit"),
+    ],
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="Maximum number of items to process"),
+    ] = 50,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Report the selection and an estimated cost; make no extraction, LLM call or write",
+        ),
+    ] = False,
+) -> None:
+    """Re-extract and re-analyse stored items whose content isn't readable (gh #80).
+
+    Selects non-archived, not-readable items of --type, oldest first, bounded by
+    --limit; re-extracts each through its own fetcher's single-item path, and
+    routes a recovered item back through the same analysis pipeline the fetch
+    loop uses. Exits 1 if any item failed on a real run.
+    """
+    _load_ambient_env()
+
+    if source_type not in REFETCH_TYPES:
+        console.print(
+            f"[red]✗ invalid --type: {source_type} (expected one of {REFETCH_TYPES})[/red]"
+        )
+        sys.exit(1)
+
+    if not ensure_config():
+        sys.exit(0)
+
+    config = Config.from_file()
+    storage = Storage()
+    orchestrator = build_orchestrator(config, storage)
+
+    report = run_refetch(orchestrator, source_type, limit, dry_run=dry_run)
+    _print_refetch_report(report, console)
+
+    if not report.dry_run and report.failed:
         sys.exit(1)
 
 

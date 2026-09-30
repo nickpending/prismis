@@ -409,3 +409,40 @@ def test_extract_transcript_uses_original_english_when_translation_is_rate_limit
     )
 
     assert transcript == "original english words"
+
+
+def test_refetch_transcript_re_runs_extraction_for_a_stored_video_url(
+    tmp_path,
+) -> None:
+    """
+    refetch-unreadable SC-2: refetch_transcript re-runs transcript extraction
+    for a video URL already stored -- no channel discovery -- and returns the
+    transcript text a fresh yt-dlp run finds.
+    BREAKS: A refetch path that returns None unconditionally, or one that
+    never actually invokes yt-dlp, would leave a recoverable stored video
+    stuck at title_only forever.
+    """
+    fetcher = YouTubeFetcher()
+    fetcher.yt_dlp_cmd = _youtube_like_yt_dlp_cmd(tmp_path)
+
+    transcript = fetcher.refetch_transcript(
+        "https://www.youtube.com/watch?v=osZZjdMZVvA"
+    )
+
+    assert transcript == "original english words"
+
+
+def test_refetch_transcript_returns_none_when_still_unavailable(tmp_path) -> None:
+    """Companion to the above: a video with no transcript file at all still
+    returns None rather than raising, so the caller's is_readable check (not
+    an exception) decides the still-title-only outcome."""
+    fetcher = YouTubeFetcher()
+    marker = tmp_path / "invoked.marker"
+    fetcher.yt_dlp_cmd = _recording_yt_dlp_cmd(marker)
+
+    transcript = fetcher.refetch_transcript(
+        "https://www.youtube.com/watch?v=no-transcript-here"
+    )
+
+    assert transcript is None
+    assert marker.exists(), "yt-dlp should have actually been invoked"

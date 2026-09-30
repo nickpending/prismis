@@ -227,6 +227,42 @@ class RedditFetcher:
 
         return items
 
+    def refetch_one(self, external_id: str, source_id: str) -> ContentItem:
+        """Rebuild one stored item from its permalink via PRAW (job 2, SC-2 of
+        refetch-unreadable): the single-item path refetch calls when a stored
+        Reddit item's content isn't readable.
+
+        Reuses `_to_content_item` with no `known_readable_ids`, so it always
+        re-extracts -- the article fetch and comment read the bulk fetch skips
+        for an already-readable post both run here, since this item is by
+        definition not readable yet.
+
+        Args:
+            external_id: The stored item's external_id (its full permalink URL)
+            source_id: Source UUID to stamp the rebuilt item with
+
+        Returns:
+            A freshly built ContentItem for this submission
+
+        Raises:
+            RedditNotConfiguredError: No usable Reddit credentials
+            Exception: The submission can't be reached (deleted, banned,
+                private) or PRAW itself fails -- the caller records this as a
+                failed refetch rather than a still-unreadable one.
+        """
+        if self.credentials_missing:
+            raise RedditNotConfiguredError(REDDIT_NOT_CONFIGURED)
+        if not self.reddit:
+            raise Exception("Reddit client not initialized - check credentials")
+
+        self._deadline.rearm(self.fetch_budget)
+        submission = self.reddit.submission(url=external_id)
+        # Force PRAW's lazy load now, inside this method, so a deleted/banned/
+        # private post raises here rather than partway through _to_content_item.
+        _ = submission.title
+
+        return self._to_content_item(submission, source_id)
+
     def _parse_subreddit_name(self, url: str) -> str:
         """Parse subreddit name from various URL formats.
 

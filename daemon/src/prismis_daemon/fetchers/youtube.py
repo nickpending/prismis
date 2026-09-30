@@ -316,6 +316,21 @@ class YouTubeFetcher:
         # Convert to ContentItem
         return self._to_content_item(video, transcript, source_id)
 
+    def refetch_transcript(self, video_url: str) -> str | None:
+        """Re-run just the transcript extraction for a stored video URL (job 2,
+        SC-2 of refetch-unreadable) -- no channel discovery, since the video is
+        already known. The public seam `refetch.py` calls; a thin wrapper around
+        `_extract_transcript` so the single real transcript-extraction path stays
+        the one both the fetch loop and refetch use.
+
+        Args:
+            video_url: The stored item's URL (the video's own external_id)
+
+        Returns:
+            Transcript text or None if still not available
+        """
+        return self._extract_transcript(video_url)
+
     def _extract_transcript(self, video_url: str) -> str | None:
         """Extract transcript from a YouTube video using yt-dlp.
 

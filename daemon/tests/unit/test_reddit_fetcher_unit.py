@@ -9,6 +9,7 @@ import pytest
 
 from prismis_daemon.config import REDDIT_NOT_CONFIGURED
 from prismis_daemon.fetchers.reddit import RedditFetcher, RedditNotConfiguredError
+from prismis_daemon.http_deadline import DeadlineAdapter
 from prismis_daemon.models import ContentItem
 
 from conftest import make_config
@@ -483,6 +484,79 @@ def test_fetch_without_credentials_reports_them_absent(
     with pytest.raises(RedditNotConfiguredError) as raised:
         fetcher.fetch_content(
             {"url": "https://www.reddit.com/r/python", "id": "source-1"}
+        )
+
+    assert str(raised.value) == REDDIT_NOT_CONFIGURED
+
+
+class _FakeRedditClient:
+    """A hand-written stand-in for praw.Reddit's `.submission()` call -- PRAW's
+    network is the boundary refetch_one crosses (job 2's stake), not
+    prismis_daemon's own code, so only that call is faked; everything else
+    `refetch_one` touches (the real DeadlineAdapter below, `_to_content_item`)
+    stays real. Records every call so the test proves the real argument, not
+    just that *a* call happened."""
+
+    def __init__(self, submission) -> None:
+        self._submission = submission
+        self.calls: list[str] = []
+
+    def submission(self, url: str):
+        self.calls.append(url)
+        return self._submission
+
+
+def test_refetch_one_rebuilds_the_item_via_praw_submission(
+    link_post_article_server: str,
+) -> None:
+    """
+    refetch-unreadable SC-2: refetch_one fetches the submission by permalink
+    via PRAW (`reddit.submission(url=...)`) and rebuilds the item through the
+    same `_to_content_item` path the bulk fetch uses, so a stored link post
+    that's still unreadable gets a fresh article fetch.
+    BREAKS: A refetch path that never calls `_to_content_item` (or calls it
+    with `known_readable_ids` still containing this item) leaves the rebuilt
+    item at today's link-only placeholder instead of the article text.
+    """
+    fetcher = RedditFetcher()
+    fetcher.credentials_missing = False
+    fetcher.fetch_budget = 60.0
+    # A real DeadlineAdapter, not a mock -- refetch_one's own rearm() call is
+    # exercised for real; only PRAW's client below is a hand-written stand-in.
+    fetcher._deadline = DeadlineAdapter(60.0)
+
+    submission = _link_post_submission(f"{link_post_article_server}/article")
+    fake_reddit = _FakeRedditClient(submission)
+    fetcher.reddit = fake_reddit
+
+    external_id = "https://reddit.com/r/programming/comments/456/cool_article/"
+    item = fetcher.refetch_one(external_id, "test-source-id")
+
+    assert fake_reddit.calls == [external_id]
+    assert item.external_id == external_id
+    assert item.source_id == "test-source-id"
+    assert item.content is not None
+    assert "genuine article body" in item.content
+
+
+def test_refetch_one_raises_when_reddit_not_configured() -> None:
+    """
+    refetch-unreadable SC-2: a refetch attempt with unusable Reddit
+    credentials raises RedditNotConfiguredError rather than returning a
+    placeholder item -- the caller (refetch.py) records this as a failed
+    item instead of silently patching title_only onto one that was never
+    actually re-extracted.
+    """
+    fields = {
+        "reddit_client_id": "env:REDDIT_CLIENT_ID",
+        "reddit_client_secret": "env:REDDIT_CLIENT_SECRET",
+    }
+    config = make_config(**fields)
+    fetcher = RedditFetcher(config=config)
+
+    with pytest.raises(RedditNotConfiguredError) as raised:
+        fetcher.refetch_one(
+            "https://reddit.com/r/test/comments/1/x/", "test-source-id"
         )
 
     assert str(raised.value) == REDDIT_NOT_CONFIGURED

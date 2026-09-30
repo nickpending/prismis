@@ -12,6 +12,7 @@ from typing import Any
 from .database import get_db_connection
 from .models import ContentItem
 from .observability import log as obs_log
+from .readability import is_readable
 
 
 class Storage:
@@ -682,6 +683,66 @@ class Storage:
 
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get readable external_ids: {e}") from e
+
+    def get_unreadable_content(
+        self, source_type: str, limit: int, batch_size: int = 500
+    ) -> list[dict[str, Any]]:
+        """Non-archived content of `source_type` whose stored `content`
+        `readability.is_readable` rejects, oldest fetched first, bounded by
+        `limit` (SC-2, refetch-unreadable).
+
+        Unlike `get_readable_external_ids`, this checks the content's actual
+        shape rather than a `title_only` key -- items analysed before gh #80
+        predate that key ever being written, and a `title_only`-based query
+        would silently skip every one of them, the exact gap this backfill
+        exists to close. Readability is a Python-side check, so rows are
+        paged in (oldest fetched_at first) and filtered here rather than in
+        SQL, stopping as soon as `limit` unreadable rows are found.
+
+        Args:
+            source_type: 'youtube', 'rss' or 'reddit'
+            limit: Maximum number of unreadable items to return
+            batch_size: Page size for the underlying scan
+
+        Returns:
+            List of content dicts, oldest fetched_at first
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            selected: list[dict[str, Any]] = []
+            offset = 0
+            while len(selected) < limit:
+                cursor = self.conn.execute(
+                    """
+                    SELECT c.*, s.name as source_name, s.type as source_type
+                    FROM content c
+                    JOIN sources s ON c.source_id = s.id
+                    WHERE s.type = ? AND c.archived_at IS NULL
+                    ORDER BY c.fetched_at ASC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (source_type, batch_size, offset),
+                )
+                rows = cursor.fetchall()
+                if not rows:
+                    break
+
+                for row in self._map_content_rows(
+                    rows, omit=("interesting_override", "user_feedback")
+                ):
+                    if not is_readable(row["content"]):
+                        selected.append(row)
+                        if len(selected) >= limit:
+                            break
+
+                offset += batch_size
+
+            return selected
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get unreadable content: {e}") from e
 
     def _get_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         """Find content by external_id (private helper method).

@@ -34,7 +34,7 @@ from prismis_daemon.kind_classifier import (
     _build_state,
     health_check,
 )
-from prismis_daemon.observability import get_logger, reset_logger, set_run_id
+from prismis_daemon.observability import get_logger, set_run_id
 from prismis_daemon.verify_chain import read_run_events
 
 # Patch target -- the decisions-endpoint provider boundary itself, which the
@@ -50,19 +50,8 @@ def clean_circuit_registry() -> Iterator[None]:
     reset_circuit_breaker()
 
 
-@pytest.fixture(autouse=True)
-def fresh_observability() -> Iterator[None]:
-    """Bind the observability logger to this test's sealed XDG_DATA_HOME (F-1-1).
-
-    Mirrors test_kind_pipeline_integration.py's fixture of the same name: the logger
-    caches its base directory at first use, and isolated_xdg_env (tests/conftest.py)
-    points XDG_DATA_HOME at a fresh directory per test, so a cached instance from an
-    earlier test would write into a directory this test never reads back from.
-    """
-    reset_logger()
-    yield
-    set_run_id(None)
-    reset_logger()
+# Observability's own logger is reset and given a clean run id by conftest.py's
+# suite-wide autouse _fresh_observability_logger -- no per-file fixture needed here.
 
 
 def _events_for(run_id: str) -> list[dict]:

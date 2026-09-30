@@ -1,0 +1,49 @@
+{
+  "workOrder": "web-kind",
+  "what": "Show each item's content kind in the web UI and let the reader filter by kind. Add GET /api/kinds, which returns the kinds actually present in a window, so the page builds its kind choices from data rather than a hardcoded list. The page's kind filter goes to the server as /api/entries?kind=, so it applies before the page's 100-item limit (gh #84).",
+  "why": "content-kind (#77) exposed kind on /api/entries, and the CLI, TUI and search can show and filter it; the web UI (daemon/src/prismis_daemon/static/index.html), which is the daily briefing read from any device, cannot. Filtering in the browser over the 100 items the page already loaded would repeat the filter-after-limit defect search-kind-filter just fixed, and a hardcoded list of the ten kinds would give their names a second home that drifts from kind_classifier.KINDS. The TUI solves the same choice problem with GetDistinctKinds over its database; the web UI has no database, so the API provides the equivalent.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a real database with classified items of several kinds, unclassified items, archived items and items older than the window",
+      "when": "GET /api/kinds is called with and without since_hours",
+      "then": "it returns the sorted, de-duplicated kinds of non-archived items in the window, with no null or empty entry for unclassified items, and an empty list (not an error) when there are none; it requires the API key like /api/entries",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'api_kinds' && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "static/index.html after the change",
+      "when": "its source is read",
+      "then": "item cards render a kind badge from item.kind in lower case, only when the item has a kind; a kind control is populated from the /api/kinds response with an all-kinds default; choosing a kind adds kind=<kind> to the /api/entries request rather than filtering loaded items in the browser; the chosen kind persists across the 30s refresh; and none of the ten kind names appears as a literal in the page",
+      "observation": {
+        "command": "cd daemon && uv run pytest -q tests -k 'web_kind' && echo 'SC-2: PASS'",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Secondary kinds (gh #85, closed as not planned).",
+    "Any change to the TUI, the CLI or /api/entries' own kind filter, which already work.",
+    "Restyling the rest of the page."
+  ],
+  "stakes": [
+    "Reuse what exists: /api/entries' kind parameter and its shared validation, and the storage layer's existing query helpers for a distinct-kinds query. Do not add a second kind validator or a second list of kinds.",
+    "Principle I: API tests run against a real sqlite database through the real FastAPI app; nothing of prismis's own is faked.",
+    "The kind badge follows the TUI's rule from rudy: lower case, colour allowed. Escape the kind like every other interpolated value in the page.",
+    "API.md documents every endpoint; add /api/kinds there.",
+    "The page is also checked in a real browser after the lane closes, against a locally run daemon; the structural test is not a substitute for that check."
+  ]
+}

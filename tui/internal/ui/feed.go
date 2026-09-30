@@ -502,6 +502,13 @@ func renderContentList(m Model, width, height int, theme StyleTheme) string {
 			metaParts = append(metaParts, lipgloss.NewStyle().Foreground(theme.Cyan).Render(kind))
 		}
 
+		// Title-only marker (SC-6): the item's stored content wasn't readable, so
+		// it stayed in the feed as a title-only row. Lower case, per the TUI's
+		// marker convention; shown for title-only items only.
+		if parseMetadata(item.Analysis).TitleOnly {
+			metaParts = append(metaParts, lipgloss.NewStyle().Foreground(theme.Orange).Render("title only"))
+		}
+
 		// User feedback indicator (prepend so it's visible)
 		var feedbackIndicator string
 		switch item.UserFeedback {
@@ -689,6 +696,11 @@ func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
 	// Kind if classified (empty for unclassified items - no label shown)
 	if kind := parseMetadata(item.Analysis).Kind; kind != "" {
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(theme.Cyan).Render(kind))
+	}
+
+	// Title-only marker (SC-6): the item's stored content wasn't readable.
+	if parseMetadata(item.Analysis).TitleOnly {
+		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(theme.Orange).Render("title only"))
 	}
 
 	// Title and metadata on same line with bold grey brackets

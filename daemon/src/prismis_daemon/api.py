@@ -432,6 +432,20 @@ def _item_kind(item: dict) -> str | None:
     return analysis.get("kind") if isinstance(analysis, dict) else None
 
 
+def _item_title_only(item: dict) -> bool:
+    """The item's title_only flag, mirrored out of analysis (SC-6, readable-content).
+
+    Like kind, title_only has no column of its own -- build_llm_analysis (job 1 of
+    this work order) stores it only inside the analysis JSON blob -- so getting it
+    onto the top level, the same convenience kind already gets, means pulling it
+    out here rather than reading a column. Absent analysis, a missing key, or a
+    non-dict analysis all mirror to False: "not title-only" is the default, not
+    a separate presence check every caller would otherwise have to make.
+    """
+    analysis = item.get("analysis")
+    return bool(analysis.get("title_only")) if isinstance(analysis, dict) else False
+
+
 def _parse_kind_filter(kind: str | None) -> list[str]:
     """Parse and validate a comma-separated `kind` query param (SC-3/SC-5).
 
@@ -1001,6 +1015,7 @@ async def get_content(
         # priority), so every read path stores it only inside the analysis JSON.
         for item in content_items:
             item["kind"] = _item_kind(item)
+            item["title_only"] = _item_title_only(item)
 
         # Apply sorting based on sort_by parameter
         # Helper to get sortable date (ISO strings sort correctly alphabetically)
@@ -1043,6 +1058,7 @@ async def get_content(
                 "url",
                 "priority",
                 "kind",
+                "title_only",
                 "published_at",
                 "source_name",
                 "summary",
@@ -1189,6 +1205,7 @@ async def semantic_search(
         # does -- kind has no column of its own, so it comes out of analysis here.
         for item in results:
             item["kind"] = _item_kind(item)
+            item["title_only"] = _item_title_only(item)
 
         # Filter to compact fields if requested
         if compact:
@@ -1198,6 +1215,7 @@ async def semantic_search(
                 "url",
                 "priority",
                 "kind",
+                "title_only",
                 "relevance_score",
                 "published_at",
                 "source_name",
@@ -1263,6 +1281,7 @@ async def get_entry_summary(
         # this, ContentItemModel's kind field (which defaults to None) would report
         # every entry as unclassified, including ones the classifier actually kinded.
         entry["kind"] = _item_kind(entry)
+        entry["title_only"] = _item_title_only(entry)
 
         # INV-API-TS-4: route through ContentItemModel so @field_serializer emits RFC3339 datetimes
         if include == "content":

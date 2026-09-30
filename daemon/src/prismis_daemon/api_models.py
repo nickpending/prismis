@@ -124,6 +124,7 @@ class ContentItemModel(BaseModel):
     analysis: dict[str, Any] | None = None
     priority: str | None = None
     kind: str | None = None  # SC-5: mirrored from analysis.kind, like priority
+    title_only: bool = False  # SC-6: mirrored from analysis.title_only, like kind
     published_at: datetime | None = None
     fetched_at: datetime | None = None
     read: bool = False

@@ -12,6 +12,7 @@ type ContentMetadata struct {
 	Tools          []string `json:"tools"`
 	URLs           []string `json:"urls"`
 	Kind           string   `json:"kind"`
+	TitleOnly      bool     `json:"title_only"`
 	DeepExtraction *DeepExtraction
 }
 
@@ -69,6 +70,14 @@ func parseMetadata(analysisJSON string) ContentMetadata {
 	// "no label" without a separate presence check.
 	if kind, ok := analysis["kind"].(string); ok {
 		metadata.Kind = kind
+	}
+
+	// Extract title_only (SC-6: the item's stored content wasn't readable, so it
+	// stayed in the feed as a title-only row rather than being dropped). Absent or
+	// false leaves TitleOnly at its zero value false, so callers can treat "not
+	// title-only" as the default without a separate presence check.
+	if titleOnly, ok := analysis["title_only"].(bool); ok {
+		metadata.TitleOnly = titleOnly
 	}
 
 	// Extract deep_extraction (HIGH-priority synthesis from second-tier LLM call)

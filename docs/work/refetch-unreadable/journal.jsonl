@@ -45,3 +45,6 @@
 {"kind":"verified","job":2,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)","duplication(.)"],"uncovered":[".sh(8 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-09-30T18:42:19.977Z"}
 {"kind":"diffed","job":2,"path":"docs/work/refetch-unreadable/job-2.diff","from":"eacb602fa93c69938b115d80515e4735c5e446eb","to":"7f031da608e99678a18e72c21948e79bf0771a61","ts":"2026-09-30T18:42:20.167Z"}
 {"kind":"dispatched","action":"resume-badger","resultPath":"docs/work/refetch-unreadable/results/review-2-4.json","job":2,"ts":"2026-09-30T18:42:20.204Z"}
+{"kind":"reviewed","job":2,"findings":[],"sha":"89ce8f7df831f7520e6caf626e5dae37912f61edb2334237a22c738ac58d6836","submission":4,"ts":"2026-09-30T18:42:48.117Z"}
+{"kind":"merged","job":2,"sha":"e02a3018724138706360c222804f0f7cddc974ea","worktree":{"removed":false,"reason":"worktree holds docs/work/refetch-unreadable/results/built-2-4.json"},"ts":"2026-09-30T18:46:02.362Z"}
+{"kind":"closed","sha":"e02a3018724138706360c222804f0f7cddc974ea","ts":"2026-09-30T18:46:02.404Z"}

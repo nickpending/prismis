@@ -1,0 +1,22 @@
+{
+  "searched": [
+    "docs/work/refetch-unreadable/work-order.json",
+    "docs/work/refetch-unreadable/results/plan.json",
+    "docs/work/refetch-unreadable/job-2.diff",
+    "docs/work/refetch-unreadable/journal.jsonl",
+    "docs/work/refetch-unreadable/results/review-2-1.json",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/src/prismis_daemon/refetch.py",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/tests/integration/test_refetch_integration.py",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/tests/unit/test_storage_unreadable_content_unit.py",
+    "daemon/src/prismis_daemon/analysis.py",
+    "daemon/src/prismis_daemon/evaluator.py",
+    "daemon/src/prismis_daemon/llm_client.py",
+    "daemon/src/prismis_daemon/llm_call.py",
+    "daemon/src/prismis_daemon/models.py",
+    "daemon/src/prismis_daemon/storage.py",
+    "daemon/src/prismis_daemon/orchestrator.py",
+    ".specify/memory/constitution.md"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

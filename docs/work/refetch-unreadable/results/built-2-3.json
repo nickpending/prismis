@@ -1,0 +1,14 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/refetch.py",
+    "daemon/tests/integration/test_refetch_integration.py",
+    "daemon/tests/unit/test_storage_unreadable_content_unit.py"
+  ],
+  "verified": true,
+  "findings": ["F-2-1", "F-2-2", "F-2-3"],
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a3d4a8db985630645",
+    "branch": "worktree-agent-a3d4a8db985630645",
+    "base": "9308c95d6de7e77e963cdc16ea27c873741e7dcd"
+  }
+}

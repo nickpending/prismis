@@ -1,0 +1,51 @@
+{
+  "searched": [
+    "docs/work/refetch-unreadable/work-order.json",
+    "docs/work/refetch-unreadable/results/plan.json",
+    "docs/work/refetch-unreadable/job-2.diff",
+    "docs/work/refetch-unreadable/journal.jsonl",
+    "docs/work/refetch-unreadable/results/built-2-1.json",
+    "docs/work/refetch-unreadable/results/built-2-2.json",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/src/prismis_daemon/refetch.py",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/src/prismis_daemon/__main__.py",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/src/prismis_daemon/fetchers/youtube.py",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/src/prismis_daemon/fetchers/reddit.py",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/src/prismis_daemon/storage.py",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/tests/integration/test_refetch_integration.py",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/tests/unit/test_refetch_dry_run_unit.py",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/tests/unit/test_reddit_fetcher_unit.py",
+    ".claude/worktrees/agent-a3d4a8db985630645/daemon/tests/unit/test_youtube_fetcher_unit.py",
+    "daemon/src/prismis_daemon/orchestrator.py",
+    "daemon/src/prismis_daemon/analysis.py",
+    "daemon/src/prismis_daemon/readability.py",
+    "daemon/src/prismis_daemon/observability.py",
+    "daemon/src/prismis_daemon/llm_call.py",
+    "daemon/src/prismis_daemon/llm_client.py",
+    "daemon/src/prismis_daemon/evaluator.py",
+    "daemon/src/prismis_daemon/kind_classifier.py",
+    "daemon/src/prismis_daemon/article_extractor.py",
+    "daemon/tests/conftest.py",
+    ".specify/memory/constitution.md"
+  ],
+  "exhaustive": true,
+  "findings": [
+    {
+      "file": "daemon/src/prismis_daemon/refetch.py",
+      "line": 212,
+      "summary": "`_refetch_one` calls `orchestrator.analyze_and_store_item(item, source)` with no `learned_preferences` argument, so it defaults to `None`. Every other caller of this method sources it first: `run_once` calls `get_learned_preferences(self.storage)` (orchestrator.py:576) and threads it through `fetch_source_content` into `analyze_and_store_item` (orchestrator.py:491, :165), and the evaluator injects it straight into the LLM prompt when present (evaluator.py:135-139), materially affecting the priority assigned. Because refetch never sources it, every item recovered by `refetch` is evaluated and prioritized without the user's learned preferences from feedback -- a silent divergence from \"the one analysis path\" SC-1 established and that SC-2 says refetch reuses \"in place\". No test in the diff exercises learned_preferences for refetch, so this gap is unflagged.",
+      "severity": "medium"
+    },
+    {
+      "file": "daemon/tests/integration/test_refetch_integration.py",
+      "line": 199,
+      "summary": "The only assertion on SC-3's \"real run ends with ... the summed real cost of the calls it made\" is `assert report.real_cost is not None and report.real_cost >= 0.0`. The test drives real LLM calls through `local_pipeline_stub` (conftest.py:287-389), whose `/v1/chat/completions` response's `usage` object carries no `cost` field, and `llm_client.complete()` only requests OpenRouter's `usage.include` cost extension for an openrouter.ai host (llm_client.py:253-259) -- the local stub is neither, so `result.cost` is `None` for every call the test makes. `_real_cost_since` (refetch.py:311-340) therefore always sums to `0.0` in this test regardless of whether its run_id/event/status filtering is correct or entirely broken, and `>= 0.0` passes identically either way. The criterion's \"summed real cost\" claim is unproven by anything in the diff: this is the class of assertion that cannot fail.",
+      "severity": "medium"
+    },
+    {
+      "file": "daemon/src/prismis_daemon/storage.py",
+      "line": 687,
+      "summary": "`Storage.get_unreadable_content` is new and untested directly: no test in the diff seeds a mix of readable and not-readable items of the same source type to prove SC-2's \"Readable items are never touched\" clause is enforced by the selection query rather than by coincidence (every seeded row across every refetch test is already unreadable); none seeds more not-readable rows than `--limit` to prove the cap is respected; none seeds rows with distinct `fetched_at` values out of insertion order to prove \"oldest first\"; and none seeds an archived not-readable row to prove the `c.archived_at IS NULL` filter excludes it. All four are SC-2's own words (\"stored, non-archived ... oldest first, bounded by --limit ... Readable items are never touched\"), and a regression in any of the SQL's WHERE/ORDER BY clauses or the Python-side `is_readable` filter would pass every test currently in the diff.",
+      "severity": "medium"
+    }
+  ]
+}

@@ -109,12 +109,28 @@ while IFS= read -r pj; do
 done < <(find "$ROOT" -name package.json -not -path '*/node_modules/*' -not -path "$ROOT/.claude/worktrees/*" | sort)
 
 # ------------------------------------------------------------------- Secret scan
-# gitleaks scans the whole tree for committed secrets (gh #70). Unlike the per-unit
-# checks above, a missing binary FAILS this check rather than marking it uncovered —
-# a scanner that silently skips and reports PASS is exactly the ambient dependence
-# this gate exists to remove. Known fakes are allowlisted in .gitleaks.toml.
+# gitleaks scans only what git would track for committed secrets (gh #70), so this
+# local check and CI's full-history scan judge the same files. `gitleaks dir` is a
+# raw filesystem walk (no git/.gitignore awareness at all) — pointed at $ROOT
+# directly it would also walk .venv (tens of thousands of untracked files) and any
+# live sibling `.claude/worktrees/*` checkout, reproducing for secrets the exact
+# defect `find` had for unit discovery above (workshop#40). `git ls-files` instead
+# lists exactly the tracked-or-would-be-tracked paths, and gitleaks is pointed at a
+# throwaway mirror built from that list, so a secret in .venv or a sibling worktree
+# is never read at all, while one in a real source file still is. A missing binary
+# FAILS this check rather than marking it uncovered — a scanner that silently
+# skips and reports PASS is exactly the ambient dependence this gate exists to
+# remove. Known fakes are allowlisted in .gitleaks.toml.
 if command -v gitleaks >/dev/null 2>&1; then
-  run_step "gitleaks(.)" gitleaks dir "$ROOT" --redact --no-banner --verbose --config "$ROOT/.gitleaks.toml" || true
+  GITLEAKS_TREE="$(mktemp -d)"
+  trap 'rm -rf "$GITLEAKS_TREE"' EXIT
+  while IFS= read -r -d '' f; do
+    mkdir -p "$GITLEAKS_TREE/$(dirname "$f")"
+    cp "$ROOT/$f" "$GITLEAKS_TREE/$f"
+  done < <(git -C "$ROOT" ls-files -z --cached --others --exclude-standard)
+  run_step "gitleaks(.)" gitleaks dir "$GITLEAKS_TREE" --redact --no-banner --verbose --config "$ROOT/.gitleaks.toml" || true
+  rm -rf "$GITLEAKS_TREE"
+  trap - EXIT
 else
   note_covered "gitleaks(.)"
   echo "FAILED: gitleaks(.)"

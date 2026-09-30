@@ -1,6 +1,7 @@
-# gitleaks config — `.specify/verify.sh` runs `gitleaks dir . --redact` over the working
-# tree as a named check (gh #70). CI separately scans full git history with its own
-# `.gitleaksignore` for the historical findings that only exist in old commits.
+# gitleaks config — `.specify/verify.sh` runs `gitleaks dir --redact` over a mirror of
+# exactly what `git ls-files` would track (never .venv, sibling worktrees, caches or
+# local DBs) as a named gate check (gh #70). CI separately scans full git history with
+# its own `.gitleaksignore` for the historical findings that only exist in old commits.
 #
 # These allowlists match the fixture VALUES, deliberately — not the files that hold
 # them. Allowlisting a whole test file or directory would mean a real key pasted into
@@ -16,26 +17,30 @@ useDefault = true
 [[rules]]
 id = "generic-api-key"
 [rules.allowlist]
-regexTarget = "match"
+# regexTarget defaults to "secret" — the extracted credential value alone, not the
+# surrounding assignment. Anchored with ^...$ so each regex matches that value
+# exactly: an unanchored substring match would also allowlist a longer, more-entropic
+# real key that merely contains one of these fakes as a prefix or suffix.
 regexes = [
   # fake_llm_service_key fixture asserting a leaked key never reaches an error
   # response — daemon/tests/integration/test_context_assistant.py. The same literal
   # is quoted again in docs/work/no-internal-mocks/job-1.diff, a historical diff
   # record rather than source, which this also covers.
-  '''sk-test-SENSITIVE-KEY-12345''',
+  '''^sk-test-SENSITIVE-KEY-12345$''',
   # Old-config-format fixture exercising rejection of a legacy [llm] api_key field —
   # daemon/tests/unit/test_llm_startup_validation_unit.py.
-  '''sk-test-key-1234567890''',
+  '''^sk-test-key-1234567890$''',
   # apiconf's pinned git commit SHA, not a credential — daemon/tests/unit/test_dep_pin_unit.py's
   # _APICONF_VALIDATED_SHA, checked against pyproject.toml and uv.lock (INV-DEP-1).
-  '''6fd244a5041ac714cb21c48e41cf46b8b4fbba76''',
+  '''^6fd244a5041ac714cb21c48e41cf46b8b4fbba76$''',
 ]
 
 [[rules]]
 id = "curl-auth-header"
 [rules.allowlist]
-regexTarget = "match"
+# Same reasoning as generic-api-key above: anchored exact-value match on the
+# extracted secret, not an unanchored substring.
 regexes = [
   # README.md's API Access examples use a literal placeholder, not a real key.
-  '''your-api-key''',
+  '''^your-api-key$''',
 ]

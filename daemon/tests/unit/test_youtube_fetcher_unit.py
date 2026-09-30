@@ -370,3 +370,42 @@ def test_to_content_item_with_transcript() -> None:
     assert metrics["video_id"] == "abc123"
     assert metrics["view_count"] == 5000
     assert metrics["duration"] == 600
+
+
+def _youtube_like_yt_dlp_cmd(tmp_path) -> list[str]:
+    """A runnable stand-in for yt-dlp that behaves the way YouTube did for
+    osZZjdMZVvA on 2026-09-30: the video's own English captions (en-orig) download,
+    and the machine-translated "en" track fails with a 429, so yt-dlp exits
+    non-zero after writing only the tracks that succeeded."""
+    script = tmp_path / "fake_yt_dlp.py"
+    script.write_text(
+        "import sys\n"
+        "args = sys.argv[1:]\n"
+        "langs = args[args.index('--sub-lang') + 1].split(',')\n"
+        "out = args[args.index('--output') + 1]\n"
+        "vid = args[-1].split('v=')[1]\n"
+        "if 'en-orig' in langs:\n"
+        "    open(out.replace('%(id)s', vid).replace('%(ext)s', 'en-orig.vtt'), 'w')"
+        ".write('WEBVTT\\n\\n00:00:00.000 --> 00:00:01.000\\noriginal english words\\n')\n"
+        "if 'en' in langs:\n"
+        "    sys.stderr.write('ERROR: Unable to download video subtitles for en: "
+        "HTTP Error 429\\n')\n"
+        "    sys.exit(1)\n"
+    )
+    return [sys.executable, str(script)]
+
+
+def test_extract_transcript_uses_original_english_when_translation_is_rate_limited(
+    tmp_path,
+) -> None:
+    """gh #80: a video whose "en" track is a translation got a 429 on every try and
+    was stored without a transcript, though its own English captions (en-orig)
+    downloaded fine. The fetcher asks for en-orig and reads it."""
+    fetcher = YouTubeFetcher()
+    fetcher.yt_dlp_cmd = _youtube_like_yt_dlp_cmd(tmp_path)
+
+    transcript = fetcher._extract_transcript(
+        "https://www.youtube.com/watch?v=osZZjdMZVvA"
+    )
+
+    assert transcript == "original english words"

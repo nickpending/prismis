@@ -343,7 +343,10 @@ class YouTubeFetcher:
                 "--write-auto-sub",  # Get auto-generated subtitles
                 "--write-sub",  # Also try manual subtitles
                 "--sub-lang",
-                "en,en-US,en-GB",  # Try multiple English variants (from legacy)
+                # en-orig is the video's own English captions. "en" can instead be a
+                # machine translation from another track, which YouTube answers with
+                # HTTP 429 (gh #80), so en-orig is asked for, and read, first.
+                "en-orig,en,en-US,en-GB",
                 "--skip-download",  # Don't download the video
                 "--quiet",
                 "--no-warnings",
@@ -367,6 +370,7 @@ class YouTubeFetcher:
 
                 # Try different subtitle file patterns
                 for pattern in [
+                    f"{video_id}.en-orig.vtt",
                     f"{video_id}.en*.vtt",
                     f"{video_id}.en*.srt",
                     f"{video_id}.vtt",

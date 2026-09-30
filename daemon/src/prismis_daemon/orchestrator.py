@@ -157,10 +157,24 @@ class DaemonOrchestrator:
             # sources keep the two equal, since their external_id embeds the
             # content hash and can't distinguish a title-only retry from a new
             # item the way the other three fetchers' stable external_ids can.
+            #
+            # force_refetch means every item is re-extracted AND re-analysed
+            # (its own long-standing meaning here, "then" clause of SC-4): an
+            # empty known_readable_ids is passed to the fetcher itself so none
+            # of the three skip paths (RSS's trafilatura fetch, Reddit's
+            # article-fetch-and-comment-read, YouTube's transcript download)
+            # substitute a placeholder for an item already stored readably.
+            # Without this, forcing a refetch of a healthy source silently
+            # degrades every already-readable item back to title_only=true.
             existing_ids = self.storage.get_existing_external_ids(source["id"])
             if source_type == "file":
                 all_items = fetcher.fetch_content(source)
                 known_readable_ids = existing_ids
+            elif force_refetch:
+                known_readable_ids = set()
+                all_items = fetcher.fetch_content(
+                    source, known_readable_ids=known_readable_ids
+                )
             else:
                 known_readable_ids = self.storage.get_readable_external_ids(
                     source["id"]

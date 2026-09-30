@@ -205,6 +205,46 @@ def test_youtube_fetcher_yt_dlp_env_command_actually_runs(
     assert result.stdout.strip()
 
 
+def test_youtube_fetcher_yt_dlp_env_has_an_available_curl_cffi_impersonate_target(
+    tmp_path,
+) -> None:
+    """
+    SC-5's own acceptance clause: in the daemon's own environment,
+    `python -m yt_dlp --list-impersonate-targets` lists at least one curl_cffi
+    target as available. This is what the `[curl-cffi]` extra (daemon/pyproject.toml)
+    is actually for -- gh #80 measured yt-dlp reporting "no impersonate target is
+    available" and getting HTTP 429s without it. --list-impersonate-targets only
+    probes locally-installed impersonation backends; it makes no network call.
+    BREAKS: The wiring (running yt-dlp from this environment) could be correct
+    while the extra that makes impersonation actually work is missing, unpinned,
+    or broken by a future dependency bump -- gh #80's root cause would still be
+    unfixed even though `--version` above runs fine.
+    """
+    fetcher = YouTubeFetcher()
+
+    result = subprocess.run(
+        [*fetcher.yt_dlp_cmd, "--list-impersonate-targets"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    curl_cffi_lines = [
+        line for line in result.stdout.splitlines() if "curl_cffi" in line
+    ]
+    assert curl_cffi_lines, (
+        "expected at least one curl_cffi impersonate target line: "
+        f"{result.stdout!r}"
+    )
+    available = [line for line in curl_cffi_lines if "unavailable" not in line]
+    assert available, (
+        "SC-5: every curl_cffi impersonate target is unavailable -- the "
+        f"[curl-cffi] extra is not actually working: {result.stdout!r}"
+    )
+
+
 def _video_fixture() -> dict:
     return {
         "title": "Already Readable Video",

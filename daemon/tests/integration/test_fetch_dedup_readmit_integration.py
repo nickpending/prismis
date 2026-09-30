@@ -273,6 +273,67 @@ def test_readmit_cycle_skip_known_readable_avoids_reextraction(
     )
 
 
+def test_readmit_cycle_force_refetch_reextracts_an_already_readable_item(
+    test_db: Path, isolated_xdg_env: Path, llm_stub: _LLMStub, readmit_server: _ReadmitServer
+) -> None:
+    """
+    SC-4: force_refetch still processes every item -- an item already stored
+    readably is re-extracted (its article endpoint is hit again) and
+    re-analysed (its LLM pass runs again) rather than the fetcher substituting
+    a placeholder because the item happens to be known-readable.
+    BREAKS: Computing known_readable_ids from storage and handing it to the
+    fetcher unconditionally (keyed only on source_type == "file", never on
+    force_refetch) makes every one of RSS/Reddit/YouTube's skip paths fire
+    during a forced refetch too, silently overwriting an already-readable
+    item's row with title_only: true and placeholder content -- the opposite
+    of what forcing a refetch is for.
+    """
+    config = _real_config(llm_stub.base_url)
+    storage = Storage(test_db)
+    source_id = storage.add_source(
+        f"{readmit_server.base_url}/feed.xml", "rss", "Readmit Feed"
+    )
+    source_dict = {
+        "id": source_id,
+        "url": f"{readmit_server.base_url}/feed.xml",
+        "type": "rss",
+        "name": "Readmit Feed",
+        "active": True,
+    }
+    fetcher = RSSFetcher(max_items=10, config=config)
+    orchestrator = _build_orchestrator(storage, config, fetcher)
+
+    orchestrator.fetch_source_content(source_dict)
+    assert readmit_server.hits.get("/article-readable") == 1
+    calls_after_cycle1 = llm_stub.call_count
+
+    row = storage.conn.execute(
+        "SELECT id FROM content WHERE external_id = ?", ("item-readable",)
+    ).fetchone()
+    stored_before = storage.get_content_by_id(row["id"])
+    assert stored_before is not None
+    assert stored_before["analysis"]["title_only"] is False
+
+    orchestrator.fetch_source_content(source_dict, force_refetch=True)
+
+    assert readmit_server.hits.get("/article-readable") == 2, (
+        "SC-4: force_refetch must re-extract an already-readable item's "
+        "article, not skip it"
+    )
+    assert llm_stub.call_count == calls_after_cycle1 + 6, (
+        "force_refetch must re-analyse all 3 items (summarize + evaluate "
+        "each), including the one already stored readably"
+    )
+
+    stored_after = storage.get_content_by_id(row["id"])
+    assert stored_after is not None
+    assert stored_after["analysis"]["title_only"] is False, (
+        "SC-4: force-refetching an already-readable item must not degrade it "
+        "to title_only: true via a fetcher skip path"
+    )
+    assert "genuine article body" in (stored_after["content"] or "")
+
+
 def test_readmit_cycle_replaces_content_in_place_once_a_title_only_item_becomes_readable(
     test_db: Path, isolated_xdg_env: Path, llm_stub: _LLMStub, readmit_server: _ReadmitServer
 ) -> None:

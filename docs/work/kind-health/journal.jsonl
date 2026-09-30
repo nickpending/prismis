@@ -1,0 +1,3 @@
+{"kind":"opened","criteria":["SC-1","SC-2","SC-3"],"sha":"eb5efe1438d541caef5a68a0125fe6a08970dc43","ts":"2026-09-30T01:08:55.413Z"}
+{"kind":"planned","jobs":{"1":{"files":["daemon/src/prismis_daemon/kind_classifier.py","daemon/src/prismis_daemon/llm_validator.py","daemon/src/prismis_daemon/__main__.py","daemon/tests/unit/test_kind_classifier_unit.py","daemon/tests/unit/test_verify_subcommand_unit.py","daemon/tests/unit/test_llm_startup_validation_unit.py"],"depends":[],"delivers":["SC-1","SC-2","SC-3"]}},"sha":"1cbcf4ce298e7bf6387aa5fe4d1a6b5b544a3ce4847e0787abf6ce70d47750f8","submission":1,"ts":"2026-09-30T01:12:10.301Z"}
+{"kind":"checkpointed","sha":"eb5efe1438d541caef5a68a0125fe6a08970dc43","ts":"2026-09-30T01:12:10.341Z"}

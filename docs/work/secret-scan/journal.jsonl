@@ -39,3 +39,9 @@
 {"kind":"dispatched","action":"resume-builder","resultPath":"docs/work/secret-scan/results/built-3-2.json","job":3,"ts":"2026-09-30T23:45:31.957Z"}
 {"kind":"diffed","job":2,"path":"docs/work/secret-scan/job-2.diff","from":"19be7546d9105c146c17b0e77bbe20bcfb55e4c4","to":"4474f0ae2165fbc4104e8de5fec482f00d918508","ts":"2026-09-30T23:46:05.351Z"}
 {"kind":"dispatched","action":"resume-badger","resultPath":"docs/work/secret-scan/results/review-2-2.json","job":2,"ts":"2026-09-30T23:46:05.384Z"}
+{"kind":"built","job":3,"files":[".github/workflows/ci.yml"],"worktree":{"path":"/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ac01f91272c94f7ba","branch":"worktree-agent-ac01f91272c94f7ba","base":"main"},"findings":["F-3-1"],"unreproduced":["F-3-1"],"sha":"fc97fe071a4c9211f2e60e50a15f5d25a8bde3a11ddccc3c2871f66418cf817d","submission":2,"ts":"2026-09-30T23:48:36.572Z"}
+{"kind":"verified","job":3,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)","duplication(.)"],"uncovered":[".sh(8 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-09-30T23:51:42.030Z"}
+{"kind":"reviewed","job":2,"findings":[],"sha":"94b58f41ea63f2a21eee49eaca14e0a5d0c79058c47d324482058cc4c4a79606","submission":2,"ts":"2026-09-30T23:51:42.070Z"}
+{"kind":"merged","job":2,"sha":"4eaeec35bb3915962c609c3ea1d758bee3a96977","worktree":{"removed":true},"ts":"2026-09-30T23:54:56.402Z"}
+{"kind":"diffed","job":3,"path":"docs/work/secret-scan/job-3.diff","from":"737f894c944ebd36ec6ae2a663dff5fdeffe52f8","to":"518ac6571975c498a27cf4dc08a427ef7c7d65fb","ts":"2026-09-30T23:54:56.505Z"}
+{"kind":"dispatched","action":"resume-badger","resultPath":"docs/work/secret-scan/results/review-3-2.json","job":3,"ts":"2026-09-30T23:54:56.532Z"}

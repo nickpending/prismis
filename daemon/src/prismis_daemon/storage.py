@@ -1598,14 +1598,15 @@ class Storage:
                 (content_id, embedding_blob, model),
             )
 
-            # Also update vec_content virtual table for search
-            # Convert to format sqlite-vec expects
+            # vec0 ignores OR REPLACE and raises on a duplicate key, so an existing
+            # vector is deleted first; otherwise a re-analysed item stays searchable
+            # only by its old vector.
             embedding_json = json.dumps(embedding)
             self.conn.execute(
-                """
-                INSERT OR REPLACE INTO vec_content (content_id, embedding)
-                VALUES (?, ?)
-                """,
+                "DELETE FROM vec_content WHERE content_id = ?", (content_id,)
+            )
+            self.conn.execute(
+                "INSERT INTO vec_content (content_id, embedding) VALUES (?, ?)",
                 (content_id, embedding_json),
             )
 
@@ -1698,9 +1699,7 @@ class Storage:
                     "LEFT JOIN sources s ON c.source_id = s.id WHERE 1=1"
                 )
                 if source_filter:
-                    candidate_query += (
-                        " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
-                    )
+                    candidate_query += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
                     knn_params.append(source_filter)
                 candidate_query += self._kind_filter_sql(kind_filter, knn_params)
                 knn_query += " AND content_id IN (" + candidate_query + ")"

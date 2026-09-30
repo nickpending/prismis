@@ -4,7 +4,7 @@ subtype: decisions
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-29"
+updated: "2026-09-30"
 last_change: "content-kind (#77): ten-kind classification via Jev/OpenRouter Decisions endpoint ([2026-09-28]). Prior: openai-sdk-migration: daemon LLM calls go through a direct openai-SDK client (llm_client.py), replacing llm-core ([2026-09-25]); same migration's uv lock re-resolution upper-bounds praw to <8 until test_reddit_validation_unit.py is updated for prawcore 4's Session shape. Every unexpected API failure returns a generic 500 with detail redacted to the log (#76, commit 66cb94e); internal collaborators are no longer mocked in daemon or CLI tests, enforced by a structural guard test (no-internal-mocks, #73, #62)"
 tags: [architecture, decisions]
 ---
@@ -12,6 +12,12 @@ tags: [architecture, decisions]
 # Decisions
 
 Architectural decisions and their rationale. Most recent first.
+
+## [2026-09-29]: Unreadable content is stored as title-only and labelled, not silently analysed (readable-content, #80)
+
+**Context:** Hacker News stubs, Reddit link posts, and YouTube items without transcripts reached the LLM with no real content, so summaries and priorities were guesses that looked like analysis.
+**Choice:** One shape-based `readability.is_readable` check; Reddit link posts fetch the linked article via the shared extractor; unreadable items get `analysis.title_only = true`, skip deep extraction, show a marker in TUI/web, and are re-admitted when a later fetch is readable. Fetchers skip re-extraction for items already stored readably. Related the same period: kind filters apply before limits in search and entries (search-kind-filter), `GET /api/kinds` (web-kind #84), kind-service health check (#82), `analyze kinds` backfill (#83), entity tags dropped from summarizer/storage/UI (drop-entity-tags), and duplicated code consolidated into `llm_call.py`, `analysis.py` and shared storage/TUI helpers (dedup).
+**Why:** Honest labelling beats fabricated analysis; no length floor because short genuine content exists; the shared helpers stop copies drifting (context_analyzer had no breaker check, repair omitted preference_influenced).
 
 ## [2026-09-28]: Content kind is classified by Jev through OpenRouter's Decisions endpoint, optional and fail-open (content-kind, #77)
 

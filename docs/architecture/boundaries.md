@@ -47,13 +47,19 @@ Interface contracts between components and external systems.
 
 **Between:** `kind_classifier.submit_decision` ↔ OpenRouter alpha Decisions endpoint (typed pick-one-of-N, model `typesafe/jev-1.13`)
 **Contract:** Off unless `[llm] kind_service` names a `services.toml` entry; then no request is made otherwise. A call-level failure (unreachable, non-2xx, non-JSON body) raises; a successful call with confidence < 0.7 or a choice outside `KINDS` returns unclassified (`kind` null). The orchestrator catches the raise, records `kind_classify_failures`, and stores the item with no `kind` key. Request size is bounded (reading summary 4000 chars, raw content 1000).
-**Constraints:** The ten kinds and the 0.7 threshold change only with new measurement (gh #77). Provider is the only thing tests may stand in for.
+**Constraints:** The ten kinds and the 0.7 threshold change only with new measurement (gh #77). The kind service is checked at startup and by `prismis-daemon verify` with one real classify call (`kind_classifier.health_check`); an unreachable kind service is non-fatal at startup and non-zero in `verify`. Provider is the only thing tests may stand in for.
 
-## Kind filter contract (API ↔ CLI/TUI)
+## Title-only contract (fetchers ↔ orchestrator ↔ API/UIs)
 
-**Between:** `GET /api/entries?kind=` and `analysis.kind` ↔ CLI `--kind`, TUI kind filter
+**Between:** `readability.is_readable` and fetcher placeholder writers ↔ `analysis.title_only` ↔ orchestrator, API, TUI, web
+**Contract:** Content that is not readable (feed stub, JS wall, Reddit `Link: <url>`, "No transcript"/"No content" placeholders, empty) is stored with `analysis.title_only = true`; it stays in the feed, skips deep extraction, and shows a marker in TUI and web. API entries/search expose top-level `title_only`. Fetchers receive `known_readable_ids` and do not re-extract those; a stored title-only item is re-admitted when a later fetch finds it readable.
+**Constraints:** No length floor: readability is judged by content shape. Placeholder text is defined once in `readability.py` and imported by the writer.
+
+## Kind filter contract (API ↔ CLI/TUI/web)
+
+**Between:** `GET /api/entries?kind=`, `GET /api/search?kind=`, `GET /api/kinds` and `analysis.kind` ↔ CLI `--kind`, TUI kind filter, web kind filter
 **Contract:** `kind` is a single value or comma-separated list from `KINDS`; unknown values return 422. Entries expose a top-level `kind` (null = unclassified), mirrored from `analysis.kind`. The TUI reads `analysis.kind` directly from SQLite and builds its filter choices from `GetDistinctKinds` (scoped by archive state), not a hardcoded list.
-**Constraints:** Kind has no DB column; filtering is post-fetch in Python, so `limit` applies before the kind filter.
+**Constraints:** Kind has no DB column, but the filter is applied in the storage queries (`json_extract`) before any limit, for `/api/entries` and `/api/search` alike (search constrains the KNN candidate query, not the global top 100). Search results expose top-level `kind`, including in compact mode. `GET /api/kinds[?since_hours=]` returns the sorted kinds present among non-archived items (no null entries, empty list when none) so the web UI builds its choices from data, not a second copy of `KINDS`.
 
 ## TUI ↔ Daemon API
 

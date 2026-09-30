@@ -126,10 +126,7 @@ Priority Assignment Logic:
 - low: ONLY if it matches topics in "Low Priority Topics" section
 - null: If NO interests match OR if it matches "Not Interested" topics
 
-IMPORTANT: Most content should be null. Be selective - only assign priorities to content that clearly matches the user's stated interests.
-
 Examples:
-- Random AI discussion with no security relevance → priority: null, matched_interests: []
 - Security tool that matches high priority → priority: "high", matched_interests: ["LLM-driven security tools"]
 - BJJ training video → priority: "low", matched_interests: ["Brazilian Jiu-Jitsu training approaches"]
 - Basic password management article → priority: null, matched_interests: [] (matches Not Interested)"""

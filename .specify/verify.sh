@@ -39,25 +39,27 @@ run_step() {
 
 # ---------------------------------------------------------------- Python units
 # Every pyproject.toml outside build/venv dirs is a unit.
+# --locked: the gate judges the tree as committed and never rewrites it. Plain `uv run` relocked
+# cli/uv.lock and blocked the lane merge (2026-10-01); a stale lock now fails that unit instead.
 while IFS= read -r pp; do
   d="$(dirname "$pp")"
   rel="${d#"$ROOT"/}"; [ "$rel" = "$d" ] && rel="."
   UNITS_FOUND=$((UNITS_FOUND + 1))
 
   if grep -q '\[tool\.ruff' "$pp" 2>/dev/null; then
-    run_step "ruff($rel)" env -C "$d" uv run --quiet ruff check . || true
+    run_step "ruff($rel)" env -C "$d" uv run --locked --quiet ruff check . || true
   else
     note_uncovered "ruff($rel): no [tool.ruff] config"
   fi
 
   if grep -q '\[tool\.mypy\]' "$pp" 2>/dev/null; then
-    run_step "mypy($rel)" env -C "$d" uv run --quiet mypy . || true
+    run_step "mypy($rel)" env -C "$d" uv run --locked --quiet mypy . || true
   else
     note_uncovered "typecheck($rel): no [tool.mypy] config — type errors are unchecked here"
   fi
 
   if [ -d "$d/tests" ]; then
-    run_step "pytest($rel)" env -C "$d" uv run --quiet pytest -q || true
+    run_step "pytest($rel)" env -C "$d" uv run --locked --quiet pytest -q || true
   else
     note_uncovered "pytest($rel): no tests/ directory"
   fi

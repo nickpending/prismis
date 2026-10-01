@@ -50,9 +50,9 @@ jobs:
       # search and similar-content handlers) always reads whatever cache the machine has.
       #
       # Sealing HF_HOME to a per-run temp dir would force a fresh ~90MB download on every
-      # local run. Caching it here is the same move ci.yml already makes for staticcheck:
-      # make the input explicit so the gate's result depends on the code, not on when it
-      # ran or whether huggingface.co is up.
+      # local run. Caching it here makes the input explicit, the way
+      # the SHA-pinned actions and the `tool` pins in tui/go.mod do, so the gate's
+      # result depends on the code, not on when it ran or whether huggingface.co is up.
       #
       # The key is DERIVED from the file that names the model, not hand-written. A literal
       # would go stale silently: actions/cache skips the save on an exact-key hit, so after
@@ -68,48 +68,14 @@ jobs:
           restore-keys: |
             hf-${{ runner.os }}-
 
-      - name: Install staticcheck
-        # verify.sh:73 branches on `command -v staticcheck` and silently drops the check
-        # where the binary is absent. Without this the job would gate on strictly less
-        # than a local run while still reporting PASS.
-        #
-        # Pinned, not @latest: a floating version makes the gate's result depend on when
-        # it ran rather than on the code, which is the ambient-dependence this repo's
-        # verification exists to remove. v0.8.1 is what the local toolchain pins, so
-        # local and CI judge the same code by the same rules. Bump deliberately.
-        run: go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
-
-      - name: Install gitleaks
-        # Both verify.sh's dir scan (gh #70, ran by the Verify step below — it FAILS
-        # rather than skipping when this binary is absent) and the full-history scan
-        # further down need the binary on PATH before either runs.
-        #
-        # Pinned to an exact version for the same reason staticcheck above is: a
-        # floating version makes the gate depend on when it ran rather than on the
-        # code. There is no SHA-pinned Action for gitleaks the way checkout/setup-uv/
-        # setup-go get their integrity check from the commit hash, and no module
-        # sumdb the way `go install` gets one, so the download is verified by hand
-        # against the sha256 gitleaks itself publishes for this release
-        # (https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt).
-        # Bump both GITLEAKS_VERSION and GITLEAKS_SHA256 together.
-        env:
-          GITLEAKS_VERSION: "8.30.1"
-          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
-        run: |
-          set -euo pipefail
-          curl -fsSL -o /tmp/gitleaks.tar.gz \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          # Must run before tar/install: under `set -euo pipefail`, a checksum
-          # mismatch here fails the step before the archive is used. No test
-          # guards this ordering — CI exercises it live on every run.
-          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
-          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
-          gitleaks version
-
       - name: Install every unit's dependencies
         # verify.sh assumes dependencies are already present; these two loops mirror its
-        # own discovery at verify.sh:61-63 and verify.sh:79.
+        # own unit discovery (the pyproject.toml and go.mod `find` walks).
+        #
+        # staticcheck and gitleaks need no install step: they are `tool` directives in
+        # tui/go.mod, so `go tool` builds them at the version pinned there, verified
+        # against Go's sumdb. Local runs and CI both use that one version. Dependabot
+        # tracks the pin (see .github/dependabot.yml).
         run: |
           set -euo pipefail
           while IFS= read -r pp; do
@@ -127,12 +93,10 @@ jobs:
 
       - name: Verify
         # The gate's own contract treats an uncovered check as a notice, not a failure:
-        # verify.sh:119 prints VERIFY_UNCOVERED and falls through to `verify: PASS`, and its
-        # only non-zero exits are an empty COVERED set (:123) and a real failure (:129).
-        # Combined with verify.sh:73-77, which downgrades staticcheck to "uncovered" when the
-        # binary is missing from PATH, a bare invocation lets CI report success having gated
-        # on strictly less than a local run — a broken install step or a unit that loses its
-        # typechecker config would both pass silently.
+        # verify.sh prints VERIFY_UNCOVERED and falls through to `verify: PASS`, and its
+        # only non-zero exits are an empty COVERED set and a real failure. A bare
+        # invocation could therefore let CI report success having gated on strictly less
+        # than a local run — a unit that loses its typechecker config would pass silently.
         #
         # So CI holds itself to a stricter bar than the script: any VERIFY_UNCOVERED line is
         # a failure here. The script is cross-project infrastructure and is not edited; this
@@ -163,4 +127,8 @@ jobs:
         # value-anchored allowlist cannot reach: a fake credential in a test file
         # that no longer exists in the working tree, so there is no live line left to
         # attach a `gitleaks:allow` comment to. Any other finding fails this step.
-        run: gitleaks git . --redact --no-banner --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore
+        #
+        # Runs `go tool gitleaks` from tui/ (where the tool directive lives) against the
+        # repo root, so the config and ignore paths are given relative to tui/.
+        working-directory: tui
+        run: go tool gitleaks git .. --redact --no-banner --config ../.gitleaks.toml --gitleaks-ignore-path ../.gitleaksignore

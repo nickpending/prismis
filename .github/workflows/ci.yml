@@ -50,9 +50,9 @@ jobs:
       # search and similar-content handlers) always reads whatever cache the machine has.
       #
       # Sealing HF_HOME to a per-run temp dir would force a fresh ~90MB download on every
-      # local run. Caching it here is the same move ci.yml already makes for staticcheck:
-      # make the input explicit so the gate's result depends on the code, not on when it
-      # ran or whether huggingface.co is up.
+      # local run. Caching it here makes the input explicit, the way
+      # the SHA-pinned actions and the `tool` pins in tui/go.mod do, so the gate's
+      # result depends on the code, not on when it ran or whether huggingface.co is up.
       #
       # The key is DERIVED from the file that names the model, not hand-written. A literal
       # would go stale silently: actions/cache skips the save on an exact-key hit, so after

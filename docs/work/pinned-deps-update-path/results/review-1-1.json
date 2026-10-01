@@ -1,0 +1,31 @@
+{
+  "searched": [
+    "docs/work/pinned-deps-update-path/job-1.diff lines 1-334 of 589 (go.mod in full, go.sum in part)",
+    "work-order.json",
+    "results/plan.json",
+    "results/plan-1.json",
+    "results/built-1-1.json",
+    "journal.jsonl"
+  ],
+  "exhaustive": false,
+  "findings": [
+    {
+      "file": "tui/go.mod",
+      "line": 5,
+      "summary": "The `go` directive moves from 1.24.6 to 1.26.0. The plan lists only `tool` directives and the resulting require/go.sum changes for job 1. ci.yml reads `go-version-file: tui/go.mod`, so CI and every build of the TUI now use Go 1.26. That contradicts SC-1's 'build/vet/test unchanged' and the work order's out-of-scope line that no pinned version moves. The directive is probably forced by gitleaks v8.30.1, but neither the plan nor any record mentions it. The bump should be acknowledged in the work order or checked against what the gitleaks module actually requires.",
+      "severity": "medium"
+    },
+    {
+      "file": "tui/go.mod",
+      "line": 94,
+      "summary": "The work order says none of the new requires link into the TUI binary, but the diff also raises modules the TUI already uses. golang.org/x/net goes 0.43.0 to 0.53.0, x/sync 0.16.0 to 0.20.0, x/sys 0.35.0 to 0.43.0 and x/text 0.28.0 to 0.36.0. Charmbracelet, bluemonday and termenv build on x/sys, x/text and x/net, so these shipped dependencies change as a side effect of adding the tools. The plan says the change moves where pins live, never what they pin. The existing `tests(tui)` check passed, but nothing else shows that the TUI's runtime behaviour is unchanged. This should be recorded as an accepted consequence, or the minimum-version selection checked.",
+      "severity": "medium"
+    },
+    {
+      "file": "tui/go.mod",
+      "line": 115,
+      "summary": "SC-1 has no test in the diff or already on main. Its criteria (go tool staticcheck reports 0.8.1, go tool gitleaks runs, build unchanged) exist only as an observation command. The gate's `verified` record for job 1 lists only the existing checks and never invokes `go tool`, so it records nothing about the two tools. Jobs 2 and 3 exercise `go tool` indirectly, but job 1 alone proves the pin only by reading the `tool` and `require` lines.",
+      "severity": "low"
+    }
+  ]
+}

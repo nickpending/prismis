@@ -1,0 +1,15 @@
+{
+ "artifact": [
+  ".github/dependabot.yml",
+  "daemon/tests/unit/test_dependabot_config_unit.py",
+  "daemon/pyproject.toml",
+  "daemon/uv.lock"
+ ],
+ "verified": true,
+ "findings": ["F-4-2"],
+ "worktree": {
+  "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-aeb4d5d3b64ce6ab5",
+  "branch": "worktree-agent-aeb4d5d3b64ce6ab5",
+  "base": "565560b021d36bf8bdc5af7f4bf3353f266e9961"
+ }
+}

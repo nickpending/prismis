@@ -1,0 +1,17 @@
+{
+  "searched": [
+    "/Users/rudy/development/projects/prismis/docs/work/pinned-deps-update-path/job-4.diff",
+    "/Users/rudy/development/projects/prismis/docs/work/pinned-deps-update-path/results/plan.json",
+    "/Users/rudy/development/projects/prismis/docs/work/pinned-deps-update-path/work-order.json",
+    "grep for 'dependabot' across the repo outside docs/work (no files found)"
+  ],
+  "exhaustive": false,
+  "findings": [
+    {
+      "file": ".github/dependabot.yml",
+      "line": 1,
+      "summary": "SC-4 is named in job 4's delivers, but no test in the diff or on main exercises it. A grep for 'dependabot' outside docs/work found no file. The only check is the criterion's own python one-liner in plan.json, which is not part of verify.sh or any test. Nothing guards the allow list or group wiring against later edits (L216). The verified journal records were not read, and verify.sh was not read.",
+      "severity": "medium"
+    }
+  ]
+}

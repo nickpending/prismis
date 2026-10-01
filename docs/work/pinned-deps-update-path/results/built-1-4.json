@@ -1,0 +1,10 @@
+{
+  "artifact": ["tui/go.mod", "tui/go.sum"],
+  "verified": true,
+  "findings": ["F-1-4", "F-1-5", "F-1-6"],
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a8d8c82161b6ed263",
+    "branch": "worktree-agent-a8d8c82161b6ed263",
+    "base": "5705d4d2ad3a24162e9597744d8c938dad2a0c90"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "searched": [
+    "docs/work/pinned-deps-update-path/job-1.diff (empty: from and to are both 5a71945, per the journal diffed record)",
+    "journal.jsonl lines 30-49 (F-1-4 to F-1-6, the stopped record, the resumed record, built with files empty)",
+    "results/built-1-4.json",
+    "work-order.json (grep for 1.26, x/net and minimum-version)"
+  ],
+  "exhaustive": false,
+  "findings": []
+}

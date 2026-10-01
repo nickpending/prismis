@@ -1,0 +1,9 @@
+{
+  "searched": [
+    "/Users/rudy/development/projects/prismis/docs/work/pinned-deps-update-path/job-4.diff (commit 4da306b, fix for F-4-2)",
+    "daemon/pyproject.toml dev group and mypy override hunks",
+    "daemon/uv.lock hunks: both dev lists and the types-pyyaml package entry"
+  ],
+  "exhaustive": false,
+  "findings": []
+}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Proves the gate's gitleaks check (SC-2, gh #70) actually catches a real-looking
 # credential and clears once it's gone — by driving the real `.specify/verify.sh`
-# secret-scan step itself, never a re-typed copy of its mirror-and-scan logic. If
+# secret-scan step itself (`go tool gitleaks`, no gitleaks binary needed), never a re-typed copy of its mirror-and-scan logic. If
 # that step's invocation ever changes (a new flag, a different config path, a
 # different `git ls-files` filter), this test picks up the change automatically
 # because it runs the file, not a description of it.
@@ -22,10 +22,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-if ! command -v gitleaks >/dev/null 2>&1; then
-  echo "FAIL: gitleaks binary not found on PATH — cannot prove the check without it"
-  exit 1
-fi
+# The gate's scan runs `go tool gitleaks` from the module holding the tool directive.
+# The throwaway repo below has no tui/, so point the nested gate at the real one, and
+# mark the run so the gate does not start this test again from inside itself.
+export VERIFY_TOOL_MODULE_DIR="$ROOT/tui"
+export VERIFY_IN_PLANT_TEST=1
 
 GATE_TREE="$(mktemp -d)"
 trap 'rm -rf "$GATE_TREE"' EXIT

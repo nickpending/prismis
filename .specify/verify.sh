@@ -78,11 +78,9 @@ while IFS= read -r gm; do
 
   run_step "gofmt($rel)" env -C "$d" sh -c '[ -z "$(gofmt -l .)" ]' || true
   run_step "go vet($rel)" env -C "$d" go vet ./... || true
-  if command -v staticcheck >/dev/null 2>&1; then
-    run_step "staticcheck($rel)" env -C "$d" staticcheck ./... || true
-  else
-    note_uncovered "staticcheck($rel): binary not installed"
-  fi
+  # `go tool` runs the staticcheck pinned by the unit's own go.mod tool directive, so
+  # no PATH binary is involved; a Go unit without the directive fails here loudly.
+  run_step "staticcheck($rel)" env -C "$d" go tool staticcheck ./... || true
   run_step "go test($rel)" env -C "$d" go test ./... || true
 done < <(find "$ROOT" -name go.mod -not -path '*/vendor/*' -not -path "$ROOT/.claude/worktrees/*" | sort)
 
@@ -117,25 +115,30 @@ done < <(find "$ROOT" -name package.json -not -path '*/node_modules/*' -not -pat
 # defect `find` had for unit discovery above (workshop#40). `git ls-files` instead
 # lists exactly the tracked-or-would-be-tracked paths, and gitleaks is pointed at a
 # throwaway mirror built from that list, so a secret in .venv or a sibling worktree
-# is never read at all, while one in a real source file still is. A missing binary
-# FAILS this check rather than marking it uncovered — a scanner that silently
-# skips and reports PASS is exactly the ambient dependence this gate exists to
-# remove. Known fakes are allowlisted in .gitleaks.toml.
-if command -v gitleaks >/dev/null 2>&1; then
-  GITLEAKS_TREE="$(mktemp -d)"
-  trap 'rm -rf "$GITLEAKS_TREE"' EXIT
-  while IFS= read -r -d '' f; do
-    mkdir -p "$GITLEAKS_TREE/$(dirname "$f")"
-    cp "$ROOT/$f" "$GITLEAKS_TREE/$f"
-  done < <(git -C "$ROOT" ls-files -z --cached --others --exclude-standard)
-  run_step "gitleaks(.)" gitleaks dir "$GITLEAKS_TREE" --redact --no-banner --verbose --config "$ROOT/.gitleaks.toml" || true
-  rm -rf "$GITLEAKS_TREE"
-  trap - EXIT
-else
-  note_covered "gitleaks(.)"
-  echo "FAILED: gitleaks(.)"
-  printf '%s\n' "gitleaks binary not found on PATH — install it to run the secret scan (see README)" | sed 's/^/  | /'
-  FAIL=1
+# is never read at all, while one in a real source file still is.
+# The scanner is the gitleaks pinned by a tool directive in tui/go.mod, run through
+# `go tool`, so no PATH binary is involved and a missing directive fails the check.
+# VERIFY_TOOL_MODULE_DIR names the module holding that directive; it defaults to tui/
+# and is overridden only by the plant test, whose throwaway repo has no tui/.
+# Known fakes are allowlisted in .gitleaks.toml.
+TOOL_MODULE_DIR="${VERIFY_TOOL_MODULE_DIR:-$ROOT/tui}"
+GITLEAKS_TREE="$(mktemp -d)"
+trap 'rm -rf "$GITLEAKS_TREE"' EXIT
+while IFS= read -r -d '' f; do
+  mkdir -p "$GITLEAKS_TREE/$(dirname "$f")"
+  cp "$ROOT/$f" "$GITLEAKS_TREE/$f"
+done < <(git -C "$ROOT" ls-files -z --cached --others --exclude-standard)
+run_step "gitleaks(.)" env -C "$TOOL_MODULE_DIR" go tool gitleaks dir "$GITLEAKS_TREE" --redact --no-banner --verbose --config "$ROOT/.gitleaks.toml" || true
+rm -rf "$GITLEAKS_TREE"
+trap - EXIT
+
+# ------------------------------------------------------------ Secret-scan plant test
+# Proves the scan above catches a planted credential; without this run it is a
+# one-time manual check. The plant test drives this very script in a throwaway repo and
+# sets VERIFY_IN_PLANT_TEST so that nested run does not start the plant test again.
+# Outside that nested run a missing script is a failure, never a skip.
+if [ -z "${VERIFY_IN_PLANT_TEST:-}" ]; then
+  run_step "gitleaks-plant(.)" bash "$ROOT/.specify/tests/gitleaks_plant_test.sh" || true
 fi
 
 # ----------------------------------------------------------------- the verdict

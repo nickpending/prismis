@@ -497,7 +497,7 @@ make dev-tui    # Run TUI with live reload
 make build
 ```
 
-`./.specify/verify.sh` — the project gate `make test` and CI both run — requires [gitleaks](https://github.com/gitleaks/gitleaks) on `PATH` to scan for committed secrets.
+`./.specify/verify.sh` — the project gate `make test` and CI both run — needs only Go, uv and Python: the Go toolchain provides staticcheck and gitleaks (the committed-secrets scan) through tool directives in `tui/go.mod`.
 
 ### Project Structure
 

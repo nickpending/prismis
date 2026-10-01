@@ -1,0 +1,9 @@
+{
+  "searched": [
+    "docs/work/pinned-deps-update-path/job-2.diff (fix commit e639be3: new .specify/tests/gate_wiring_test.sh, verify.sh guard changes)",
+    "docs/work/pinned-deps-update-path/work-order.json SC-2",
+    "docs/work/pinned-deps-update-path/results/plan.json job 2"
+  ],
+  "exhaustive": false,
+  "findings": []
+}

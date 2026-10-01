@@ -1,0 +1,10 @@
+{
+ "artifact": [".specify/tests/gate_wiring_test.sh"],
+ "verified": true,
+ "findings": ["F-2-3"],
+ "worktree": {
+  "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ac53fb551a15a4fb9",
+  "branch": "worktree-agent-ac53fb551a15a4fb9",
+  "base": "b62b9db"
+ }
+}

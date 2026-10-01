@@ -1,0 +1,8 @@
+{
+  "searched": [
+    "docs/work/pinned-deps-update-path/job-2.diff (read returned empty content)",
+    ".specify (grep for VERIFY_IN_PLANT_TEST, gate-wiring, VERIFY_TOOL_MODULE_DIR on main: no matches)"
+  ],
+  "exhaustive": false,
+  "findings": []
+}

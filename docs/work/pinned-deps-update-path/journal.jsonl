@@ -109,3 +109,6 @@
 {"kind":"verified","job":2,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)","duplication(.)"],"uncovered":[".sh(10 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-10-01T18:26:43.412Z"}
 {"kind":"diffed","job":2,"path":"docs/work/pinned-deps-update-path/job-2.diff","from":"b62b9db3d924209c85ef1e85498e5793b5c72a71","to":"37205dde379603e3d2b444e89b811d59eb5b980f","ts":"2026-10-01T18:26:43.545Z"}
 {"kind":"dispatched","action":"resume-badger","resultPath":"docs/work/pinned-deps-update-path/results/review-2-5.json","job":2,"ts":"2026-10-01T18:26:43.574Z"}
+{"kind":"reviewed","job":2,"findings":[],"sha":"248683b0e907bf91afc810c116311dbf48de1b5de12f9cf85b1ac4b06e4a8f97","submission":5,"ts":"2026-10-01T18:27:09.945Z"}
+{"kind":"merged","job":2,"sha":"245395a287479a525c2e249d0be9e151fb47211d","worktree":{"removed":true},"ts":"2026-10-01T18:30:25.596Z"}
+{"kind":"closed","sha":"245395a287479a525c2e249d0be9e151fb47211d","ts":"2026-10-01T18:30:25.647Z"}

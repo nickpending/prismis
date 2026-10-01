@@ -1,0 +1,16 @@
+{
+  "searched": [
+    "docs/work/pinned-deps-update-path/job-2.diff (commit 30b0b6b: verify.sh --locked, cli/uv.lock)",
+    "cli/pyproject.toml, daemon/pyproject.toml dev groups, cli/uv.lock lines 1170-1220",
+    "docs/work/pinned-deps-update-path/results/plan.json job 2 files"
+  ],
+  "exhaustive": false,
+  "findings": [
+    {
+      "file": ".specify/verify.sh",
+      "line": 48,
+      "summary": "The three Python checks (ruff, mypy, pytest) now run `uv run --locked`. A stale uv.lock now fails the gate for any Python unit, which the old gate tolerated. Job 2 delivers SC-2, SC-5 and SC-6 for go tool, the plant test and README, and plan.json lists only verify.sh, the plant test and README as its files. cli/uv.lock is outside that set too (its edit itself is correct: it adds the daemon dev-group pyyaml and types-pyyaml entries that daemon/pyproject.toml already declares). Neither gate_wiring_test.sh nor any other test shows a stale lock failing the unit, so the new behaviour has no test. The gate fix being made while this job was open is plausible, but it is a change to every Python check outside the plan.",
+      "severity": "low"
+    }
+  ]
+}

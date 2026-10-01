@@ -95,3 +95,6 @@
 {"kind":"verified","job":2,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)","duplication(.)"],"uncovered":[".sh(10 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-10-01T18:03:36.219Z"}
 {"kind":"diffed","job":2,"path":"docs/work/pinned-deps-update-path/job-2.diff","from":"30b0b6b52c05fb703eb72a98130b35af58e09b2c","to":"30b0b6b52c05fb703eb72a98130b35af58e09b2c","ts":"2026-10-01T18:03:36.315Z"}
 {"kind":"dispatched","action":"resume-badger","resultPath":"docs/work/pinned-deps-update-path/results/review-2-3.json","job":2,"ts":"2026-10-01T18:03:36.345Z"}
+{"kind":"reviewed","job":2,"findings":[],"sha":"d44212ec90e06b28e3fd1d80c7973accdbf9c1b39c5a3ed1c8ddd8e629ecb4a3","submission":3,"ts":"2026-10-01T18:04:03.553Z"}
+{"kind":"verified","job":2,"pass":false,"class":"approach","failed":[],"covered":[],"uncovered":[],"holdout":[],"ts":"2026-10-01T18:04:03.701Z"}
+{"kind":"dispatched","action":"spawn-fixer","resultPath":"docs/work/pinned-deps-update-path/results/built-2-4.json","job":2,"ts":"2026-10-01T18:04:03.738Z"}

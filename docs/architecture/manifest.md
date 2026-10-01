@@ -1,9 +1,9 @@
 ---
 type: manifest
 project: prismis
-generated: "2026-09-30"
+generated: "2026-10-01"
 source: /Users/rudy/development/projects/prismis/docs/architecture
-reconciled_at: 5b0c5bdb4f221a034d2d439d99b6cb41be307412
+reconciled_at: 4af10f89844c7f47e8a27f887d6aef76c2db31d4
 ---
 
 ## Components
@@ -28,6 +28,8 @@ reconciled_at: 5b0c5bdb4f221a034d2d439d99b6cb41be307412
 - **Web View** — Single-page frontend served from daemon.
 - **CLI** — Python admin/batch ops against the daemon API.
 - **LLM Validator** — Dual-service startup health check (light fatal, deep non-fatal).
+- **Refetch** — `refetch` backfill: re-extract and re-analyse unreadable stored items.
+- **Secret Scan** — gitleaks gate in verify.sh and CI history scan.
 - **Verify Chain** — `verify --chain`: real orchestrator run, throwaway DB, per-link report.
 
 ## Where to look

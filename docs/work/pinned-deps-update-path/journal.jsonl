@@ -1,2 +1,4 @@
 {"kind":"opened","criteria":["SC-1","SC-2","SC-3","SC-4","SC-5","SC-6"],"sha":"f9db4a072ddfcda234f60e41fb03429cf872dac8","ts":"2026-10-01T16:56:08.832Z"}
 {"kind":"dispatched","action":"spawn-mason","resultPath":"docs/work/pinned-deps-update-path/results/plan-1.json","ts":"2026-10-01T16:56:08.867Z"}
+{"kind":"planned","jobs":{"1":{"files":["tui/go.mod","tui/go.sum"],"depends":[],"delivers":["SC-1"]},"2":{"files":[".specify/verify.sh",".specify/tests/gitleaks_plant_test.sh","README.md"],"depends":[1],"delivers":["SC-2","SC-5","SC-6"]},"3":{"files":[".github/workflows/ci.yml"],"depends":[1],"delivers":["SC-3"]},"4":{"files":[".github/dependabot.yml"],"depends":[],"delivers":["SC-4"]}},"sha":"81483a5e2656b86cb3d0a320fa43b59218855320779920a64609cc82110a9a81","submission":1,"ts":"2026-10-01T16:56:49.627Z"}
+{"kind":"checkpointed","sha":"0ae077bc7d4abfe18f236ab99043091d3a00c639","ts":"2026-10-01T16:56:49.665Z"}

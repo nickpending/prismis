@@ -1,0 +1,82 @@
+{
+  "workOrder": "pinned-deps-update-path",
+  "what": "Give every pinned CI dependency an automatic update path (gh #66): the four SHA-pinned GitHub Actions and the two pinned tools, staticcheck and gitleaks, are all tracked by one Dependabot configuration, with the two tools declared as `tool` directives in `tui/go.mod` and run by the gate and CI through `go tool` instead of PATH binaries or hand-copied tarball checksums.",
+  "why": "`.github/workflows/ci.yml` pins actions/checkout, astral-sh/setup-uv, actions/setup-go and actions/cache by commit SHA, installs staticcheck with `go install ...@v0.8.1`, and installs gitleaks 8.30.1 from a release tarball checked against a hand-copied sha256. Pinning is deliberate and stays: a floating version makes the gate's result depend on when it ran rather than on the code. But nothing moves any of the six pins, so a security fix in any of them reaches this repo only if someone remembers (gh #66). The ci.yml comment that staticcheck v0.8.1 \"is what the local toolchain pins\" is false: locally staticcheck comes from mise `go:honnef.co/go/tools/cmd/staticcheck = latest` in the operator's global config and matches 0.8.1 by coincidence.\n\nDecided 2026-10-01 after scrutiny:\n- Dependabot is the only standard tracker for SHA-pinned actions; it rewrites both the SHA and the trailing `# vX.Y.Z` comment. It opens pull requests, which this repo otherwise does not use; one grouped PR a month merged with `gh pr merge` is the accepted cost. CI runs on `pull_request` and uses no secrets, so a Dependabot PR runs the full gate before merge.\n- Dependabot tracks nothing inside a workflow `run:` step or `env:` block, so staticcheck and gitleaks must live in a manifest it reads. Both are Go modules; Go 1.24+ `tool` directives in `tui/go.mod` (the repo's one Go module, already the Go home CI reads via `go-version-file: tui/go.mod`) make `go tool staticcheck` and `go tool gitleaks` available locally and in CI at exactly the pinned versions, with no PATH, mise or sha256 dependence. That also satisfies constitution IV (Verified Where It Runs) better than today's `command -v staticcheck` branch, which marks the check uncovered when the shell lacks the binary, and gitleaks's download gets Go sumdb verification instead of a hand-copied digest.\n- Measured on a scratch copy of tui on 2026-10-01: `go tool staticcheck ./...` exits clean exactly as PATH staticcheck does; `go tool gitleaks dir` over a tracked-files mirror with `.gitleaks.toml` reports no leaks; first build of gitleaks takes about 11 s and is cached after. tui/go.mod gains 73 indirect require lines and go.sum grows from 87 to 482 lines; none of it links into the TUI binary.\n- Go records a tool module in `require` as `// indirect`, and Dependabot's gomod updater by default raises updates only for direct dependencies, so the gomod entry needs an `allow` list naming `honnef.co/go/tools` and `github.com/zricethezav/gitleaks/v8` (the module path; `github.com/gitleaks/gitleaks/v8` does not resolve) alongside `dependency-type: direct`, not `dependency-type: all`, which would bump ~70 indirect modules every month.\n- Dependabot `multi-ecosystem-groups` puts the github-actions and gomod updates in one PR on one schedule. `cooldown` is not supported for either ecosystem, so the manual merge is the only delay before a fresh upstream release lands; Dependabot PR auto-merge is therefore not enabled.\n- Not verifiable from here: that Dependabot's gomod updater raises a PR for an allow-listed `// indirect` tool module and preserves the `tool` block through its `go mod tidy` (dependabot/dependabot-core#12050 is open). The first monthly run proves it; if no tool update ever appears, gh #66 reopens for the two tools only, and the four actions stay covered regardless.\n\nAlso fixed here because this change rewrites the same lines: ci.yml's comments narrate verify.sh internals by line number (\"verify.sh:73 branches on command -v staticcheck\"), which docs/architecture/boundaries.md already records as pointing at the wrong lines. CLAUDE.md forbids line numbers in comments; those citations become symbol or check names.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "the repository's one Go module, `tui/`",
+      "when": "`go tool staticcheck -version` and `go tool gitleaks --help` run from `tui/`",
+      "then": "both run from `tool` directives in `tui/go.mod`, pinned to honnef.co/go/tools v0.8.1 (the version CI installs today) and github.com/zricethezav/gitleaks/v8 v8.30.1 (the version CI downloads today), with the module's `require` and `go.sum` updated by the Go toolchain, not by hand. `go build ./...`, `go vet ./...` and `go test ./...` in `tui/` are unchanged by the addition.",
+      "observation": {
+        "command": "cd tui && go tool staticcheck -version | grep -q '0.8.1' && go tool gitleaks --help >/dev/null && grep -q 'honnef.co/go/tools/cmd/staticcheck' go.mod && grep -q 'github.com/zricethezav/gitleaks/v8' go.mod && go build ./... && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "`.specify/verify.sh`",
+      "when": "the gate runs",
+      "then": "each Go unit's staticcheck check runs `go tool staticcheck ./...` in that unit's directory, unconditionally: the `command -v staticcheck` branch and its `note_uncovered` fallback are deleted, so a Go unit without the tool directive fails the check loudly rather than reporting it uncovered. The gitleaks check runs `go tool gitleaks dir` from `tui/` over the same tracked-files mirror as today with the same flags and config; the `command -v gitleaks` branch and its missing-binary failure message are deleted. Both checks still appear in `VERIFY_COVERED` under their existing names, `staticcheck(tui)` and `gitleaks(.)`, and the gate passes on today's tree with no staticcheck or gitleaks binary on PATH.",
+      "observation": {
+        "command": "! grep -qE 'command -v (staticcheck|gitleaks)' .specify/verify.sh && env PATH=\"$(dirname \"$(command -v go)\"):$(dirname \"$(command -v uv)\"):/usr/bin:/bin\" ./.specify/verify.sh 2>&1 | grep -E '^VERIFY_COVERED:' | grep -q 'staticcheck(tui)' && echo 'SC-2: PASS'",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "`.github/workflows/ci.yml`",
+      "when": "CI runs",
+      "then": "the `go install honnef.co/go/tools/cmd/staticcheck@v0.8.1` step and the gitleaks tarball download, sha256 check and `GITLEAKS_VERSION`/`GITLEAKS_SHA256` env block are removed; the gate step needs no tool install beyond `setup-go`, because `go tool` builds both from `tui/go.mod`. The full-history scan step runs `go tool gitleaks git` from `tui/` against the repo root with the same `--config`, `--gitleaks-ignore-path` and redaction flags as today, and the job still fails on any finding not in `.gitleaksignore`. No step greps `gitleaks version` for a version number, because a `go tool` build prints \"version is set by build process\". The four `uses:` lines stay SHA-pinned with their `# vX.Y.Z` comments unchanged in format. No comment in ci.yml cites a verify.sh line number; comments that described the removed install steps are removed with them, and the comment claiming staticcheck's version matches \"what the local toolchain pins\" is replaced by the true statement that both local and CI run the version in `tui/go.mod`.",
+      "observation": {
+        "command": "! grep -qE 'go install honnef|GITLEAKS_SHA256|releases/download|verify\\.sh:[0-9]+' .github/workflows/ci.yml && grep -q 'go tool gitleaks git' .github/workflows/ci.yml && [ \"$(grep -cE 'uses: [^ ]+@[0-9a-f]{40} # v' .github/workflows/ci.yml)\" = 4 ] && echo 'SC-3: PASS'",
+        "expect": "SC-3: PASS"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "`.github/dependabot.yml`, newly committed",
+      "when": "Dependabot reads it",
+      "then": "it declares one `multi-ecosystem-groups` entry on a `monthly` schedule, and two `updates` entries opted into that group: `github-actions` at directory `/`, and `gomod` at directory `/tui` whose `allow` list has `dependency-type: direct` plus `dependency-name` entries for `honnef.co/go/tools` and `github.com/zricethezav/gitleaks/v8`, so the two `// indirect` tool modules are tracked without opening every indirect module to updates. The file is valid YAML with `version: 2`, and a short comment at the top says why the allow list names the two tool modules.",
+      "observation": {
+        "command": "python3 -c \"import yaml,sys; d=yaml.safe_load(open('.github/dependabot.yml')); assert d['version']==2; g=d['multi-ecosystem-groups']; assert len(g)==1; (gn,gv),=g.items(); assert gv['schedule']['interval']=='monthly'; u={x['package-ecosystem']:x for x in d['updates']}; assert u['github-actions']['directory']=='/' and u['github-actions']['multi-ecosystem-group']==gn; m=u['gomod']; assert m['directory']=='/tui' and m['multi-ecosystem-group']==gn; a=m['allow']; assert {'dependency-type':'direct'} in a; names={x.get('dependency-name') for x in a}; assert {'honnef.co/go/tools','github.com/zricethezav/gitleaks/v8'}<=names; print('SC-4: PASS')\"",
+        "expect": "SC-4: PASS"
+      }
+    },
+    {
+      "id": "SC-5",
+      "given": "`.specify/tests/gitleaks_plant_test.sh` and `README.md`",
+      "when": "the plant test runs with no gitleaks binary on PATH",
+      "then": "it still proves the gate catches a planted credential, because it exercises the gate's own `go tool gitleaks` invocation and no longer checks `command -v gitleaks`. README's statement that the gate requires gitleaks on PATH is replaced by one sentence saying the Go toolchain provides staticcheck and gitleaks through `tui/go.mod` tool directives, so only Go, uv and Python are required to run the gate.",
+      "observation": {
+        "command": "! grep -q 'command -v gitleaks' .specify/tests/gitleaks_plant_test.sh && env PATH=\"$(dirname \"$(command -v go)\"):$(dirname \"$(command -v uv)\"):/usr/bin:/bin\" bash .specify/tests/gitleaks_plant_test.sh && ! grep -q 'requires \\[gitleaks\\]' README.md && grep -q 'tool directive' README.md && echo 'SC-5: PASS'",
+        "expect": "SC-5: PASS"
+      }
+    },
+    {
+      "id": "SC-6",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Enabling Dependabot auto-merge or any workflow that merges bot PRs without a human (decided 2026-10-01: manual merge is the only delay available, since cooldown is unsupported for these ecosystems).",
+    "Dependabot security updates for the daemon's and CLI's Python dependencies (uv.lock); gh #66 is about the CI pins.",
+    "Proving Dependabot's handling of `// indirect` tool modules before the first monthly run; recorded in the why, settled by that run.",
+    "Bumping any of the six pinned versions; this change moves where each pin lives, never what it pins."
+  ],
+  "stakes": [
+    "The gitleaks Go module path is `github.com/zricethezav/gitleaks/v8`; `go get -tool github.com/gitleaks/gitleaks/v8` fails with a module-path mismatch.",
+    "Tool modules land in `require` as `// indirect`; without the named `allow` entries Dependabot never bumps them and reports nothing. `dependency-type: all` is not the fix, it bumps every indirect module.",
+    "Under `go tool`, `gitleaks version` prints `version is set by build process`, so nothing may assert on the version string; the pin is proved by the `tool`/`require` lines in go.mod.",
+    "The gate must still FAIL, never skip, when a tool cannot run: deleting the `command -v` branches must not introduce a new silent-pass path.",
+    "`.gitleaksignore` and `.gitleaks.toml` are unchanged; the history scan and dir scan keep today's flags, so the 16 fingerprinted historical findings stay ignored and nothing else does.",
+    "Never write a line number into a comment; name the check or the symbol (CLAUDE.md).",
+    "Never rewrite main's history while this work order is open: no rebase, pull --rebase, amend or reset on main."
+  ]
+}

@@ -54,6 +54,14 @@ console = Console()
 _extract_locks: dict[str, asyncio.Lock] = {}
 
 
+def _embed_text(text: str, title: str = "") -> list[float]:
+    """Construct an Embedder and embed `text`; blocking, so call via asyncio.to_thread.
+
+    Construction lives here so the model load happens on the worker thread too.
+    """
+    return Embedder().generate_embedding(text=text, title=title)
+
+
 def _get_extract_lock(content_id: str) -> asyncio.Lock:
     """Return the per-content_id asyncio.Lock for the extract critical section.
 
@@ -1189,8 +1197,8 @@ async def semantic_search(
 
     try:
         # Initialize embedder and generate query embedding
-        embedder = Embedder()
-        query_embedding = embedder.generate_embedding(q)
+        # Offloaded: the model load and encode are CPU-bound and would stall the loop.
+        query_embedding = await asyncio.to_thread(_embed_text, q)
 
         # Search content with weighted ranking
         results = storage.search_content(
@@ -1427,10 +1435,9 @@ async def extract_entry(
         # Regenerate embedding with combined text — best-effort.
         # An embedding-regen failure must NOT fail the request.
         try:
-            embedder = Embedder()
             combined = f"{entry.get('summary') or ''}\n\n{extraction['synthesis']}"
-            emb = embedder.generate_embedding(
-                text=combined, title=entry.get("title") or ""
+            emb = await asyncio.to_thread(
+                _embed_text, combined, entry.get("title") or ""
             )
             storage.add_embedding(content_id, emb)
         except Exception as e:
@@ -1586,7 +1593,7 @@ async def generate_audio_briefing(
 
         # Generate conversational script using LLM
         script_gen = AudioScriptGenerator(config)
-        script = script_gen.generate_script(report)
+        script = await asyncio.to_thread(script_gen.generate_script, report)
 
         # Set up output path
         import os
@@ -1609,7 +1616,7 @@ async def generate_audio_briefing(
         tts_engine = LspeakTTSEngine(
             provider=config.audio_provider, voice=config.audio_voice
         )
-        tts_engine.generate(script, output_path)
+        await asyncio.to_thread(tts_engine.generate, script, output_path)
 
         return {
             "success": True,
@@ -1719,7 +1726,9 @@ async def analyze_context(
         analyzer = ContextAnalyzer(config.llm_light_service)
 
         # Analyze and get suggestions
-        result = analyzer.analyze_flagged_items(flagged_items, context_text)
+        result = await asyncio.to_thread(
+            analyzer.analyze_flagged_items, flagged_items, context_text
+        )
 
         return {
             "success": True,

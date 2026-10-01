@@ -1,0 +1,12 @@
+{
+  "searched": [
+    "docs/work/async-offload/job-1.diff",
+    "docs/work/async-offload/work-order.json",
+    "docs/work/async-offload/results/plan.json",
+    "docs/work/async-offload/results/built-1-1.json",
+    "daemon/src/prismis_daemon/api.py (grep on main for blocking-call sites)",
+    "daemon/tests/conftest.py (stub and helper symbols the new test imports)"
+  ],
+  "exhaustive": false,
+  "findings": []
+}

@@ -1,0 +1,42 @@
+{
+  "artifact": [
+    "daemon/src/prismis_daemon/api.py",
+    "daemon/tests/integration/test_api_offload_nonblock.py"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a41b2720bf2e9f478",
+    "branch": "worktree-agent-a41b2720bf2e9f478",
+    "base": "1cd4ea8e712017b3523a49fb47c2852011e4c699"
+  },
+  "sc1_grep": "grep -nE 'Embedder|AudioScriptGenerator|LspeakTTSEngine|ContextAnalyzer|subprocess|requests\\.|complete\\(|llm_core|generate_embedding|generate_script|analyze_flagged|tts_engine\\.|asyncio.to_thread|time\\.sleep' daemon/src/prismis_daemon/api.py",
+  "sc1_hits": [
+    "37 import AudioScriptGenerator, LspeakTTSEngine; 40 import ContextAnalyzer; 42 import Embedder",
+    "58/62 new module helper _embed_text: constructs Embedder and embeds (only called via to_thread)",
+    "282 existing to_thread(validator.validate_source) in _validate_source_with_timeout",
+    "1201 semantic_search: await asyncio.to_thread(_embed_text, q)",
+    "1408 existing extract to_thread (extractor.extract)",
+    "1439 extract_entry regen: await asyncio.to_thread(_embed_text, combined, title), inside the same best-effort try/except",
+    "1595 AudioScriptGenerator(config) construction (cheap, no I/O); 1596 await asyncio.to_thread(script_gen.generate_script, report)",
+    "1616 LspeakTTSEngine(...) construction (shutil.which only); 1619 await asyncio.to_thread(tts_engine.generate, script, output_path)",
+    "1726 ContextAnalyzer(...) construction (cheap); 1729 await asyncio.to_thread(analyzer.analyze_flagged_items, ...)",
+    "No hits for subprocess, requests., complete(, llm_core, time.sleep in api.py: no sixth site. asyncio.to_thread count is 8 (SC-1 needs >= 6)."
+  ],
+  "red_runs": {
+    "method": "with api.py reverted to base (git checkout), the new tests run against the unoffloaded handlers; all five failed on the probe-elapsed assertion",
+    "probe_elapsed_seconds_unoffloaded": {
+      "test_semantic_search_does_not_block_loop": 2.025,
+      "test_extract_regen_embedding_does_not_block_loop": 2.166,
+      "test_audio_briefing_does_not_block_loop[generate_script]": 2.323,
+      "test_audio_briefing_does_not_block_loop[tts_generate]": 2.243,
+      "test_context_analysis_does_not_block_loop": 2.022
+    },
+    "bound_seconds": 1.2,
+    "note": "The red run was made on the final test file's slow-callee mechanism (stub LLM server delay, fake lspeak on PATH, third-party SentenceTransformer.encode sleep); an earlier draft patched prismis classes and was rejected by tests/unit/test_no_internal_mocks_unit.py, so it was rewritten and re-run red. After the red run only lint typing changes (ANN401) were made to the test file. Restored offload: probe passes (18 passed for -k 'offload or nonblock or race')."
+  },
+  "deviations_from_work_order": [
+    "The work order asked to monkeypatch the slow callee with time.sleep. The gate (tests/unit/test_no_internal_mocks_unit.py, constitution Principle I) forbids patching prismis classes, so slowness is produced at the real boundaries instead: stub LLM server sleep for generate_script and analyze_flagged_items, a real lspeak shell script on PATH for tts, and a time.sleep on the third-party SentenceTransformer.encode for embeddings. Each slow request must also take >= 1.8s, which proves the slow path was reached.",
+    "Embedder construction and generate_embedding go through one small module-level helper, _embed_text, offloaded as a unit so the model load stays off the loop thread."
+  ],
+  "gate": "./.specify/verify.sh -> verify: PASS (after fixing 5 ANN401 lint errors in the new test file). ruff format --check reports api.py as unformatted at two sites (lines ~287 and ~661) that predate this job and are not in my diff; the gate passes regardless."
+}

@@ -100,6 +100,25 @@ else
   fail "a Go unit without the tool directive did not fail staticcheck(other)" "$OUT"
 fi
 
+# Case 5: a Python unit whose uv.lock is stale fails its checks and the lock file is
+# left untouched (the gate runs `uv run --locked`; plain `uv run` would relock it).
+T5="$WORK/stale"; mk_tree "$T5"
+mkdir "$T5/py"
+printf '[project]\nname = "x"\nversion = "0.1"\nrequires-python = ">=3.10"\n\n[tool.ruff]\nline-length = 100\n' >"$T5/py/pyproject.toml"
+(cd "$T5/py" && uv lock --quiet)
+LOCK_BEFORE="$(cat "$T5/py/uv.lock")"
+printf 'dependencies = ["six"]\n' >"$WORK/dep.txt"
+sed -i.bak '/^requires-python/r '"$WORK/dep.txt" "$T5/py/pyproject.toml"
+rm -f "$T5/py/pyproject.toml.bak"
+OUT="$(run_gate "$T5" "PATH=$(dirname "$(command -v uv)"):$GATE_PATH")"
+if printf '%s\n' "$OUT" | grep -qF 'FAILED: ruff(py)' \
+   && printf '%s\n' "$OUT" | grep -q 'needs to be updated' \
+   && [ "$LOCK_BEFORE" = "$(cat "$T5/py/uv.lock")" ]; then
+  ok "a stale uv.lock fails the Python unit and is not rewritten"
+else
+  fail "a stale uv.lock did not fail ruff(py) or was rewritten" "$OUT"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo "gate_wiring_test: FAIL"
   exit 1

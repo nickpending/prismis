@@ -118,10 +118,14 @@ done < <(find "$ROOT" -name package.json -not -path '*/node_modules/*' -not -pat
 # is never read at all, while one in a real source file still is.
 # The scanner is the gitleaks pinned by a tool directive in tui/go.mod, run through
 # `go tool`, so no PATH binary is involved and a missing directive fails the check.
-# VERIFY_TOOL_MODULE_DIR names the module holding that directive; it defaults to tui/
-# and is overridden only by the plant test, whose throwaway repo has no tui/.
+# The module is tui/. Only the plant test, whose throwaway repo has no tui/, redirects
+# it through VERIFY_TOOL_MODULE_DIR, and that override is honoured solely while
+# VERIFY_IN_PLANT_TEST is set — an ambient value alone cannot redirect the scan.
 # Known fakes are allowlisted in .gitleaks.toml.
-TOOL_MODULE_DIR="${VERIFY_TOOL_MODULE_DIR:-$ROOT/tui}"
+TOOL_MODULE_DIR="$ROOT/tui"
+if [ -n "${VERIFY_IN_PLANT_TEST:-}" ]; then
+  TOOL_MODULE_DIR="${VERIFY_TOOL_MODULE_DIR:-$ROOT/tui}"
+fi
 GITLEAKS_TREE="$(mktemp -d)"
 trap 'rm -rf "$GITLEAKS_TREE"' EXIT
 while IFS= read -r -d '' f; do
@@ -132,13 +136,18 @@ run_step "gitleaks(.)" env -C "$TOOL_MODULE_DIR" go tool gitleaks dir "$GITLEAKS
 rm -rf "$GITLEAKS_TREE"
 trap - EXIT
 
-# ------------------------------------------------------------ Secret-scan plant test
-# Proves the scan above catches a planted credential; without this run it is a
-# one-time manual check. The plant test drives this very script in a throwaway repo and
-# sets VERIFY_IN_PLANT_TEST so that nested run does not start the plant test again.
-# Outside that nested run a missing script is a failure, never a skip.
-if [ -z "${VERIFY_IN_PLANT_TEST:-}" ]; then
+# ------------------------------------------------------------ Gate self-tests
+# Prove the checks above rather than trust them: the plant test shows the scan catches a
+# planted credential, the wiring test shows this script's own failure paths. Without
+# these runs both are one-time manual checks. Both drive this very script in throwaway
+# repos; the plant test sets VERIFY_IN_PLANT_TEST so its nested run does not start the
+# self-tests again. That skip is recorded as uncovered, never silent, and outside that
+# nested run a missing script is a failure, never a skip.
+if [ -n "${VERIFY_IN_PLANT_TEST:-}" ]; then
+  note_uncovered "gitleaks-plant(.), gate-wiring(.): not run — nested inside the plant test (VERIFY_IN_PLANT_TEST is set)"
+else
   run_step "gitleaks-plant(.)" bash "$ROOT/.specify/tests/gitleaks_plant_test.sh" || true
+  run_step "gate-wiring(.)" bash "$ROOT/.specify/tests/gate_wiring_test.sh" || true
 fi
 
 # ----------------------------------------------------------------- the verdict

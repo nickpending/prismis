@@ -1,0 +1,2 @@
+{"kind":"opened","criteria":["SC-1","SC-2","SC-3","SC-4","SC-5","SC-6"],"sha":"f9db4a072ddfcda234f60e41fb03429cf872dac8","ts":"2026-10-01T16:56:08.832Z"}
+{"kind":"dispatched","action":"spawn-mason","resultPath":"docs/work/pinned-deps-update-path/results/plan-1.json","ts":"2026-10-01T16:56:08.867Z"}

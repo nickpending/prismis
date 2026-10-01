@@ -284,8 +284,7 @@ async def _validate_source_with_timeout(
         )
     except TimeoutError as e:
         raise ValidationError(
-            f"Source validation timed out after "
-            f"{SOURCE_VALIDATION_TIMEOUT:.0f} seconds"
+            f"Source validation timed out after {SOURCE_VALIDATION_TIMEOUT:.0f} seconds"
         ) from e
 
     if not is_valid:
@@ -660,9 +659,7 @@ async def update_source(
             normalized_url = normalize_source_url(request.url, request.type)
 
             # Validate off the event loop — validate_source blocks on network
-            await _validate_source_with_timeout(
-                validator, normalized_url, request.type
-            )
+            await _validate_source_with_timeout(validator, normalized_url, request.type)
 
             update_data["url"] = normalized_url
 

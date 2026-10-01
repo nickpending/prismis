@@ -1,0 +1,16 @@
+{
+  "artifact": ["docs/work/async-offload/results/plan-1.json"],
+  "verified": true,
+  "jobs": [
+    {
+      "number": 1,
+      "title": "Offload the five blocking calls in api.py handlers via asyncio.to_thread and add one non-blocking test per handler (red-first, time.sleep stand-in)",
+      "files": [
+        "daemon/src/prismis_daemon/api.py",
+        "daemon/tests/integration/test_api_offload_nonblock.py"
+      ],
+      "depends": [],
+      "delivers": ["SC-1", "SC-2", "SC-3"]
+    }
+  ]
+}

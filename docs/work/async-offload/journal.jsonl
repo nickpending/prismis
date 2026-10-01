@@ -1,2 +1,4 @@
 {"kind":"opened","criteria":["SC-1","SC-2","SC-3"],"sha":"b8851cdf2923ea545146572ecaa152266d88293b","ts":"2026-10-01T21:11:15.125Z"}
 {"kind":"dispatched","action":"spawn-mason","resultPath":"docs/work/async-offload/results/plan-1.json","ts":"2026-10-01T21:11:15.155Z"}
+{"kind":"planned","jobs":{"1":{"files":["daemon/src/prismis_daemon/api.py","daemon/tests/integration/test_api_offload_nonblock.py"],"depends":[],"delivers":["SC-1","SC-2","SC-3"]}},"sha":"0c93e6865868650bf00b905f59612cf2d04889eafc80982ba636db598412b1ea","submission":1,"ts":"2026-10-01T21:11:52.198Z"}
+{"kind":"checkpointed","sha":"9518a47cccc0b2da9bc8e29471039683da6bd607","ts":"2026-10-01T21:11:52.236Z"}

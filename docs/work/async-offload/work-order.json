@@ -1,0 +1,51 @@
+{
+  "workOrder": "async-offload",
+  "what": "Every synchronous LLM, embedding or subprocess call made inside an `async def` FastAPI handler in `daemon/src/prismis_daemon/api.py` runs through `await asyncio.to_thread(...)`, so one slow request never stalls every other API route, with a test per handler that proves the loop stays responsive while the slow call is in flight (gh #30, widened to its class).",
+  "why": "gh #30 names two blocking calls in the audio briefing endpoint. A sweep of api.py on 2026-10-01 found the same shape in four handlers, five calls, and one of them is the path the TUI and web UI hit every day:\n- `semantic_search` constructs `Embedder()` and calls `embedder.generate_embedding(q)` synchronously (api.py line 1192-1193 at b8851cd): the sentence-transformers model encodes on the event loop, so every other request waits for it.\n- `extract_entry` already offloads the extraction with `await asyncio.to_thread(extractor.extract, ...)` (line 1400) but then regenerates the embedding synchronously (`embedder.generate_embedding(...)`, line 1432).\n- `generate_audio_briefing` calls `script_gen.generate_script(report)` (an llm-core completion, line 1589) and `tts_engine.generate(script, output_path)` (an lspeak subprocess, line 1612) synchronously.\n- `analyze_context` calls `analyzer.analyze_flagged_items(flagged_items, context_text)` (an LLM call, line 1722) synchronously.\nAll five are CPU- or network-bound and take seconds to tens of seconds. FastAPI runs an `async def` handler on the event loop thread, so a blocking call there starves `/api/health`, `/api/content`, search, sources and every other route until it returns; the OOM-era 502s in gh #55 were a different cause, but the symptom a user sees is the same: the daemon stops answering. The fix shape is the one extract already uses: `await asyncio.to_thread(callable, ...)`, which runs the call on the default thread pool and yields the loop. Storage stays on the loop thread: only the pure compute or I/O callable crosses into the thread, never a sqlite connection.\nThe proof shape exists too: `daemon/tests/integration/test_extract_endpoint_race.py` already drives two requests as async tasks in one loop against the ASGI app with httpx and asserts the second is not held by the first's to_thread call. Each handler here gets the same kind of test, with the slow callee monkeypatched to a real `time.sleep` (blocking, not `asyncio.sleep`) so that without the offload the probe request measurably waits.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "the five synchronous calls above in `daemon/src/prismis_daemon/api.py`, re-enumerated by the builder with a grep over every `async def` handler for calls into `Embedder`, `audio`, `context_analyzer`, llm-core, `subprocess` or `requests` that are not awaited through `asyncio.to_thread`",
+      "when": "the handlers run",
+      "then": "each such call is `await asyncio.to_thread(...)`: the `Embedder()` construction and `generate_embedding` in `semantic_search` and in `extract_entry`'s regen, `generate_script` and `tts_engine.generate` in `generate_audio_briefing`, and `analyze_flagged_items` in `analyze_context`. Only the compute callable crosses into the thread; `Storage` calls stay on the loop thread as today. Every existing exception path around those calls (the `CircuitOpenError` handling, the best-effort regen that must not fail the request, the audio endpoint's error responses) behaves exactly as before. The builder's result records the grep it ran and its full hit list, so a sixth site cannot hide.",
+      "observation": {
+        "command": "cd daemon && ! grep -nE '^\\s+(query_embedding|emb|script|result) = (embedder\\.generate_embedding|script_gen\\.generate_script|analyzer\\.analyze_flagged_items)\\(' src/prismis_daemon/api.py && ! grep -nE '^\\s+tts_engine\\.generate\\(' src/prismis_daemon/api.py && [ \"$(grep -c 'asyncio.to_thread' src/prismis_daemon/api.py)\" -ge 6 ] && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "a test per offloaded handler (semantic search, extract's regen, audio briefing, context analysis) in `daemon/tests/integration/`, built on the pattern of `test_extract_endpoint_race.py`: the ASGI app under httpx, two requests as tasks in one event loop, the slow callee monkeypatched to block with `time.sleep` for a fixed interval",
+      "when": "the slow request is in flight",
+      "then": "a probe request to another route (`/api/health` or equivalent) completes in well under the blocking interval, measured with a monotonic clock against a bound the test states, and the slow request still returns its normal response afterwards. Each test is shown to go red when the offload is removed: the builder replaces that handler's `await asyncio.to_thread(f, ...)` with the direct call, runs the test, records the red result and the measured probe time in the result file, then restores the code. No test asserts on configuration, a mock being called, or a wrapper message; each asserts on the measured elapsed time of the probe (CLAUDE.md learned patterns).",
+      "observation": {
+        "command": "cd daemon && uv run --locked --quiet pytest -q tests/integration -k 'offload or nonblock or race' 2>&1 | tail -1 | grep -E '^[0-9]+ passed' && echo 'SC-2: PASS'",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Daemon memory footprint (gh #55): measured 2026-10-01 at 635 MiB RSS with 2.7 GiB available; not live.",
+    "Caching the Embedder or its model across requests; this work order only moves the existing calls off the loop thread.",
+    "Narrowing blind `except Exception` handlers around these calls (gh #58)."
+  ],
+  "stakes": [
+    "Never pass a `Storage` instance or any sqlite connection into `asyncio.to_thread`; sqlite objects are bound to the thread that created them. Read what you need before the offload, call storage after it, on the loop thread.",
+    "`Embedder()` loads the sentence-transformers model; construct it inside the offloaded callable (or offload a small function that constructs and calls), never on the loop thread.",
+    "Monkeypatch the attribute the handler actually resolves at call time (the name in `api.py`'s namespace, or the class method), and verify the patch is hit; a test whose patch is never reached passes vacuously.",
+    "The blocking stand-in is `time.sleep`, never `asyncio.sleep`: only a true thread-blocking call distinguishes an offloaded handler from a non-offloaded one.",
+    "Keep `extract_entry`'s existing `asyncio.Lock` semantics intact; the regen offload sits inside the same try/except that keeps a regen failure from failing the request.",
+    "A test must be seen red with the offload removed before it counts; record the red run in the result (CLAUDE.md).",
+    "Never rewrite main's history while this work order is open: no rebase, pull --rebase, amend or reset on main."
+  ]
+}

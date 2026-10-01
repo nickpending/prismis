@@ -3,3 +3,4 @@
 {"kind":"planned","jobs":{"1":{"files":["tui/go.mod","tui/go.sum"],"depends":[],"delivers":["SC-1"]},"2":{"files":[".specify/verify.sh",".specify/tests/gitleaks_plant_test.sh","README.md"],"depends":[1],"delivers":["SC-2","SC-5","SC-6"]},"3":{"files":[".github/workflows/ci.yml"],"depends":[1],"delivers":["SC-3"]},"4":{"files":[".github/dependabot.yml"],"depends":[],"delivers":["SC-4"]}},"sha":"81483a5e2656b86cb3d0a320fa43b59218855320779920a64609cc82110a9a81","submission":1,"ts":"2026-10-01T16:56:49.627Z"}
 {"kind":"checkpointed","sha":"0ae077bc7d4abfe18f236ab99043091d3a00c639","ts":"2026-10-01T16:56:49.665Z"}
 {"kind":"dispatched","action":"spawn-builder","resultPath":"docs/work/pinned-deps-update-path/results/built-1-1.json","job":1,"ts":"2026-10-01T16:56:49.736Z"}
+{"kind":"dispatched","action":"spawn-builder","resultPath":"docs/work/pinned-deps-update-path/results/built-4-1.json","job":4,"ts":"2026-10-01T16:57:01.711Z"}

@@ -98,3 +98,7 @@
 {"kind":"reviewed","job":2,"findings":[],"sha":"d44212ec90e06b28e3fd1d80c7973accdbf9c1b39c5a3ed1c8ddd8e629ecb4a3","submission":3,"ts":"2026-10-01T18:04:03.553Z"}
 {"kind":"verified","job":2,"pass":false,"class":"approach","failed":[],"covered":[],"uncovered":[],"holdout":[],"ts":"2026-10-01T18:04:03.701Z"}
 {"kind":"dispatched","action":"spawn-fixer","resultPath":"docs/work/pinned-deps-update-path/results/built-2-4.json","job":2,"ts":"2026-10-01T18:04:03.738Z"}
+{"kind":"built","job":2,"files":[".specify/verify.sh","cli/uv.lock"],"worktree":{"path":"/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ac53fb551a15a4fb9","branch":"worktree-agent-ac53fb551a15a4fb9","base":"main"},"sha":"3e82dd1c3b462c50b8bd4194522fc05acdfe3385f09b7f6d9179c86c6813549c","submission":4,"ts":"2026-10-01T18:18:40.795Z"}
+{"kind":"verified","job":2,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)","duplication(.)"],"uncovered":[".sh(10 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-10-01T18:21:45.555Z"}
+{"kind":"diffed","job":2,"path":"docs/work/pinned-deps-update-path/job-2.diff","from":"30b0b6b52c05fb703eb72a98130b35af58e09b2c","to":"b62b9db3d924209c85ef1e85498e5793b5c72a71","ts":"2026-10-01T18:21:45.712Z"}
+{"kind":"dispatched","action":"resume-badger","resultPath":"docs/work/pinned-deps-update-path/results/review-2-4.json","job":2,"ts":"2026-10-01T18:21:45.744Z"}

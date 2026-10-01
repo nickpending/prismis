@@ -1,0 +1,25 @@
+# staticcheck and gitleaks are `tool` directives in tui/go.mod, which Go records as
+# `// indirect` requires. The gomod updater skips indirect dependencies unless they are
+# allow-listed by name, so the two tool modules are named here; `dependency-type: direct`
+# keeps the ~70 other indirect modules out of the monthly PR.
+version: 2
+
+multi-ecosystem-groups:
+  pinned-deps:
+    schedule:
+      interval: monthly
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    multi-ecosystem-group: pinned-deps
+    patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: /tui
+    multi-ecosystem-group: pinned-deps
+    patterns: ["*"]
+    allow:
+      - dependency-type: direct
+      - dependency-name: honnef.co/go/tools
+      - dependency-name: github.com/zricethezav/gitleaks/v8

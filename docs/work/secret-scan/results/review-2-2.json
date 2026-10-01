@@ -1,0 +1,13 @@
+{
+  "searched": [
+    "docs/work/secret-scan/job-2.diff",
+    "docs/work/secret-scan/work-order.json",
+    "docs/work/secret-scan/results/plan.json",
+    "docs/work/secret-scan/journal.jsonl",
+    "docs/work/secret-scan/results/built-2-2.json",
+    ".specify/verify.sh",
+    ".claude/worktrees/agent-a240e49dbc3f91383/.specify/tests/gitleaks_plant_test.sh"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

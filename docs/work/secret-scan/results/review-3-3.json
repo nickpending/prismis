@@ -1,0 +1,10 @@
+{
+  "searched": [
+    "docs/work/secret-scan/job-3.diff (delta 518ac657..61712f33, answering F-3-2)",
+    "docs/work/secret-scan/journal.jsonl (F-3-2, built-3-3, verified job 3, lines 46-55)",
+    "docs/work/secret-scan/work-order.json",
+    "docs/work/secret-scan/results/plan.json"
+  ],
+  "exhaustive": true,
+  "findings": []
+}

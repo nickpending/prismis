@@ -52,3 +52,6 @@
 {"kind":"verified","job":3,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)","duplication(.)"],"uncovered":[".sh(8 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-10-01T00:02:13.106Z"}
 {"kind":"diffed","job":3,"path":"docs/work/secret-scan/job-3.diff","from":"518ac6571975c498a27cf4dc08a427ef7c7d65fb","to":"61712f333675bac810fb9a41414d7d401a2bf6b5","ts":"2026-10-01T00:02:13.220Z"}
 {"kind":"dispatched","action":"resume-badger","resultPath":"docs/work/secret-scan/results/review-3-3.json","job":3,"ts":"2026-10-01T00:02:13.247Z"}
+{"kind":"reviewed","job":3,"findings":[],"sha":"c73483a1217b9b61da25e3339c06a16321bceb63c82b5d1fabe9fb5e6406b71d","submission":3,"ts":"2026-10-01T00:03:07.513Z"}
+{"kind":"merged","job":3,"sha":"3e358ad7cc38a8a088974a5173be1f304c65c686","worktree":{"removed":false,"reason":"worktree holds docs/work/secret-scan/results/built-3-2.json"},"ts":"2026-10-01T00:06:14.200Z"}
+{"kind":"closed","sha":"3e358ad7cc38a8a088974a5173be1f304c65c686","ts":"2026-10-01T00:06:14.238Z"}

@@ -1,0 +1,21 @@
+{
+  "searched": [
+    "docs/work/secret-scan/job-3.diff (delta 737f894c..518ac657, answering F-3-1)",
+    "docs/work/secret-scan/journal.jsonl (F-3-1, built-3-2, verified job 3, review-3-1)",
+    "docs/work/secret-scan/results/built-3-2.json",
+    "docs/work/secret-scan/work-order.json",
+    "docs/work/secret-scan/results/plan.json",
+    "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ac01f91272c94f7ba/.github/workflows/ci.yml (full file, post-fix)",
+    "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ac01f91272c94f7ba/CLAUDE.md (project convention on manual checks)",
+    "coordinator's relayed evidence (372/374-commit full-history scans, redacted JSON report, checksum-mismatch demonstration) — not a file this review can independently read"
+  ],
+  "exhaustive": true,
+  "findings": [
+    {
+      "file": "docs/work/secret-scan/job-3.diff",
+      "line": 12,
+      "summary": "F-3-1's specific illustrative risk — that the historical 'fake_api_key' finding in test_context_assistant.py's history might be a value .gitleaks.toml's allowlist doesn't cover, producing an un-ignored 17th finding — is resolved by the evidence relayed this round (the coordinator's and builder's full-history `gitleaks git` runs over 372 and 374 commits returning exit 0/no leaks, and a redacted JSON report confirming the value-anchored allowlist reaches it). That part of the original finding no longer stands. What the fix itself adds, however, is only a six-line comment ('Verify BEFORE extract/install/run ... Confirmed locally by substituting a wrong GITLEAKS_SHA256 against this same downloaded archive: the pipe exits 1 at this line, before `tar` ever touches it' — worktree .github/workflows/ci.yml:102-107) describing a manual, one-time demonstration of the checksum-mismatch path. No test or check script was added alongside it, and the builder marked the finding 'unreproduced' (built-3-2.json) rather than adding one. This is the exact pattern this repo's own CLAUDE.md names and prohibits: 'Never describe a one-time manual check as if it were a standing guard ... if no test asserts it, say the check was manual and unguarded, or write the test. A work order that records proofs the tree does not contain is worse than one that records nothing.' The comment now tells every future reader of ci.yml that the mismatch-fails-the-step behavior is 'confirmed,' with nothing in the tree that would catch a future edit (a stray `|| true`, a reordering, a swap to a non-failing check) silently breaking that guarantee. The core gap from the original finding therefore persists in a narrower form: SC-3's checksum-failure behavior and its full-history-scan-comes-back-clean behavior are still exercised by nothing in the diff or on main — only by manual runs that are not recorded as journal 'verified' entries and not committed as scripts, one of which is now asserted as settled fact in a permanent source comment.",
+      "severity": "low"
+    }
+  ]
+}

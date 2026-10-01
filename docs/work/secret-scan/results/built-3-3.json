@@ -1,0 +1,15 @@
+{
+  "artifact": [
+    ".github/workflows/ci.yml",
+    ".gitleaksignore"
+  ],
+  "verified": true,
+  "findings": [
+    "F-3-2"
+  ],
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ac01f91272c94f7ba",
+    "branch": "worktree-agent-ac01f91272c94f7ba",
+    "base": "main"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "artifact": [
+    ".specify/tests/gitleaks_plant_test.sh"
+  ],
+  "verified": true,
+  "worktree": {
+    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a240e49dbc3f91383",
+    "branch": "worktree-agent-a240e49dbc3f91383",
+    "base": "main"
+  }
+}

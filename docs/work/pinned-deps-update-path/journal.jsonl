@@ -56,3 +56,7 @@
 {"kind":"checkpointed","sha":"252718be8bdbe873c036e496a2486506a962c5cc","ts":"2026-10-01T17:27:41.784Z"}
 {"kind":"dispatched","action":"spawn-builder","resultPath":"docs/work/pinned-deps-update-path/results/built-2-1.json","job":2,"ts":"2026-10-01T17:27:41.868Z"}
 {"kind":"dispatched","action":"spawn-builder","resultPath":"docs/work/pinned-deps-update-path/results/built-3-1.json","job":3,"ts":"2026-10-01T17:27:53.720Z"}
+{"kind":"built","job":3,"files":[".github/workflows/ci.yml"],"worktree":{"path":"/Users/rudy/development/projects/prismis/.claude/worktrees/agent-a60ff6d0bdad0c93a","branch":"worktree-agent-a60ff6d0bdad0c93a","base":"550eb2895022e140b934d13d4a3cd1748ae0d7a7"},"sha":"b2274994526ff850e093fe4393db58d1c802e9a73ec22a31c7cff4a883b79eb4","submission":1,"ts":"2026-10-01T17:29:12.076Z"}
+{"kind":"verified","job":3,"pass":true,"failed":[],"covered":["typecheck(cli)","lint(cli)","tests(cli)","typecheck(daemon)","lint(daemon)","tests(daemon)","typecheck(tui)","lint(tui)","format(tui)","tests(tui)","duplication(.)"],"uncovered":[".sh(9 files): tracked source under no manifest — no package claims it"],"holdout":[],"ts":"2026-10-01T17:34:02.266Z"}
+{"kind":"diffed","job":3,"path":"docs/work/pinned-deps-update-path/job-3.diff","from":"550eb2895022e140b934d13d4a3cd1748ae0d7a7","to":"e6392af7a942f8579e7c3eeb1a2b6d39b75555d1","ts":"2026-10-01T17:34:02.390Z"}
+{"kind":"dispatched","action":"spawn-badger","resultPath":"docs/work/pinned-deps-update-path/results/review-3-1.json","job":3,"ts":"2026-10-01T17:34:02.424Z"}

@@ -59,6 +59,8 @@ packages = ["src/prismis_daemon"]
 [dependency-groups]
 dev = [
     "mypy",
+    "pyyaml",
+    "types-pyyaml",
     "types-requests",
     "pytest",
     "pytest-asyncio",
@@ -100,7 +102,7 @@ exclude = ["^scripts/", "^\\.venv/"]
 
 # These ship no type information and have no stubs package; their calls are unchecked.
 [[tool.mypy.overrides]]
-module = ["apscheduler.*", "feedparser", "praw", "praw.*", "prawcore", "prawcore.*", "sqlite_vec", "yaml"]
+module = ["apscheduler.*", "feedparser", "praw", "praw.*", "prawcore", "prawcore.*", "sqlite_vec"]
 ignore_missing_imports = true
 
 [tool.uv.sources]

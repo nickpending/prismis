@@ -1,0 +1,25 @@
+{
+  "artifact": ["docs/work/tz-aware-timestamps/results/plan-1.json"],
+  "verified": true,
+  "jobs": [
+    {
+      "number": 1,
+      "title": "Make every stored timestamp tz-aware: user_version migration in init_db, utc_now_iso() at all CURRENT_TIMESTAMP write sites, schema.sql defaults/triggers, pass-through _rfc3339, startup init_db call, tests (red)",
+      "files": [
+        "daemon/src/prismis_daemon/database.py",
+        "daemon/src/prismis_daemon/schema.sql",
+        "daemon/src/prismis_daemon/storage.py",
+        "daemon/src/prismis_daemon/api_models.py",
+        "daemon/src/prismis_daemon/__main__.py",
+        "daemon/tests/unit/test_tz_migration_unit.py",
+        "daemon/tests/unit/test_storage_timestamp_unit.py",
+        "daemon/tests/unit/test_rfc3339_helper_unit.py",
+        "daemon/tests/unit/test_rfc3339_overload_stubs_unit.py",
+        "daemon/tests/unit/test_content_response_model_unit.py",
+        "daemon/tests/integration/test_content_response_api_integration.py",
+        "daemon/tests/integration/test_startup_migration_integration.py"
+      ],
+      "delivers": ["SC-1", "SC-2", "SC-3", "SC-4", "SC-5", "SC-6"]
+    }
+  ]
+}

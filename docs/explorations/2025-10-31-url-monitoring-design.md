@@ -1,21 +1,27 @@
 ---
 type: exploration
-domain: technical
-status: implemented
-started: 2025-10-31
-updated: 2026-02-18
-tags: [exploration]
+date: 2025-10-31
+title: "URL Monitoring Design"
+description: "Design for monitoring static text files such as changelogs for changes: change detection, IDs, diffs, scope, fetcher integration, storage, errors, configuration and testing."
+purpose: "Archived 2025 design exploration kept as the record of how the decision was reached."
+producer: skill:exploration
 ---
+
 # URL Monitoring Design
+
+## Problem
+
+*Archived exploration. Original status: implemented; last updated 2026-02-18; tags: exploration.*
+
 **Date:** 2025-10-31
 **Task:** 7 - Design Static URL Monitoring
 **Status:** Complete
 
-## Overview
+### Overview
 
 Design for monitoring static text files (CHANGELOG.md, documentation) for changes. Primary use case: tracking GitHub project changelogs to get notified when dependencies update.
 
-## Core Use Case
+### Core Use Case
 
 Track CHANGELOG.md files from various projects (Anthropic SDK, Python, libraries) to receive notifications when they're updated, with a summary of what changed.
 
@@ -25,7 +31,202 @@ Example:
 - See diff of what's new
 - LLM summarizes key changes
 
-## Design Decisions
+## Journey
+
+### Implementation Flow
+
+#### Fetch Cycle
+
+1. **Fetch URL content** (requests.get)
+2. **Calculate content hash** (SHA256)
+3. **Query for previous entry** from same source
+4. **Compare hashes:**
+   - If identical: Return empty list (no change)
+   - If different: Continue to step 5
+5. **Generate external_id** (`sha256(url + hash)[:16]`)
+6. **Generate diff** (if previous entry exists)
+7. **Create ContentItem:**
+   - Title: `"{source_name} Updated"`
+   - Content: Diff text (or full content if first fetch)
+   - Analysis: hash, full_text, diff_stats
+   - Published: Current timestamp
+8. **Return** `[ContentItem]`
+
+#### CLI Usage
+
+```bash
+# Add file source
+prismis-cli source add \
+  https://raw.githubusercontent.com/anthropics/anthropic-sdk-python/main/CHANGELOG.md \
+  file \
+  "Anthropic SDK CHANGELOG"
+
+# Wait for daemon cycle (or force fetch)
+prismis-daemon --once
+
+# View updates
+prismis  # TUI shows "Anthropic SDK CHANGELOG Updated"
+```
+
+---
+
+### Data Storage
+
+#### ContentItem Structure
+
+```python
+ContentItem(
+    source_id=source["id"],
+    external_id="7a3f2e1b4c9d8e5a",  # sha256(url + content_hash)[:16]
+    title="Anthropic SDK CHANGELOG Updated",
+    url="https://raw.githubusercontent.com/.../CHANGELOG.md",
+    content=diff_text,  # Unified diff or full content (first fetch)
+    published_at=datetime.utcnow(),
+    fetched_at=datetime.utcnow(),
+    analysis={
+        "content_hash": "abc123def456...",
+        "full_text": "# Changelog\n\n## [1.5.0]...",  # Reference
+        "diff_stats": {
+            "added_lines": 42,
+            "removed_lines": 3,
+            "changed_lines": 5
+        },
+        "first_fetch": False  # True only for initial fetch
+    }
+)
+```
+
+#### No Schema Changes Required
+
+Uses existing `content` table structure:
+- `content` column: Stores diff text
+- `analysis` column (JSON): Stores hash, full_text, stats
+- `external_id` column: Prevents duplicates via unique external_id
+
+---
+
+### Error Handling
+
+#### URL Fetch Failures
+
+```python
+try:
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+except requests.RequestException as e:
+    logger.warning(f"Failed to fetch {url}: {e}")
+    return []  # Skip this cycle, try again next time
+```
+
+**Behavior:** Failed fetches logged but don't crash daemon. Retry next cycle.
+
+#### Non-Text Content
+
+```python
+content_type = response.headers.get('Content-Type', '')
+if 'text' not in content_type and 'markdown' not in content_type:
+    logger.warning(f"Skipping non-text file: {url} ({content_type})")
+    return []
+```
+
+#### Diff Generation Failures
+
+```python
+try:
+    diff = difflib.unified_diff(...)
+except Exception as e:
+    logger.warning(f"Diff generation failed: {e}")
+    # Fall back to full content
+    content = current_content
+```
+
+---
+
+### Configuration
+
+#### Config File (`config.toml`)
+
+```toml
+[fetchers.file]
+max_items = 1  # Only creates 1 entry per change
+timeout = 10   # HTTP request timeout (seconds)
+```
+
+#### Per-Source Settings
+
+Standard source table fields:
+- `url`: File URL to monitor
+- `type`: "file"
+- `display_name`: User-friendly name for titles
+- `enabled`: Enable/disable monitoring
+
+---
+
+### Performance Considerations
+
+#### Fetch Overhead
+
+- **Single HTTP GET per source per cycle**
+- **Content hash calculation:** O(n) on content length, fast for text files
+- **Diff generation:** O(n+m) on line count, acceptable for documents
+
+#### Optimization
+
+- **No change = no entry:** Hash comparison prevents unnecessary database writes
+- **Batch processing:** Follows existing orchestrator pattern
+- **Timeout protection:** 10s timeout prevents hanging on slow servers
+
+---
+
+### Testing Strategy
+
+#### Unit Tests
+
+```python
+def test_change_detection():
+    # Hash comparison logic
+
+def test_external_id_generation():
+    # Uniqueness across URL+hash combinations
+
+def test_diff_generation():
+    # Unified diff output format
+
+def test_first_fetch_no_diff():
+    # No previous entry = full content
+```
+
+#### Integration Tests
+
+```python
+def test_fetch_changelog_real_url():
+    # Fetch actual GitHub raw URL
+
+def test_update_creates_new_entry():
+    # Modify content, verify new external_id
+
+def test_no_change_returns_empty():
+    # Same content = no new entry
+```
+
+---
+
+### Summary
+
+Simple, focused design for monitoring static text files:
+
+✅ **Content hash detection** - Reliable change detection
+✅ **Diff generation** - Shows what changed
+✅ **New entry per change** - Preserves update history
+✅ **No schema changes** - Uses existing infrastructure
+✅ **Text/markdown only** - No HTML complexity
+✅ **Standard plugin pattern** - Integrates cleanly
+
+**Estimated implementation:** ~150 lines following existing fetcher patterns.
+
+**Next:** Task 8 - Implement FileFetcher based on this design.
+
+## Decisions
 
 ### 1. Change Detection Strategy
 
@@ -277,214 +478,23 @@ __all__ = ["RSSFetcher", "RedditFetcher", "YouTubeFetcher", "FileFetcher"]
 
 ---
 
-## Implementation Flow
+## Deferred
 
-### Fetch Cycle
+### Future Enhancements (Not v1)
 
-1. **Fetch URL content** (requests.get)
-2. **Calculate content hash** (SHA256)
-3. **Query for previous entry** from same source
-4. **Compare hashes:**
-   - If identical: Return empty list (no change)
-   - If different: Continue to step 5
-5. **Generate external_id** (`sha256(url + hash)[:16]`)
-6. **Generate diff** (if previous entry exists)
-7. **Create ContentItem:**
-   - Title: `"{source_name} Updated"`
-   - Content: Diff text (or full content if first fetch)
-   - Analysis: hash, full_text, diff_stats
-   - Published: Current timestamp
-8. **Return** `[ContentItem]`
-
-### CLI Usage
-
-```bash
-# Add file source
-prismis-cli source add \
-  https://raw.githubusercontent.com/anthropics/anthropic-sdk-python/main/CHANGELOG.md \
-  file \
-  "Anthropic SDK CHANGELOG"
-
-# Wait for daemon cycle (or force fetch)
-prismis-daemon --once
-
-# View updates
-prismis  # TUI shows "Anthropic SDK CHANGELOG Updated"
-```
-
----
-
-## Data Storage
-
-### ContentItem Structure
-
-```python
-ContentItem(
-    source_id=source["id"],
-    external_id="7a3f2e1b4c9d8e5a",  # sha256(url + content_hash)[:16]
-    title="Anthropic SDK CHANGELOG Updated",
-    url="https://raw.githubusercontent.com/.../CHANGELOG.md",
-    content=diff_text,  # Unified diff or full content (first fetch)
-    published_at=datetime.utcnow(),
-    fetched_at=datetime.utcnow(),
-    analysis={
-        "content_hash": "abc123def456...",
-        "full_text": "# Changelog\n\n## [1.5.0]...",  # Reference
-        "diff_stats": {
-            "added_lines": 42,
-            "removed_lines": 3,
-            "changed_lines": 5
-        },
-        "first_fetch": False  # True only for initial fetch
-    }
-)
-```
-
-### No Schema Changes Required
-
-Uses existing `content` table structure:
-- `content` column: Stores diff text
-- `analysis` column (JSON): Stores hash, full_text, stats
-- `external_id` column: Prevents duplicates via unique external_id
-
----
-
-## Error Handling
-
-### URL Fetch Failures
-
-```python
-try:
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-except requests.RequestException as e:
-    logger.warning(f"Failed to fetch {url}: {e}")
-    return []  # Skip this cycle, try again next time
-```
-
-**Behavior:** Failed fetches logged but don't crash daemon. Retry next cycle.
-
-### Non-Text Content
-
-```python
-content_type = response.headers.get('Content-Type', '')
-if 'text' not in content_type and 'markdown' not in content_type:
-    logger.warning(f"Skipping non-text file: {url} ({content_type})")
-    return []
-```
-
-### Diff Generation Failures
-
-```python
-try:
-    diff = difflib.unified_diff(...)
-except Exception as e:
-    logger.warning(f"Diff generation failed: {e}")
-    # Fall back to full content
-    content = current_content
-```
-
----
-
-## Configuration
-
-### Config File (`config.toml`)
-
-```toml
-[fetchers.file]
-max_items = 1  # Only creates 1 entry per change
-timeout = 10   # HTTP request timeout (seconds)
-```
-
-### Per-Source Settings
-
-Standard source table fields:
-- `url`: File URL to monitor
-- `type`: "file"
-- `display_name`: User-friendly name for titles
-- `enabled`: Enable/disable monitoring
-
----
-
-## Performance Considerations
-
-### Fetch Overhead
-
-- **Single HTTP GET per source per cycle**
-- **Content hash calculation:** O(n) on content length, fast for text files
-- **Diff generation:** O(n+m) on line count, acceptable for documents
-
-### Optimization
-
-- **No change = no entry:** Hash comparison prevents unnecessary database writes
-- **Batch processing:** Follows existing orchestrator pattern
-- **Timeout protection:** 10s timeout prevents hanging on slow servers
-
----
-
-## Testing Strategy
-
-### Unit Tests
-
-```python
-def test_change_detection():
-    # Hash comparison logic
-
-def test_external_id_generation():
-    # Uniqueness across URL+hash combinations
-
-def test_diff_generation():
-    # Unified diff output format
-
-def test_first_fetch_no_diff():
-    # No previous entry = full content
-```
-
-### Integration Tests
-
-```python
-def test_fetch_changelog_real_url():
-    # Fetch actual GitHub raw URL
-
-def test_update_creates_new_entry():
-    # Modify content, verify new external_id
-
-def test_no_change_returns_empty():
-    # Same content = no new entry
-```
-
----
-
-## Future Enhancements (Not v1)
-
-### HTML Support
+#### HTML Support
 Add `HtmlFileFetcher` with content extraction (BeautifulSoup, readability).
 
-### Content Normalization
+#### Content Normalization
 Strip HTML comments, timestamps if false positives emerge.
 
-### Configurable Selectors
+#### Configurable Selectors
 Let users specify CSS selectors for specific content sections.
 
-### Change Notifications
+#### Change Notifications
 Immediate push notifications for HIGH priority file sources.
 
-### Diff Visualization
+#### Diff Visualization
 Render unified diff with syntax highlighting in TUI.
 
 ---
-
-## Summary
-
-Simple, focused design for monitoring static text files:
-
-✅ **Content hash detection** - Reliable change detection
-✅ **Diff generation** - Shows what changed
-✅ **New entry per change** - Preserves update history
-✅ **No schema changes** - Uses existing infrastructure
-✅ **Text/markdown only** - No HTML complexity
-✅ **Standard plugin pattern** - Integrates cleanly
-
-**Estimated implementation:** ~150 lines following existing fetcher patterns.
-
-**Next:** Task 8 - Implement FileFetcher based on this design.

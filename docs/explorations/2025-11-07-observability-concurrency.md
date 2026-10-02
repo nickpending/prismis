@@ -1,18 +1,23 @@
 ---
 type: exploration
-domain: technical
-status: implemented
-started: 2025-11-06
-updated: 2026-02-18
-tags: [exploration]
+date: 2025-11-06
+title: "Observability JSONL Concurrency Strategy"
+description: "Analysis of four ways to make observability JSONL appends safe across threads and processes, ending in the fcntl file-lock choice."
+purpose: "Archived 2025 design exploration kept as the record of how the decision was reached."
+producer: skill:exploration
 ---
+
 # Observability JSONL Concurrency Strategy
+
+## Problem
+
+*Archived exploration. Original status: implemented; last updated 2026-02-18; tags: exploration.*
 
 **Date:** 2025-11-07
 **Context:** Iteration 10 - System Observability & Context Intelligence
 **Status:** Decided - Option 1 (fcntl file locking)
 
-## The Problem
+### The Problem
 
 Need thread-safe and process-safe JSONL append logging for observability events:
 - **Concurrent writers:** APScheduler threads, FastAPI workers, parallel fetchers, separate CLI processes
@@ -20,7 +25,9 @@ Need thread-safe and process-safe JSONL append logging for observability events:
 - **Target:** `~/.local/share/prismis/observability/YYYY-MM-DD_events.jsonl`
 - **Scale:** 1-2 users, 30+ sources, ~500 items/day
 
-## Initial Misconceptions
+## Journey
+
+### Initial Misconceptions
 
 **First answer:** Just append to file, no locking needed at this scale
 - **Wrong:** Ignored threading from APScheduler and FastAPI workers
@@ -30,9 +37,9 @@ Need thread-safe and process-safe JSONL append logging for observability events:
 - **Wrong:** Only handles threads within daemon process, not CLI process writes
 - **Correction:** Need both thread-safety AND process-safety
 
-## Architecture Options Analyzed
+### Architecture Options Analyzed
 
-### Option 1: Simple File Lock (fcntl) ⭐ SELECTED
+#### Option 1: Simple File Lock (fcntl) ⭐ SELECTED
 
 **Implementation:**
 ```python
@@ -84,7 +91,7 @@ def log_event(event_name: str, **metadata):
 
 **Performance:** ~7ms per event (acceptable)
 
-### Option 2: Queue + Background Thread
+#### Option 2: Queue + Background Thread
 
 In-memory queue, single writer thread, CLI posts to daemon API.
 
@@ -94,7 +101,7 @@ In-memory queue, single writer thread, CLI posts to daemon API.
 - More complex (queue + thread + API endpoint)
 - Doesn't match "simple, direct" project philosophy
 
-### Option 3: External Tool (rotatelogs)
+#### Option 3: External Tool (rotatelogs)
 
 Pipe to Apache rotatelogs or similar.
 
@@ -103,7 +110,7 @@ Pipe to Apache rotatelogs or similar.
 - Unix-only
 - Breaks "local-first, zero-ops" philosophy
 
-### Option 4: Hybrid Thread+File Lock
+#### Option 4: Hybrid Thread+File Lock
 
 threading.Lock for same-process, fcntl for cross-process.
 
@@ -112,16 +119,7 @@ threading.Lock for same-process, fcntl for cross-process.
 - Performance gain not justified (0.1-7ms vs 7ms)
 - Manual rotation logic
 
-## Decision Rationale
-
-**Chose Option 1** for:
-1. **Simplicity:** Fewest moving parts, clearest failure modes
-2. **Alignment:** Matches existing patterns (WAL retry, pathlib, no external deps)
-3. **Correctness:** Guaranteed thread-safe + process-safe
-4. **Performance:** 7ms negligible at dozens of events/minute
-5. **Philosophy:** "Local-first, zero-ops" - stdlib only
-
-## Implementation Notes
+### Implementation Notes
 
 **File location:** `~/.local/share/prismis/observability/YYYY-MM-DD_events.jsonl`
 
@@ -141,15 +139,24 @@ threading.Lock for same-process, fcntl for cross-process.
 - Daily rotation handled automatically by filename
 - No manual file management needed
 
-## Lessons Learned
+### Lessons Learned
 
 1. **Don't dismiss concurrency at "small scale"** - Threads and processes matter even at 1-2 users
 2. **Check actual architecture** - APScheduler + FastAPI = multiple threads by default
 3. **Simplest correct solution wins** - fcntl is simpler than queues, reliable enough for this scale
 4. **Follow existing patterns** - WAL retry logic proved the pattern works
 
-## References
+### References
 
 - Architecture analysis: `.workflow/artifacts/subagents/ARCHITECTURE-kx9m.md`
 - Iteration plan: `.workflow/artifacts/ITERATION.md` (Task 1)
 - SQLite concurrency pattern: `daemon/src/prismis_daemon/database.py` (WAL mode + retry)
+
+## Decisions
+
+**Chose Option 1** for:
+1. **Simplicity:** Fewest moving parts, clearest failure modes
+2. **Alignment:** Matches existing patterns (WAL retry, pathlib, no external deps)
+3. **Correctness:** Guaranteed thread-safe + process-safe
+4. **Performance:** 7ms negligible at dozens of events/minute
+5. **Philosophy:** "Local-first, zero-ops" - stdlib only

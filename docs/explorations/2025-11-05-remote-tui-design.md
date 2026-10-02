@@ -1,22 +1,27 @@
 ---
 type: exploration
-domain: technical
-status: draft
-started: 2025-11-04
-updated: 2026-02-18
-tags: [exploration]
+date: 2025-11-04
+title: "Remote TUI Architecture Design"
+description: "Design for running the TUI against a remote daemon through the API only: mode detection, data sync, API changes, failure handling, performance, trade-offs and roadmap."
+purpose: "Archived 2025 design exploration kept as the record of how the decision was reached."
+producer: skill:exploration
 ---
+
 # Remote TUI Architecture Design
+
+## Problem
+
+*Archived exploration. Original status: draft; last updated 2026-02-18; tags: exploration.*
 
 **Date:** 2025-11-05
 **Task:** Task 9 - Design Remote TUI Architecture
 **Status:** Design Complete
 
-## Problem Statement
+### Problem Statement
 
 Enable prismis TUI to access content when daemon runs on a remote server (e.g., home server) while TUI runs on laptop/desktop. Current implementation assumes local SQLite access at `~/.local/share/prismis/prismis.db`.
 
-## Design Objectives
+### Design Objectives
 
 1. Remote TUI access via network (daemon on server, TUI on client)
 2. Preserve instant TUI experience (acceptable startup delay for remote)
@@ -24,9 +29,11 @@ Enable prismis TUI to access content when daemon runs on a remote server (e.g., 
 4. Maintain existing TUI code/UX (same data structures, same filters)
 5. Graceful failure handling (network issues, API unreachable)
 
-## Architectural Approach
+## Journey
 
-### Core Strategy: API-Only for Remote Mode
+### Architectural Approach
+
+#### Core Strategy: API-Only for Remote Mode
 
 **Remote mode = no local database**
 - TUI fetches all data via REST API
@@ -34,7 +41,7 @@ Enable prismis TUI to access content when daemon runs on a remote server (e.g., 
 - Writes already use API (mark read, favorite) - no changes needed
 - Local mode unchanged (direct SQLite access)
 
-### Mode Detection
+#### Mode Detection
 
 **Option 1: CLI Flag** (Primary)
 ```bash
@@ -57,9 +64,9 @@ prismis
 - If unset → local mode (SQLite)
 - No config file option (prefer explicit per-invocation control)
 
-## Data Sync Strategy
+### Data Sync Strategy
 
-### Initial Load (Startup)
+#### Initial Load (Startup)
 
 **Local mode:**
 ```go
@@ -76,7 +83,7 @@ cache := items
 filtered := applyFilters(cache, priority, showAll, ...)
 ```
 
-### Incremental Updates (Polling)
+#### Incremental Updates (Polling)
 
 **Pattern:** Delta sync with timestamp tracking
 
@@ -99,7 +106,7 @@ filtered := applyFilters(cache, currentFilters)
 - Fast incremental updates
 - Standard pattern (email IMAP, RSS readers, Slack)
 
-### Client-Side Filtering
+#### Client-Side Filtering
 
 All TUI filters applied in-memory on cached data:
 - Priority (high/medium/low/all/favorites/unprioritized)
@@ -110,7 +117,7 @@ All TUI filters applied in-memory on cached data:
 
 **No network round-trip for filter changes** - instant response.
 
-### Refresh Triggers
+#### Refresh Triggers
 
 **Automatic:**
 - Poll every 60 seconds for incremental updates
@@ -122,9 +129,9 @@ All TUI filters applied in-memory on cached data:
 **Configurable:**
 - Poll interval in config.toml (default 60s, 0 disables)
 
-## API Changes Required
+### API Changes Required
 
-### Extend `/api/entries` Endpoint
+#### Extend `/api/entries` Endpoint
 
 **Current signature:**
 ```python
@@ -167,7 +174,7 @@ GET /api/entries?since=2025-11-05T02:00:00Z&limit=0
 }
 ```
 
-### No New Endpoints Required
+#### No New Endpoints Required
 
 Existing endpoints cover all operations:
 - `GET /api/entries` - read content (extended above)
@@ -175,7 +182,7 @@ Existing endpoints cover all operations:
 - `GET /api/sources` - list sources
 - `GET /api/search` - semantic search
 
-## Data Structures
+### Data Structures
 
 **No changes to ContentItem struct** - same in both modes:
 ```go
@@ -198,9 +205,9 @@ type ContentItem struct {
 
 **UI code unchanged** - renders `[]ContentItem` identically regardless of source.
 
-## Implementation Impact
+### Implementation Impact
 
-### New Code Required
+#### New Code Required
 
 1. **API fetch functions** (Go)
    ```go
@@ -230,7 +237,7 @@ type ContentItem struct {
    }
    ```
 
-### Modified Code
+#### Modified Code
 
 1. **API endpoint** (Python)
    - `daemon/src/prismis_daemon/api.py` - extend `/api/entries`
@@ -243,9 +250,9 @@ type ContentItem struct {
 
 **Estimate:** ~200-300 lines new Go code, ~50 lines Python changes.
 
-## Failure Handling
+### Failure Handling
 
-### Startup Failures
+#### Startup Failures
 
 **API unreachable on startup:**
 ```
@@ -257,7 +264,7 @@ Check that:
 ```
 Exit code 1, don't start TUI.
 
-### Runtime Failures
+#### Runtime Failures
 
 **Poll fails during operation:**
 - Log warning, keep showing cached data
@@ -269,7 +276,7 @@ Exit code 1, don't start TUI.
 - Don't update cache (keep server state)
 - User can retry manually
 
-## Configuration
+### Configuration
 
 **config.toml additions:**
 ```toml
@@ -285,16 +292,16 @@ key = "prismis-api-key"
 
 **Design rationale:** Remote access is session-specific (laptop vs desktop vs server), so prefer CLI flag over static config.
 
-## Security Considerations
+### Security Considerations
 
 1. **HTTPS required for remote** - TUI should warn if using http:// for remote URL
 2. **API key in config** - already implemented, no changes
 3. **No credentials in CLI flags** - API key from config only
 4. **Server-side auth** - already implemented (verify_api_key dependency)
 
-## Performance Characteristics
+### Performance Characteristics
 
-### Network Traffic
+#### Network Traffic
 
 **Initial load:**
 - ~1MB for 1000 items (rough estimate: 1KB per item)
@@ -308,20 +315,20 @@ key = "prismis-api-key"
 - Local: 0 network traffic, instant (<5ms SQLite query)
 - Remote: Initial load 1-2 sec, polls 100-200ms each
 
-### Startup Time
+#### Startup Time
 
 **Local mode:** <100ms (current constraint)
 **Remote mode:** 1-3 seconds (initial API fetch + render)
 
 **Design decision:** Abandon <100ms constraint for remote mode - network latency makes it impossible. Focus on responsive UX during load (show spinner).
 
-### Filter Performance
+#### Filter Performance
 
 Both modes identical - filtering happens in memory on cached `[]ContentItem`.
 
-## Multi-Device Scenarios
+### Multi-Device Scenarios
 
-### Laptop + Desktop + Server
+#### Laptop + Desktop + Server
 
 **Setup:**
 ```bash
@@ -336,11 +343,11 @@ ssh -L 8989:localhost:8989 server
 prismis  # connects to localhost:8989 via tunnel
 ```
 
-### Mobile Web
+#### Mobile Web
 
 Already supported - web UI at `http://server:8989` works on any device. No TUI changes needed.
 
-## Offline Behavior
+### Offline Behavior
 
 **Remote mode has no offline capability by design:**
 - No local database to fall back to
@@ -349,9 +356,9 @@ Already supported - web UI at `http://server:8989` works on any device. No TUI c
 
 **If offline capability needed in future:** Would require hybrid mode (local SQLite replica + API sync). Out of scope for this design.
 
-## Trade-offs Analysis
+### Trade-offs Analysis
 
-### Chosen Approach: API-Only Remote
+#### Chosen Approach: API-Only Remote
 
 **Pros:**
 - Simple implementation (~250 lines)
@@ -364,7 +371,7 @@ Already supported - web UI at `http://server:8989` works on any device. No TUI c
 - No offline access
 - Network dependency
 
-### Alternative Rejected: Local SQLite Replica + Sync
+#### Alternative Rejected: Local SQLite Replica + Sync
 
 **Pros:**
 - Instant startup (local DB)
@@ -379,14 +386,14 @@ Already supported - web UI at `http://server:8989` works on any device. No TUI c
 
 **Rejection rationale:** Complexity not justified - daemon fetches every 30 min, so real-time sync unnecessary. API polling sufficient for this use case.
 
-## Implementation Roadmap
+### Implementation Roadmap
 
-### Phase 1: API Extension (Task 10 prerequisite)
+#### Phase 1: API Extension (Task 10 prerequisite)
 1. Extend `/api/entries` with `since` parameter
 2. Make `since_hours` optional
 3. Test with curl
 
-### Phase 2: TUI Remote Mode (Task 10)
+#### Phase 2: TUI Remote Mode (Task 10)
 1. Add mode detection (CLI flag + env var)
 2. Implement API fetch functions
 3. Add client-side filtering
@@ -394,13 +401,13 @@ Already supported - web UI at `http://server:8989` works on any device. No TUI c
 5. Poll loop for incremental updates
 6. Error handling and UX
 
-### Phase 3: Polish
+#### Phase 3: Polish
 1. Loading spinner for initial fetch
 2. Offline indicator
 3. Retry logic for failed polls
 4. Configuration for poll interval
 
-## Success Criteria
+### Success Criteria
 
 **Design complete when:**
 - [x] Remote access approach defined (API-only)
@@ -418,14 +425,16 @@ Already supported - web UI at `http://server:8989` works on any device. No TUI c
 - [ ] Error messages clear and helpful
 - [ ] All existing TUI features work in remote mode
 
-## Open Questions
-
-None - design is complete and ready for implementation.
-
-## References
+### References
 
 - Task 9: Design Remote TUI Architecture
 - Task 10: Implement Remote TUI Mode (Based on Design)
 - Discovered Task F1: Fix API Time Filter Restriction (related - `since_hours` optional)
 - Current API: `daemon/src/prismis_daemon/api.py`
 - Current TUI data layer: `tui/internal/db/queries.go`
+
+## Deferred
+
+### Open Questions
+
+None - design is complete and ready for implementation.

@@ -1,22 +1,84 @@
 ---
 type: exploration
-domain: technical
-status: draft
-started: 2025-10-28
-updated: 2026-02-18
-tags: [exploration]
+date: 2025-10-28
+title: "Semantic Search Architecture Design"
+description: "Design for local semantic search over content: embedding generation, storage, interface, query flow and ranking, plus the implementation summary and success criteria."
+purpose: "Archived 2025 design exploration kept as the record of how the decision was reached."
+producer: skill:exploration
 ---
+
 # Semantic Search Architecture Design
+
+## Problem
+
+*Archived exploration. Original status: draft; last updated 2026-02-18; tags: exploration.*
 
 **Date:** 2025-10-28
 **Status:** Design Complete
 **Task:** Task 3 - Design Semantic Search Architecture
 
-## Goal
+### Goal
 
 Enable semantic content discovery - find "LLM" when searching "large language models". Maintain prismis' local-first philosophy and priority intelligence.
 
-## Design Decisions
+## Journey
+
+### Implementation Summary
+
+**Components to build:**
+
+1. **Embeddings Module** (`daemon/src/prismis_daemon/embeddings.py`)
+   - Load sentence-transformers model
+   - Generate embeddings for text
+   - Clean interface for swapping providers
+
+2. **Schema Migration** (add to `schema.sql` or separate migration)
+   - Create `content_embeddings` virtual table
+   - Index on content_id
+
+3. **Storage Methods** (add to `storage.py`)
+   - `generate_and_store_embedding(content_id, text)` - daemon calls during fetch
+   - `search_content(query, limit, min_score)` - search implementation
+
+4. **API Endpoint** (add to `api.py`)
+   - `GET /api/search` - public endpoint
+   - Query validation
+   - Call storage, return results
+
+5. **Daemon Integration** (modify orchestrator)
+   - Generate embeddings after LLM analysis
+   - Handle embedding failures gracefully
+
+**Estimated effort:**
+- Core functionality: ~200 LOC
+- Testing: ~100 LOC
+- Total: 2-3 hours implementation
+
+---
+
+### Constraints Preserved
+
+- ✅ <100ms TUI launch (search doesn't affect TUI startup)
+- ✅ Local-first philosophy (no external APIs)
+- ✅ Repository pattern (all SQL in storage.py)
+- ✅ SQLite WAL mode compatible
+- ✅ Priority intelligence maintained
+
+---
+
+### Success Criteria
+
+**The design succeeds when:**
+1. Search finds "LLM" when querying "large language models" ✓
+2. HIGH priority recent content ranks above LOW priority old content ✓
+3. Works offline ✓
+4. TUI launches in <100ms (unaffected) ✓
+5. Integration follows repository pattern ✓
+6. Embedding provider swappable ✓
+
+**Deliverable:** This design document captures architectural decisions for Task 4 (Implementation).
+
+## Decisions
 
 ### 1. Embedding Generation
 
@@ -137,50 +199,9 @@ recency_weight = max(0.0, 1.0 - (days_old / 365))
 
 ---
 
-## Implementation Summary
+## Deferred
 
-**Components to build:**
-
-1. **Embeddings Module** (`daemon/src/prismis_daemon/embeddings.py`)
-   - Load sentence-transformers model
-   - Generate embeddings for text
-   - Clean interface for swapping providers
-
-2. **Schema Migration** (add to `schema.sql` or separate migration)
-   - Create `content_embeddings` virtual table
-   - Index on content_id
-
-3. **Storage Methods** (add to `storage.py`)
-   - `generate_and_store_embedding(content_id, text)` - daemon calls during fetch
-   - `search_content(query, limit, min_score)` - search implementation
-
-4. **API Endpoint** (add to `api.py`)
-   - `GET /api/search` - public endpoint
-   - Query validation
-   - Call storage, return results
-
-5. **Daemon Integration** (modify orchestrator)
-   - Generate embeddings after LLM analysis
-   - Handle embedding failures gracefully
-
-**Estimated effort:**
-- Core functionality: ~200 LOC
-- Testing: ~100 LOC
-- Total: 2-3 hours implementation
-
----
-
-## Constraints Preserved
-
-- ✅ <100ms TUI launch (search doesn't affect TUI startup)
-- ✅ Local-first philosophy (no external APIs)
-- ✅ Repository pattern (all SQL in storage.py)
-- ✅ SQLite WAL mode compatible
-- ✅ Priority intelligence maintained
-
----
-
-## Future Enhancements
+### Future Enhancements
 
 **Not in initial scope, but easy to add:**
 - CLI command: `prismis-cli search "term"`
@@ -191,15 +212,3 @@ recency_weight = max(0.0, 1.0 - (days_old / 365))
 - Batch re-embedding (for model upgrades)
 
 ---
-
-## Success Criteria
-
-**The design succeeds when:**
-1. Search finds "LLM" when querying "large language models" ✓
-2. HIGH priority recent content ranks above LOW priority old content ✓
-3. Works offline ✓
-4. TUI launches in <100ms (unaffected) ✓
-5. Integration follows repository pattern ✓
-6. Embedding provider swappable ✓
-
-**Deliverable:** This design document captures architectural decisions for Task 4 (Implementation).

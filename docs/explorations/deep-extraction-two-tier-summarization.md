@@ -1,19 +1,21 @@
 ---
 type: exploration
-domain: technical
-status: draft
-started: 2026-02-11
-updated: 2026-02-18
-project: prismis
-tags: [exploration, summarization, llm, extraction]
-related: [[prismis]]
+date: 2026-02-11
+title: "Deep Extraction: Two-Tier Summarization"
+description: "Exploration of a second, deeper summarization tier that extracts the actual insights of an item, covering the model testing, extraction prompt, decisions, storage and implementation plan."
+purpose: "Archived 2025 design exploration kept as the record of how the decision was reached."
+producer: skill:exploration
 ---
 
 # Deep Extraction: Two-Tier Summarization
 
-**Context:** [[projects/prismis|prismis]] — Current summaries are "book reports" that tell you what something is about, but don't extract the actual insights. Want a "tell me more" layer that's so good you don't need to read the original.
+## Problem
 
-## Problem / Core Question
+*Archived exploration. Original status: draft; last updated 2026-02-18; tags: exploration, summarization, llm, extraction.*
+
+**Context:** prismis — Current summaries are "book reports" that tell you what something is about, but don't extract the actual insights. Want a "tell me more" layer that's so good you don't need to read the original.
+
+### Problem / Core Question
 
 Prismis surfaces content I care about, but:
 1. Still don't have time to read it all
@@ -23,9 +25,11 @@ Prismis surfaces content I care about, but:
 
 **Core question:** How do we add a deep extraction layer that captures everything valuable so you literally don't need to consume the original?
 
-## The Evolution
+## Journey
 
-### Initial Approach: Fabric Integration
+### The Evolution
+
+#### Initial Approach: Fabric Integration
 
 Started thinking about using Daniel Miessler's Fabric patterns (`extract_wisdom`, etc.) since prismis already has Fabric integration.
 
@@ -33,7 +37,7 @@ Started thinking about using Daniel Miessler's Fabric patterns (`extract_wisdom`
 
 **The pivot:** Study Fabric's prompt engineering for inspiration, but build natively into prismis so results stay in the system.
 
-### Two-Tier Model Architecture
+#### Two-Tier Model Architecture
 
 Realized we need two layers:
 - **Light summary**: Triage layer ("what is this, do I care?") — can be even lighter than current
@@ -41,7 +45,7 @@ Realized we need two layers:
 
 **Key insight:** These need different models. Light summary = cheap/fast for volume. Deep extraction = quality model for synthesis.
 
-### Model Testing
+#### Model Testing
 
 Ran actual comparisons with the same prompt and content:
 
@@ -54,7 +58,7 @@ Ran actual comparisons with the same prompt and content:
 
 **The decision:** gpt-5-mini for deep extraction. Quality is there, cost is reasonable. gpt-5 is better but diminishing returns.
 
-### The Deep Extraction Prompt
+#### The Deep Extraction Prompt
 
 The magic is in what you ask for:
 
@@ -86,7 +90,68 @@ vs current summary:
 
 Night and day.
 
-## Architecture Decisions
+### Storage Design
+
+Extend existing analysis structure:
+
+```python
+analysis = {
+    # existing fields stay...
+    "reading_summary": "...",
+    "alpha_insights": [...],
+
+    # new deep extraction
+    "deep_extraction": {
+        "synthesis": "The counterintuitive finding...",
+        "quotables": ["Line worth sharing..."],
+        "model": "gpt-5-mini",
+        "extracted_at": "2026-02-11T17:35:00Z"
+    }
+}
+```
+
+### Implementation Plan
+
+1. **Config changes** (`config.py`)
+   - Add `llm_deep_model` field
+   - Add `auto_extract` field with validation ("high", "high+medium", "all", "none")
+
+2. **Summarizer changes** (`summarizer.py`)
+   - Add `deep_extract()` method with synthesis-focused prompt
+   - Support model selection per call
+
+3. **Orchestrator changes** (`orchestrator.py`)
+   - After evaluation, check if priority matches `auto_extract`
+   - If yes, call deep extraction
+
+4. **Storage changes** (`storage.py`, `models.py`)
+   - Add `deep_extraction` to analysis schema
+   - Migration for existing entries (nullable field)
+
+5. **TUI changes** (`tui/`)
+   - Add `:extract` command
+   - Check existing extraction, show or generate
+   - Display deep extraction in detail view
+
+6. **API changes** (`api.py`)
+   - Endpoint for on-demand extraction
+   - Return deep_extraction in item response
+
+### Files Examined
+
+- `daemon/src/prismis_daemon/summarizer.py` — Current summarization architecture
+- `daemon/src/prismis_daemon/evaluator.py` — Priority evaluation flow
+- `daemon/src/prismis_daemon/config.py` — Config structure
+- `~/.config/prismis/config.toml` — Live config example
+- Actual prismis data via `prismis-cli get --raw` for testing
+
+### Related Concepts
+
+- Fabric — Prompt patterns for extraction (inspiration, not integration)
+- [[2025-10-28-semantic-search-design]] — Search would benefit from deep extraction content
+- Discussion synthesis — Future exploration for Reddit/HN comment ingestion
+
+## Decisions
 
 ### Decision 1: Native over Fabric
 - **Rationale:** Data must stay in prismis — searchable, associated with articles, recallable
@@ -116,69 +181,10 @@ auto_extract = "high"         # "high" | "high+medium" | "all" | "none"
 - **Trade-off:** Not the absolute best output, but best value
 - **Alternative considered:** gpt-5 for on-demand, 5-mini for auto — decided simplicity wins
 
-## Storage Design
+## Deferred
 
-Extend existing analysis structure:
-
-```python
-analysis = {
-    # existing fields stay...
-    "reading_summary": "...",
-    "alpha_insights": [...],
-
-    # new deep extraction
-    "deep_extraction": {
-        "synthesis": "The counterintuitive finding...",
-        "quotables": ["Line worth sharing..."],
-        "model": "gpt-5-mini",
-        "extracted_at": "2026-02-11T17:35:00Z"
-    }
-}
-```
-
-## Implementation Plan
-
-1. **Config changes** (`config.py`)
-   - Add `llm_deep_model` field
-   - Add `auto_extract` field with validation ("high", "high+medium", "all", "none")
-
-2. **Summarizer changes** (`summarizer.py`)
-   - Add `deep_extract()` method with synthesis-focused prompt
-   - Support model selection per call
-
-3. **Orchestrator changes** (`orchestrator.py`)
-   - After evaluation, check if priority matches `auto_extract`
-   - If yes, call deep extraction
-
-4. **Storage changes** (`storage.py`, `models.py`)
-   - Add `deep_extraction` to analysis schema
-   - Migration for existing entries (nullable field)
-
-5. **TUI changes** (`tui/`)
-   - Add `:extract` command
-   - Check existing extraction, show or generate
-   - Display deep extraction in detail view
-
-6. **API changes** (`api.py`)
-   - Endpoint for on-demand extraction
-   - Return deep_extraction in item response
-
-## Open Questions
+### Open Questions
 
 - Should `:extract` use a different/better model than auto-extract? (Decided: no, simplicity wins)
 - What about re-extraction if prompt improves? (Future: manual override flag?)
 - Discussion synthesis (Reddit/HN comments) — separate exploration needed, requires comment ingestion first
-
-## Files Examined
-
-- `daemon/src/prismis_daemon/summarizer.py` — Current summarization architecture
-- `daemon/src/prismis_daemon/evaluator.py` — Priority evaluation flow
-- `daemon/src/prismis_daemon/config.py` — Config structure
-- `~/.config/prismis/config.toml` — Live config example
-- Actual prismis data via `prismis-cli get --raw` for testing
-
-## Related Concepts
-
-- [[Fabric]] — Prompt patterns for extraction (inspiration, not integration)
-- [[prismis/EXPLORATION-2025-10-28-semantic-search-design]] — Search would benefit from deep extraction content
-- Discussion synthesis — Future exploration for Reddit/HN comment ingestion

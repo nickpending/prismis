@@ -1,20 +1,27 @@
 ---
 type: exploration
-domain: technical
-status: draft
-started: 2025-10-08
-updated: 2026-02-18
-tags: [exploration]
+date: 2025-10-08
+title: "Jarvis Audio Briefings - Design Exploration"
+description: "Design exploration of Jarvis, a podcast-style audio briefing system built on HIGH priority items, from the first simple-TTS idea to the lspeak-based pipeline, API and commands."
+purpose: "Archived 2025 design exploration kept as the record of how the decision was reached."
+producer: skill:exploration
 ---
+
 # Jarvis Audio Briefings - Design Exploration
+
+## Problem
+
+*Archived exploration. Original status: draft; last updated 2026-02-18; tags: exploration.*
 
 **Date:** 2025-10-07
 **Context:** Task 5.1 Design audio auto-play behavior and integration points
 **Status:** Design Complete - Ready for Implementation
 
-## The Evolution
+## Journey
 
-### Initial Approach: Simple TTS
+### The Evolution
+
+#### Initial Approach: Simple TTS
 Started with basic text-to-speech of daily reports:
 - Read markdown content aloud
 - Basic auto-play behavior questions
@@ -22,7 +29,7 @@ Started with basic text-to-speech of daily reports:
 
 **The breakthrough:** "This is about audio, not just reading text aloud."
 
-### The Pivot: Podcast-Style Production
+#### The Pivot: Podcast-Style Production
 Realized we wanted something much more sophisticated:
 - Themed, fast-paced podcast format
 - Daily tech briefing show style
@@ -31,7 +38,7 @@ Realized we wanted something much more sophisticated:
 
 **The insight:** "We want to create an actual podcast-style production from daily intelligence."
 
-### The Solution: Jarvis Briefing System
+#### The Solution: Jarvis Briefing System
 Landed on personalized AI briefing concept:
 - **Jarvis as personal tech advisor and analyst**
 - **Personal commentary:** "This Rust feature is relevant to your Prismis work"
@@ -39,7 +46,90 @@ Landed on personalized AI briefing concept:
 - **Cross-article synthesis:** "This connects to yesterday's discussion about..."
 - **Conversational tone:** Natural briefing, not robotic reading
 
-## Architecture Decisions
+### Pipeline Flow
+
+1. **Content → Script Generation**
+   - **Source:** HIGH priority items ONLY from daily report
+   - **LLM generates conversational Jarvis script** with:
+     - Opening: "Good morning. I've been analyzing overnight tech developments..."
+     - Personal commentary: "This Rust feature is relevant to your Prismis work..."
+     - **Fictional expert consultations:**
+       - "I ran this by Sarah in the AI safety community..."
+       - "My colleague Mike from the startup world thinks..."
+     - **Cross-article synthesis:** "This connects to yesterday's PostgreSQL discussion..."
+   - **Target length:** 2-5 minutes (roughly 300-750 words of script)
+
+2. **Script → Audio Generation**
+   - lspeak subprocess call with full parameter control
+   - ElevenLabs provider (fallback to system TTS)
+   - **No semantic caching** (`--no-cache` flag)
+   - **File naming:** `briefing-YYYY-MM-DD.mp3` (date-based)
+   - Output to configured directory (default: `~/Downloads`)
+
+3. **File → HTTP Serving**
+   - FastAPI StaticFiles mount at `/audio/`
+   - **URL pattern:** `http://localhost:8989/audio/briefing-2025-10-07.mp3`
+   - Direct file access, no streaming complexity
+
+### Configuration Design
+
+```toml
+[audio]
+output_dir = "~/Downloads"           # Where files go
+provider = "elevenlabs"              # or "system" fallback
+voice = "Rachel"                     # ElevenLabs voice
+cleanup_after_days = 7               # Auto-delete old briefings
+```
+
+### Error Handling Strategy
+
+**Dependency Issues:**
+- **lspeak not installed** → Clear error: "lspeak required. Install: uv tool install git+https://github.com/nickpending/lspeak.git"
+- **ElevenLabs API down** → Auto-fallback to system TTS with warning message
+- **No ELEVENLABS_API_KEY** → Auto-fallback to system TTS
+
+**Generation Failures:**
+- **Empty HIGH priority content** → "No high priority items for briefing"
+- **LLM script generation failure** → Clear error message, suggest retry
+- **lspeak subprocess failure** → Include lspeak error output in message
+- **Audio file creation failure** → Check permissions, disk space
+
+**System Context:**
+- **Headless systems** → Generate file only (daemon-only), no auto-play attempts
+- **GUI available but no audio system** → Generate file with "Audio system unavailable" message
+- **Permission errors** → Clear message about output directory permissions
+
+### Key Design Principles
+
+1. **Generation-only system** - No auto-play complexity
+2. **Leverage existing tools** - lspeak for TTS, not reinventing
+3. **Blocking command UX** - Simple, familiar pattern
+4. **Clean API separation** - RESTful for future integrations
+5. **Provider abstraction** - Easy testing with system TTS
+
+### Implementation Ready
+
+**Next Steps:**
+1. Jarvis script generation (LLM pipeline)
+2. lspeak integration (subprocess calls)
+3. Audio API endpoints
+4. TUI `:audio summary` command
+5. Static file serving setup
+
+**Success Criteria:**
+- `:audio summary` generates conversational briefing
+- 2-5 minute high-quality audio file
+- Jarvis personality with fictional expert consultations
+- Clean HTTP serving for file access
+- Graceful error handling and provider fallback
+
+### The Core Innovation
+
+**Not just TTS of reports** - this is a **personal AI briefing system** where Jarvis acts as your tech advisor, providing context, opinions, and synthesized insights from your daily intelligence stream.
+
+This transforms Prismis from a content reader into a **personal intelligence briefing service**.
+
+## Decisions
 
 ### lspeak Integration Discovery
 Found that lspeak (existing project) is **perfect** for this:
@@ -102,84 +192,9 @@ if audio_dir.exists():
 ✅ Briefing ready: briefing-2025-10-07.mp3
 ```
 
-## Pipeline Flow
+## Deferred
 
-1. **Content → Script Generation**
-   - **Source:** HIGH priority items ONLY from daily report
-   - **LLM generates conversational Jarvis script** with:
-     - Opening: "Good morning. I've been analyzing overnight tech developments..."
-     - Personal commentary: "This Rust feature is relevant to your Prismis work..."
-     - **Fictional expert consultations:**
-       - "I ran this by Sarah in the AI safety community..."
-       - "My colleague Mike from the startup world thinks..."
-     - **Cross-article synthesis:** "This connects to yesterday's PostgreSQL discussion..."
-   - **Target length:** 2-5 minutes (roughly 300-750 words of script)
-
-2. **Script → Audio Generation**
-   - lspeak subprocess call with full parameter control
-   - ElevenLabs provider (fallback to system TTS)
-   - **No semantic caching** (`--no-cache` flag)
-   - **File naming:** `briefing-YYYY-MM-DD.mp3` (date-based)
-   - Output to configured directory (default: `~/Downloads`)
-
-3. **File → HTTP Serving**
-   - FastAPI StaticFiles mount at `/audio/`
-   - **URL pattern:** `http://localhost:8989/audio/briefing-2025-10-07.mp3`
-   - Direct file access, no streaming complexity
-
-## Configuration Design
-
-```toml
-[audio]
-output_dir = "~/Downloads"           # Where files go
-provider = "elevenlabs"              # or "system" fallback
-voice = "Rachel"                     # ElevenLabs voice
-cleanup_after_days = 7               # Auto-delete old briefings
-```
-
-## Error Handling Strategy
-
-**Dependency Issues:**
-- **lspeak not installed** → Clear error: "lspeak required. Install: uv tool install git+https://github.com/nickpending/lspeak.git"
-- **ElevenLabs API down** → Auto-fallback to system TTS with warning message
-- **No ELEVENLABS_API_KEY** → Auto-fallback to system TTS
-
-**Generation Failures:**
-- **Empty HIGH priority content** → "No high priority items for briefing"
-- **LLM script generation failure** → Clear error message, suggest retry
-- **lspeak subprocess failure** → Include lspeak error output in message
-- **Audio file creation failure** → Check permissions, disk space
-
-**System Context:**
-- **Headless systems** → Generate file only (daemon-only), no auto-play attempts
-- **GUI available but no audio system** → Generate file with "Audio system unavailable" message
-- **Permission errors** → Clear message about output directory permissions
-
-## Key Design Principles
-
-1. **Generation-only system** - No auto-play complexity
-2. **Leverage existing tools** - lspeak for TTS, not reinventing
-3. **Blocking command UX** - Simple, familiar pattern
-4. **Clean API separation** - RESTful for future integrations
-5. **Provider abstraction** - Easy testing with system TTS
-
-## Implementation Ready
-
-**Next Steps:**
-1. Jarvis script generation (LLM pipeline)
-2. lspeak integration (subprocess calls)
-3. Audio API endpoints
-4. TUI `:audio summary` command
-5. Static file serving setup
-
-**Success Criteria:**
-- `:audio summary` generates conversational briefing
-- 2-5 minute high-quality audio file
-- Jarvis personality with fictional expert consultations
-- Clean HTTP serving for file access
-- Graceful error handling and provider fallback
-
-## Rejected Alternatives
+### Rejected Alternatives
 
 **Why not job-based async APIs?**
 - Would require polling in TUI footer
@@ -205,9 +220,3 @@ cleanup_after_days = 7               # Auto-delete old briefings
 - Phase 1 focuses on on-demand generation
 - Scheduled generation can be added later
 - Manual trigger ensures user wants the briefing
-
-## The Core Innovation
-
-**Not just TTS of reports** - this is a **personal AI briefing system** where Jarvis acts as your tech advisor, providing context, opinions, and synthesized insights from your daily intelligence stream.
-
-This transforms Prismis from a content reader into a **personal intelligence briefing service**.

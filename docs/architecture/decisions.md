@@ -4,14 +4,20 @@ subtype: decisions
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-09-30"
-last_change: "content-kind (#77): ten-kind classification via Jev/OpenRouter Decisions endpoint ([2026-09-28]). Prior: openai-sdk-migration: daemon LLM calls go through a direct openai-SDK client (llm_client.py), replacing llm-core ([2026-09-25]); same migration's uv lock re-resolution upper-bounds praw to <8 until test_reddit_validation_unit.py is updated for prawcore 4's Session shape. Every unexpected API failure returns a generic 500 with detail redacted to the log (#76, commit 66cb94e); internal collaborators are no longer mocked in daemon or CLI tests, enforced by a structural guard test (no-internal-mocks, #73, #62)"
+updated: "2026-10-02"
+last_change: "async-offload + pinned-deps ([2026-10-02]). Prior: content-kind (#77): ten-kind classification via Jev/OpenRouter Decisions endpoint ([2026-09-28]). Prior: openai-sdk-migration: daemon LLM calls go through a direct openai-SDK client (llm_client.py), replacing llm-core ([2026-09-25]); same migration's uv lock re-resolution upper-bounds praw to <8 until test_reddit_validation_unit.py is updated for prawcore 4's Session shape. Every unexpected API failure returns a generic 500 with detail redacted to the log (#76, commit 66cb94e); internal collaborators are no longer mocked in daemon or CLI tests, enforced by a structural guard test (no-internal-mocks, #73, #62)"
 tags: [architecture, decisions]
 ---
 
 # Decisions
 
 Architectural decisions and their rationale. Most recent first.
+
+## [2026-10-02]: Every blocking call in an `async def` API handler runs via `asyncio.to_thread`; gate tools are pinned as `go.mod` tool directives
+
+**Context:** `semantic_search`, the `extract_entry` embedding regen, the audio-briefing script/TTS calls and `analyze_context` called blocking embedding, LLM and TTS code directly on the event loop, stalling every other route. Separately, `ci.yml` installed staticcheck and gitleaks by hand while `verify.sh` branched on PATH binaries, so local and CI could gate on different versions and `uv run` could rewrite `uv.lock`.
+**Choice:** Handlers offload through `asyncio.to_thread` (embeddings via `_embed_text`, which builds the `Embedder` on the worker thread); `test_api_offload_nonblock.py` proves it by measuring a probe request against a real blocked boundary. staticcheck and gitleaks become `tool` directives in `tui/go.mod`, run as `go tool ...` by both `verify.sh` and CI; `verify.sh` uses `uv run --locked` and runs its own plant/wiring self-tests; Dependabot bumps Actions and the tool modules monthly.
+**Why:** The pin lives in one sumdb-verified file, so the gate's result depends on the code rather than on when or where it ran; `--locked` makes a stale lock a failure instead of a silent rewrite.
 
 ## [2026-09-29]: Unreadable content is stored as title-only and labelled, not silently analysed (readable-content, #80)
 

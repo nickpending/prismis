@@ -1,0 +1,2 @@
+{"kind":"opened","criteria":["SC-1","SC-2","SC-3","SC-4","SC-5","SC-6"],"issues":[31],"sha":"7dbb054b5437deb21693f7a0d2c266cb757bcdce","ts":"2026-10-02T23:14:11.334Z"}
+{"kind":"dispatched","action":"spawn-mason","resultPath":"docs/work/tz-aware-timestamps/results/plan-1.json","ts":"2026-10-02T23:14:11.363Z"}

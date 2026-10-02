@@ -2,16 +2,15 @@
 
 Protects:
 - INV-API-TS-1: every datetime field on ContentItemModel serializes through
-  _rfc3339 via @field_serializer (naive → Z, tz-aware → explicit offset).
+  _rfc3339 via @field_serializer (tz-aware values pass through with their offset).
 - INV-API-TS-4 structural: api_models.py contains zero json_encoders references;
   all datetime fields across all three response models have @field_serializer.
 - SC-32: ContentResponse and ContentItemModel classes exist; field_serializer
   imported; zero legacy json_encoders in file.
 - SC-33: boundaries.md documents INV-API-TS-4.
 
-Task 2.8 gate: T6 xfail in test_rfc3339_helper_unit.py MUST remain in place —
-it asserts on storage.get_content_by_priority() raw-dict path, which task 2.8
-does NOT fix. Removing that decorator would cause an outright test failure.
+Storage holds only tz-aware datetimes (INV-STORAGE-TS-1), so no test here feeds the
+serializer a naive value.
 """
 
 import json
@@ -48,31 +47,24 @@ def _make_minimal_item(**overrides) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# T-A: ContentItemModel naive fetched_at → RFC3339 with Z suffix
+# T-A: ContentItemModel tz-aware fetched_at → RFC3339, offset unchanged
 # ---------------------------------------------------------------------------
 
 
-def test_content_item_model_naive_fetched_at_is_rfc3339() -> None:
-    """INV-API-TS-1: naive fetched_at emits RFC3339 with Z suffix via @field_serializer.
+def test_content_item_model_aware_fetched_at_is_rfc3339() -> None:
+    """INV-API-TS-1: tz-aware fetched_at reaches the wire exactly as isoformat() renders it.
 
-    Storage writes naive datetimes for fetched_at (datetime.utcnow() convention in
-    fetchers). ContentItemModel's @field_serializer must normalize via _rfc3339:
-    naive → "2026-05-05T23:14:53.680336Z" (Z suffix).
+    Storage writes fetched_at with an explicit offset; ContentItemModel's
+    @field_serializer passes it through _rfc3339 with nothing appended.
     """
-    naive_fetched = datetime(2026, 5, 5, 23, 14, 53, 680336)
-    assert naive_fetched.tzinfo is None, "Precondition: input must be naive"
+    aware_fetched = datetime(2026, 5, 5, 23, 14, 53, 680336, tzinfo=UTC)
 
-    item = ContentItemModel(**_make_minimal_item(fetched_at=naive_fetched))
+    item = ContentItemModel(**_make_minimal_item(fetched_at=aware_fetched))
 
     wire = json.loads(item.model_dump_json())
     fetched_at_wire = wire["fetched_at"]
 
-    assert isinstance(fetched_at_wire, str), (
-        f"Expected string on wire, got {type(fetched_at_wire)}"
-    )
-    assert fetched_at_wire.endswith("Z"), (
-        f"Naive fetched_at must have Z suffix on wire, got: {fetched_at_wire!r}"
-    )
+    assert fetched_at_wire == "2026-05-05T23:14:53.680336+00:00"
     assert_rfc3339(fetched_at_wire)
 
 

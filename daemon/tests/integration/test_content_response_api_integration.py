@@ -2,14 +2,11 @@
 
 Protects:
 - INV-API-TS-1: fetched_at on /api/entries and /api/search wire MUST be RFC3339
-  (SC-29, SC-30) — the defect T6 in test_rfc3339_helper_unit.py proved this broke
-  at the storage raw-dict layer; task 2.8 fixes it at the API boundary.
+  (SC-29, SC-30). Rows are written by current storage code, which stamps every
+  datetime with an explicit offset (INV-STORAGE-TS-1); the serializer passes it through.
 - INV-API-TS-4: response envelope shape (success / message / data: {items, total,
   filters_applied}) preserved unchanged — consumer contract must not break.
 
-NOTE: T6 xfail in test_rfc3339_helper_unit.py MUST remain in place after task 2.8.
-T6 asserts on storage.get_content_by_priority() raw-dict output, which still emits
-naive strings unchanged. Task 2.8 fixes the API wire, not storage retrieval.
 """
 
 import re
@@ -61,15 +58,14 @@ def _make_query_embedding() -> list[float]:
 
 @pytest.fixture
 def storage_with_naive_fetched_at(test_db: Path) -> Storage:
-    """Storage with one item whose fetched_at is a naive datetime (utcnow()-style).
+    """Storage with one item written by current storage code.
 
-    This is the production shape: fetchers historically used datetime.utcnow(),
-    writing naive ISO strings to the DB. ContentItemModel must normalize via _rfc3339.
+    The item carries no fetched_at, so storage stamps it with utc_now_iso(); the wire
+    value is that offset-bearing string passed through _rfc3339.
     """
     storage = Storage(test_db)
     src_id = storage.add_source("https://example.com/feed", "rss", "Test Feed")
 
-    naive_fetched = datetime(2026, 5, 5, 23, 14, 53, 680336)  # no tzinfo — naive UTC
     item = ContentItem(
         source_id=src_id,
         external_id="wire-test-001",
@@ -77,7 +73,6 @@ def storage_with_naive_fetched_at(test_db: Path) -> Storage:
         url="https://example.com/wire-test",
         content="Content for RFC3339 wire format test",
         priority="high",
-        fetched_at=naive_fetched,
         published_at=None,
     )
     storage.add_content(item)
@@ -109,9 +104,6 @@ def storage_with_embedding(test_db: Path) -> Storage:
     storage = Storage(test_db)
     src_id = storage.add_source("https://example.com/feed", "rss", "Test Feed")
 
-    naive_fetched = datetime(
-        2026, 5, 5, 23, 14, 53, 680336
-    )  # naive — the production shape
     item = ContentItem(
         source_id=src_id,
         external_id="search-wire-test-001",
@@ -119,7 +111,6 @@ def storage_with_embedding(test_db: Path) -> Storage:
         url="https://example.com/search-wire-test",
         content="Content for search RFC3339 wire format test",
         priority="high",
-        fetched_at=naive_fetched,
         published_at=None,
     )
     content_id = add_new_content(storage, item)
@@ -152,12 +143,11 @@ def test_entries_fetched_at_wire_format_is_rfc3339(entries_client: TestClient) -
     """SC-29 / INV-API-TS-1: /api/entries fetched_at must be RFC3339 on the wire.
 
     Task 2.8 routes /api/entries through ContentResponse + ContentItemModel with
-    @field_serializer on fetched_at. The 7100 naive rows in production storage have
-    fetched_at as "2026-05-05T23:14:53.680336" (no offset) — ContentItemModel's
-    _rfc3339 serializer appends "Z" to normalize them to RFC3339.
+    @field_serializer on fetched_at. A row written by current storage carries an
+    explicit offset, so the wire value parses with datetime.fromisoformat and has tzinfo.
 
-    BREAKS: TUI parser uses strict time.RFC3339 — naive strings cause a parse error
-    on every entry list fetch (proven by build-task-2.7 Probe 3 Go program).
+    BREAKS: TUI parser uses strict time.RFC3339 — a value without an offset causes a
+    parse error on every entry list fetch.
     """
     response = entries_client.get("/api/entries", headers={"X-API-Key": API_KEY})
 
@@ -171,13 +161,10 @@ def test_entries_fetched_at_wire_format_is_rfc3339(entries_client: TestClient) -
         fetched_at = item["fetched_at"]
         if fetched_at is not None:
             assert_rfc3339(fetched_at)
-            # Naive storage row must have Z suffix (not "+00:00Z" double-offset)
-            assert not fetched_at.endswith("+00:00Z"), (
-                f"Double-offset bug: naive fetched_at produced {fetched_at!r}"
+            assert datetime.fromisoformat(fetched_at).tzinfo is not None, fetched_at
+            assert fetched_at.endswith("+00:00"), (
+                f"fetched_at must carry storage's +00:00 offset, got: {fetched_at!r}"
             )
-            assert fetched_at.endswith("Z") or re.search(
-                r"[+-]\d{2}:\d{2}$", fetched_at
-            ), f"fetched_at must end with Z or explicit offset, got: {fetched_at!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -191,8 +178,7 @@ def test_search_fetched_at_wire_format_is_rfc3339(
     """SC-30 / INV-API-TS-1: /api/search fetched_at must be RFC3339 on the wire.
 
     Same ContentItemModel @field_serializer path as /api/entries. The search
-    endpoint was Probe 2 in build-task-2.7 — it also emitted raw naive strings.
-    Task 2.8 routes /api/search through ContentResponse too.
+    endpoint returns it through ContentResponse too.
 
     Uses direct embedding seed (unit vector) with min_score=0.0 to guarantee
     at least one result without depending on Embedder's text vectorization.
@@ -218,9 +204,8 @@ def test_search_fetched_at_wire_format_is_rfc3339(
         fetched_at = item["fetched_at"]
         if fetched_at is not None:
             assert_rfc3339(fetched_at)
-            assert not fetched_at.endswith("+00:00Z"), (
-                f"Double-offset bug on search wire: {fetched_at!r}"
-            )
+            assert datetime.fromisoformat(fetched_at).tzinfo is not None, fetched_at
+            assert fetched_at.endswith("+00:00"), fetched_at
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +280,7 @@ def test_entry_detail_fetched_at_wire_format_is_rfc3339(
     entries_client: TestClient,
     storage_with_naive_fetched_at: Storage,
 ) -> None:
-    """DEFECT PROOF (INV-API-TS-4 gap): /api/entries/{id} naive fetched_at leaks.
+    """DEFECT PROOF (INV-API-TS-4 gap): /api/entries/{id} fetched_at must carry an offset.
 
     INV-API-TS-4 covers 'every API list/detail endpoint that returns content data.'
     /api/entries/{content_id} is a detail endpoint — it must route through
@@ -326,6 +311,7 @@ def test_entry_detail_fetched_at_wire_format_is_rfc3339(
     fetched_at = entry.get("fetched_at")
     assert fetched_at is not None, "fetched_at must be present in detail response"
     assert_rfc3339(fetched_at)
+    assert datetime.fromisoformat(fetched_at).tzinfo is not None, fetched_at
 
 
 # ---------------------------------------------------------------------------

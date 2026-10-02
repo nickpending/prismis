@@ -4,20 +4,21 @@ INV-API-TS-1: every datetime response field MUST serialize as RFC3339.
 INV-API-TS-3: boundaries.md MUST document the API <-> Consumers datetime contract.
 
 Test considerations (from task 2.7 Test Considerations section):
-- Naive datetime -> _rfc3339 appends "Z" (no double-offset)
-- Tz-aware UTC datetime -> _rfc3339 uses .isoformat() directly (e.g., "+00:00")
+- Tz-aware datetime -> _rfc3339 returns .isoformat() unchanged (no Z-append, no tzinfo
+  branch: storage no longer holds naive datetimes, INV-STORAGE-TS-1)
+- A non-UTC offset survives unchanged
 - None input -> None returned
 - SourceResponse.model_dump_json() uses _rfc3339 for last_fetched
 - AudioBriefingResponse.model_dump_json() uses _rfc3339 for generated_at
 - boundaries.md documents the RFC3339 contract (INV-API-TS-3, SC-28)
 """
 
+import inspect
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
 
 # _rfc3339 and response models are pure Pydantic — no I/O, no DB, no config needed.
 from prismis_daemon.api_models import (
@@ -41,21 +42,20 @@ def assert_rfc3339(value: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# T1: _rfc3339() naive datetime appends "Z"
+# T1: _rfc3339() is a pass-through for tz-aware values, whatever their offset
 # ---------------------------------------------------------------------------
 
 
-def test_rfc3339_naive_appends_z() -> None:
-    """INV-API-TS-1: naive datetime must become valid RFC3339 with Z suffix."""
-    naive = datetime(2026, 5, 5, 23, 14, 53, 680336)
-    assert naive.tzinfo is None, "Precondition: input must be naive"
-
-    result = _rfc3339(naive)
-
-    assert result is not None
-    assert result.endswith("Z"), (
-        f"Expected Z suffix for naive datetime, got: {result!r}"
+def test_rfc3339_passes_non_utc_offset_through_unchanged() -> None:
+    """INV-API-TS-1: the offset the value carries is the offset on the wire."""
+    plus_five = datetime(
+        2026, 5, 5, 23, 14, 53, 680336, tzinfo=timezone(timedelta(hours=5))
     )
+
+    result = _rfc3339(plus_five)
+
+    assert result == "2026-05-05T23:14:53.680336+05:00"
+    assert result == plus_five.isoformat()
     assert_rfc3339(result)
 
 
@@ -71,12 +71,24 @@ def test_rfc3339_aware_utc_no_double_offset() -> None:
 
     result = _rfc3339(aware)
 
-    assert result is not None
-    # Must NOT produce the old malformed "+00:00Z" bug (pre-task-2.7)
-    assert not result.endswith("+00:00Z"), (
-        f"Double-offset bug: tz-aware isoformat() + 'Z' produces malformed string: {result!r}"
-    )
+    assert result == "2026-05-05T23:22:34.289113+00:00"
+    assert result == aware.isoformat()
     assert_rfc3339(result)
+
+
+# ---------------------------------------------------------------------------
+# T2b: _rfc3339() has no Z-append and no tzinfo branch
+# ---------------------------------------------------------------------------
+
+
+def test_rfc3339_body_has_no_z_append_or_tzinfo_branch() -> None:
+    """INV-STORAGE-TS-1 makes the naive case unrepresentable in storage, so the helper
+    must be the bare pass-through; a branch here would re-guess what the data now states."""
+    source = inspect.getsource(_rfc3339)
+
+    assert '"Z"' not in source and "'Z'" not in source, source
+    assert "tzinfo" not in source, source
+    assert "isoformat()" in source
 
 
 # ---------------------------------------------------------------------------
@@ -94,20 +106,20 @@ def test_rfc3339_none_returns_none() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_source_response_naive_last_fetched_is_rfc3339() -> None:
-    """INV-API-TS-1 (SourceResponse): naive last_fetched emits valid RFC3339.
+def test_source_response_aware_last_fetched_is_rfc3339() -> None:
+    """INV-API-TS-1 (SourceResponse): tz-aware last_fetched emits valid RFC3339.
 
-    Storage CURRENT_TIMESTAMP writes produce naive datetimes for last_fetched.
-    SourceResponse's json_encoders must normalize them to RFC3339 via _rfc3339.
+    Storage writes last_fetched_at with an explicit offset; SourceResponse's
+    serializer passes it through _rfc3339 unchanged.
     """
-    naive_ts = datetime(2026, 4, 30, 15, 49, 40)
+    aware_ts = datetime(2026, 4, 30, 15, 49, 40, tzinfo=UTC)
     source = SourceResponse(
         id="test-uuid-1234",
         url="https://example.com/feed.xml",
         type="rss",
         name=None,
         active=True,
-        last_fetched=naive_ts,
+        last_fetched=aware_ts,
         error_count=0,
         last_error=None,
     )
@@ -119,10 +131,7 @@ def test_source_response_naive_last_fetched_is_rfc3339() -> None:
     last_fetched = data["last_fetched"]
     assert isinstance(last_fetched, str), f"Expected string, got {type(last_fetched)}"
     assert_rfc3339(last_fetched)
-    # Naive input must have Z suffix
-    assert last_fetched.endswith("Z"), (
-        f"Naive last_fetched must end with Z, got: {last_fetched!r}"
-    )
+    assert last_fetched == "2026-04-30T15:49:40+00:00"
 
 
 # ---------------------------------------------------------------------------
@@ -277,89 +286,40 @@ def test_audio_briefing_response_model_dump_none_duration_estimate() -> None:
 
 
 # ---------------------------------------------------------------------------
-# T6: storage raw-dict path returns naive ISO for legacy rows
+# T6: storage raw-dict path returns RFC3339 for rows storage writes
 #
-# What this test proves: storage.get_content_by_priority() returns the ISO
-# string exactly as it was written. For the ~7100 rows written by pre-task-2.9
-# fetchers using datetime.utcnow(), that string is naive (no UTC offset).
-# The ContentResponse encoder (_rfc3339) normalizes this at the API boundary —
-# it is the only normalization layer for those legacy rows.
-#
-# Task 2.8 shipped ContentResponse (fixing the API wire path for new rows).
-# Task 2.9 fixed fetcher emit sites (new rows are now tz-aware on write).
-# Neither task backfills existing storage. This xfail must stay until a
-# storage backfill migration converts the legacy naive rows to tz-aware ISO
-# strings — at which point get_content_by_priority() will return RFC3339-
-# compliant strings and the assertion below will pass.
-#
-# DO NOT remove this decorator based on task 2.8 or 2.9 completion alone.
-# The removal condition is: all rows in the content table have tz-aware
-# fetched_at (i.e., a backfill migration has run successfully).
+# Storage writes every datetime with an explicit offset (utc_now_iso, INV-STORAGE-TS-1)
+# and init_db converts legacy naive rows, so the raw dict get_content_by_priority()
+# returns is already RFC3339 before any API serializer touches it.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Legacy storage rows: ~7100 rows written by pre-task-2.9 fetchers have "
-        "naive fetched_at. storage.get_content_by_priority() returns the raw ISO "
-        "string as-written; for these rows it has no UTC offset. Task 2.8 fixed "
-        "the API wire path (ContentResponse encoder); task 2.9 fixed new writes. "
-        "This xfail covers the legacy raw-dict path and must stay until a storage "
-        "backfill migration converts existing naive rows to tz-aware ISO strings."
-    ),
-)
-def test_fetched_at_in_raw_dict_path_is_not_rfc3339(test_db) -> None:
-    """Legacy storage path: naive fetched_at returns non-RFC3339 from raw dict.
+def test_fetched_at_in_raw_dict_path_is_rfc3339(test_db) -> None:
+    """INV-API-TS-1: a row storage defaults fetched_at for reads back as RFC3339.
 
-    storage.get_content_by_priority() returns the ISO string as written to the
-    content table. For rows written before task 2.9 (via datetime.utcnow()),
-    that string is naive ("2026-05-05T23:14:53.680336" — no offset). The
-    ContentResponse _rfc3339() encoder normalizes this at the API boundary and
-    is the only normalization layer for these legacy rows.
-
-    This test seeds a naive fetched_at to simulate a legacy row and asserts
-    that the raw storage path does NOT return RFC3339 — confirming the encoder
-    is still needed. When a backfill migration runs, newly-stored rows will
-    carry "+00:00" and this assertion will flip to passing; remove the xfail
-    decorator only at that point.
-
-    INV-API-TS-1: every datetime on the wire MUST be RFC3339.
+    The item carries no fetched_at, so storage supplies it; the value returned by
+    the raw-dict path (the one /api/entries starts from) must already match RFC3339.
     """
-    from datetime import datetime  # naive — no UTC, simulating datetime.utcnow()
-
     from prismis_daemon.models import ContentItem
     from prismis_daemon.storage import Storage
 
     storage = Storage(test_db)
     src_id = storage.add_source("https://example.com/feed", "rss", "Test Feed")
-
-    # Seed with a naive fetched_at — this is what fetchers produce via utcnow()
-    naive_fetched = datetime(2026, 5, 5, 23, 14, 53, 680336)  # no tzinfo
     item = ContentItem(
         source_id=src_id,
         external_id="defect-proof-001",
         title="Defect Proof Article",
         url="https://example.com/defect-proof",
         priority="high",
-        fetched_at=naive_fetched,
     )
     storage.add_content(item)
 
-    # Retrieve via the same path /api/entries uses: get_content_by_priority()
     results = storage.get_content_by_priority("high", limit=10)
     assert len(results) == 1, f"Expected 1 result, got {len(results)}"
 
     fetched_at_wire = results[0]["fetched_at"]
-
-    # This assertion FAILS today (proving the defect):
-    # The raw dict returns "2026-05-05T23:14:53.680336" — no offset, not RFC3339.
-    # It will PASS after task 2.8 adds a ContentResponse model or normalization.
     assert RFC3339_RE.match(str(fetched_at_wire)), (
-        f"DEFECT (task 2.8): fetched_at in storage raw-dict path is not RFC3339. "
-        f"Got: {fetched_at_wire!r}. "
-        "This value reaches /api/entries wire unchanged — TUI parser fails on it. "
-        "Fix: route /api/entries through ContentResponse Pydantic model with _rfc3339 encoder."
+        f"fetched_at in the storage raw-dict path is not RFC3339: {fetched_at_wire!r}"
     )
 
 

@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS categories (
     id TEXT PRIMARY KEY,  -- UUID
     name TEXT UNIQUE NOT NULL,
     description TEXT,
-    created_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'),
-    updated_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00')
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Content sources (RSS feeds, Reddit subs, YouTube channels)
@@ -26,15 +26,15 @@ CREATE TABLE IF NOT EXISTS sources (
     error_count INTEGER DEFAULT 0,
     last_error TEXT,
     last_fetched_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'),
-    updated_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00')
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Many-to-many relationship between sources and categories
 CREATE TABLE IF NOT EXISTS source_categories (
     source_id TEXT NOT NULL,
     category_id TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (source_id, category_id),
     FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
@@ -52,15 +52,15 @@ CREATE TABLE IF NOT EXISTS content (
     analysis JSON,  -- Full LLM analysis (topics, relevance_score, etc)
     priority TEXT CHECK(priority IN ('high', 'medium', 'low', NULL)),
     published_at TIMESTAMP,  -- When source published it
-    fetched_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'),  -- When we grabbed it
+    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- When we grabbed it
     read BOOLEAN DEFAULT 0,
     favorited BOOLEAN DEFAULT 0,
     interesting_override BOOLEAN DEFAULT 0,  -- User-flagged for context analysis
     notes TEXT,
     archived_at TIMESTAMP DEFAULT NULL,  -- Soft archival (NULL = active)
     user_feedback TEXT CHECK(user_feedback IN ('up', 'down', NULL)),  -- User feedback: 'up' = useful, 'down' = not useful
-    created_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'),
-    updated_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
 );
 
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
     content_id TEXT PRIMARY KEY,
     embedding BLOB NOT NULL,
     model TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (content_id) REFERENCES content(id) ON DELETE CASCADE
 );
 
@@ -98,17 +98,17 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
 CREATE TRIGGER IF NOT EXISTS update_sources_timestamp
 AFTER UPDATE ON sources
 BEGIN
-    UPDATE sources SET updated_at = strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00' WHERE id = NEW.id;
+    UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_categories_timestamp
 AFTER UPDATE ON categories
 BEGIN
-    UPDATE categories SET updated_at = strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00' WHERE id = NEW.id;
+    UPDATE categories SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_content_timestamp
 AFTER UPDATE ON content
 BEGIN
-    UPDATE content SET updated_at = strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00' WHERE id = NEW.id;
+    UPDATE content SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;

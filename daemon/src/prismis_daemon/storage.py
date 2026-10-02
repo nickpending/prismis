@@ -15,6 +15,15 @@ from .observability import log as obs_log
 from .readability import is_readable
 
 
+def utc_now_iso() -> str:
+    """Current UTC time as an ISO 8601 string with an explicit +00:00 offset.
+
+    The single timestamp source for every application write to a datetime column
+    (INV-STORAGE-TS-1).
+    """
+    return datetime.now(UTC).isoformat()
+
+
 class Storage:
     """Repository for all database operations.
 
@@ -281,7 +290,7 @@ class Storage:
         fetched_at_iso = (
             item.fetched_at.isoformat()
             if item.fetched_at
-            else datetime.now(UTC).isoformat()
+            else utc_now_iso()
         )
         return analysis_json, published_at_iso, fetched_at_iso
 
@@ -301,6 +310,7 @@ class Storage:
         connection stays a parameter here so that choice stays visible at
         each call site instead of being decided inside this helper.
         """
+        now = utc_now_iso()
         conn.execute(
             """
             INSERT INTO content (
@@ -309,8 +319,7 @@ class Storage:
                 fetched_at, read, favorited, notes,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item.id,
@@ -327,6 +336,8 @@ class Storage:
                 item.read,
                 item.favorited,
                 item.notes,
+                now,
+                now,
             ),
         )
 
@@ -392,12 +403,13 @@ class Storage:
 
             # Generate new UUID and insert
             source_id = str(uuid.uuid4())
+            now = utc_now_iso()
             self.conn.execute(
                 """
                 INSERT INTO sources (id, url, type, name, created_at, updated_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (source_id, url, source_type, name),
+                (source_id, url, source_type, name, now, now),
             )
 
             self.conn.commit()
@@ -544,7 +556,7 @@ class Storage:
                 self.conn.execute(
                     """
                     UPDATE content 
-                    SET content = ?, summary = ?, analysis = ?, priority = ?, updated_at = CURRENT_TIMESTAMP
+                    SET content = ?, summary = ?, analysis = ?, priority = ?, updated_at = ?
                     WHERE external_id = ?
                     """,
                     (
@@ -552,6 +564,7 @@ class Storage:
                         item.summary,
                         analysis_json,
                         item.priority,
+                        utc_now_iso(),
                         item.external_id,
                     ),
                 )
@@ -617,8 +630,8 @@ class Storage:
         try:
             analysis_json = json.dumps(analysis)
             cursor = self.conn.execute(
-                "UPDATE content SET analysis = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (analysis_json, content_id),
+                "UPDATE content SET analysis = ?, updated_at = ? WHERE id = ?",
+                (analysis_json, utc_now_iso(), content_id),
             )
             self.conn.commit()
             return cursor.rowcount > 0
@@ -959,10 +972,10 @@ class Storage:
             cursor = self.conn.execute(
                 """
                 UPDATE content 
-                SET read = 1, updated_at = CURRENT_TIMESTAMP
+                SET read = 1, updated_at = ?
                 WHERE id = ?
                 """,
-                (content_id,),
+                (utc_now_iso(), content_id),
             )
             self.conn.commit()
             return cursor.rowcount > 0
@@ -983,17 +996,18 @@ class Storage:
         """
         start_time = time.time()
         try:
+            now = utc_now_iso()
             if success:
                 cursor = self.conn.execute(
                     """
                     UPDATE sources
-                    SET last_fetched_at = CURRENT_TIMESTAMP,
+                    SET last_fetched_at = ?,
                         error_count = 0,
                         last_error = NULL,
-                        updated_at = CURRENT_TIMESTAMP
+                        updated_at = ?
                     WHERE id = ?
                     """,
-                    (source_id,),
+                    (now, now, source_id),
                 )
             else:
                 cursor = self.conn.execute(
@@ -1001,10 +1015,10 @@ class Storage:
                     UPDATE sources
                     SET error_count = error_count + 1,
                         last_error = ?,
-                        updated_at = CURRENT_TIMESTAMP
+                        updated_at = ?
                     WHERE id = ?
                     """,
-                    (error_message, source_id),
+                    (error_message, now, source_id),
                 )
 
                 # Deactivate source after 5 consecutive errors
@@ -1053,35 +1067,36 @@ class Storage:
         """
         try:
             # Build UPDATE query with safe parameterized approach
+            now = utc_now_iso()
             if "name" in update_data and "url" in update_data:
                 # Update both name and URL
                 cursor = self.conn.execute(
                     """
                     UPDATE sources
-                    SET name = ?, url = ?, updated_at = CURRENT_TIMESTAMP
+                    SET name = ?, url = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (update_data["name"], update_data["url"], source_id),
+                    (update_data["name"], update_data["url"], now, source_id),
                 )
             elif "name" in update_data:
                 # Update only name
                 cursor = self.conn.execute(
                     """
                     UPDATE sources
-                    SET name = ?, updated_at = CURRENT_TIMESTAMP
+                    SET name = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (update_data["name"], source_id),
+                    (update_data["name"], now, source_id),
                 )
             elif "url" in update_data:
                 # Update only URL
                 cursor = self.conn.execute(
                     """
                     UPDATE sources
-                    SET url = ?, updated_at = CURRENT_TIMESTAMP
+                    SET url = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (update_data["url"], source_id),
+                    (update_data["url"], now, source_id),
                 )
             else:
                 # No fields to update
@@ -1135,9 +1150,9 @@ class Storage:
         try:
             cursor = self.conn.execute(
                 """UPDATE sources 
-                   SET active = 0, updated_at = CURRENT_TIMESTAMP 
+                   SET active = 0, updated_at = ?
                    WHERE id = ?""",
-                (source_id,),
+                (utc_now_iso(), source_id),
             )
             self.conn.commit()
             return cursor.rowcount > 0
@@ -1162,9 +1177,9 @@ class Storage:
             cursor = self.conn.execute(
                 """UPDATE sources 
                    SET active = 1, error_count = 0, last_error = NULL, 
-                       updated_at = CURRENT_TIMESTAMP 
+                       updated_at = ?
                    WHERE id = ?""",
-                (source_id,),
+                (utc_now_iso(), source_id),
             )
             self.conn.commit()
             return cursor.rowcount > 0
@@ -1593,9 +1608,9 @@ class Storage:
             self.conn.execute(
                 """
                 INSERT OR REPLACE INTO embeddings (content_id, embedding, model, created_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?)
                 """,
-                (content_id, embedding_blob, model),
+                (content_id, embedding_blob, model, utc_now_iso()),
             )
 
             # vec0 ignores OR REPLACE and raises on a duplicate key, so an existing
@@ -1941,8 +1956,8 @@ class Storage:
             sqlite3.Error: If database operation fails
         """
         try:
-            # Build parameters for datetime modifiers
-            params: list[Any] = []
+            # Build parameters: archived_at first, then the datetime modifiers
+            params: list[Any] = [utc_now_iso()]
 
             # HIGH: Only read + N days (or skip if None)
             if config.get("high_read") is not None:
@@ -1970,7 +1985,7 @@ class Storage:
             # Single complex UPDATE with priority-aware windows
             query = """
                 UPDATE content
-                SET archived_at = CURRENT_TIMESTAMP
+                SET archived_at = ?
                 WHERE archived_at IS NULL
                   AND favorited = 0
                   AND notes IS NULL

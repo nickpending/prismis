@@ -2,8 +2,115 @@
 
 import os
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
+
+# Every datetime column the schema declares, per table. Migration 1 rewrites and then
+# audits exactly these columns.
+_TIMESTAMP_COLUMNS: dict[str, tuple[str, ...]] = {
+    "content": ("published_at", "fetched_at", "created_at", "updated_at", "archived_at"),
+    "sources": ("created_at", "updated_at", "last_fetched_at"),
+    "categories": ("created_at", "updated_at"),
+    "source_categories": ("created_at",),
+    "embeddings": ("created_at",),
+}
+
+# A stored shape the rewrite knows how to convert: 'YYYY-MM-DD HH:MM:SS' or
+# 'YYYY-MM-DDTHH:MM:SS' with optional fractional seconds and no offset.
+_NAIVE_SHAPE = (
+    "{c} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ T]"
+    "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*'"
+    " AND {c} NOT GLOB '*[+-][0-9][0-9]:[0-9][0-9]' AND {c} NOT LIKE '%Z'"
+)
+
+# A value that already carries an explicit offset (or Z) after an RFC3339 date-time.
+_AWARE_SHAPE = (
+    "{c} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T"
+    "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*'"
+    " AND ({c} GLOB '*[+-][0-9][0-9]:[0-9][0-9]' OR {c} LIKE '%Z')"
+)
+
+_TZ_TRIGGER_EXPR = "strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'"
+
+
+def _migrate_1_tz_aware_timestamps(conn: sqlite3.Connection) -> None:
+    """Give every stored datetime an explicit +00:00 offset.
+
+    Runs inside the caller's transaction. The backfill UPDATEs fire the updated_at
+    triggers, which would overwrite every updated_at with the migration time, so the
+    triggers are dropped first and recreated (tz-aware) afterwards. Raises when any
+    cell is still not an offset-bearing timestamp, which rolls the transaction back.
+    """
+    for table in ("sources", "categories", "content"):
+        conn.execute(f"DROP TRIGGER IF EXISTS update_{table}_timestamp")
+
+    for table, columns in _TIMESTAMP_COLUMNS.items():
+        for col in columns:
+            conn.execute(
+                f"UPDATE {table} SET {col} = replace(substr({col}, 1, 19), ' ', 'T')"
+                f" || substr({col}, 20) || '+00:00'"
+                f" WHERE {_NAIVE_SHAPE.format(c=col)}"
+            )
+
+    for table in ("sources", "categories", "content"):
+        conn.execute(
+            f"CREATE TRIGGER update_{table}_timestamp AFTER UPDATE ON {table} BEGIN "
+            f"UPDATE {table} SET updated_at = {_TZ_TRIGGER_EXPR} WHERE id = NEW.id; END"
+        )
+
+    unconverted = []
+    for table, columns in _TIMESTAMP_COLUMNS.items():
+        for col in columns:
+            (count,) = conn.execute(
+                f"SELECT COUNT(*) FROM {table}"
+                f" WHERE {col} IS NOT NULL AND NOT ({_AWARE_SHAPE.format(c=col)})"
+            ).fetchone()
+            if count:
+                unconverted.append(f"{table}.{col}: {count} unconverted cells")
+    if unconverted:
+        raise sqlite3.IntegrityError(
+            "tz-aware timestamp migration left cells without an offset ("
+            + "; ".join(unconverted)
+            + ")"
+        )
+
+
+# Numbered migrations: entry N takes a database from user_version N-1 to N.
+_MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
+    _migrate_1_tz_aware_timestamps,
+]
+
+
+def _backup_beside(conn: sqlite3.Connection, db_path: Path) -> None:
+    """Write a VACUUM INTO copy next to the database, unless one already exists."""
+    backup = db_path.with_name(db_path.name + ".bak-tz")
+    if backup.exists():
+        return
+    conn.execute("VACUUM INTO ?", (str(backup),))
+
+
+def _apply_migrations(conn: sqlite3.Connection, db_path: Path) -> None:
+    """Apply every migration the database has not seen, one transaction each."""
+    (version,) = conn.execute("PRAGMA user_version").fetchone()
+    pending = _MIGRATIONS[version:]
+    if not pending:
+        return
+    _backup_beside(conn, db_path)
+    previous_isolation = conn.isolation_level
+    conn.isolation_level = None  # explicit BEGIN/COMMIT below
+    try:
+        for number, migrate in enumerate(pending, start=version + 1):
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                migrate(conn)
+                conn.execute(f"PRAGMA user_version = {number}")
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+    finally:
+        conn.isolation_level = previous_isolation
 
 
 def init_db(db_path: Optional[Path] = None) -> Path:
@@ -60,9 +167,24 @@ def init_db(db_path: Optional[Path] = None) -> Path:
         finally:
             conn.enable_load_extension(False)
 
+        is_new_database = (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='content'"
+            ).fetchone()
+            is None
+        )
+
         # Execute the entire schema as a script
         conn.executescript(schema_sql)
         conn.commit()
+
+        if is_new_database:
+            # The schema just written already emits the current shape: nothing to
+            # convert, nothing to back up.
+            conn.execute(f"PRAGMA user_version = {len(_MIGRATIONS)}")
+            conn.commit()
+        else:
+            _apply_migrations(conn, db_path)
 
         # Verify tables were created
         cursor = conn.execute(

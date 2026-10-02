@@ -18,6 +18,7 @@ from rich.console import Console
 from . import kind_classifier, llm_client
 from .config import Config
 from .context_auto_updater import run_context_update
+from .database import init_db
 from .defaults import ensure_config
 from .evaluator import ContentEvaluator
 from .fetchers.file import FileFetcher
@@ -446,6 +447,11 @@ def main(
 
             # Validate LLM configuration at startup (before any mode-specific code)
             validate_llm_config(config)
+
+            # Create or upgrade the database before any Storage() exists, in every
+            # mode: a pre-existing database is migrated here, before the first
+            # fetch or request reads or writes it.
+            init_db()
         except Exception as e:
             console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
             sys.exit(1)

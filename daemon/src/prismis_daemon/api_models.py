@@ -13,13 +13,7 @@ def _rfc3339(v: None) -> None: ...
 @overload
 def _rfc3339(v: datetime | None) -> str | None: ...
 def _rfc3339(v: datetime | None) -> str | None:
-    # Storage emits both naive UTC strings (CURRENT_TIMESTAMP rows) and tz-aware
-    # UTC datetimes (datetime.now(UTC).isoformat() call sites). RFC3339 requires
-    # an explicit offset; append "Z" only when the value is naive so tz-aware
-    # values don't get a malformed double offset like "+00:00Z".
-    if v is None:
-        return None
-    return v.isoformat() if v.tzinfo else v.isoformat() + "Z"
+    return None if v is None else v.isoformat()
 
 
 class SourceRequest(BaseModel):

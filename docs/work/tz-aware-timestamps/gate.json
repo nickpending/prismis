@@ -1,27 +1,102 @@
 {
   "scrutiny": [
-    {"test": "T0 purpose: docs/IDEA.md:37-39 makes prismis a structured data source for AI agents and a TUI; tz-aware stored timestamps make every consumer's RFC3339 parse succeed (today 46/46 sources' last_fetched_at and 149 published_at rows silently drop in the TUI, queries.go:155, :402).", "failureCase": "The change were neutral or negative for consumers of the data.", "result": "held"},
-    {"test": "T1 owners: boundaries.md:85 (RFC3339 with explicit offset on the wire) and constitution.md:86-90 (stored shape changes ship with their migration; leave a way back) are both satisfied by the migration plus _rfc3339 pass-through; the Z-append sentence in boundaries.md becomes stale and is left to the architecture refresh job.", "failureCase": "A contract forbade the migration or required the Z-append to stay.", "result": "held"},
-    {"test": "T2/T6 evidence on the same noun: rehearsed the full migration on a VACUUM INTO copy of cerebro's live database (693 MiB, 38,485 content rows). First rehearsal in the design's order (triggers first, then backfill) left content.updated_at 38,485 naive and overwritten with the migration time, because the backfill's UPDATEs fire the updated_at trigger. Corrected order (drop triggers, backfill, recreate triggers, set user_version) leaves 0 naive cells in all 12 columns, 0 updated_at values changed beyond their own conversion, trigger output '2026-10-02T23:08:01.218+00:00' on a TUI-style UPDATE, user_version 1, 1.2 s total; VACUUM INTO took 0.8 s.", "failureCase": "The rewrite expression or trigger expression produced a shape a consumer cannot parse, or the backfill altered data beyond the offset.", "result": "changed"},
-    {"test": "T3 degrades: trigger precision drops from microseconds to milliseconds (strftime %f); existing databases keep unreachable CURRENT_TIMESTAMP column defaults; first start after deploy spends ~2 s migrating; no security property moves.", "failureCase": "A consumer relied on microsecond ordering between two writes in the same millisecond.", "result": "held"},
-    {"test": "T4 reuse: extends init_db (database.py:9) which Makefile init and verify_chain.py:102 already call, and the storage.py:284 datetime.now(UTC).isoformat() convention; the Makefile migrate target (189) stays untouched as the pre-existing ad-hoc path.", "failureCase": "A second migration mechanism or second timestamp source were introduced.", "result": "held"},
-    {"test": "T5 real-system proof: after deploy, `sqlite3 prismis.db 'PRAGMA user_version'` is 1 and a count of values without an offset across the 12 columns is 0; prismis-daemon verify passes; the TUI shows last_fetched_at on sources.", "failureCase": "The only proof were a fixture the tests built.", "result": "held"},
-    {"test": "T7 consumers enumerated by grep over daemon/src, cli/src, tui/internal for strptime, fromisoformat and time.Parse: api.py:929 (query param, unaffected), reports.py:187 (fromisoformat on published_at, accepts the new shape), tui api/client.go:122 and db/queries.go:155, :402 (RFC3339, now succeed); SQLite datetime() wrappers in storage.py accept 'YYYY-MM-DDTHH:MM:SS.fff+00:00' (checked: datetime('2026-10-02T21:47:35+00:00') parses and orders correctly).", "failureCase": "A consumer parsed the space-separated naive layout and broke on the new shape.", "result": "held"},
-    {"test": "T8 shape: a CHECK constraint would make naive values unrepresentable but needs a 12-step rebuild of every table of a 700 MiB database with vec0 and FK ties; the post-condition plus the storage write test are the structural guard at acceptable cost.", "failureCase": "Rebuilding tables were cheap and safe here.", "result": "held"},
-    {"test": "T9 six months: the column list in the migration is hand-maintained; a future timestamp column added to schema.sql without a migration entry would start naive. Mitigation named in the work order: the storage write test asserts every timestamp column the schema declares, derived from sqlite_master at test time, so a new column fails the test until covered.", "failureCase": "A new column silently reintroduced naive writes with nothing to catch it.", "result": "held"},
-    {"test": "T10 undo: `git revert` of the commit, and for the data `cp prismis.db.bak-tz prismis.db`; both named and cheap; the migration is one-way only on data that has its backup beside it.", "failureCase": "The data change were one-way with no way back.", "result": "held"},
-    {"test": "T11 class sweep: grep for CURRENT_TIMESTAMP, datetime.now(), utcnow(), datetime('now') across daemon/src and cli/src: all stored-column producers are the 16 storage.py sites, schema.sql defaults and 3 triggers; the remaining datetime.now() uses (observability.py:60,116; api.py:1608; context_auto_updater.py:107; verify_chain.py:115; __main__.py:282-339) name files and log lines, not stored columns. Stacks: python daemon and go TUI are the only writers; the TUI writes no timestamps (queries.go:516, :545 rely on the trigger). Both engines run the same gate.", "failureCase": "A naive producer outside the enumerated set kept writing stored columns.", "result": "held"},
-    {"test": "T12 new state: PRAGMA user_version=1 and the .bak-tz file; the first is forced by idempotency, the second by the constitution's way-back rule.", "failureCase": "The state distinguished a case nothing needs.", "result": "held"},
-    {"test": "T13 fact twice: naive detection (NOT LIKE '%+%' AND NOT LIKE '%Z') lives in the migration's post-condition and the migration test only; the datetime() wrappers at storage.py:826,878,939 compute ordering, not naiveness, and stay.", "failureCase": "Two places decided what counts as naive.", "result": "held"},
-    {"test": "T14 prose vs gate: INV-STORAGE-TS-1 is enforced by the migration post-condition (startup fails) and the write test, not by a comment.", "failureCase": "The invariant lived only in a docstring.", "result": "held"},
-    {"test": "T15 model vs code: nothing here is left to a model.", "failureCase": "n/a", "result": "held"},
-    {"test": "T16 second home: the RFC3339 contract stays in boundaries.md; code points at it.", "failureCase": "The rule were restated near the code.", "result": "held"},
-    {"test": "T17 text matching: the migration decides by user_version (typed) and by data shape (LIKE on stored values the daemon defines), never by prose.", "failureCase": "A decision keyed on a message string.", "result": "held"},
-    {"test": "T18 cause vs effect: the cause is writers emitting naive strings (16 sites, 3 triggers, defaults); the design removes it and repairs the effect once with the backfill, which the constitution requires to ship together.", "failureCase": "Only the backfill shipped and new naive rows kept arriving.", "result": "held"}
+    {
+      "test": "T0 purpose: docs/IDEA.md:37-39 makes prismis a structured data source for AI agents and a TUI; tz-aware stored timestamps make every consumer's RFC3339 parse succeed (today 46/46 sources' last_fetched_at and 149 published_at rows silently drop in the TUI, queries.go:155, :402).",
+      "failureCase": "The change were neutral or negative for consumers of the data.",
+      "result": "held"
+    },
+    {
+      "test": "T1 owners: boundaries.md:85 (RFC3339 with explicit offset on the wire) and constitution.md:86-90 (stored shape changes ship with their migration; leave a way back) are both satisfied by the migration plus _rfc3339 pass-through; the Z-append sentence in boundaries.md becomes stale and is left to the architecture refresh job.",
+      "failureCase": "A contract forbade the migration or required the Z-append to stay.",
+      "result": "held"
+    },
+    {
+      "test": "T2/T6 evidence on the same noun: the design now orders the migration drop-triggers, backfill, recreate-triggers, post-condition. Rehearsed in that order on a VACUUM INTO copy of cerebro's live database (693 MiB, 38,485 content rows): 0 naive cells in all 12 columns, 0 updated_at values changed beyond their own conversion, trigger output '2026-10-02T23:08:01.218+00:00' on a TUI-style UPDATE, user_version 1, 1.2 s; VACUUM INTO 0.8 s; the live database untouched (38,485 naive, user_version 0 after).",
+      "failureCase": "The rewrite expression or trigger expression produced a shape a consumer cannot parse, or the backfill altered data beyond the offset.",
+      "result": "held"
+    },
+    {
+      "test": "T3 degrades: trigger precision drops from microseconds to milliseconds (strftime %f); existing databases keep unreachable CURRENT_TIMESTAMP column defaults; first start after deploy spends ~2 s migrating; no security property moves.",
+      "failureCase": "A consumer relied on microsecond ordering between two writes in the same millisecond.",
+      "result": "held"
+    },
+    {
+      "test": "T4 reuse: extends init_db (database.py:9) which Makefile init and verify_chain.py:102 already call, and the storage.py:284 datetime.now(UTC).isoformat() convention; the Makefile migrate target (189) stays untouched as the pre-existing ad-hoc path.",
+      "failureCase": "A second migration mechanism or second timestamp source were introduced.",
+      "result": "held"
+    },
+    {
+      "test": "T5 real-system proof: after deploy, `sqlite3 prismis.db 'PRAGMA user_version'` is 1 and a count of values without an offset across the 12 columns is 0; prismis-daemon verify passes; the TUI shows last_fetched_at on sources.",
+      "failureCase": "The only proof were a fixture the tests built.",
+      "result": "held"
+    },
+    {
+      "test": "T7 consumers enumerated by grep over daemon/src, cli/src, tui/internal for strptime, fromisoformat and time.Parse: api.py:929 (query param, unaffected), reports.py:187 (fromisoformat on published_at, accepts the new shape), tui api/client.go:122 and db/queries.go:155, :402 (RFC3339, now succeed); SQLite datetime() wrappers in storage.py accept 'YYYY-MM-DDTHH:MM:SS.fff+00:00' (checked: datetime('2026-10-02T21:47:35+00:00') parses and orders correctly).",
+      "failureCase": "A consumer parsed the space-separated naive layout and broke on the new shape.",
+      "result": "held"
+    },
+    {
+      "test": "T8 shape: a CHECK constraint would make naive values unrepresentable but needs a 12-step rebuild of every table of a 700 MiB database with vec0 and FK ties; the post-condition plus the storage write test are the structural guard at acceptable cost.",
+      "failureCase": "Rebuilding tables were cheap and safe here.",
+      "result": "held"
+    },
+    {
+      "test": "T9 six months: the column list in the migration is hand-maintained; a future timestamp column added to schema.sql without a migration entry would start naive. Mitigation named in the work order: the storage write test asserts every timestamp column the schema declares, derived from sqlite_master at test time, so a new column fails the test until covered.",
+      "failureCase": "A new column silently reintroduced naive writes with nothing to catch it.",
+      "result": "held"
+    },
+    {
+      "test": "T10 undo: `git revert` of the commit, and for the data `cp prismis.db.bak-tz prismis.db`; both named and cheap; the migration is one-way only on data that has its backup beside it.",
+      "failureCase": "The data change were one-way with no way back.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class sweep: grep for CURRENT_TIMESTAMP, datetime.now(), utcnow(), datetime('now') across daemon/src and cli/src: all stored-column producers are the 16 storage.py sites, schema.sql defaults and 3 triggers; the remaining datetime.now() uses (observability.py:60,116; api.py:1608; context_auto_updater.py:107; verify_chain.py:115; __main__.py:282-339) name files and log lines, not stored columns. Stacks: python daemon and go TUI are the only writers; the TUI writes no timestamps (queries.go:516, :545 rely on the trigger). Both engines run the same gate.",
+      "failureCase": "A naive producer outside the enumerated set kept writing stored columns.",
+      "result": "held"
+    },
+    {
+      "test": "T12 new state: PRAGMA user_version=1 and the .bak-tz file; the first is forced by idempotency, the second by the constitution's way-back rule.",
+      "failureCase": "The state distinguished a case nothing needs.",
+      "result": "held"
+    },
+    {
+      "test": "T13 fact twice: naive detection (NOT LIKE '%+%' AND NOT LIKE '%Z') lives in the migration's post-condition and the migration test only; the datetime() wrappers at storage.py:826,878,939 compute ordering, not naiveness, and stay.",
+      "failureCase": "Two places decided what counts as naive.",
+      "result": "held"
+    },
+    {
+      "test": "T14 prose vs gate: INV-STORAGE-TS-1 is enforced by the migration post-condition (startup fails) and the write test, not by a comment.",
+      "failureCase": "The invariant lived only in a docstring.",
+      "result": "held"
+    },
+    {
+      "test": "T15 model vs code: nothing here is left to a model.",
+      "failureCase": "n/a",
+      "result": "held"
+    },
+    {
+      "test": "T16 second home: the RFC3339 contract stays in boundaries.md; code points at it.",
+      "failureCase": "The rule were restated near the code.",
+      "result": "held"
+    },
+    {
+      "test": "T17 text matching: the migration decides by user_version (typed) and by data shape (LIKE on stored values the daemon defines), never by prose.",
+      "failureCase": "A decision keyed on a message string.",
+      "result": "held"
+    },
+    {
+      "test": "T18 cause vs effect: the cause is writers emitting naive strings (16 sites, 3 triggers, defaults); the design removes it and repairs the effect once with the backfill, which the constitution requires to ship together.",
+      "failureCase": "Only the backfill shipped and new naive rows kept arriving.",
+      "result": "held"
+    }
   ],
-  "decisions": [],
-  "verdict": "redesign",
-  "carried": [
-    "Migration order: the backfill's UPDATEs fire the existing updated_at triggers, which overwrite every updated_at with the migration time (rehearsed on a copy of cerebro's database: 38,485 rows clobbered). The migration must drop the three triggers before the backfill and recreate them after it, inside the same transaction; the design's step 1(b)/(c) order is reversed."
-  ]
+  "decisions": [
+    {
+      "question": "Startup-applied migration or operator-run window for the backfill?",
+      "answer": "Operator delegated to scrutiny; the startup-applied, user_version-guarded migration held every test (T4 reuse of init_db, T5 real-data rehearsal, T10 way back via VACUUM INTO backup), so it stands."
+    }
+  ],
+  "verdict": "accept",
+  "carried": []
 }

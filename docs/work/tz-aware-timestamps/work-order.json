@@ -1,0 +1,87 @@
+{
+  "workOrder": "tz-aware-timestamps",
+  "issues": [
+    31
+  ],
+  "what": "Every datetime column the daemon stores carries an explicit UTC offset: the daemon upgrades its own database at startup through a user_version-numbered migration in database.py (backup, drop triggers, backfill twelve columns, recreate tz-aware triggers, zero-naive post-condition), every one of the 16 storage.py CURRENT_TIMESTAMP write sites binds utc_now_iso(), schema.sql's defaults and triggers emit the same shape for fresh databases, and _rfc3339 becomes a pass-through (gh #31).",
+  "why": "The design is docs/work/tz-aware-timestamps/design.md. Ground found the producers are not the schema defaults the issue named but 16 app-side CURRENT_TIMESTAMP writes in storage.py plus three triggers; on cerebro 38,485 of 38,485 content rows have naive created_at and updated_at, 22,179 naive fetched_at, and all 46 sources' last_fetched_at are naive, so the TUI's RFC3339 parse silently drops them today. A rehearsal on a VACUUM INTO copy of the live database proved the migration (1.2 s, 0 naive cells after) and caught that the backfill must run with the updated_at triggers dropped, or every updated_at is overwritten with the migration time.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a database created from the pre-change schema.sql text, seeded with naive values in both historical shapes ('YYYY-MM-DD HH:MM:SS' and 'YYYY-MM-DDTHH:MM:SS.ffffff') and some already-aware values, in every timestamp column of content, sources, categories, source_categories and embeddings, with a known distinct updated_at per content row",
+      "when": "init_db runs against it",
+      "then": "it fails if any value is left without an offset or any updated_at equals the migration time instead of its own converted original; otherwise PRAGMA user_version is 1, a prismis.db.bak-tz file exists beside the database holding the pre-migration content, every timestamp value parses with datetime.fromisoformat and has tzinfo set, already-aware values are byte-identical, a later UPDATE on a content, sources or categories row writes updated_at ending in +00:00 through the recreated trigger, and a second init_db changes nothing (user_version still 1, no second backup, no value changed). The migration runs drop-triggers, backfill, recreate-triggers, post-condition and the user_version write in one transaction.",
+      "observation": {
+        "command": "cd daemon && uv run --locked --quiet pytest -q tests -k 'migration' 2>&1 | tail -1 | grep -E '^[0-9]+ passed' && echo 'SC-1: PASS'",
+        "expect": "SC-1: PASS"
+      }
+    },
+    {
+      "id": "SC-2",
+      "given": "a database where one timestamp cell holds a shape the rewrite cannot convert (for example 'not-a-date')",
+      "when": "init_db runs",
+      "then": "it raises an error naming the table, column and count of unconverted cells, the transaction is rolled back so no column changed and user_version is still 0, the backup file exists, and the daemon never reaches serving; nothing is silently skipped.",
+      "observation": {
+        "command": "cd daemon && uv run --locked --quiet pytest -q tests -k 'migration and (unconvertible or rollback or postcondition)' 2>&1 | tail -1 | grep -E '^[0-9]+ passed' && echo 'SC-2: PASS'",
+        "expect": "SC-2: PASS"
+      }
+    },
+    {
+      "id": "SC-3",
+      "given": "a fresh database from the new schema.sql",
+      "when": "every public write path in storage.py runs (add content, create-or-update content, add source, update source name/url, record a fetch with last_fetched_at, mark read, update analysis, archive, add embedding, record feedback, pause/resume), and a direct INSERT that relies on a column default",
+      "then": "every timestamp column the schema declares (enumerated at test time from sqlite_master: columns typed TIMESTAMP or named *_at, across every table) holds a value that parses with datetime.fromisoformat with tzinfo set; the test fails when any one of the 16 former CURRENT_TIMESTAMP sites is reverted, shown by reverting one and recording the red run. storage.py exposes one helper, utc_now_iso(), returning datetime.now(UTC).isoformat(), and no SQL in daemon/src or schema.sql contains the CURRENT_TIMESTAMP literal.",
+      "observation": {
+        "command": "cd daemon && ! grep -rn 'CURRENT_TIMESTAMP' src/prismis_daemon/ && uv run --locked --quiet pytest -q tests -k 'timestamp' 2>&1 | tail -1 | grep -E '^[0-9]+ passed' && echo 'SC-3: PASS'",
+        "expect": "SC-3: PASS"
+      }
+    },
+    {
+      "id": "SC-4",
+      "given": "the daemon's main entry point run against an XDG_DATA_HOME holding a pre-change database with naive rows",
+      "when": "the daemon starts in --once mode (or the API mode's startup path) with LLM calls answered by the existing stub",
+      "then": "it fails if any Storage() is constructed before the migration runs; otherwise user_version is 1 and zero naive cells remain before the first fetch or request is served, proved by an integration test that drives __main__ rather than calling init_db directly.",
+      "observation": {
+        "command": "cd daemon && uv run --locked --quiet pytest -q tests/integration -k 'startup and migrat' 2>&1 | tail -1 | grep -E '^[0-9]+ passed' && echo 'SC-4: PASS'",
+        "expect": "SC-4: PASS"
+      }
+    },
+    {
+      "id": "SC-5",
+      "given": "api_models._rfc3339 and the content endpoints",
+      "when": "a tz-aware datetime, and None, pass through _rfc3339, and a content row written by the new code is served by the API",
+      "then": "_rfc3339 returns v.isoformat() unchanged and None for None, with no Z-append and no tzinfo branch (the naive case is no longer representable in storage, so the test asserts the pass-through, not a naive input); the served JSON timestamps parse with datetime.fromisoformat and carry an offset.",
+      "observation": {
+        "command": "cd daemon && uv run --locked --quiet pytest -q tests -k 'rfc3339' 2>&1 | tail -1 | grep -E '^[0-9]+ passed' && ! grep -n '+ \"Z\"' src/prismis_daemon/api_models.py && echo 'SC-5: PASS'",
+        "expect": "SC-5: PASS"
+      }
+    },
+    {
+      "id": "SC-6",
+      "given": "the repository after the change",
+      "when": "the project gate runs",
+      "then": "every check passes",
+      "observation": {
+        "command": "./.specify/verify.sh 2>&1 | tail -1",
+        "expect": "verify: PASS"
+      }
+    }
+  ],
+  "outOfScope": [
+    "Existing databases keep the old `DEFAULT CURRENT_TIMESTAMP` column defaults in `sqlite_master` (SQLite cannot alter them without rebuilding every table of a 700 MiB file); they are unreachable because every write binds a value, and the post-condition catches any that is not.",
+    "Trigger timestamps carry millisecond precision (`%f`) where application writes carry microseconds; both are RFC3339 and both parse everywhere the project reads them.",
+    "The first daemon start after deploy spends a few seconds on the backup and the backfill of ~130k cells before it serves.",
+    "`docs/architecture/boundaries.md:85` still describes the Z-append mechanism until the architecture refresh job rewrites it after the merge."
+  ],
+  "stakes": [
+    "The daemon upgrades its own database at startup through a `PRAGMA user_version`-numbered migration list in database.py; no step of this change is operator-run.",
+    "A migration that rewrites data first writes a `VACUUM INTO` backup beside the database and runs its rewrite in one transaction with a post-condition that fails startup loudly rather than serve a half-converted database.",
+    "One timestamp source for application writes: `utc_now_iso()` in storage.py, the existing `datetime.now(UTC).isoformat()` convention, at all 16 former CURRENT_TIMESTAMP sites.",
+    "Triggers stay, because the TUI updates `read` and `user_feedback` directly and relies on them for `updated_at`; they emit the RFC3339 shape with `+00:00`.",
+    "INV-STORAGE-TS-1: every datetime column stores an ISO 8601 string with an explicit offset; the migration's post-condition and the storage write test are its standing guards.",
+    "`_rfc3339` keeps RFC3339 on the wire (INV-API-TS-1) by passing tz-aware values through, with no naive branch.",
+    "The backfill runs with the updated_at triggers dropped and recreates them afterwards, so a migration never rewrites a row's updated_at to the migration time.",
+    "The gitleaks plant test, gate wiring test and the uv --locked gate from pinned-deps-update-path are in place; the gate must stay green with no lockfile rewrites.",
+    "Never rewrite main's history while this work order is open: no rebase, pull --rebase, amend or reset on main."
+  ]
+}

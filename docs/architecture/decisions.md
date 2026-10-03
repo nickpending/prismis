@@ -4,14 +4,20 @@ subtype: decisions
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-10-02"
-last_change: "async-offload + pinned-deps ([2026-10-02]). Prior: content-kind (#77): ten-kind classification via Jev/OpenRouter Decisions endpoint ([2026-09-28]). Prior: openai-sdk-migration: daemon LLM calls go through a direct openai-SDK client (llm_client.py), replacing llm-core ([2026-09-25]); same migration's uv lock re-resolution upper-bounds praw to <8 until test_reddit_validation_unit.py is updated for prawcore 4's Session shape. Every unexpected API failure returns a generic 500 with detail redacted to the log (#76, commit 66cb94e); internal collaborators are no longer mocked in daemon or CLI tests, enforced by a structural guard test (no-internal-mocks, #73, #62)"
+updated: "2026-10-03"
+last_change: "tz-aware-timestamps (+00:00 storage, user_version migration, _rfc3339 simplified) ([2026-10-03]). Prior: async-offload + pinned-deps ([2026-10-02]). Prior: content-kind (#77): ten-kind classification via Jev/OpenRouter Decisions endpoint ([2026-09-28]). Prior: openai-sdk-migration: daemon LLM calls go through a direct openai-SDK client (llm_client.py), replacing llm-core ([2026-09-25]); same migration's uv lock re-resolution upper-bounds praw to <8 until test_reddit_validation_unit.py is updated for prawcore 4's Session shape. Every unexpected API failure returns a generic 500 with detail redacted to the log (#76, commit 66cb94e); internal collaborators are no longer mocked in daemon or CLI tests, enforced by a structural guard test (no-internal-mocks, #73, #62)"
 tags: [architecture, decisions]
 ---
 
 # Decisions
 
 Architectural decisions and their rationale. Most recent first.
+
+## [2026-10-03]: Stored datetimes carry an explicit +00:00 offset; migrated by user_version
+
+**Context:** Storage mixed naive `CURRENT_TIMESTAMP` strings with tz-aware ISO values, forcing `_rfc3339` to guess and append `Z`.
+**Choice:** Every write goes through `utc_now_iso()`; schema defaults and `updated_at` triggers emit `strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'`; `_rfc3339` is plain `isoformat()`. Existing DBs are converted by numbered migration 1 in `database.py` (`PRAGMA user_version`), run from `init_db()` at daemon startup in every mode; it backs up with `VACUUM INTO <db>.bak-tz`, drops/recreates the `updated_at` triggers so the backfill does not overwrite them, handles naive and aware-space-separated shapes, and fails the transaction if any cell is left without an offset.
+**Why:** One representation in storage removes the wire-layer guess; the audit-and-rollback makes a partial conversion impossible.
 
 ## [2026-10-02]: Every blocking call in an `async def` API handler runs via `asyncio.to_thread`; gate tools are pinned as `go.mod` tool directives
 

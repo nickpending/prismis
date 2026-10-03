@@ -617,10 +617,17 @@ func (c *APIClient) FetchEntry(id string) (*ContentItem, error) {
 		return nil, apiErrorOrStatus(status, body)
 	}
 
+	return decodeDataEnvelope[ContentItem](body)
+}
+
+// decodeDataEnvelope parses the {success, message, data} envelope the content
+// endpoints return and yields its data, or an error when the body does not parse
+// or success is false.
+func decodeDataEnvelope[T any](body []byte) (*T, error) {
 	var apiResp struct {
-		Success bool        `json:"success"`
-		Message string      `json:"message"`
-		Data    ContentItem `json:"data"`
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+		Data    T      `json:"data"`
 	}
 	if err := json.Unmarshal(body, &apiResp); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
@@ -628,7 +635,6 @@ func (c *APIClient) FetchEntry(id string) (*ContentItem, error) {
 	if !apiResp.Success {
 		return nil, fmt.Errorf("API error: %s", apiResp.Message)
 	}
-
 	return &apiResp.Data, nil
 }
 
@@ -654,20 +660,12 @@ func (c *APIClient) fetchEntriesWithParams(params string) ([]ContentItem, error)
 	}
 
 	// Parse response - API returns {success, message, data: {items: [...], total: N}}
-	var apiResp struct {
-		Success bool            `json:"success"`
-		Message string          `json:"message"`
-		Data    EntriesResponse `json:"data"`
-	}
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+	data, err := decodeDataEnvelope[EntriesResponse](body)
+	if err != nil {
+		return nil, err
 	}
 
-	if !apiResp.Success {
-		return nil, fmt.Errorf("API error: %s", apiResp.Message)
-	}
-
-	return apiResp.Data.Items, nil
+	return data.Items, nil
 }
 
 // PruneCount gets the count of unprioritized items that would be pruned

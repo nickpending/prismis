@@ -1,9 +1,9 @@
 ---
 type: manifest
 project: prismis
-generated: "2026-10-02"
+generated: "2026-10-03"
 source: /Users/rudy/development/projects/prismis/docs/architecture
-reconciled_at: ed551993ad13635c5a98b803b48422cbbb22a433
+reconciled_at: d6b5a2cc7fda091581bfa31a553865ec6bb278b4
 ---
 
 ## Components
@@ -18,7 +18,7 @@ reconciled_at: ed551993ad13635c5a98b803b48422cbbb22a433
 - **Kind Classifier** — Optional ten-kind item tagging via OpenRouter Decisions; fail-open.
 - **Circuit Breaker** — Service-keyed quota protection for LLM calls.
 - **API Server** — FastAPI REST: content access, search, on-demand extraction.
-- **Storage** — SQLite: content, dedup, archival, analysis patching.
+- **Storage** — SQLite: content, dedup, archival; tz-aware (+00:00) timestamps, versioned migrations.
 - **Embeddings** — Local all-MiniLM-L6-v2 (384-dim) for semantic search.
 - **Audio Briefings** — Spoken daily briefings via LLM + TTS.
 - **Notifier** — Desktop notifications for new HIGH items.

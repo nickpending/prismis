@@ -227,3 +227,7 @@ playtest-runs/
 docs/work/*/review.diff
 docs/work/*/job-*.diff
 docs/work/*/.journal.lock
+docs/work/*/journal.jsonl
+docs/work/*/.journal.checksum
+docs/work/*/results/
+docs/work/*/shape/

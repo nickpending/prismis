@@ -1,9 +1,0 @@
-{
-  "searched": [
-    "docs/work/refetch-unreadable/job-2.diff",
-    "docs/work/refetch-unreadable/journal.jsonl",
-    "docs/work/refetch-unreadable/results/review-2-3.json"
-  ],
-  "exhaustive": true,
-  "findings": []
-}

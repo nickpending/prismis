@@ -1,0 +1,2 @@
+{"kind":"opened","criteria":["SC-1","SC-2","SC-3","SC-4","SC-5","SC-6","SC-7"],"issues":[80],"sha":"5efa0708931cce79c4a30990fdf798b531b0070b","ts":"2026-10-03T15:34:17.670Z"}
+{"kind":"dispatched","action":"spawn-mason","resultPath":"docs/work/readable-content-misses/results/plan-1.json","ts":"2026-10-03T15:34:17.711Z"}

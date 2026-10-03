@@ -3,6 +3,7 @@
 import os
 import sqlite3
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -83,10 +84,16 @@ _MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
 
 
 def _backup_beside(conn: sqlite3.Connection, db_path: Path) -> None:
-    """Write a VACUUM INTO copy next to the database, unless one already exists."""
+    """Write a VACUUM INTO copy of the database as it is now, next to it.
+
+    A backup left by an earlier attempt that rolled back is kept under a
+    timestamped name rather than reused or overwritten, so the new backup always
+    holds the state the migration is about to rewrite.
+    """
     backup = db_path.with_name(db_path.name + ".bak-tz")
     if backup.exists():
-        return
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
+        backup.rename(backup.with_name(f"{backup.name}.{stamp}"))
     conn.execute("VACUUM INTO ?", (str(backup),))
 
 

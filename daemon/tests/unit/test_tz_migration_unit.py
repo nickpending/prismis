@@ -301,3 +301,43 @@ def test_migration_unconvertible_cell_fails_postcondition_and_rolls_back(
     assert all("CURRENT_TIMESTAMP" in sql for sql in trigger_sql), (
         "the DROP/CREATE TRIGGER steps must roll back with the backfill"
     )
+
+
+def test_migration_stale_backup_is_kept_and_a_fresh_one_taken(tmp_path: Path) -> None:
+    """
+    INVARIANT: the backup always holds the state the migration is about to rewrite; a
+               backup left by an earlier failed attempt is preserved, never reused
+    BREAKS: the operator repairs data after a failed start, and the retry rewrites the
+            database against a backup that no longer holds its pre-migration state
+    """
+    db = tmp_path / "prismis.db"
+    _build_old_database(db, extra_content_published="not-a-date")
+    with pytest.raises(sqlite3.Error):
+        init_db(db)
+    stale = _backup(db)
+    assert stale.exists()
+
+    # The operator repairs the bad cell, then restarts.
+    conn = _connect(db)
+    conn.execute("UPDATE content SET published_at = NULL WHERE id = 'c4'")
+    conn.commit()
+    conn.close()
+    init_db(db)
+
+    assert _user_version(db) == 1
+    conn = _connect(_backup(db))
+    try:
+        assert conn.execute(
+            "SELECT published_at FROM content WHERE id = 'c4'"
+        ).fetchone() == (None,), "fresh backup must hold the repaired pre-migration state"
+    finally:
+        conn.close()
+    kept = [p for p in tmp_path.glob("prismis.db.bak-tz.*")]
+    assert len(kept) == 1, "the earlier backup must be kept under a timestamped name"
+    conn = _connect(kept[0])
+    try:
+        assert conn.execute(
+            "SELECT published_at FROM content WHERE id = 'c4'"
+        ).fetchone() == ("not-a-date",)
+    finally:
+        conn.close()

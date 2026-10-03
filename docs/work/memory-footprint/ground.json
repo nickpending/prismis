@@ -1,0 +1,126 @@
+{
+  "impacted": [
+    {
+      "path": "daemon/src/prismis_daemon/api.py",
+      "role": "`get_content` (GET /api/entries): without a priority filter, or with priorities and not unread_only, calls `storage.get_content_since` with no limit, adds kind/title_only per row, sorts in Python, slices to `limit`, filters to compact fields only after all that, then builds `ContentItemModel`s and dumps one JSON body; `get_entry_summary` (GET /api/entries/{id}) returns one item, with content only when `include=content`"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "role": "`get_content_since` selects `c.*` (content and analysis included) with no LIMIT, ordered by `c.priority ASC` (alphabetical: high, low, medium); `get_content_by_priority` and `get_flagged_items` take a LIMIT; `_map_content_rows` parses each row's analysis JSON"
+    },
+    {
+      "path": "tui/internal/api/client.go",
+      "role": "`FetchEntries` sends `limit=10000` at startup and `FetchEntriesSince` sends `limit=10000&since=` on each later sync; both decode full `ContentItem`s including content and analysis"
+    },
+    {
+      "path": "tui/internal/ui/model.go",
+      "role": "holds every fetched item in `m.items`; the reader and copy actions read `item.Content`; the sync merges API items into local items"
+    },
+    {
+      "path": "tui/internal/ui/feed.go",
+      "role": "feed rows read from `analysis`: metadata content_length, Reddit and YouTube metrics, kind, title_only"
+    },
+    {
+      "path": "tui/internal/ui/reader.go",
+      "role": "the reader reads metadata and reading_summary from `analysis` and shows `item.Content`"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "role": "web UI: lists with `limit=100` and reads `analysis.matched_interests` and `analysis.preference_influenced` from list items; fetches `/api/entries/{id}?include=content` when an item is opened"
+    },
+    {
+      "path": "cli/src/cli/extract.py",
+      "role": "lists `limit*3` candidates through the API and keeps those whose `analysis` lacks `deep_extraction`"
+    },
+    {
+      "path": "cli/src/cli/list.py",
+      "role": "prints id/title/priority/kind/published, or the raw response with --json; --compact passes `compact=True`"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/embeddings.py",
+      "role": "`Embedder.model` loads the sentence-transformers model lazily on first use; the module imports `sentence_transformers` at top level and api.py, orchestrator.py and verify_chain.py import it"
+    }
+  ],
+  "constraints": [
+    {
+      "tag": "RULE",
+      "path": "docs/architecture/boundaries.md",
+      "line": 88,
+      "text": "INV-API-TS-4: every API list/detail endpoint that returns content data MUST flow through a Pydantic response model (ContentResponse, ContentItemModel, or a named sibling model with the same @field_serializer decorators)."
+    },
+    {
+      "tag": "RULE",
+      "path": "docs/architecture/boundaries.md",
+      "line": 73,
+      "text": "GET /api/entries enforces a server-side Pydantic le=10000 constraint on limit; the server-side ceiling is authoritative and is not modified."
+    },
+    {
+      "tag": "RULE",
+      "path": "docs/architecture/boundaries.md",
+      "line": 62,
+      "text": "The kind filter is applied in the storage queries (json_extract) before any limit, for /api/entries and /api/search alike."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "line": 1,
+      "text": "2026-10-03: content has 38,545 rows, 27,404 not archived. One GET /api/entries?limit=10000 returned 260 MB in 11.3 s: analysis 158 MB (full_text 99 MB in 431 file-source items, reading_summary 32 MB, alpha_insights 12 MB, deep_extraction 6 MB, patterns 5 MB, quotes 4 MB), content 80 MB, summary 3 MB. Daemon RSS went 561 MB to a 2,468 MB peak and stayed at 1,185 MB."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "cerebro:/home/rudy/.local/share/uv/tools/prismis-daemon/bin/python3",
+      "line": 1,
+      "text": "Measured in the daemon's own environment on cerebro: RSS 8 MB bare, 447 MB after importing prismis_daemon.api and storage (torch via sentence_transformers), 476 MB after loading the model, 526 MB after one encode. The resident baseline is import cost, flat in corpus size; the model itself is ~30 MB."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "cerebro:journalctl -u prismis",
+      "line": 1,
+      "text": "Fetch-cycle memory peaks over 2026-09-30 to 10-03 ran 613 MB to 1 GB, except restarts during API traffic or the 10-03 migration; both 10-03 OOM kills came with remote-TUI traffic (the second 4 s after a GET /api/sources from the Mac, the TUI's first call before FetchEntries)."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 1647,
+      "text": "The web UI already shows a slim list and fetches /api/entries/{id}?include=content when an item is opened."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "/Users/rudy/.claude/skills/prismis/SKILL.md",
+      "line": 43,
+      "text": "The prismis skill (agent consumer) lists with --compact --json and fetches full items with `prismis-cli get <id> --json`."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "daemon/src/prismis_daemon/api.py",
+      "line": 1059,
+      "text": "Because compact filtering happens after the full corpus is loaded and parsed, `compact=True` does not bound memory today; only a bounded, column-projected query does."
+    }
+  ],
+  "adrs": {
+    "scanned": 0,
+    "binding": []
+  },
+  "related": {
+    "query": "gh issue list --state open --search \"memory OR OOM OR entries OR pagination OR performance OR remote\" --limit 20",
+    "issues": []
+  },
+  "reuse": [
+    {
+      "path": "daemon/src/prismis_daemon/api.py",
+      "what": "`get_entry_summary` (GET /api/entries/{id}?include=content), the detail path the web UI already uses on open"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "what": "`get_content_by_priority`'s SQL LIMIT shape and `_kind_filter_sql`, extended to the unfiltered list path"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/api.py",
+      "what": "the existing `compact` field set, the starting point for a bounded list projection"
+    }
+  ],
+  "open": [
+    "What does the remote TUI fetch at startup and on opening an item, given that feed rows read kind, title_only, content length and Reddit/YouTube metrics from `analysis` and the reader needs content and the reading summary?",
+    "Is the embedding model's resident cost part of this change (lazy load or release, per the issue), or does bounding the entries path alone restore the margin the acceptance asks for at 2x corpus growth?"
+  ]
+}

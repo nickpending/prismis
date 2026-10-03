@@ -1,0 +1,2 @@
+{"kind":"opened","criteria":["SC-1","SC-2","SC-3","SC-4","SC-5","SC-6","SC-7"],"issues":[55],"sha":"d19e1b757c5623cf8646e5cd82b92501c56adea6","ts":"2026-10-03T15:31:13.970Z"}
+{"kind":"dispatched","action":"spawn-mason","resultPath":"docs/work/memory-footprint/results/plan-1.json","ts":"2026-10-03T15:31:14.001Z"}

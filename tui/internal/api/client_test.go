@@ -652,8 +652,8 @@ func TestFetchEntriesRequest(t *testing.T) {
 	if items == nil {
 		t.Fatal("expected a non-nil slice")
 	}
-	if gotPath != "/api/entries?limit=10000" {
-		t.Errorf("expected /api/entries?limit=10000, got %s", gotPath)
+	if gotPath != "/api/entries?limit=10000&view=list" {
+		t.Errorf("expected /api/entries?limit=10000&view=list, got %s", gotPath)
 	}
 }
 
@@ -674,6 +674,62 @@ func TestFetchEntriesSinceRequest(t *testing.T) {
 	wantParam := "since=" + since.Format(time.RFC3339Nano)
 	if !strings.Contains(gotPath, wantParam) {
 		t.Errorf("expected path to contain %q, got %s", wantParam, gotPath)
+	}
+	if !strings.Contains(gotPath, "view=list") {
+		t.Errorf("expected path to carry view=list, got %s", gotPath)
+	}
+}
+
+func TestFetchEntryRequestAndFullItem(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"id":"abc","title":"T","content":"FULL BODY","analysis":{"reading_summary":"RS","deep_extraction":{"synthesis":"S"}},"has_deep_extraction":true,"published_at":"2026-01-02T03:04:05+00:00","fetched_at":"2026-01-02T03:04:05+00:00"}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	item, err := client.FetchEntry("abc")
+	if err != nil {
+		t.Fatalf("FetchEntry failed: %v", err)
+	}
+	if gotPath != "/api/entries/abc?include=content" {
+		t.Errorf("expected /api/entries/abc?include=content, got %s", gotPath)
+	}
+	if item.Content != "FULL BODY" {
+		t.Errorf("expected full content, got %q", item.Content)
+	}
+	if !strings.Contains(string(item.Analysis), "reading_summary") {
+		t.Errorf("expected the full analysis, got %s", string(item.Analysis))
+	}
+	if !item.HasDeepExtraction {
+		t.Error("expected HasDeepExtraction to be decoded")
+	}
+}
+
+func TestFetchEntryStatusErrors(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		want   string
+	}{
+		{http.StatusNotFound, "content not found"},
+		{http.StatusForbidden, "authentication failed"},
+		{http.StatusInternalServerError, "API error"},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(`{"success":false,"message":"boom"}`))
+		}))
+		client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+		item, err := client.FetchEntry("abc")
+		server.Close()
+		if err == nil || item != nil {
+			t.Fatalf("status %d: expected an error and no item, got %v, %v", tc.status, item, err)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("status %d: expected error containing %q, got %v", tc.status, tc.want, err)
+		}
 	}
 }
 

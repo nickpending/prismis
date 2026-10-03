@@ -25,7 +25,7 @@ def extract(
     """Backfill deep extractions for existing content.
 
     Calls POST /api/entries/{id}/extract per matching item. Idempotent:
-    items already with analysis.deep_extraction are skipped client-side
+    items the list marks has_deep_extraction are skipped client-side
     (the server endpoint also enforces idempotency via INV-004).
     """
     if priority not in ("high", "medium", "low", "all"):
@@ -54,16 +54,17 @@ def extract(
         candidates = client.get_content(
             priority=None if priority == "all" else priority,
             limit=limit * 3,
+            view="list",
         )
     except RuntimeError as e:
         console.print(f"[red]Failed to list entries: {e}[/red]")
         raise typer.Exit(1) from e
 
-    pending = [
-        item
-        for item in candidates
-        if not (item.get("analysis") or {}).get("deep_extraction")
-    ][:limit]
+    # The list view carries no full analysis to look deep_extraction up in; the
+    # server marks it on the item as has_deep_extraction.
+    pending = [item for item in candidates if not item.get("has_deep_extraction")][
+        :limit
+    ]
 
     if not pending:
         console.print(

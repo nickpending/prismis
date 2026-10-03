@@ -167,6 +167,31 @@ def test_entries_fetched_at_wire_format_is_rfc3339(entries_client: TestClient) -
             )
 
 
+def test_entries_list_view_fetched_at_wire_format_is_rfc3339(
+    entries_client: TestClient,
+) -> None:
+    """INV-API-TS-1 / INV-API-TS-4: the slim `view=list` shape also flows through
+    ContentItemModel, so its datetimes are RFC3339 with an offset and the envelope
+    is unchanged; only `content` is dropped.
+
+    BREAKS: a list path that bypassed the model would hand the TUI's strict
+    time.RFC3339 parser a naive datetime.
+    """
+    response = entries_client.get(
+        "/api/entries?view=list", headers={"X-API-Key": API_KEY}
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert set(data) == {"success", "message", "data"}
+    items = data["data"]["items"]
+    assert len(items) >= 1, "Precondition: at least one item must be returned"
+    for item in items:
+        assert "content" not in item
+        assert_rfc3339(item["fetched_at"])
+        assert item["fetched_at"].endswith("+00:00")
+
+
 # ---------------------------------------------------------------------------
 # T-E: /api/search wire format — fetched_at is RFC3339 (SC-30)
 # ---------------------------------------------------------------------------

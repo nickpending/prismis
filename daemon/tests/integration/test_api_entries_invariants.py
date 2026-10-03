@@ -25,7 +25,7 @@ def populated_storage(test_db: Path) -> Storage:
     )
 
     # Add content items with different priorities and read states
-    # Use recent datetime so get_content_since() will find them
+    # Use recent datetime so the since-window reads find them
     recent_time = datetime.now(timezone.utc)
 
     test_content = [
@@ -180,7 +180,8 @@ def test_api_content_data_consistency(
         api_items = response.json()["data"]["items"]
 
         # Get from database using the same logic the API uses
-        # API uses get_content_since() then filters by priority when unread_only=False
+        # The API reads these through get_content_list; get_content_since is an
+        # independent oracle over the same rows
         from datetime import datetime, timedelta, timezone
 
         since_dt = datetime.now(timezone.utc) - timedelta(hours=24 * 30)

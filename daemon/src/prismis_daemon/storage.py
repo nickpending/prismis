@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from operator import itemgetter
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from .database import get_db_connection
 from .models import ContentItem
@@ -913,6 +913,164 @@ class Storage:
         except sqlite3.Error as e:
             since_str = since.isoformat() if since else "beginning"
             raise sqlite3.Error(f"Failed to get content since {since_str}: {e}") from e
+
+    # The analysis keys a list view reads (list shape contract in
+    # docs/architecture/boundaries.md). A new list view that reads another key adds
+    # it here; the full analysis JSON is never read for view="list".
+    LIST_ANALYSIS_KEYS: ClassVar[tuple[str, ...]] = (
+        "kind",
+        "kind_confidence",
+        "title_only",
+        "metrics",
+        "metadata",
+        "matched_interests",
+        "preference_influenced",
+    )
+
+    # ORDER BY per sort; priority orders high, medium, low, then NULL.
+    _LIST_ORDER_BY: ClassVar[dict[str, str]] = {
+        "priority": (
+            "CASE c.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 "
+            "WHEN 'low' THEN 2 ELSE 3 END, c.published_at DESC, c.id"
+        ),
+        "date": "c.published_at DESC, c.id",
+        "unread": "c.read ASC, c.published_at DESC, c.id",
+    }
+
+    def get_content_list(
+        self,
+        limit: int = 50,
+        *,
+        view: str = "full",
+        sort_by: str = "priority",
+        since: datetime | None = None,
+        include_archived: bool = False,
+        source_filter: str | None = None,
+        kind_filter: list[str] | None = None,
+        priorities: list[str] | None = None,
+        unread_only: bool = False,
+        interesting: bool = False,
+    ) -> list[dict[str, Any]]:
+        """One bounded SQL read behind GET /api/entries: filter, sort and LIMIT all
+        run in SQLite, so at most `limit` rows are ever read into Python.
+
+        Args:
+            limit: Maximum rows returned.
+            view: "full" selects every column (content and the whole analysis);
+                "list" selects every column except content and analysis, and
+                projects analysis down to LIST_ANALYSIS_KEYS inside SQL, so the
+                full analysis JSON is never read. A list row has no `content` key,
+                its `analysis` holds only the list keys that are present (an empty
+                dict for NULL, invalid or non-object analysis JSON), and
+                `has_deep_extraction` says whether analysis had `deep_extraction`.
+            sort_by: "priority" (high, medium, low, none), "date" or "unread";
+                each ties on published_at newest first.
+            since: Only rows fetched after this instant.
+            include_archived: Include archived rows if True.
+            source_filter: Case-insensitive source name substring.
+            kind_filter: Kind values, applied in WHERE before LIMIT.
+            priorities: Only these priority levels.
+            unread_only: Only `read = 0` rows.
+            interesting: Only `user_feedback = 'up'` rows.
+
+        Raises:
+            ValueError: unknown `view`.
+            sqlite3.Error: if the query fails.
+        """
+        if view not in ("full", "list"):
+            raise ValueError(f"Unknown content view: {view!r}")
+        order_by = self._LIST_ORDER_BY.get(sort_by, self._LIST_ORDER_BY["priority"])
+        try:
+            if view == "list":
+                # `->` keeps JSON types (true stays true, objects stay objects) where
+                # json_extract would turn a boolean into 1/0. json_valid guards a row
+                # whose analysis is NULL, empty or not JSON (a classifier failure),
+                # the way get_distinct_kinds does.
+                pairs = ", ".join(
+                    f"'{key}', c.analysis -> '$.{key}'" for key in self.LIST_ANALYSIS_KEYS
+                )
+                columns = (
+                    "c.id, c.source_id, c.external_id, c.title, c.url, c.summary,"
+                    " c.priority, c.published_at, c.fetched_at, c.read, c.favorited,"
+                    " c.notes, c.interesting_override, c.user_feedback,"
+                    f" CASE WHEN json_valid(c.analysis) THEN json_object({pairs})"
+                    " END AS analysis_list,"
+                    " CASE WHEN json_valid(c.analysis) THEN"
+                    " json_extract(c.analysis, '$.deep_extraction') IS NOT NULL"
+                    " ELSE 0 END AS has_deep_extraction"
+                )
+            else:
+                columns = "c.*"
+            query = (
+                f"SELECT {columns}, s.name as source_name, s.type as source_type"
+                " FROM content c JOIN sources s ON c.source_id = s.id WHERE 1=1"
+            )
+            params: list[Any] = []
+
+            if since is not None:
+                query += " AND datetime(c.fetched_at) > datetime(?)"
+                params.append(since.isoformat())
+            if not include_archived:
+                query += " AND c.archived_at IS NULL"
+            if source_filter:
+                query += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
+                params.append(source_filter)
+            query += self._kind_filter_sql(kind_filter, params)
+            if priorities:
+                query += f" AND c.priority IN ({','.join(['?'] * len(priorities))})"
+                params.extend(priorities)
+            if unread_only:
+                query += " AND c.read = 0"
+            if interesting:
+                query += " AND c.user_feedback = 'up'"
+
+            query += f" ORDER BY {order_by} LIMIT ?"
+            params.append(limit)
+
+            rows = self.conn.execute(query, tuple(params)).fetchall()
+            omit = ("created_at", "updated_at")
+            if view == "full":
+                items = self._map_content_rows(rows, omit=omit)
+                for item in items:
+                    analysis = item.get("analysis")
+                    item["has_deep_extraction"] = (
+                        isinstance(analysis, dict)
+                        and analysis.get("deep_extraction") is not None
+                    )
+                return items
+            return [self._list_row_to_dict(row) for row in rows]
+
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get content list: {e}") from e
+
+    @staticmethod
+    def _list_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+        """Map a `view="list"` row: the joined content fields minus content and the
+        full analysis, plus the projected analysis and has_deep_extraction."""
+        projected = row["analysis_list"]
+        analysis: dict[str, Any] = {}
+        if projected:
+            analysis = {k: v for k, v in json.loads(projected).items() if v is not None}
+        return {
+            "id": row["id"],
+            "source_id": row["source_id"],
+            "external_id": row["external_id"],
+            "title": row["title"],
+            "url": row["url"],
+            "summary": row["summary"],
+            "analysis": analysis,
+            "priority": row["priority"],
+            "published_at": row["published_at"],
+            "fetched_at": row["fetched_at"],
+            "read": bool(row["read"]),
+            "favorited": bool(row["favorited"]),
+            "notes": row["notes"],
+            "interesting_override": bool(row["interesting_override"]),
+            "user_feedback": row["user_feedback"],
+            "source_name": row["source_name"],
+            "source_type": row["source_type"],
+            "has_deep_extraction": bool(row["has_deep_extraction"]),
+        }
 
     def get_distinct_kinds(self, since: datetime | None = None) -> list[str]:
         """Get the sorted, de-duplicated kind values present in non-archived

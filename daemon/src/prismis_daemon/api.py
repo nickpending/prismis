@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -265,6 +265,10 @@ async def get_validator() -> SourceValidator:
 # message below that says which source overran. That relationship is enforced by the
 # test named `test_server_validation_budget_stays_under_every_client_budget`.
 SOURCE_VALIDATION_TIMEOUT = 20.0
+
+# Rows GET /api/entries reads when fuzzy dedup is on: dedup is O(n^2), so it
+# only ever sees the first 200 rows of the requested sort (see boundaries.md).
+DEDUP_WINDOW = 200
 
 
 async def _validate_source_with_timeout(
@@ -876,6 +880,13 @@ async def get_content(
         True,
         description="Skip fuzzy title deduplication (default: True for faster responses)",
     ),
+    view: Literal["full", "list"] = Query(
+        "full",
+        description=(
+            "'full' (default) returns every field including content and the whole "
+            "analysis; 'list' omits content and cuts analysis to the list keys"
+        ),
+    ),
     storage: Storage = Depends(get_storage),
 ) -> dict:
     """Get content items with optional filtering.
@@ -896,6 +907,8 @@ async def get_content(
         source: Filter results to sources containing this substring (case-insensitive)
         compact: Return compact format for LLM consumption
         skip_dedup: Skip fuzzy title deduplication (default: True for faster responses)
+        view: 'full' (default, today's fields) or 'list' (no content, analysis cut to
+              the list keys, plus has_deep_extraction)
         storage: Storage instance injected by FastAPI
 
     Returns:
@@ -932,116 +945,29 @@ async def get_content(
                     f"Invalid ISO8601 timestamp: {since}. Expected format: 2025-11-05T12:00:00Z"
                 ) from e
 
-        content_items = []
+        # One bounded SQL read: filter, sort and LIMIT all run in SQLite, so at most
+        # `limit` rows (the dedup window when dedup is on) are ever loaded -- never
+        # the corpus. The kind filter is part of that WHERE clause, applied before
+        # the LIMIT (search-kind-filter SC-2/SC-5).
+        read_limit = limit if skip_dedup else max(limit, DEDUP_WINDOW)
+        content_items = storage.get_content_list(
+            read_limit,
+            view=view,
+            sort_by=effective_sort,
+            since=since_dt,
+            include_archived=include_archived,
+            source_filter=source,
+            kind_filter=kind_filter,
+            priorities=priorities or None,
+            unread_only=unread_only,
+            interesting=interesting_override is True,
+        )
 
-        # Handle interesting_override filter first (takes precedence)
-        if interesting_override is True:
-            content_items = storage.get_flagged_items(limit, kind_filter=kind_filter)
-        elif priorities:
-            # Get content by specific priority/priorities
-            if unread_only:
-                # Call storage for each priority and combine results
-                for p in priorities:
-                    remaining = limit - len(content_items)
-                    if remaining <= 0:
-                        break
-                    items = storage.get_content_by_priority(
-                        p,
-                        remaining,
-                        include_archived,
-                        source_filter=source,
-                        since=since_dt,
-                        kind_filter=kind_filter,
-                    )
-                    content_items.extend(items)
-            else:
-                # Get content with time filter, then filter by priorities
-                all_content = storage.get_content_since(
-                    since=since_dt,
-                    include_archived=include_archived,
-                    source_filter=source,
-                    kind_filter=kind_filter,
-                )
-                content_items = [
-                    item for item in all_content if item.get("priority") in priorities
-                ]
-        else:
-            # Get content from all priorities
-            if unread_only:
-                # Get unread from all priorities, respecting limit
-                high_items = storage.get_content_by_priority(
-                    "high",
-                    limit,
-                    include_archived,
-                    source_filter=source,
-                    since=since_dt,
-                    kind_filter=kind_filter,
-                )
-                remaining_limit = limit - len(high_items)
-
-                medium_items = []
-                low_items = []
-                if remaining_limit > 0:
-                    medium_items = storage.get_content_by_priority(
-                        "medium",
-                        remaining_limit,
-                        include_archived,
-                        source_filter=source,
-                        since=since_dt,
-                        kind_filter=kind_filter,
-                    )
-                    remaining_limit = remaining_limit - len(medium_items)
-
-                if remaining_limit > 0:
-                    low_items = storage.get_content_by_priority(
-                        "low",
-                        remaining_limit,
-                        include_archived,
-                        source_filter=source,
-                        since=since_dt,
-                        kind_filter=kind_filter,
-                    )
-
-                content_items = high_items + medium_items + low_items
-            else:
-                # Get all content (or filtered by time if since/since_hours provided)
-                all_content = storage.get_content_since(
-                    since=since_dt,
-                    include_archived=include_archived,
-                    source_filter=source,
-                    kind_filter=kind_filter,
-                )
-                content_items = all_content
-
-        # SC-2/SC-5: kind filtering is now a storage-layer WHERE clause (threaded
-        # above via kind_filter), applied before each query's own LIMIT -- not a
-        # Python post-filter over items a limit already bounded. The mirror onto
-        # the top level still happens here: kind has no column of its own (unlike
-        # priority), so every read path stores it only inside the analysis JSON.
+        # kind has no column of its own (unlike priority), so every read path stores
+        # it only inside the analysis JSON; mirror it onto the top level here.
         for item in content_items:
             item["kind"] = _item_kind(item)
             item["title_only"] = _item_title_only(item)
-
-        # Apply sorting based on sort_by parameter
-        # Helper to get sortable date (ISO strings sort correctly alphabetically)
-        def get_date(item: dict) -> str:
-            return item.get("published_at") or ""
-
-        priority_order = {"high": 0, "medium": 1, "low": 2, None: 3}
-
-        if effective_sort == "date":
-            # Sort by published_at descending (newest first)
-            content_items.sort(key=get_date, reverse=True)
-        elif effective_sort == "unread":
-            # Sort by read status (unread first), then by date descending
-            # Use stable sort: first by date desc, then by read status
-            content_items.sort(key=get_date, reverse=True)
-            content_items.sort(key=lambda x: 1 if x.get("read_at") else 0)
-        else:
-            # Default: sort by priority ascending, then date descending
-            # Use stable sort: first by date desc, then by priority
-            content_items.sort(key=get_date, reverse=True)
-            content_items.sort(key=lambda x: priority_order.get(x.get("priority"), 3))
 
         # Deduplicate by fuzzy title matching (80% similarity) if enabled
         # Groups similar items, keeps highest priority as primary
@@ -1049,7 +975,7 @@ async def get_content(
         if not skip_dedup:
             # Cap items for deduplication to avoid O(n²) timeout on large datasets
             # 200 items @ O(n²) = 40,000 comparisons, runs in ~2-3 seconds
-            dedup_cap = min(len(content_items), 200)
+            dedup_cap = min(len(content_items), DEDUP_WINDOW)
             content_items = deduplicate_content(content_items[:dedup_cap])
 
         # Apply limit AFTER deduplication to ensure duplicates are properly grouped
@@ -1099,7 +1025,12 @@ async def get_content(
                     "compact": compact,
                 },
             ),
-        ).model_dump(mode="json")
+        ).model_dump(
+            mode="json",
+            exclude=(
+                {"data": {"items": {"__all__": {"content"}}}} if view == "list" else None
+            ),
+        )
 
     except Exception as e:
         raise _server_error("Failed to get content", e) from e
@@ -1287,6 +1218,10 @@ async def get_entry_summary(
         # every entry as unclassified, including ones the classifier actually kinded.
         entry["kind"] = _item_kind(entry)
         entry["title_only"] = _item_title_only(entry)
+        analysis = entry.get("analysis")
+        entry["has_deep_extraction"] = (
+            isinstance(analysis, dict) and analysis.get("deep_extraction") is not None
+        )
 
         # INV-API-TS-4: route through ContentItemModel so @field_serializer emits RFC3339 datetimes
         if include == "content":

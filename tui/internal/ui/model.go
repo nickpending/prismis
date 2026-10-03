@@ -66,6 +66,16 @@ type Model struct {
 	remoteURL  string           // If non-empty, use API instead of local DB
 	lastSync   time.Time        // Last successful API fetch timestamp
 	itemsCache []db.ContentItem // Cached items for remote mode
+	// hydrated holds, by item ID, the full content and analysis fetched for an item
+	// merged from a slim list response (remote mode only). An ID present here is
+	// hydrated; a later sync that re-merges the item drops it from the map.
+	hydrated map[string]hydratedFields
+}
+
+// hydratedFields is what GET /api/entries/{id}?include=content adds over a list item.
+type hydratedFields struct {
+	Content  string
+	Analysis string
 }
 
 // itemsLoadedMsg represents content items loaded from database
@@ -81,6 +91,7 @@ type itemsLoadedMsg struct {
 	allItems    []db.ContentItem // Unfiltered items for caching (remote mode only)
 	updateCache bool             // If true, update cache and lastSync
 	newLastSync time.Time        // Newest fetched_at timestamp from API (remote mode only)
+	mergedIDs   []string         // IDs of items this sync re-merged as slim list items (remote mode only)
 }
 
 // sourcesLoadedMsg represents sources loaded from database
@@ -342,10 +353,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case commands.FabricMsg:
 		// Execute Fabric pattern on current item's full content
 		currentContent := ""
-		if len(m.items) > 0 && m.cursor < len(m.items) {
-			item := m.items[m.cursor]
+		if !msg.ListOnly && len(m.items) > 0 && m.cursor < len(m.items) {
+			// A slim list item has no content; never run the pattern on empty text.
+			if err := m.hydrateItem(m.items[m.cursor].ID); err != nil {
+				return m, clearStatusAfterDelay(3 * time.Second)
+			}
 			// Only use full content - no fallback to summary
-			currentContent = item.Content
+			currentContent = m.items[m.cursor].Content
 		}
 		return m, operations.ExecuteFabricCommand(msg.Pattern, msg.ListOnly, currentContent)
 
@@ -444,6 +458,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case commands.CopyMsg:
 		// Copy content to clipboard (works in both list and reader views)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
+			// Both targets read fields a slim list item lacks (content, and the
+			// analysis's reading summary), so fetch the full item first.
+			if err := m.hydrateItem(m.items[m.cursor].ID); err != nil {
+				return m, clearStatusAfterDelay(3 * time.Second)
+			}
 			item := m.items[m.cursor]
 			var contentToCopy string
 			var description string
@@ -530,7 +549,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.view == "list" && len(m.items) > 0 {
 				m.view = "reader"
 				// Update viewport with current article content
-				m.updateReaderContent()
+				if c := m.updateReaderContent(); c != nil {
+					cmds = append(cmds, c)
+				}
 			}
 		case "esc":
 			if m.view == "reader" {
@@ -596,13 +617,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focusedPane == "content" && m.view == "reader" && m.cursor > 0 {
 				// Previous article
 				m.cursor--
-				m.updateReaderContent()
+				if c := m.updateReaderContent(); c != nil {
+					cmds = append(cmds, c)
+				}
 			}
 		case "l", "right":
 			if m.focusedPane == "content" && m.view == "reader" && m.cursor < len(m.items)-1 {
 				// Next article
 				m.cursor++
-				m.updateReaderContent()
+				if c := m.updateReaderContent(); c != nil {
+					cmds = append(cmds, c)
+				}
 			}
 		case "g":
 			if m.focusedPane == "sources" {
@@ -811,6 +836,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg.err
 		if msg.err == nil {
+			// A re-merged item is a slim list item again; every other hydrated item
+			// keeps its fetched content even when this sync was built from a cache
+			// snapshot taken before it was hydrated.
+			if m.remoteURL != "" {
+				for _, id := range msg.mergedIDs {
+					delete(m.hydrated, id)
+				}
+				m.applyHydrated(msg.items)
+				m.applyHydrated(msg.allItems)
+			}
 			previousCount := len(m.items)
 			m.items = msg.items
 			m.hiddenCount = msg.hiddenCount
@@ -1013,6 +1048,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					analysis["deep_extraction"] = msg.DeepExtraction
 					if updated, err := json.Marshal(analysis); err == nil {
 						m.items[i].Analysis = string(updated)
+						// Keep the hydrated snapshot in step, or a later sync would
+						// write the pre-extraction analysis back over this item.
+						if fields, ok := m.hydrated[item.ID]; ok {
+							fields.Analysis = string(updated)
+							m.hydrated[item.ID] = fields
+						}
 					}
 					break
 				}
@@ -1277,7 +1318,9 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 	}
 
 	// Convert API items to DB format
+	mergedIDs := make([]string, 0, len(apiItems))
 	for _, apiItem := range apiItems {
+		mergedIDs = append(mergedIDs, apiItem.ID)
 		priority := ""
 		if apiItem.Priority != nil {
 			priority = *apiItem.Priority
@@ -1330,7 +1373,66 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 		allItems:       allItems,
 		updateCache:    true,
 		newLastSync:    newestFetchedAt,
+		mergedIDs:      mergedIDs,
 		err:            nil,
+	}
+}
+
+// hydrateItem makes sure the item with this ID carries its full content and
+// analysis. In remote mode the items a sync merges are slim list items (no content,
+// analysis cut to the list keys), so every action that reads item.Content or the
+// full analysis - opening the reader, copying, sending to Fabric - goes through
+// here: the first call for an item makes one GET /api/entries/{id}?include=content
+// and stores the result in m.items and m.hydrated; later calls make no request. A
+// failed fetch sets the status line and leaves the item unhydrated. Local mode reads
+// full rows from the database and makes no request.
+func (m *Model) hydrateItem(id string) error {
+	if m.remoteURL == "" {
+		return nil
+	}
+	if _, ok := m.hydrated[id]; ok {
+		return nil
+	}
+
+	client, err := api.NewClientWithURL(m.remoteURL)
+	if err != nil {
+		m.statusMessage = fmt.Sprintf("Failed to load content: %v", err)
+		return err
+	}
+	full, err := client.FetchEntry(id)
+	if err != nil {
+		m.statusMessage = fmt.Sprintf("Failed to load content: %v", err)
+		return err
+	}
+
+	fields := hydratedFields{Content: full.Content}
+	if len(full.Analysis) > 0 && string(full.Analysis) != "null" {
+		fields.Analysis = string(full.Analysis)
+	}
+	if m.hydrated == nil {
+		m.hydrated = make(map[string]hydratedFields)
+	}
+	m.hydrated[id] = fields
+	// m.itemsCache is left alone: every remote load overlays m.hydrated onto what it
+	// hands back (the itemsLoadedMsg case), and a background sync reads the cache
+	// concurrently with Update.
+	for i := range m.items {
+		if m.items[i].ID == id {
+			m.items[i].Content = fields.Content
+			m.items[i].Analysis = fields.Analysis
+		}
+	}
+	return nil
+}
+
+// applyHydrated writes the stored full content and analysis onto every item in
+// items whose ID is hydrated.
+func (m *Model) applyHydrated(items []db.ContentItem) {
+	for i := range items {
+		if fields, ok := m.hydrated[items[i].ID]; ok {
+			items[i].Content = fields.Content
+			items[i].Analysis = fields.Analysis
+		}
 	}
 }
 

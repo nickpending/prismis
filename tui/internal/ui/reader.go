@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ContentMetadata represents the metadata extracted from analysis JSON
@@ -187,13 +190,20 @@ func renderMetadata(metadata ContentMetadata, width int) string {
 	return strings.Join(sections, "\n")
 }
 
-// updateReaderContent updates the viewport with article content (called from model.go)
-func (m *Model) updateReaderContent() {
+// updateReaderContent updates the viewport with article content (called from model.go).
+// In remote mode it first hydrates the item (one detail request the first time), so the
+// reader shows the reading summary and full content; when that fetch fails it returns a
+// command that clears the status line and the reader falls back to the item's summary.
+func (m *Model) updateReaderContent() tea.Cmd {
 	if m.cursor >= len(m.items) || len(m.items) == 0 {
 		m.viewport.SetContent("No content selected")
-		return
+		return nil
 	}
 
+	var statusCmd tea.Cmd
+	if err := m.hydrateItem(m.items[m.cursor].ID); err != nil {
+		statusCmd = clearStatusAfterDelay(3 * time.Second)
+	}
 	item := m.items[m.cursor]
 
 	// Calculate content pane dimensions (same as in RenderList)
@@ -265,4 +275,5 @@ func (m *Model) updateReaderContent() {
 
 	// Reset viewport to top
 	m.viewport.GotoTop()
+	return statusCmd
 }

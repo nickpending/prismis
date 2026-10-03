@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -92,6 +93,7 @@ type ContentItem struct {
 	Analysis            json.RawMessage `json:"analysis"` // JSON object from API
 	SourceType          string          `json:"source_type"`
 	SourceName          string          `json:"source_name"`
+	HasDeepExtraction   bool            `json:"has_deep_extraction"`
 }
 
 // apiTime wraps time.Time to handle the API's RFC3339 wire format
@@ -581,9 +583,11 @@ func (c *APIClient) UpdateContent(contentID string, request ContentUpdateRequest
 	return &apiResp, nil
 }
 
-// FetchEntries retrieves all content items from the API
+// FetchEntries retrieves all content items from the API in the slim list shape
+// (view=list): no content, and analysis cut to the keys a list shows. An item's
+// full content and analysis come from FetchEntry when it is opened.
 func (c *APIClient) FetchEntries() ([]ContentItem, error) {
-	return c.fetchEntriesWithParams("limit=10000")
+	return c.fetchEntriesWithParams("limit=10000&view=list")
 }
 
 // FetchEntriesSince retrieves content items created/modified after the given timestamp
@@ -591,7 +595,41 @@ func (c *APIClient) FetchEntriesSince(since time.Time) ([]ContentItem, error) {
 	// Format timestamp as ISO8601 with nanosecond precision
 	// RFC3339Nano preserves microseconds to prevent re-fetching same items
 	sinceParam := since.Format(time.RFC3339Nano)
-	return c.fetchEntriesWithParams("limit=10000&since=" + sinceParam)
+	return c.fetchEntriesWithParams("limit=10000&view=list&since=" + sinceParam)
+}
+
+// FetchEntry retrieves one item with its full content and full analysis
+// (GET /api/entries/{id}?include=content), the counterpart of the slim list items
+// FetchEntries returns.
+func (c *APIClient) FetchEntry(id string) (*ContentItem, error) {
+	status, body, err := c.doRequest("GET", "/api/entries/"+url.PathEscape(id)+"?include=content", nil, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := authFailedIfForbidden(status); err != nil {
+		return nil, err
+	}
+	if status == 404 {
+		return nil, fmt.Errorf("content not found")
+	}
+	if status >= 400 {
+		return nil, apiErrorOrStatus(status, body)
+	}
+
+	var apiResp struct {
+		Success bool        `json:"success"`
+		Message string      `json:"message"`
+		Data    ContentItem `json:"data"`
+	}
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+	}
+
+	return &apiResp.Data, nil
 }
 
 // fetchEntriesWithParams is the common implementation for fetching entries

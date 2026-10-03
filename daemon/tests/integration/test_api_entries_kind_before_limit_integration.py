@@ -37,8 +37,9 @@ def _client_for(storage: Storage) -> Generator[TestClient, None, None]:
 
 
 # ---------------------------------------------------------------------------
-# Scenario 1: unread_only=true, no priority filter (the all-priorities branch,
-# which calls get_content_by_priority once per priority level with a SQL LIMIT).
+# Scenario 1: unread_only=true, no priority filter. Every scenario below goes
+# through the one `Storage.get_content_list` query, whose WHERE (kind included)
+# runs before its LIMIT.
 # ---------------------------------------------------------------------------
 
 
@@ -110,8 +111,7 @@ def test_unread_only_all_priorities_kind_filter_finds_older_items_past_the_windo
 
 
 # ---------------------------------------------------------------------------
-# Scenario 2: unread_only=true WITH an explicit priority filter (the per-priority
-# branch, which calls get_content_by_priority(p, remaining, ...) directly).
+# Scenario 2: unread_only=true WITH an explicit priority filter.
 # ---------------------------------------------------------------------------
 
 
@@ -135,9 +135,7 @@ def test_unread_only_with_priority_kind_filter_finds_older_items_past_the_window
 
 
 # ---------------------------------------------------------------------------
-# Scenario 3: interesting_override=true (the flagged-item storage query --
-# get_flagged_items(limit) -- takes the same SQL LIMIT before the old Python
-# post-filter).
+# Scenario 3: interesting_override=true (user_feedback = 'up' in the same WHERE).
 # ---------------------------------------------------------------------------
 
 
@@ -190,8 +188,8 @@ def test_flagged_items_kind_filter_finds_older_items_past_the_window(
     """
     INVARIANT (SC-2): interesting_override=true with a kind filter and a small
     limit still finds the older flagged items of that kind.
-    BREAKS: get_flagged_items(limit) fetches only the 5 newest flagged items
-    (all 'news'), and the Python post-filter finds no 'question' items among them.
+    BREAKS: a limit taken before the kind filter keeps only the 5 newest flagged
+    items (all 'news'), and finds no 'question' items among them.
     """
     response = flagged_client.get(
         "/api/entries?interesting_override=true&kind=question&limit=5",
@@ -204,10 +202,7 @@ def test_flagged_items_kind_filter_finds_older_items_past_the_window(
 
 
 # ---------------------------------------------------------------------------
-# Scenario 4: no unread_only, explicit priority (the priorities-without-unread_only
-# branch -- get_content_since with no storage-level limit, priority filtered in
-# Python). Not part of the original defect (no SQL LIMIT precedes the filter here),
-# but proves the kind_filter threading into get_content_since doesn't regress it.
+# Scenario 4: no unread_only, explicit priority (read and unread rows alike).
 # ---------------------------------------------------------------------------
 
 
@@ -215,8 +210,8 @@ def test_priority_without_unread_only_kind_filter_still_applies(
     unread_only_client: TestClient,
 ) -> None:
     """
-    INVARIANT (SC-2): kind filtering also works on the read+unread branch that
-    filters priority in Python over get_content_since's unbounded fetch.
+    INVARIANT (SC-2): kind filtering also works with a priority filter over read
+    and unread rows alike.
     """
     response = unread_only_client.get(
         "/api/entries?kind=question&priority=medium&limit=20",

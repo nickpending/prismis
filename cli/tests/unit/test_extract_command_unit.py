@@ -19,8 +19,16 @@ The tests that need a real API call route through `live_daemon` / `live_daemon_d
 fixture's real daemon — `APIClient()` reaches it with no code change needed here.
 """
 
+import http.server
+import json
 import socket
+import threading
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+import pytest
 
 import typer
 from typer.testing import CliRunner
@@ -121,6 +129,80 @@ def test_client_filter_excludes_already_extracted_items(
     assert "Done: 1 extracted, 0 failed" in result.output, (
         f"Expected '1 extracted, 0 failed' in output, got: {result.output!r}"
     )
+
+
+@pytest.fixture
+def list_view_server(isolated_xdg_env: Path) -> Iterator[list[str]]:
+    """A recording HTTP server that answers GET /api/entries with slim list items
+    (some marked has_deep_extraction, none carrying analysis.deep_extraction) and
+    accepts POST /api/entries/{id}/extract. Yields the list of request lines it saw.
+
+    The CLI reaches it through the sealed config's [remote] section, the same way
+    it reaches the real daemon fixtures.
+    """
+    seen: list[str] = []
+    items = [
+        {"id": "done-1", "title": "Done One", "has_deep_extraction": True},
+        {"id": "todo-1", "title": "Todo One", "has_deep_extraction": False},
+        {"id": "done-2", "title": "Done Two", "has_deep_extraction": True},
+        {"id": "todo-2", "title": "Todo Two", "has_deep_extraction": False},
+    ]
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args: object) -> None:
+            return
+
+        def _reply(self, body: dict[str, object]) -> None:
+            raw = json.dumps(body).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def do_GET(self) -> None:
+            seen.append(f"GET {self.path}")
+            self._reply({"success": True, "message": "ok", "data": {"items": items}})
+
+        def do_POST(self) -> None:
+            seen.append(f"POST {self.path}")
+            self._reply({"success": True, "message": "ok", "data": {}})
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    isolated_xdg_env.joinpath("config.toml").write_text(
+        f'[remote]\nurl = "http://127.0.0.1:{server.server_port}"\nkey = "unused"\n'
+    )
+    yield seen
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=5)
+
+
+def test_extract_requests_list_view_and_skips_has_deep_extraction(
+    list_view_server: list[str],
+) -> None:
+    """
+    INVARIANT: extract asks for `view=list` and selects only items whose
+    `has_deep_extraction` is false.
+    BREAKS: a list item carries no `analysis.deep_extraction` to look up, so
+    reading analysis would select every item and re-extract the finished ones;
+    omitting `view=list` pulls every candidate's full content and analysis.
+    """
+    result = runner.invoke(_app, ["--limit", "10"])
+
+    assert result.exit_code == 0, result.output
+    gets = [r for r in list_view_server if r.startswith("GET ")]
+    assert len(gets) == 1
+    query = parse_qs(urlparse(gets[0].split(" ", 1)[1]).query)
+    assert query["view"] == ["list"]
+    posts = sorted(r for r in list_view_server if r.startswith("POST "))
+    assert posts == [
+        "POST /api/entries/todo-1/extract",
+        "POST /api/entries/todo-2/extract",
+    ]
+    assert "Done: 2 extracted, 0 failed" in result.output
 
 
 def test_per_item_failure_does_not_abort_batch(live_daemon_deep: LiveDaemon) -> None:

@@ -1,0 +1,69 @@
+{
+  "workOrder": "memory-footprint",
+  "issues": [
+    55
+  ],
+  "what": "Make GET /api/entries cost memory in proportion to the rows and fields a client asked for: one bounded SQL list query in storage.py, an additive `view=list` slim shape the remote TUI and CLI extract use, and the remote TUI fetching an item's full content only when it is opened, copied or sent to Fabric (gh #55).",
+  "why": "Design: docs/work/memory-footprint/design.md. On 2026-10-03 cerebro's daemon was OOM-killed twice (anon-rss ~2.1 GB), seen as 502s by the remote TUI. One `GET /api/entries?limit=10000`, the TUI's startup call, returned 260 MB (analysis 158 MB, content 80 MB) and took the daemon from 561 MB to a 2,468 MB peak, holding 1,185 MB after; the VM has 3.9 GB and no swap. `get_content` loads all 27,404 non-archived rows with full content and analysis through `get_content_since` for every unfiltered call, sorts them in Python and only then slices to `limit`, so the cost grows with the corpus whatever the client asks for.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a database of 2,000 non-archived content rows, each with 50 KB of content and a 50 KB analysis.full_text (the shape of cerebro's file-source items), served by the real FastAPI app through its test client with no storage or API internals stubbed",
+      "when": "`GET /api/entries?limit=50` (default view) and `GET /api/entries?limit=10000&view=list` are each requested while tracemalloc measures the peak allocation of the request",
+      "then": "it fails if either request's tracemalloc peak reaches 40 MB, which the current `get_content` exceeds because it loads every row's content and analysis before slicing (the test is shown red against the pre-change api.py and storage.py); otherwise both peaks stay under 40 MB, the first returns 50 items and the second 2,000"
+    },
+    {
+      "id": "SC-2",
+      "given": "rows with mixed priority (high, medium, low, none), read state, user_feedback, kinds, sources, fetched_at and archived_at, and 50 KB content and analysis.full_text",
+      "when": "`Storage.get_content_list` runs with each filter (since, include_archived, source substring, kind list, priority list, unread_only, interesting) and each sort (priority, date, unread), for view list and view full",
+      "then": "it fails if a call returns more rows than its limit, returns a row the filter excludes, or orders rows differently from the sort's rule; otherwise it returns at most `limit` rows from one SQL query, the interesting filter selects `user_feedback = 'up'`, priority sort is high, medium, low, then none, each by published_at newest first, a view-list row has no content and its analysis holds only kind, kind_confidence, title_only, metrics, metadata, matched_interests and preference_influenced (absent keys omitted, rows with invalid analysis JSON returned with an empty analysis rather than an error), has_deep_extraction is true exactly for rows whose analysis has deep_extraction, and a view-full row carries content and its whole analysis"
+    },
+    {
+      "id": "SC-3",
+      "given": "a running app over a database with classified, title-only, deep-extracted and plain items",
+      "when": "a client calls GET /api/entries with `view=list`, with no view, with `compact=true`, with a kind filter and a limit, and GET /api/entries/{id}?include=content",
+      "then": "it fails if a view-list response contains a `content` key or an analysis key outside the list keys, or if the default response drops a field it returns today; otherwise view-list items carry every other field with top-level kind, title_only and has_deep_extraction, the default (`view=full`) items carry content and the full analysis as today, compact returns its existing field set, the kind filter is applied before the limit, datetimes are RFC3339 with offsets through ContentItemModel, a limit above 10,000 is still refused, and the detail endpoint returns the full content and analysis"
+    },
+    {
+      "id": "SC-4",
+      "given": "the TUI in remote mode against an httptest server that records requests, holding items merged from a list response",
+      "when": "the user opens an unhydrated item in the reader, copies an unhydrated item's content, and runs a Fabric pattern on an unhydrated item, then repeats each on the now-hydrated item, and separately the detail request fails",
+      "then": "it fails if any of the three actions runs on empty content for an unhydrated item or makes a second detail request for a hydrated one; otherwise `FetchEntries` and `FetchEntriesSince` send `view=list`, each action triggers exactly one `GET /api/entries/{id}?include=content` through one shared hydrate helper and then uses the fetched content and analysis (the reader shows the reading summary and content), an item re-merged by a later sync is unhydrated again, a failed detail request shows in the status line and leaves the item unhydrated, and local mode makes no API request"
+    },
+    {
+      "id": "SC-5",
+      "given": "the CLI's extract command against a server whose list items mark some has_deep_extraction true",
+      "when": "`prismis-cli extract` selects candidates",
+      "then": "it fails if it selects an item whose has_deep_extraction is true; otherwise it requests the list with `view=list` through a `view` argument on `APIClient.get_content` and selects only items whose has_deep_extraction is false"
+    },
+    {
+      "id": "SC-6",
+      "given": "docs/architecture/boundaries.md after the change",
+      "when": "a reader looks up the /api/entries contract",
+      "then": "it fails if the list-shape contract is missing or contradicts the limit-ceiling contract beside it; otherwise it states that GET /api/entries reads at most the rows it returns, that view=list never returns content and cuts analysis to the list keys, that view=full is kept for compatibility, and that full items come from GET /api/entries/{id}?include=content"
+    },
+    {
+      "id": "SC-7",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "Opening an item in the remote TUI costs one HTTP round trip the first time.",
+    "A remote-TUI item that was never opened has no content cached, so copying it needs the daemon reachable.",
+    "With unread_only or the interesting filter and a date sort, the list now returns the newest unread items across priorities instead of filling high priority first (or taking the newest-fetched flagged items) and sorting that, and the unread sort orders by the `read` column instead of a `read_at` key no row has.",
+    "A new list view that reads another analysis key needs that key added to the projection in storage.py.",
+    "The ~450 MB torch import baseline stays; it is flat in corpus size.",
+    "A client that still asks for `view=full` with a large limit (an un-updated TUI, or a hand-written request) can still spike the daemon by the size of the rows it asked for, though no longer by the whole corpus."
+  ],
+  "stakes": [
+    "GET /api/entries reads at most `limit` rows (200 when dedup is on) in one SQL query that filters, sorts and limits in SQLite; no list path loads the whole corpus.",
+    "`view=list` responses never carry `content`, and carry `analysis` cut to kind, kind_confidence, title_only, metrics, metadata, matched_interests and preference_influenced, plus a top-level `has_deep_extraction`.",
+    "`view` is an additive parameter on GET /api/entries; `view=full` stays the default with today's fields (constitution VIII), and every remote TUI is updated at deploy so none requests a large full list afterwards.",
+    "Full content and full analysis come from GET /api/entries/{id}?include=content, which the remote TUI calls when an item is opened, copied or sent to Fabric, as the web UI already does.",
+    "The server's limit ceiling of 10,000 and INV-API-TS-4's Pydantic routing stay as they are.",
+    "Local-mode TUI, the CLI's local commands, search and reports are unchanged.",
+    "The proof is daemon RSS sampled on cerebro during the remote TUI's startup request and a fetch cycle, plus an in-process tracemalloc bound that the old path fails."
+  ]
+}

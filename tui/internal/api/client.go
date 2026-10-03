@@ -396,20 +396,33 @@ type pruneDeleteData struct {
 	DaysFilter *int `json:"days_filter"`
 }
 
+// envelope is the {success, message, data} response shape shared by the
+// endpoints decoded through parseEnvelope.
+type envelope[T any] struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Data    T      `json:"data"`
+}
+
+// parseEnvelope unmarshals body into an envelope[T].
+func parseEnvelope[T any](body []byte) (envelope[T], error) {
+	var apiResp envelope[T]
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return apiResp, fmt.Errorf("failed to parse response: %w", err)
+	}
+	return apiResp, nil
+}
+
 // decodeSuccessOnlyData parses a {success, message, data} envelope into T and
 // reports an error when status is non-2xx or apiResp.Success is false —
 // PruneCount and PruneUnprioritized's generic counterpart to
 // successOnlyResult, for callers whose data shape isn't APIResponse's untyped
 // map. Same SC-1 fix: these two used to decide on apiResp.Success alone.
 func decodeSuccessOnlyData[T any](status int, body []byte) (T, error) {
-	var apiResp struct {
-		Success bool   `json:"success"`
-		Message string `json:"message"`
-		Data    T      `json:"data"`
-	}
-	if err := json.Unmarshal(body, &apiResp); err != nil {
+	apiResp, err := parseEnvelope[T](body)
+	if err != nil {
 		var zero T
-		return zero, fmt.Errorf("failed to parse response: %w", err)
+		return zero, err
 	}
 	if err := authFailedIfForbidden(status); err != nil {
 		var zero T
@@ -624,13 +637,9 @@ func (c *APIClient) FetchEntry(id string) (*ContentItem, error) {
 // endpoints return and yields its data, or an error when the body does not parse
 // or success is false.
 func decodeDataEnvelope[T any](body []byte) (*T, error) {
-	var apiResp struct {
-		Success bool   `json:"success"`
-		Message string `json:"message"`
-		Data    T      `json:"data"`
-	}
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+	apiResp, err := parseEnvelope[T](body)
+	if err != nil {
+		return nil, err
 	}
 	if !apiResp.Success {
 		return nil, fmt.Errorf("API error: %s", apiResp.Message)

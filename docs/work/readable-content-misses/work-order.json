@@ -1,0 +1,67 @@
+{
+  "workOrder": "readable-content-misses",
+  "issues": [
+    80
+  ],
+  "what": "Make the one readability check recognize failure pages by shape (no prose line; a JavaScript-requirement notice in a small page) instead of by one literal each, stop the RSS and Reddit fetchers preferring an unreadable extraction over their fallback, and fetch the article behind Reddit link posts that carry self-text (gh #80).",
+  "why": "Design: docs/work/readable-content-misses/design.md. Re-measured on cerebro 2026-10-03 for items created since the readable-content deploy: youtube 0/21 short (was 56/126), reddit 5/160 (was 270/1594), rss 17/217 (was 154/1720). Of currently-readable items over 45 days, 31 have no line of prose (11 YouTube footers, settings panels, 'Loading', '‹ ›', Reddit link posts with only one-word comments) and 15 hosts serve JavaScript walls in wordings the one literal `_JS_WALL_TEXT` misses (Mastodon, Notion, nature.com, stoppels.ch and others). 8 of 37 external Reddit link posts since the deploy hold no article because `_to_content_item` skips `extract_article` whenever the post has self-text.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "the content trafilatura returned on 2026-10-03 for stoppels.ch/goalposts ('Hacker News has set AI a lot of challenges...' then 'This page needs JavaScript.'), frogandtoad.ai ('‹\\n›') and a youtube.com watch page (its footer list 'About / Press / Copyright / ... / © 2026 Google LLC'), plus the Mastodon, Notion and nature.com wall notices",
+      "when": "`is_readable` classifies each",
+      "then": "it fails if any of them is readable, which is what the pre-change check returns for every one (the test is shown red against the pre-change readability.py); otherwise each is not readable"
+    },
+    {
+      "id": "SC-2",
+      "given": "the existing readable fixtures (one-sentence blurb, two-line Reddit question, ordinary article, article containing a link), a Japanese news paragraph with no spaces, a 1,500-character article containing 'Loading... (JavaScript required)', and a long README containing '- No JavaScript required'",
+      "when": "`is_readable` classifies each",
+      "then": "it fails if any of them is not readable; otherwise all are readable, and the existing not-readable fixtures (HN Comments stub, Reddit link-only, YouTube no-transcript, RSS no-content fallback, empty and markup-only) stay not readable"
+    },
+    {
+      "id": "SC-3",
+      "given": "`is_readable` after the change",
+      "when": "each rule is removed in turn",
+      "then": "it fails if removing the has-prose rule or the JavaScript-wall rule leaves every test passing; otherwise removing the has-prose rule turns the frogandtoad and YouTube-footer cases red and removing the JavaScript-wall rule turns the stoppels, Mastodon and Notion cases red, and a JavaScript notice in text of 1,200 or more visible characters never makes it unreadable on its own"
+    },
+    {
+      "id": "SC-4",
+      "given": "an RSS entry with a summary whose article URL is served by a local HTTP server, once as a page that extracts to navigation text only and once as a real article",
+      "when": "the RSS fetcher builds the item",
+      "then": "it fails if the navigation-only extraction becomes the item's content; otherwise that item gets the entry's own summary through `_fallback_content`, and the real article's extraction becomes the content as today"
+    },
+    {
+      "id": "SC-5",
+      "given": "a Reddit link post with self-text whose external URL is served by a local HTTP server as a readable article, the same post when the server returns a navigation-only page or an error, and image, video, reddit-internal and already-readable link posts",
+      "when": "`_to_content_item` builds each item",
+      "then": "it fails if the readable article is missing from the first item's content; otherwise its content is the link line, the self-text, then the article text; the unreadable or failed extraction leaves link line plus self-text; the other kinds make no extraction request and keep today's content"
+    },
+    {
+      "id": "SC-6",
+      "given": "docs/architecture/boundaries.md after the change",
+      "when": "a reader opens the title-only contract",
+      "then": "it fails if its constraints line still says only 'No length floor' or contradicts the JavaScript-wall rule; otherwise it states that readability is judged by content shape with no length floor on its own, and that a size bound may only qualify a failure-shape signal"
+    },
+    {
+      "id": "SC-7",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "Reddit self-posts with no line of four words ('Pls help', 'Tada') become title-only; their title carries all there is.",
+    "A JavaScript wall longer than 1,200 visible characters stays readable; none was seen in 45 days of cerebro items.",
+    "Items already stored and analysed keep their classification until `prismis-daemon refetch` is run for them, a separate costed step.",
+    "An HN link to youtube.com is still extracted as a page and becomes title-only rather than getting the video's transcript.",
+    "Reddit link posts with self-text now cost one article fetch each per new post."
+  ],
+  "stakes": [
+    "One check, `is_readable` in readability.py, still decides readability for every consumer; no second check is added.",
+    "Text with no line of at least four words (tags and URLs removed, CJK characters counted one each) is not readable.",
+    "A JavaScript-requirement line makes content a wall only when its visible text is under 1,200 characters; text without such a line is never judged by its size.",
+    "A fetcher never prefers an extraction the check rejects over its own fallback.",
+    "A Reddit link post to an external article gets the article text whether or not the poster wrote self-text.",
+    "boundaries.md line 56 states the no-length-floor rule with its one permitted qualifier."
+  ]
+}

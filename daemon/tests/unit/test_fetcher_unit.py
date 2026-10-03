@@ -244,3 +244,93 @@ def test_fetch_content_without_skip_still_fetches_the_article(
     assert items[0].content is not None
     assert "genuine article body" in items[0].content
     assert hits.get("/article") == 1
+
+
+# ---------------------------------------------------------------------------
+# An extraction the readability check rejects never replaces the entry's own
+# summary (gh #80).
+# ---------------------------------------------------------------------------
+
+_NAV_HTML = (
+    b"<!doctype html><html><body><main>"
+    b"<p>Home</p><p>About</p><p>Contact us</p><p>Privacy</p>"
+    b"</main></body></html>"
+)
+
+_UNREADABLE_FEED_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>Unreadable Extraction Feed</title><link>{base}/</link><description>local</description>
+  <item><title>Navigation Page Item</title><link>{base}/nav</link>
+    <description>The entry's own summary describes the story in a full sentence.</description>
+    <guid isPermaLink="false">nav-item</guid></item>
+  <item><title>Real Article Item</title><link>{base}/article</link>
+    <description>A summary that the real article should replace.</description>
+    <guid isPermaLink="false">article-item</guid></item>
+</channel></rss>
+"""
+
+
+@pytest.fixture
+def rss_unreadable_extraction_server() -> Iterator[str]:
+    """A local feed whose two entries point at a navigation-only page and a real
+    article, both served over real HTTP."""
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            if self.path == "/feed.xml":
+                base = f"http://{self.headers.get('Host', '127.0.0.1')}"
+                self._send(
+                    _UNREADABLE_FEED_XML.format(base=base).encode(),
+                    "application/rss+xml",
+                )
+            elif self.path == "/nav":
+                self._send(_NAV_HTML, "text/html")
+            elif self.path == "/article":
+                self._send(_ARTICLE_HTML, "text/html")
+            else:
+                self.send_error(404)
+
+        def _send(self, body: bytes, content_type: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    host, port = server.server_address[0], server.server_address[1]
+    assert isinstance(host, str)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://{host}:{port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+
+
+def test_fetch_content_unreadable_extraction_falls_back_to_entry_summary(
+    rss_unreadable_extraction_server: str,
+) -> None:
+    """
+    BREAKS: Returning whatever `extract_article` produced makes the navigation
+    text "Home About Contact us Privacy" the item's content instead of the
+    entry's own summary; the real article's extraction still becomes content.
+    """
+    fetcher = RSSFetcher(max_items=5)
+    source = {"url": f"{rss_unreadable_extraction_server}/feed.xml", "id": "src-1"}
+
+    items = {item.external_id: item for item in fetcher.fetch_content(source)}
+
+    assert (
+        items["nav-item"].content
+        == "The entry's own summary describes the story in a full sentence."
+    )
+    article = items["article-item"].content
+    assert article is not None
+    assert "genuine article body" in article
+    assert "A summary that the real article should replace" not in article

@@ -12,7 +12,7 @@ from ..article_extractor import extract_article
 from ..config import Config
 from ..models import ContentItem
 from ..observability import log as obs_log
-from ..readability import RSS_NO_CONTENT_FALLBACK
+from ..readability import RSS_NO_CONTENT_FALLBACK, is_readable
 
 logger = logging.getLogger(__name__)
 
@@ -258,11 +258,11 @@ class RSSFetcher:
         """
         logger.debug(f"Extracting full content from: {url}")
         content = extract_article(url)
-        if content:
+        if content and is_readable(content):
             logger.debug(f"Extracted {len(content)} chars from {url}")
             return content
 
-        logger.debug(f"Trafilatura extraction failed for {url}, using fallback")
+        logger.debug(f"No readable extraction for {url}, using fallback")
         return self._fallback_content(entry)
 
     def _fallback_content(self, entry: dict) -> str:

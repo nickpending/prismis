@@ -2,14 +2,15 @@
 
 Content reaches analysis after every fetcher runs, and reaching analysis is not the
 same as being readable: an RSS entry that keeps a feed's `<a href=...>Comments</a>`
-stub after trafilatura fails, a JS-walled page's noscript notice, a Reddit link post
-whose content is nothing but the outbound URL, this daemon's own "no transcript" and
-"no content" placeholders, and outright empty/markup-only text are all measured
-failure shapes (gh #80) that get summarized and evaluated as if they were real
-content. `is_readable` is the one place that tells those shapes apart from genuine
-short content -- there is no bare length floor here, because a one-sentence news
-blurb and a two-line Reddit question are both genuine and both short; every check
-below is about the content's shape, never its length.
+stub after trafilatura fails, a JS-walled page's notice in any wording, a Reddit link
+post whose content is nothing but the outbound URL, site navigation or footer text,
+this daemon's own "no transcript" and "no content" placeholders, and outright
+empty/markup-only text are all measured failure shapes (gh #80) that get summarized
+and evaluated as if they were real content. `is_readable` is the one place that tells
+those shapes apart from genuine short content -- there is no length floor on its own,
+because a one-sentence news blurb and a two-line Reddit question are both genuine and
+both short; every check below is about the content's shape, and a size bound only
+qualifies the JavaScript-wall signal.
 
 The placeholder texts prismis's own fetchers write for "nothing to extract" are
 defined once here (as a constant or a `format_*` helper) and imported by the fetcher
@@ -33,14 +34,25 @@ REDDIT_LINK_PREFIX = "Link: "
 # sentence when yt-dlp found no transcript for a video.
 YOUTUBE_NO_TRANSCRIPT_SUFFIX = "No transcript available for this video."
 
-# The literal noscript text React (and several other SPA frameworks) ship by default
-# -- the JS-required notice measured on gh #80's Hacker News share, not a paraphrase.
-_JS_WALL_TEXT = "you need to enable javascript to run this app."
+# A line that names JavaScript with one of these requirement verbs is a wall notice
+# ("please enable JavaScript", "This page needs JavaScript", "JavaScript is required").
+_JS_NAME_RE = re.compile(r"javascript", re.IGNORECASE)
+_JS_REQUIREMENT_RE = re.compile(
+    r"\b(?:enable|enabled|disable|disabled|need|needs|require|requires|required|turn on)\b",
+    re.IGNORECASE,
+)
+
+# A notice makes content a wall only below this many visible characters. Measured on
+# cerebro, 2026-10-03: walls up to 1,068 chars, real articles from 1,409.
+_JS_WALL_MAX_VISIBLE_CHARS = 1200
+
+# Minimum words on one line for the content to hold prose.
+_MIN_PROSE_WORDS = 4
 
 _TAG_RE = re.compile(r"<[^>]+>")
-# The whole content is exactly one anchor element and nothing else -- the shape of
-# Hacker News's `<a href=...>Comments</a>` RSS stub, not merely "contains a link".
-_ANCHOR_ONLY_RE = re.compile(r"^<a\s[^>]*>[^<]*</a>$", re.IGNORECASE)
+_URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+# Kana and CJK ideographs: each counts as one word, since those scripts carry no spaces.
+_CJK_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿]")
 
 
 def format_reddit_link_only(url: str) -> str:
@@ -79,12 +91,39 @@ def _is_youtube_no_transcript(normalized: str) -> bool:
     return normalized.endswith(_normalize(YOUTUBE_NO_TRANSCRIPT_SUFFIX))
 
 
+def _word_count(line: str) -> int:
+    """Words on one line with tags and URLs removed; each CJK character is one word
+    and a token with no letter or digit (a bullet, a slash, a lone glyph) is none."""
+    text = _URL_RE.sub(" ", _TAG_RE.sub(" ", line))
+    cjk = len(_CJK_RE.findall(text))
+    rest = _CJK_RE.sub(" ", text)
+    return cjk + sum(1 for token in rest.split() if any(c.isalnum() for c in token))
+
+
+def _has_prose(content: str) -> bool:
+    """Some line of `content` holds at least `_MIN_PROSE_WORDS` words."""
+    return any(_word_count(line) >= _MIN_PROSE_WORDS for line in content.splitlines())
+
+
+def _is_javascript_wall(content: str, visible: str) -> bool:
+    """A line names JavaScript with a requirement verb and the visible text is under
+    `_JS_WALL_MAX_VISIBLE_CHARS`. The size only qualifies the notice; text without
+    one is never judged by its size."""
+    if len(visible) >= _JS_WALL_MAX_VISIBLE_CHARS:
+        return False
+    return any(
+        _JS_NAME_RE.search(line) and _JS_REQUIREMENT_RE.search(line)
+        for line in _TAG_RE.sub(" ", content).splitlines()
+    )
+
+
 def is_readable(content: str | None) -> bool:
     """Whether `content` is real content rather than one of the measured failure
     shapes above.
 
     Genuine short text -- a one-sentence blurb, a two-line question -- is readable:
-    every check here is shape-based, never a length threshold.
+    the checks are about shape (a line of prose; a JavaScript-requirement notice in
+    a small page), never a bare length threshold.
     """
     if not content:
         return False
@@ -93,17 +132,9 @@ def is_readable(content: str | None) -> bool:
     if not stripped:
         return False
 
-    if _ANCHOR_ONLY_RE.match(stripped):
-        # The whole content is one anchor tag -- Hacker News's `<a href=...>Comments
-        # </a>` stub, kept when trafilatura's extraction failed.
-        return False
-
     visible = _normalize(_TAG_RE.sub("", stripped))
     if not visible:
         # Markup-only: tags with nothing readable between them.
-        return False
-
-    if visible.casefold().rstrip(".") == _JS_WALL_TEXT.rstrip("."):
         return False
 
     if visible == RSS_NO_CONTENT_FALLBACK:
@@ -113,6 +144,12 @@ def is_readable(content: str | None) -> bool:
         return False
 
     if _is_youtube_no_transcript(visible):
+        return False
+
+    if not _has_prose(stripped):
+        return False
+
+    if _is_javascript_wall(stripped, visible):
         return False
 
     return True

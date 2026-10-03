@@ -53,7 +53,7 @@ Interface contracts between components and external systems.
 
 **Between:** `readability.is_readable` and fetcher placeholder writers ↔ `analysis.title_only` ↔ orchestrator, API, TUI, web
 **Contract:** Content that is not readable (feed stub, JS wall, Reddit `Link: <url>`, "No transcript"/"No content" placeholders, empty) is stored with `analysis.title_only = true`; it stays in the feed, skips deep extraction, and shows a marker in TUI and web. API entries/search expose top-level `title_only`. Fetchers receive `known_readable_ids` and do not re-extract those; a stored title-only item is re-admitted when a later fetch finds it readable.
-**Constraints:** No length floor: readability is judged by content shape. Placeholder text is defined once in `readability.py` and imported by the writer.
+**Constraints:** No length floor on its own: readability is judged by content shape (some line of prose; no JavaScript-requirement notice in a small page), and a size bound may only qualify a failure-shape signal (the JavaScript-wall rule), never stand alone. A fetcher never prefers an extraction `is_readable` rejects over its own fallback. Placeholder text is defined once in `readability.py` and imported by the writer.
 
 ## Kind filter contract (API ↔ CLI/TUI/web)
 

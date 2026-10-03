@@ -26,22 +26,32 @@ unambiguously the article, not a stub.</p>
 """
 
 
+_NAV_HTML = b"""<!doctype html>
+<html><body><main>
+<p>Home</p><p>About</p><p>Contact us</p><p>Privacy</p>
+</main></body></html>
+"""
+
+
 @pytest.fixture
 def link_post_article_server() -> Iterator[str]:
     """A local server standing in for the external site a Reddit link post
-    points at (Principle I: real HTTP boundary, local server, not a mock)."""
+    points at (Principle I: real HTTP boundary, local server, not a mock).
+    `/article` is a readable article, `/nav` extracts to navigation text only,
+    anything else is a 404."""
 
     class _Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *_args: object) -> None:
             return
 
         def do_GET(self) -> None:
-            if self.path == "/article":
+            page = {"/article": _ARTICLE_HTML, "/nav": _NAV_HTML}.get(self.path)
+            if page is not None:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
-                self.send_header("Content-Length", str(len(_ARTICLE_HTML)))
+                self.send_header("Content-Length", str(len(page)))
                 self.end_headers()
-                self.wfile.write(_ARTICLE_HTML)
+                self.wfile.write(page)
             else:
                 self.send_error(404)
 
@@ -335,6 +345,152 @@ def test_to_content_item_link_post_fetches_the_external_article(
     assert item.content is not None
     assert item.content.startswith(f"Link: {link_post_article_server}/article")
     assert "genuine article body" in item.content
+
+
+def test_to_content_item_link_post_with_self_text_gets_the_article_appended(
+    link_post_article_server: str,
+) -> None:
+    """
+    SC-5: a link post whose poster wrote a note still gets the article behind
+    the link -- content is the link line, the self-text, then the article text.
+    BREAKS: Skipping `extract_article` whenever the post has self-text leaves the
+    article out of the item.
+    """
+    fetcher = RedditFetcher()
+    url = f"{link_post_article_server}/article"
+    submission = _link_post_submission(url)
+    submission.selftext = "My note about why this article matters to me."
+
+    item = fetcher._to_content_item(submission, "test-source-id")
+
+    assert item.content is not None
+    assert item.content.startswith(
+        f"Link: {url}\n\nMy note about why this article matters to me.\n\n"
+    )
+    assert item.content.endswith("unambiguously the article, not a stub.")
+    assert "genuine article body" in item.content
+
+
+@pytest.mark.parametrize("path", ["/nav", "/missing"])
+def test_to_content_item_link_post_with_self_text_unreadable_or_failed_extraction(
+    link_post_article_server: str, path: str
+) -> None:
+    """
+    SC-5: a navigation-only extraction (`/nav`) or a failed one (`/missing`, a
+    404) leaves exactly the link line plus the self-text.
+    BREAKS: Appending whatever extraction returns puts "Home / About / Contact us"
+    navigation text into the content of a post that holds a real note.
+    """
+    fetcher = RedditFetcher()
+    url = f"{link_post_article_server}{path}"
+    submission = _link_post_submission(url)
+    submission.selftext = "My note about why this article matters to me."
+
+    item = fetcher._to_content_item(submission, "test-source-id")
+
+    assert item.content == f"Link: {url}\n\nMy note about why this article matters to me."
+
+
+def test_to_content_item_link_post_without_self_text_drops_navigation_only_article(
+    link_post_article_server: str,
+) -> None:
+    """SC-5: an unreadable extraction is not appended for a bare link post either."""
+    fetcher = RedditFetcher()
+    url = f"{link_post_article_server}/nav"
+    submission = _link_post_submission(url)
+
+    item = fetcher._to_content_item(submission, "test-source-id")
+
+    assert item.content == f"Link: {url}\n\n"
+
+
+@pytest.fixture
+def hit_counting_server() -> Iterator[tuple[str, list[str]]]:
+    """A local server that serves a readable article at every path and records
+    each requested path, so a test can prove a request was never made."""
+    hits: list[str] = []
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            hits.append(self.path)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(_ARTICLE_HTML)))
+            self.end_headers()
+            self.wfile.write(_ARTICLE_HTML)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    host, port = server.server_address[0], server.server_address[1]
+    assert isinstance(host, str)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://{host}:{port}", hits
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/abc123.jpg", "/v.redd.it/abc123", "/www.reddit.com/r/other/comments/999/x/"],
+    ids=["image", "video", "reddit-internal"],
+)
+def test_to_content_item_link_post_with_self_text_makes_no_extraction_request(
+    hit_counting_server: tuple[str, list[str]], path: str
+) -> None:
+    """SC-5: image, video and reddit-internal link posts make no article request
+    and keep today's content, self-text or not. The server would answer with a
+    readable article, so only a skipped request leaves the content unchanged."""
+    base_url, hits = hit_counting_server
+    url = f"{base_url}{path}"
+    fetcher = RedditFetcher()
+    submission = _link_post_submission(url)
+    submission.selftext = "My note about this link."
+
+    item = fetcher._to_content_item(submission, "test-source-id")
+
+    assert hits == []
+    assert item.content == f"Link: {url}\n\nMy note about this link."
+
+
+def test_to_content_item_link_post_with_self_text_already_readable_makes_no_request(
+    hit_counting_server: tuple[str, list[str]],
+) -> None:
+    """SC-5: a post already stored readably is not re-fetched, self-text or not."""
+    base_url, hits = hit_counting_server
+    url = f"{base_url}/programming-article"
+    fetcher = RedditFetcher()
+    submission = _link_post_submission(url)
+    submission.selftext = "My note about this link."
+    external_id = "https://reddit.com/r/programming/comments/456/cool_article/"
+
+    item = fetcher._to_content_item(
+        submission, "test-source-id", known_readable_ids={external_id}
+    )
+
+    assert hits == []
+    assert item.content == f"Link: {url}\n\nMy note about this link."
+
+
+def test_to_content_item_link_post_with_self_text_requests_the_article_once(
+    hit_counting_server: tuple[str, list[str]],
+) -> None:
+    """Companion to the no-request tests: the same server and the same self-text
+    on an ordinary external link DO produce one request, so the empty `hits`
+    above comes from the skip and not from an unreachable server."""
+    base_url, hits = hit_counting_server
+    fetcher = RedditFetcher()
+    submission = _link_post_submission(f"{base_url}/programming-article")
+    submission.selftext = "My note about this link."
+
+    fetcher._to_content_item(submission, "test-source-id")
+
+    assert hits == ["/programming-article"]
 
 
 def test_to_content_item_link_post_skips_fetch_for_reddit_internal_link() -> None:

@@ -14,7 +14,7 @@ from ..http_deadline import DeadlineAdapter, deadline_session
 from ..praw_defaults import pin_praw_defaults
 from ..models import ContentItem
 from ..observability import log as obs_log
-from ..readability import format_reddit_link_only
+from ..readability import format_reddit_link_only, is_readable
 
 logger = logging.getLogger(__name__)
 
@@ -428,10 +428,11 @@ class RedditFetcher:
         url = f"https://reddit.com{submission.permalink}"
 
         # For text posts, use selftext; for link posts, fetch the external
-        # article and include it alongside the link (SC-2). Images, videos and
-        # other reddit pages behave as before -- no fetch attempted. A failed
-        # extraction (or a post already stored readably, SC-4) leaves today's
-        # link-only content in place rather than dropping the item.
+        # article and include it after the link line and any self-text (SC-2).
+        # Images, videos and other reddit pages behave as before -- no fetch
+        # attempted. A failed or unreadable extraction (or a post already stored
+        # readably, SC-4) leaves the link line and self-text in place rather than
+        # dropping the item.
         content = ""
         if submission.is_self and submission.selftext:
             content = submission.selftext
@@ -439,14 +440,17 @@ class RedditFetcher:
             content = f"{format_reddit_link_only(submission.url)}\n\n"
             if hasattr(submission, "selftext") and submission.selftext:
                 content += submission.selftext
-            elif (
+            if (
                 not already_readable
                 and not self._is_image_post(submission)
                 and not _is_reddit_domain(submission.url)
             ):
                 article_text = extract_article(submission.url)
-                if article_text:
-                    content += article_text
+                if article_text and is_readable(article_text):
+                    if content.endswith("\n\n"):
+                        content += article_text
+                    else:
+                        content += f"\n\n{article_text}"
 
         # Handle deleted/missing content
         if (

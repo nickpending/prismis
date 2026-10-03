@@ -13,6 +13,8 @@ Protects:
   same sentence.
 """
 
+import pytest
+
 from prismis_daemon.readability import (
     RSS_NO_CONTENT_FALLBACK,
     format_reddit_link_only,
@@ -112,3 +114,95 @@ def test_is_readable_true_for_content_that_merely_contains_a_link() -> None:
         "then consider how the numbers changed once the policy took effect."
     )
     assert is_readable(content) is True
+
+
+# ---------------------------------------------------------------------------
+# Shape rules (gh #80, readable-content-misses): has-prose and JavaScript-wall
+# ---------------------------------------------------------------------------
+
+_STOPPELS_EXTRACTION = (
+    "Hacker News has set AI a lot of challenges, and it has passed most of them "
+    "with flying colors.\n\nThis page needs JavaScript."
+)
+_YOUTUBE_FOOTER = "\n".join(
+    [
+        "About",
+        "Press",
+        "Copyright",
+        "Contact us",
+        "Creators",
+        "Advertise",
+        "Developers",
+        "Terms",
+        "Privacy",
+        "Policy & Safety",
+        "How YouTube works",
+        "Test new features",
+        "© 2026 Google LLC",
+    ]
+)
+_MASTODON_NOTICE = (
+    "To use the Mastodon web application, please enable JavaScript. "
+    "Alternatively, try one of the native apps for Mastodon for your platform."
+)
+_NOTION_NOTICE = "Notion requires JavaScript to be enabled in your browser."
+_NATURE_NOTICE = "Please enable JavaScript to view the content of this page."
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(_STOPPELS_EXTRACTION, id="stoppels"),
+        pytest.param("‹\n›", id="frogandtoad-glyphs"),
+        pytest.param(_YOUTUBE_FOOTER, id="youtube-footer"),
+        pytest.param(_MASTODON_NOTICE, id="mastodon"),
+        pytest.param(_NOTION_NOTICE, id="notion"),
+        pytest.param(_NATURE_NOTICE, id="nature"),
+    ],
+)
+def test_is_readable_false_for_failure_shapes_the_literal_check_missed(
+    content: str,
+) -> None:
+    """
+    BREAKS: The pre-change check compares against one literal wall sentence and
+    one anchor stub, so each of these (a notice in another wording, a page whose
+    only prose is a notice, glyphs, a footer list) came back readable.
+    """
+    assert is_readable(content) is False
+
+
+def test_is_readable_true_for_japanese_paragraph_with_no_spaces() -> None:
+    content = "政府は火曜日に新しい経済対策を発表し、来年度の予算に盛り込む方針を示した。"
+    assert is_readable(content) is True
+
+
+def test_is_readable_true_for_long_article_containing_a_javascript_notice() -> None:
+    """A notice in 1,200 or more visible characters never makes it unreadable."""
+    prose = (
+        "The committee reviewed the proposal in detail and recorded its findings "
+        "for the public archive. "
+    )
+    content = prose * 14 + "\nLoading... (JavaScript required)\n" + prose
+    assert len(content) >= 1200
+    assert is_readable(content) is True
+
+
+def test_is_readable_true_for_long_readme_listing_no_javascript_required() -> None:
+    prose = (
+        "This library parses configuration files and exposes them as typed "
+        "objects for the rest of the application to read. "
+    )
+    content = prose * 12 + "\n- No JavaScript required\n- Works offline\n"
+    assert len(content) >= 1200
+    assert is_readable(content) is True
+
+
+def test_is_readable_javascript_wall_size_bound_is_1200_visible_characters() -> None:
+    """The same notice flips from wall to readable at the 1,200 boundary."""
+    prose_line = "The committee reviewed the proposal and recorded its findings.\n"
+    notice = "This page needs JavaScript.\n"
+    small = notice + prose_line * 3
+    large = notice + prose_line * 30
+    assert len(" ".join(small.split())) < 1200 <= len(" ".join(large.split()))
+    assert is_readable(small) is False
+    assert is_readable(large) is True

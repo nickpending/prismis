@@ -1,9 +1,0 @@
-{
-  "artifact": [".specify/verify.sh", ".specify/tests/gitleaks_plant_test.sh", "README.md"],
-  "verified": true,
-  "worktree": {
-    "path": "/Users/rudy/development/projects/prismis/.claude/worktrees/agent-ac53fb551a15a4fb9",
-    "branch": "worktree-agent-ac53fb551a15a4fb9",
-    "base": "b0b7f76a8ac9fda48780b6608ca5ea0eef1faae6"
-  }
-}

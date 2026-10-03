@@ -1,7 +1,0 @@
-{
-  "searched": [
-    "docs/work/pinned-deps-update-path/job-2.diff (commit b62b9db: gate_wiring_test.sh case 5)"
-  ],
-  "exhaustive": false,
-  "findings": []
-}

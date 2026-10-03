@@ -192,6 +192,48 @@ def test_entries_list_view_fetched_at_wire_format_is_rfc3339(
         assert item["fetched_at"].endswith("+00:00")
 
 
+def test_search_reports_has_deep_extraction_from_the_full_analysis(
+    test_db: Path,
+) -> None:
+    """/api/search rows carry the full analysis, so has_deep_extraction must say
+    true for a deep-extracted row rather than the model's unset value.
+
+    BREAKS: an unset flag reports nothing (or false) for every search result.
+    """
+    storage = Storage(test_db)
+    src_id = storage.add_source("https://example.com/feed", "rss", "Test Feed")
+    content_id = add_new_content(
+        storage,
+        ContentItem(
+            source_id=src_id,
+            external_id="deep-search-001",
+            title="Deep Search Item",
+            url="https://example.com/deep",
+            content="body",
+            priority="high",
+            analysis={"kind": "news", "deep_extraction": {"synthesis": "S"}},
+        ),
+    )
+    storage.add_embedding(content_id, _make_high_score_embedding())
+
+    def override_get_storage() -> Generator[Storage]:
+        yield storage
+
+    app.dependency_overrides[get_storage] = override_get_storage
+    try:
+        response = TestClient(app).get(
+            "/api/search?q=test&min_score=0.0", headers={"X-API-Key": API_KEY}
+        )
+    finally:
+        app.dependency_overrides.clear()
+        storage.close()
+
+    assert response.status_code == 200, response.text
+    items = response.json()["data"]["items"]
+    assert [i["external_id"] for i in items] == ["deep-search-001"]
+    assert items[0]["has_deep_extraction"] is True
+
+
 # ---------------------------------------------------------------------------
 # T-E: /api/search wire format — fetched_at is RFC3339 (SC-30)
 # ---------------------------------------------------------------------------

@@ -120,8 +120,9 @@ class ContentItemModel(BaseModel):
     kind: str | None = None  # SC-5: mirrored from analysis.kind, like priority
     title_only: bool = False  # SC-6: mirrored from analysis.title_only, like kind
     # True when analysis has deep_extraction; a list view reads this because it
-    # carries no full analysis to look in.
-    has_deep_extraction: bool = False
+    # carries no full analysis to look in. None means the path did not compute it
+    # (compact entries), never "false".
+    has_deep_extraction: bool | None = None
     published_at: datetime | None = None
     fetched_at: datetime | None = None
     read: bool = False

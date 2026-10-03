@@ -457,6 +457,16 @@ def _item_title_only(item: dict) -> bool:
     return bool(analysis.get("title_only")) if isinstance(analysis, dict) else False
 
 
+def _item_has_deep_extraction(item: dict) -> bool:
+    """Whether the item's full analysis holds a deep_extraction.
+
+    Only meaningful for an item that carries its full analysis (search rows and
+    the detail endpoint); a list-view row gets the flag computed in SQL instead.
+    """
+    analysis = item.get("analysis")
+    return isinstance(analysis, dict) and analysis.get("deep_extraction") is not None
+
+
 def _parse_kind_filter(kind: str | None) -> list[str]:
     """Parse and validate a comma-separated `kind` query param (SC-3/SC-5).
 
@@ -1142,6 +1152,7 @@ async def semantic_search(
         for item in results:
             item["kind"] = _item_kind(item)
             item["title_only"] = _item_title_only(item)
+            item["has_deep_extraction"] = _item_has_deep_extraction(item)
 
         # Filter to compact fields if requested
         if compact:
@@ -1218,10 +1229,7 @@ async def get_entry_summary(
         # every entry as unclassified, including ones the classifier actually kinded.
         entry["kind"] = _item_kind(entry)
         entry["title_only"] = _item_title_only(entry)
-        analysis = entry.get("analysis")
-        entry["has_deep_extraction"] = (
-            isinstance(analysis, dict) and analysis.get("deep_extraction") is not None
-        )
+        entry["has_deep_extraction"] = _item_has_deep_extraction(entry)
 
         # INV-API-TS-4: route through ContentItemModel so @field_serializer emits RFC3339 datetimes
         if include == "content":

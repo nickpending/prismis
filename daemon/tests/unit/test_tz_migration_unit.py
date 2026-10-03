@@ -374,3 +374,34 @@ def test_migration_stale_backup_is_kept_and_a_fresh_one_taken(tmp_path: Path) ->
         ).fetchone() == ("not-a-date",)
     finally:
         conn.close()
+
+
+def test_runner_reports_the_migration_error_when_sqlite_already_ended_the_transaction(
+    tmp_path: Path,
+) -> None:
+    """
+    INVARIANT: when a migration fails after SQLite has already ended the transaction
+               (a full disk does this), init_db raises that failure, not a rollback error
+    BREAKS: the operator reads "cannot rollback - no transaction is active" and never
+            learns the disk was full (cerebro, 2026-10-03)
+    """
+    import sqlite3
+
+    from prismis_daemon.database import _apply_migrations
+
+    db = tmp_path / "runner.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE t (x INTEGER)")
+    conn.commit()
+
+    def ends_its_own_transaction_then_fails(c: sqlite3.Connection) -> None:
+        c.execute("INSERT INTO t VALUES (1)")
+        c.execute("ROLLBACK")  # what SQLite does itself on a full disk
+        raise sqlite3.OperationalError("database or disk is full")
+
+    with pytest.raises(sqlite3.OperationalError, match="disk is full"):
+        _apply_migrations(conn, db, migrations=[ends_its_own_transaction_then_fails])
+
+    assert conn.execute("SELECT count(*) FROM t").fetchone() == (0,)
+    assert conn.execute("PRAGMA user_version").fetchone() == (0,)
+    conn.close()

@@ -118,10 +118,14 @@ def _backup_beside(conn: sqlite3.Connection, db_path: Path) -> None:
     conn.execute("VACUUM INTO ?", (str(backup),))
 
 
-def _apply_migrations(conn: sqlite3.Connection, db_path: Path) -> None:
+def _apply_migrations(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    migrations: list[Callable[[sqlite3.Connection], None]] = _MIGRATIONS,
+) -> None:
     """Apply every migration the database has not seen, one transaction each."""
     (version,) = conn.execute("PRAGMA user_version").fetchone()
-    pending = _MIGRATIONS[version:]
+    pending = migrations[version:]
     if not pending:
         return
     _backup_beside(conn, db_path)
@@ -135,7 +139,11 @@ def _apply_migrations(conn: sqlite3.Connection, db_path: Path) -> None:
                 conn.execute(f"PRAGMA user_version = {number}")
                 conn.execute("COMMIT")
             except BaseException:
-                conn.execute("ROLLBACK")
+                # SQLite ends the transaction itself on some failures (a full disk
+                # did, on cerebro 2026-10-03); a ROLLBACK then raises "no transaction
+                # is active" and would replace the error that actually happened.
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
                 raise
     finally:
         conn.isolation_level = previous_isolation

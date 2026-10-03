@@ -1147,19 +1147,24 @@ class Storage:
         Raises:
             sqlite3.Error: If database operation fails
         """
+        return self._execute_source_update(
+            "UPDATE sources SET active = 0, updated_at = ? WHERE id = ?",
+            (utc_now_iso(), source_id),
+            "pause source",
+        )
+
+    def _execute_source_update(
+        self, sql: str, params: tuple[Any, ...], action: str
+    ) -> bool:
+        """Run one sources UPDATE, commit, and report whether a row matched."""
         try:
-            cursor = self.conn.execute(
-                """UPDATE sources 
-                   SET active = 0, updated_at = ?
-                   WHERE id = ?""",
-                (utc_now_iso(), source_id),
-            )
+            cursor = self.conn.execute(sql, params)
             self.conn.commit()
             return cursor.rowcount > 0
 
         except sqlite3.Error as e:
             self.conn.rollback()
-            raise sqlite3.Error(f"Failed to pause source: {e}") from e
+            raise sqlite3.Error(f"Failed to {action}: {e}") from e
 
     def resume_source(self, source_id: str) -> bool:
         """Resume a paused content source (set active and reset errors).
@@ -1173,20 +1178,12 @@ class Storage:
         Raises:
             sqlite3.Error: If database operation fails
         """
-        try:
-            cursor = self.conn.execute(
-                """UPDATE sources 
-                   SET active = 1, error_count = 0, last_error = NULL, 
-                       updated_at = ?
-                   WHERE id = ?""",
-                (utc_now_iso(), source_id),
-            )
-            self.conn.commit()
-            return cursor.rowcount > 0
-
-        except sqlite3.Error as e:
-            self.conn.rollback()
-            raise sqlite3.Error(f"Failed to resume source: {e}") from e
+        return self._execute_source_update(
+            "UPDATE sources SET active = 1, error_count = 0, last_error = NULL,"
+            " updated_at = ? WHERE id = ?",
+            (utc_now_iso(), source_id),
+            "resume source",
+        )
 
     def remove_source(self, source_id: str) -> bool:
         """Remove a content source from the database.

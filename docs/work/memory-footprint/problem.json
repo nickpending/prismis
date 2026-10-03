@@ -1,0 +1,16 @@
+{
+  "what": "Bound the daemon's memory under API load so a client request can no longer push it into the OOM killer on cerebro (gh #55): `GET /api/entries` stops loading and serializing the whole corpus for every call, the remote TUI stops pulling every item's full content and analysis at startup, and the resident baseline stops depending on corpus size.",
+  "why": "2026-10-03 14:54 and 14:56 UTC: two global OOM kills of prismis-daemon (anon-rss ~2.1 GB each), seen as 502s through Caddy by the remote TUI. Measured on cerebro afterwards: the TUI's startup call, `FetchEntries` in tui/internal/api/client.go (`GET /api/entries?limit=10000`), returns a 260 MB body in 11 s (analysis 158 MB, content 80 MB) and takes the daemon from 561 MB RSS to a 2,468 MB peak, holding 1,185 MB afterwards; the VM has 3.9 GB and no swap. In `get_content` in api.py, every call without a priority filter runs `storage.get_content_since` over all 27,404 non-archived rows, full content and analysis included, sorts them in Python and only then slices to `limit`, so even `limit=50` materializes the whole corpus; the result is then built into Pydantic models and dumped to one JSON body. The cost grows with the corpus, so the June fix (VM 2 GB to 4 GB) bought time, not margin.",
+  "decided": [
+    "The fix is in prismis (daemon API, storage, TUI and CLI clients), not more VM memory.",
+    "`GET /api/entries` filters, sorts and limits in SQL, so a request reads at most `limit` rows rather than the whole non-archived corpus.",
+    "List responses stop carrying full content and full analysis by default; full content stays available per item.",
+    "The remote TUI, the CLI and the web UI keep every view they show today.",
+    "Local-mode TUI, which reads SQLite directly, is unchanged.",
+    "Proof is measured on cerebro: the TUI's startup request and a normal fetch cycle, with daemon RSS sampled against the VM ceiling."
+  ],
+  "open": [
+    "What does the remote TUI fetch at startup and on opening an item, given that feed rows read kind, title_only, content length and Reddit/YouTube metrics from `analysis` and the reader needs content and the reading summary?",
+    "Is the embedding model's resident cost part of this change (lazy load or release, per the issue), or does bounding the entries path alone restore the margin the acceptance asks for at 2x corpus growth?"
+  ]
+}

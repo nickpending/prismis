@@ -22,10 +22,18 @@ import sqlite_vec
 
 from prismis_daemon.database import init_db
 
-OLD_SCHEMA = (Path(__file__).parent.parent / "fixtures" / "schema_before_tz.sql").read_text()
+OLD_SCHEMA = (
+    Path(__file__).parent.parent / "fixtures" / "schema_before_tz.sql"
+).read_text()
 
 TIMESTAMP_COLUMNS: dict[str, tuple[str, ...]] = {
-    "content": ("published_at", "fetched_at", "created_at", "updated_at", "archived_at"),
+    "content": (
+        "published_at",
+        "fetched_at",
+        "created_at",
+        "updated_at",
+        "archived_at",
+    ),
     "sources": ("created_at", "updated_at", "last_fetched_at"),
     "categories": ("created_at", "updated_at"),
     "source_categories": ("created_at",),
@@ -36,6 +44,10 @@ NAIVE_SPACE = "2026-03-04 05:06:07"
 NAIVE_T_FRAC = "2026-03-04T05:06:07.123456"
 AWARE = "2026-03-04T05:06:07.123456+00:00"
 AWARE_OFFSET = "2026-03-04T10:06:07+05:00"
+# Aware but space-separated: the shape 20,070 published_at and 193 fetched_at cells held
+# on cerebro on 2026-10-02, which the first migration neither rewrote nor accepted.
+AWARE_SPACE = "2026-04-30 02:38:14+00:00"
+AWARE_SPACE_FRAC_OFFSET = "2026-03-04 10:06:07.5+05:00"
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -46,7 +58,9 @@ def _connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _build_old_database(path: Path, *, extra_content_published: str | None = None) -> None:
+def _build_old_database(
+    path: Path, *, extra_content_published: str | None = None
+) -> None:
     """Create a pre-change database seeded with naive and aware values in every
     timestamp column, a known distinct updated_at per content row."""
     conn = _connect(path)
@@ -89,7 +103,22 @@ def _build_old_database(path: Path, *, extra_content_published: str | None = Non
             NAIVE_SPACE,
         ),
         ("c3", AWARE, AWARE, AWARE, AWARE_OFFSET, AWARE),
-        ("c4", extra_content_published, NAIVE_SPACE, NAIVE_SPACE, "2026-01-04 00:00:04", None),
+        (
+            "c4",
+            extra_content_published,
+            NAIVE_SPACE,
+            NAIVE_SPACE,
+            "2026-01-04 00:00:04",
+            None,
+        ),
+        (
+            "c5",
+            AWARE_SPACE,
+            AWARE_SPACE_FRAC_OFFSET,
+            NAIVE_SPACE,
+            "2026-01-05 00:00:05",
+            AWARE_SPACE,
+        ),
     ]
     for cid, pub, fet, cre, upd, arc in rows:
         conn.execute(
@@ -178,6 +207,8 @@ def test_migration_converts_every_naive_timestamp_and_keeps_updated_at(
     assert published["c1"] == "2026-03-04T05:06:07+00:00"
     assert published["c2"] == "2026-03-04T05:06:07.123456+00:00"
     assert fetched["c1"] == "2026-03-04T05:06:07.123456+00:00"
+    assert published["c5"] == "2026-04-30T02:38:14+00:00"
+    assert fetched["c5"] == "2026-03-04T10:06:07.5+05:00"
     # Already-aware values are byte-identical, including a non-UTC offset.
     assert updated["c3"] == AWARE_OFFSET
     assert published["c3"] == AWARE
@@ -329,7 +360,9 @@ def test_migration_stale_backup_is_kept_and_a_fresh_one_taken(tmp_path: Path) ->
     try:
         assert conn.execute(
             "SELECT published_at FROM content WHERE id = 'c4'"
-        ).fetchone() == (None,), "fresh backup must hold the repaired pre-migration state"
+        ).fetchone() == (None,), (
+            "fresh backup must hold the repaired pre-migration state"
+        )
     finally:
         conn.close()
     kept = [p for p in tmp_path.glob("prismis.db.bak-tz.*")]

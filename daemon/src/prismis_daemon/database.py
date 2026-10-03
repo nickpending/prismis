@@ -10,7 +10,13 @@ from typing import Optional
 # Every datetime column the schema declares, per table. Migration 1 rewrites and then
 # audits exactly these columns.
 _TIMESTAMP_COLUMNS: dict[str, tuple[str, ...]] = {
-    "content": ("published_at", "fetched_at", "created_at", "updated_at", "archived_at"),
+    "content": (
+        "published_at",
+        "fetched_at",
+        "created_at",
+        "updated_at",
+        "archived_at",
+    ),
     "sources": ("created_at", "updated_at", "last_fetched_at"),
     "categories": ("created_at", "updated_at"),
     "source_categories": ("created_at",),
@@ -28,6 +34,16 @@ _NAIVE_SHAPE = (
 # A value that already carries an explicit offset (or Z) after an RFC3339 date-time.
 _AWARE_SHAPE = (
     "{c} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T"
+    "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*'"
+    " AND ({c} GLOB '*[+-][0-9][0-9]:[0-9][0-9]' OR {c} LIKE '%Z')"
+)
+
+# Aware but space-separated ('YYYY-MM-DD HH:MM:SS[.fff]+HH:MM' or 'Z'): the offset is
+# right, only the separator is not RFC3339. 20,070 published_at and 193 fetched_at cells
+# on cerebro held this shape on 2026-10-02; the first run of this migration neither
+# rewrote nor accepted them and refused to start the daemon.
+_AWARE_SPACE_SHAPE = (
+    "{c} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] "
     "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*'"
     " AND ({c} GLOB '*[+-][0-9][0-9]:[0-9][0-9]' OR {c} LIKE '%Z')"
 )
@@ -52,6 +68,11 @@ def _migrate_1_tz_aware_timestamps(conn: sqlite3.Connection) -> None:
                 f"UPDATE {table} SET {col} = replace(substr({col}, 1, 19), ' ', 'T')"
                 f" || substr({col}, 20) || '+00:00'"
                 f" WHERE {_NAIVE_SHAPE.format(c=col)}"
+            )
+            conn.execute(
+                f"UPDATE {table} SET {col} = replace(substr({col}, 1, 19), ' ', 'T')"
+                f" || substr({col}, 20)"
+                f" WHERE {_AWARE_SPACE_SHAPE.format(c=col)}"
             )
 
     for table in ("sources", "categories", "content"):

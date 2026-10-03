@@ -1,0 +1,16 @@
+{
+  "what": "Close the two gaps the gh #80 re-measure found in readable-content's delivered work: the readability check calls three kinds of unreadable extraction readable, and the Reddit fetcher never fetches the article behind a link post that carries any self-text.",
+  "why": "Re-measured on cerebro 2026-10-03 for items created since the readable-content deploy (2026-09-30), content under 300 chars: youtube 0/21 (was 56/126), reddit 5/160 (was 270/1594), rss 17/217 (was 154/1720). The RSS share barely moved. 14 of the 17 are Hacker News `Comments` stubs correctly marked title_only (paywalls, PDFs, empty extractions). The other 3 are marked readable and reach analysis as content: trafilatura returned 'This page needs JavaScript.' plus loading text (stoppels.ch), the two glyphs '‹ ›' (frogandtoad.ai), and YouTube's footer navigation (an HN link to youtube.com). `is_readable` in readability.py matches one literal React noscript sentence and only tag-only text, so each new wording of the same failure passes. Separately, 8 of 37 external Reddit link posts since the deploy hold no article text: `_to_content_item` in fetchers/reddit.py appends the post's self-text instead of calling `extract_article` whenever self-text exists, so a link post with a two-line note never gets its article, although trafilatura extracts 23,970 and 13,192 chars from two of those links (ifritnoises.org, binsec.no) today.",
+  "decided": [
+    "The readability check stays shape-based with no bare length floor; one-sentence news blurbs and two-line Reddit questions stay readable (readable-content SC-1).",
+    "JavaScript-walled pages are title-only, not rendered (readable-content out of scope).",
+    "The fix lives in the one check in readability.py that every consumer already calls; no second check is added.",
+    "A Reddit link post to an external article gets the article text alongside the link and any self-text, through the shared `extract_article`; image, video and reddit-internal links stay as they are; a failed extraction keeps today's content.",
+    "Items already stored and analysed are not reclassified or re-fetched; a backfill stays a separate, costed decision.",
+    "Routing an HN link to youtube.com through the YouTube transcript fetcher stays out of scope (readable-content out of scope: no different route for HN's linked article)."
+  ],
+  "open": [
+    "How does the check recognize a JavaScript-required notice beyond the one literal React sentence, so wordings like 'This page needs JavaScript.' are caught, without calling an article that discusses JavaScript unreadable?",
+    "What shape test replaces the markup-only check so text with no sentence in it at all (site navigation and footer chrome, lone glyphs) is not readable, while a one-sentence blurb and a two-line question stay readable?"
+  ]
+}

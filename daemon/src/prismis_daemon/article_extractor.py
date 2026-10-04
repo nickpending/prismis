@@ -9,12 +9,17 @@ copy that can drift.
 
 from __future__ import annotations
 
+import http.client
+import ipaddress
 import logging
+import socket
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from trafilatura import extract
 from trafilatura.utils import decode_file
@@ -41,14 +46,140 @@ class ArticleResult:
         return {"outcome": self.outcome, "detail": self.detail}
 
 
-def _http_only_opener() -> urllib.request.OpenerDirector:
-    """An opener with http(s), redirect, proxy and error handling and no file/ftp/data."""
+class BlockedAddressError(OSError):
+    """A connection was refused because its host resolves to a non-public address."""
+
+
+def _is_public(address: str) -> bool:
+    """Whether `address` is a globally routable IP: not loopback, private,
+    link-local (169.254.169.254 included), carrier-grade NAT, unique-local or an
+    IPv4-mapped form of any of those."""
+    return ipaddress.ip_address(address.split("%", 1)[0]).is_global
+
+
+def _resolve_guarded(
+    host: str, port: int, allowed_hosts: frozenset[str]
+) -> tuple[Any, ...]:
+    """The one socket address to connect to for `host`, refused unless public.
+
+    Resolves once and returns the first result, so the address checked is the
+    address connected to -- a second lookup at connect time could answer
+    differently (DNS rebinding). Every address the name resolves to must be public,
+    so a name that also resolves to a private address is refused. A host named in
+    `allowed_hosts` skips the check.
+    """
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    if host.lower() not in allowed_hosts and not all(
+        _is_public(str(info[4][0])) for info in infos
+    ):
+        raise BlockedAddressError(f"blocked address: {host}")
+    return tuple(infos[0])
+
+
+def _guarded_connection(
+    allowed_hosts: frozenset[str],
+    address: tuple[str, int],
+    timeout: float | None = None,
+    source_address: tuple[str, int] | None = None,
+) -> socket.socket:
+    """`socket.create_connection` that connects only to the address it approved."""
+    host, port = address
+    family, socktype, proto, _canon, sockaddr = _resolve_guarded(
+        host, port, allowed_hosts
+    )
+    sock = socket.socket(family, socktype, proto)
+    try:
+        if timeout is not None:
+            sock.settimeout(timeout)
+        if source_address:
+            sock.bind(source_address)
+        sock.connect(sockaddr)
+    except BaseException:
+        sock.close()
+        raise
+    return sock
+
+
+def _guard(
+    conn: http.client.HTTPConnection, allowed_hosts: frozenset[str]
+) -> http.client.HTTPConnection:
+    conn._create_connection = lambda address, timeout=None, source_address=None: (  # type: ignore[attr-defined]
+        _guarded_connection(allowed_hosts, address, timeout, source_address)
+    )
+    return conn
+
+
+def _http_only_opener(
+    allowed_private_hosts: Iterable[str] = (),
+) -> urllib.request.OpenerDirector:
+    """An opener with http(s), redirect, proxy and error handling and no file/ftp/data.
+
+    Every connection it opens -- the first request and each redirect hop -- goes
+    through `_guarded_connection`, which refuses non-public addresses except for
+    hosts named in `allowed_private_hosts`.
+    """
+    allowed = frozenset(h.lower() for h in allowed_private_hosts)
+
+    class _HTTPConnection(http.client.HTTPConnection):
+        def __init__(
+            self,
+            host: str,
+            /,
+            *,
+            port: int | None = None,
+            timeout: float = _DOWNLOAD_TIMEOUT_SECONDS,
+            source_address: tuple[str, int] | None = None,
+            blocksize: int = 8192,
+        ) -> None:
+            super().__init__(
+                host,
+                port=port,
+                timeout=timeout,
+                source_address=source_address,
+                blocksize=blocksize,
+            )
+            _guard(self, allowed)
+
+    class _HTTPSConnection(http.client.HTTPSConnection):
+        def __init__(
+            self,
+            host: str,
+            /,
+            *,
+            port: int | None = None,
+            timeout: float = _DOWNLOAD_TIMEOUT_SECONDS,
+            source_address: tuple[str, int] | None = None,
+            blocksize: int = 8192,
+            context: ssl.SSLContext | None = None,
+        ) -> None:
+            super().__init__(
+                host,
+                port=port,
+                timeout=timeout,
+                source_address=source_address,
+                context=context,
+                blocksize=blocksize,
+            )
+            _guard(self, allowed)
+
+    class _HTTPHandler(urllib.request.HTTPHandler):
+        def http_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
+            return self.do_open(_HTTPConnection, req)
+
+    class _HTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
+            return self.do_open(
+                _HTTPSConnection,
+                req,
+                context=self._context,  # type: ignore[attr-defined]
+            )
+
     opener = urllib.request.OpenerDirector()
     for handler in (
         urllib.request.ProxyHandler(),
         urllib.request.UnknownHandler(),
-        urllib.request.HTTPHandler(),
-        urllib.request.HTTPSHandler(),
+        _HTTPHandler(),
+        _HTTPSHandler(),
         urllib.request.HTTPDefaultErrorHandler(),
         urllib.request.HTTPRedirectHandler(),
         urllib.request.HTTPErrorProcessor(),
@@ -57,13 +188,17 @@ def _http_only_opener() -> urllib.request.OpenerDirector:
     return opener
 
 
-def extract_article(url: str) -> ArticleResult:
+def extract_article(
+    url: str, *, allowed_private_hosts: Iterable[str] = ()
+) -> ArticleResult:
     """Fetch `url` and extract its main article text with trafilatura.
 
     Three outcomes: `extracted` (text set), `empty` (the page was fetched but
     trafilatura found nothing) and `fetch_failed` (`detail` is `HTTP <status>`
     when the server answered with an error status, `no response` when nothing
-    came back, or the exception class name). The caller owns its own fallback --
+    came back, `blocked address` when the host (or a redirect hop) resolves to a
+    non-public address and is not in `allowed_private_hosts`, or the exception
+    class name). The caller owns its own fallback --
     RSS's (the feed entry's own content) differs from Reddit's (the link-only
     placeholder) -- so this never raises or chooses one.
     """
@@ -79,7 +214,7 @@ def extract_article(url: str) -> ArticleResult:
         # A fresh opener per call: `urlopen` caches one global opener, and with it
         # the proxy environment of whichever call came first. Built from http(s)
         # handlers only, so a redirect cannot reach `ftp://` or `file://` either.
-        opener = _http_only_opener()
+        opener = _http_only_opener(allowed_private_hosts)
         with opener.open(request, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as response:
             body = response.read(_MAX_PAGE_BYTES + 1)
         if len(body) > _MAX_PAGE_BYTES:
@@ -102,7 +237,9 @@ def extract_article(url: str) -> ArticleResult:
 
     except urllib.error.HTTPError as e:
         return ArticleResult(None, "fetch_failed", f"HTTP {e.code}")
-    except urllib.error.URLError:
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, BlockedAddressError):
+            return ArticleResult(None, "fetch_failed", "blocked address")
         return ArticleResult(None, "fetch_failed", "no response")
     except Exception as e:
         logger.warning(f"Error extracting article from {url}: {e}")

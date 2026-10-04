@@ -446,7 +446,10 @@ class RedditFetcher:
                 and not self._is_image_post(submission)
                 and not _is_reddit_domain(submission.url)
             ):
-                article = extract_article(submission.url)
+                article = extract_article(
+                    submission.url,
+                    allowed_private_hosts=self.config.fetch_allow_private_hosts,
+                )
                 fetch_outcome = article.as_fetch_outcome()
                 article_text = article.text
                 if article_text and is_readable(article_text):

@@ -264,7 +264,9 @@ class RSSFetcher:
             description fallback, and the extraction's `{"outcome", "detail"}`
         """
         logger.debug(f"Extracting full content from: {url}")
-        result = extract_article(url)
+        result = extract_article(
+            url, allowed_private_hosts=self.config.fetch_allow_private_hosts
+        )
         content = result.text
         if content and is_readable(content):
             logger.debug(f"Extracted {len(content)} chars from {url}")

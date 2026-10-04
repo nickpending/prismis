@@ -81,6 +81,10 @@ class Config:
     # are stored without a kind, the same as an install that predates this feature.
     llm_kind_service: str | None = None
 
+    # Hostnames `extract_article` may connect to although they resolve to a
+    # non-public address. Empty = every article fetch is public-only.
+    fetch_allow_private_hosts: list[str] = field(default_factory=list)
+
     @property
     def has_reddit_credentials(self) -> bool:
         """Whether both Reddit credentials hold a value Reddit could accept.
@@ -268,6 +272,7 @@ class Config:
                 max_items_youtube=daemon["max_items_youtube"],
                 max_items_file=daemon["max_items_file"],
                 max_days_lookback=daemon["max_days_lookback"],
+                fetch_allow_private_hosts=daemon.get("fetch_allow_private_hosts", []),
                 llm_light_service=llm["light_service"],
                 llm_deep_service=llm.get("deep_service"),
                 auto_extract=llm.get("auto_extract", "none"),

@@ -191,7 +191,10 @@ def _reextract_item(
         content = result.text or ""
         fetch_outcome: dict[str, str] | None = result.as_fetch_outcome()
     elif source_type == "rss":
-        result = extract_article(row["url"])
+        result = extract_article(
+            row["url"],
+            allowed_private_hosts=orchestrator.config.fetch_allow_private_hosts,
+        )
         content = result.text or ""
         fetch_outcome = result.as_fetch_outcome()
     elif source_type == "reddit":

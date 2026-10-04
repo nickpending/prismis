@@ -224,3 +224,20 @@ def test_config_default_values() -> None:
     # Verify notification defaults
     assert config.high_priority_only is True
     assert config.notification_command == "terminal-notifier"
+
+
+def test_fetch_allow_private_hosts_defaults_to_empty_and_reads_the_key() -> None:
+    """SC-4: a config.toml without the key loads with an empty list (existing files
+    load unchanged); one that names a host carries it.
+    BREAKS: a required key fails the first load; a key that is never read leaves
+    the second list empty."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        without = _write_config(Path(tmpdir))
+        text = without.read_text()
+        assert Config.from_file(without).fetch_allow_private_hosts == []
+
+        with_key = Path(tmpdir) / "with.toml"
+        with_key.write_text(
+            text.replace("[daemon]\n", '[daemon]\nfetch_allow_private_hosts = ["127.0.0.1"]\n', 1)
+        )
+        assert Config.from_file(with_key).fetch_allow_private_hosts == ["127.0.0.1"]

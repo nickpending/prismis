@@ -760,3 +760,31 @@ def test_refetch_one_raises_when_reddit_not_configured() -> None:
         )
 
     assert str(raised.value) == REDDIT_NOT_CONFIGURED
+
+
+def test_reddit_link_post_extraction_honours_the_configured_allow_list(
+    hit_counting_server: tuple[str, list[str]],
+) -> None:
+    """SC-4: the Reddit fetcher passes its config's `fetch_allow_private_hosts`
+    through to the article fetch.
+    BREAKS: a caller that passes no list is blocked with the host allowed; one
+    that always allows 127.0.0.1 makes a request with the list empty."""
+    base_url, hits = hit_counting_server
+    url = f"{base_url}/article"
+
+    blocked = RedditFetcher(config=make_config(fetch_allow_private_hosts=[]))
+    item = blocked._to_content_item(_link_post_submission(url), "test-source-id")
+    assert hits == []
+    assert item.analysis is not None
+    assert item.analysis["fetch_outcome"] == {
+        "outcome": "fetch_failed",
+        "detail": "blocked address",
+    }
+
+    allowed = RedditFetcher(
+        config=make_config(fetch_allow_private_hosts=["127.0.0.1"])
+    )
+    item = allowed._to_content_item(_link_post_submission(url), "test-source-id")
+    assert hits == ["/article"]
+    assert item.content is not None
+    assert "genuine article body" in item.content

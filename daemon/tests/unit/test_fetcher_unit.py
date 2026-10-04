@@ -10,6 +10,8 @@ import pytest
 
 from prismis_daemon.fetchers.rss import RSSFetcher
 
+from conftest import make_config
+
 
 def test_get_external_id_with_entry_id() -> None:
     """Test external ID uses entry.id when available."""
@@ -363,3 +365,22 @@ def test_fetch_content_records_each_entrys_extraction_outcome(
     assert items["gone-item"].content == (
         "The entry's own summary survives a missing page."
     )
+
+
+def test_rss_extraction_honours_the_configured_allow_list(
+    rss_skip_known_server: tuple[str, dict[str, int]],
+) -> None:
+    """SC-4: the RSS fetcher passes its config's `fetch_allow_private_hosts` through.
+    BREAKS: a caller that passes no list is blocked with the host allowed; one
+    that always allows 127.0.0.1 is not blocked with the list empty."""
+    base, hits = rss_skip_known_server
+
+    blocked = RSSFetcher(config=make_config(fetch_allow_private_hosts=[]))
+    _content, outcome = blocked._extract_full_content(f"{base}/article", {})
+    assert outcome == {"outcome": "fetch_failed", "detail": "blocked address"}
+    assert hits == {}
+
+    allowed = RSSFetcher(config=make_config(fetch_allow_private_hosts=["127.0.0.1"]))
+    content, outcome = allowed._extract_full_content(f"{base}/article", {})
+    assert outcome["outcome"] == "extracted"
+    assert "genuine" in content

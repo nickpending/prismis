@@ -16,6 +16,9 @@ dry-run branch.
 
 from __future__ import annotations
 
+import dataclasses
+import http.server
+import threading
 from pathlib import Path
 
 import pytest
@@ -27,7 +30,11 @@ from prismis_daemon.notifier import Notifier
 from prismis_daemon.observability import get_logger as get_obs_logger
 from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.readability import format_youtube_no_transcript
-from prismis_daemon.refetch import run_refetch, upper_bound_cost_estimate
+from prismis_daemon.refetch import (
+    _reextract_item,
+    run_refetch,
+    upper_bound_cost_estimate,
+)
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
 
@@ -179,3 +186,52 @@ def test_dry_run_cost_estimate_with_no_history_is_zero(
 
     assert report.selected == 1
     assert report.estimated_cost == 0.0
+
+
+def test_refetch_extraction_honours_the_configured_allow_list(
+    test_db: Path, isolated_xdg_env: Path
+) -> None:
+    """SC-4: refetch passes the orchestrator config's `fetch_allow_private_hosts`
+    to the article fetch.
+    BREAKS: a refetch that passes no list is blocked with the host allowed; one
+    that always allows 127.0.0.1 makes a request with the list empty."""
+    hits: list[str] = []
+    page = b"<html><body><article><p>Refetched body prose, a full sentence.</p></article></body></html>"
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            hits.append(self.path)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(page)))
+            self.end_headers()
+            self.wfile.write(page)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        row = {
+            "source_type": "rss",
+            "source_id": "s",
+            "external_id": "e",
+            "title": "t",
+            "url": f"http://127.0.0.1:{server.server_address[1]}/page",
+        }
+        storage = Storage(test_db)
+        for allow, expected_detail in (([], "blocked address"), (["127.0.0.1"], "")):
+            config = dataclasses.replace(
+                Config.from_file(), fetch_allow_private_hosts=allow
+            )
+            orchestrator = _build_orchestrator(config, storage, _PoisonFetcher())
+            item = _reextract_item(orchestrator, row)
+            assert item.analysis is not None
+            assert item.analysis["fetch_outcome"]["detail"] == expected_detail
+        assert hits == ["/page"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)

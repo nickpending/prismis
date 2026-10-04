@@ -148,7 +148,9 @@ def isolated_xdg_env(tmp_path_factory, monkeypatch) -> Path:
     cfg_dir = cfg_home / "prismis"
     cfg_dir.mkdir(parents=True, exist_ok=True)
     cfg_dir.joinpath("config.toml").write_text(
-        DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY)
+        DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY).replace(
+            "[daemon]\n", '[daemon]\nfetch_allow_private_hosts = ["127.0.0.1"]\n', 1
+        )
     )
     cfg_dir.joinpath("context.md").write_text(DEFAULT_CONTEXT_MD)
 

@@ -13,6 +13,8 @@ max_items_reddit = 50  # maximum items to fetch from Reddit sources
 max_items_youtube = 10  # maximum items to fetch from YouTube (transcripts are expensive)
 max_items_file = 1  # maximum items to fetch from file sources (1 = one entry per change)
 max_days_lookback = 30  # ignore content older than this
+# Article fetches refuse loopback/private/link-local addresses. Name a host here to allow it.
+# fetch_allow_private_hosts = ["nas.lan"]
 
 [llm]
 # Service name for light summarization (from ~/.config/llm-core/services.toml)

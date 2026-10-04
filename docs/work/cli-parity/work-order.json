@@ -1,0 +1,50 @@
+{
+  "workOrder": "cli-parity",
+  "issues": [],
+  "what": "Make `prismis-cli report` render its report in the CLI from GET /api/entries list data instead of calling the /api/reports endpoint the daemon removed, remove the daemon's unused report formatters, and make `prismis-cli get --json` return the full entry including content.",
+  "why": "Design: docs/work/cli-parity/design.md. A sweep of every read-only CLI command against cerebro on 2026-10-03 found `prismis-cli report daily` failing with 'API error: 404' (commit b332c15 removed /api/reports on 2025-10-14 to keep presentation in the client, and the CLI was never updated) and `prismis-cli get <id> --json` returning no content although get.py says it outputs the full response and the prismis skill tells agents it carries content.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a local HTTP server serving GET /api/entries with high, medium (more than 10) and low (more than 15) items and some unprioritized ones",
+      "when": "`prismis-cli report generate 48h` runs against it",
+      "then": "it fails if the command calls /api/reports or exits non-zero; otherwise its one request carries `since_hours=48` and `view=list`, and the output holds the high section with every item, the medium section capped at 10 with an 'and N more' line, the low section capped at 15, each item's title, source, age, link and summary, and no unprioritized item (shown red against the pre-change CLI)"
+    },
+    {
+      "id": "SC-2",
+      "given": "periods `31d`, `721h` and `bogus`",
+      "when": "`prismis-cli report generate` runs with each",
+      "then": "it fails if any of them sends a request; otherwise each exits non-zero with a message naming the accepted format or the 720-hour limit"
+    },
+    {
+      "id": "SC-3",
+      "given": "a local HTTP server serving GET /api/entries/{id}",
+      "when": "`prismis-cli get <id> --json` runs",
+      "then": "it fails if the request lacks `include=content` or the printed JSON lacks the content; otherwise the JSON is the full entry including content, and the formatted and `--raw` modes behave as before"
+    },
+    {
+      "id": "SC-4",
+      "given": "daemon/src/prismis_daemon/reports.py after the change",
+      "when": "the audio briefing builds its report and the repository is searched for the removed formatters",
+      "then": "it fails if `format_as_markdown` or `format_as_html` or their two test files remain, or if `generate_daily_report` or `ContentSummary.time_ago` changed behavior; otherwise only the audio briefing's input remains and its existing tests pass"
+    },
+    {
+      "id": "SC-5",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "The report reads the slim list shape, so it shows summaries and no full content, as the daemon's report did.",
+    "Reports cover at most 30 days, the API's `since_hours` bound.",
+    "The HTML report format is gone; nothing in production produced it."
+  ],
+  "stakes": [
+    "The daemon serves no report endpoint; the CLI renders reports from GET /api/entries list data.",
+    "`prismis-cli report` works in remote mode, which carries no daemon package.",
+    "There is one report renderer, in the CLI; the daemon's unused markdown and HTML formatters are removed.",
+    "`prismis-cli get --json` returns the full entry including content.",
+    "A period beyond the API's 720-hour bound is refused with a clear message before any request."
+  ]
+}

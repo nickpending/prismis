@@ -1,0 +1,13 @@
+{
+  "what": "`extract_article` refuses to fetch article URLs that resolve to loopback, private, link-local or otherwise non-public addresses, checked on the address it actually connects to, including after every redirect, so a feed entry or Reddit post cannot make cerebro fetch a page on the home network and store it or send it to the LLM.",
+  "why": "Article URLs come from third-party content: an RSS entry's link (Hacker News accepts any submitted link) and a Reddit post's url. On 2026-10-03 the title-only-reasons review closed the file:// read the new downloader had opened, and the automated security review of the same file noted the older exposure that remains: http(s) URLs to 127.0.0.1, 192.168.x.x or 169.254.169.254 are fetched like any other, as trafilatura's downloader did before. cerebro sits on the home LAN beside the daemon's own API (port 8989), Home Assistant and the router. A query over cerebro's 38,545 stored items and its active sources found no source or item on a private host, so blocking costs no current feed. Eighteen test files serve pages from a ThreadingHTTPServer on 127.0.0.1 (daemon/tests/conftest.py), several of them through the RSS and Reddit fetchers into `extract_article`.",
+  "decided": [
+    "The guard lives in `extract_article` in article_extractor.py, the one place untrusted article URLs are fetched (callers: fetchers/rss.py, fetchers/reddit.py, refetch.py).",
+    "A blocked address is a `fetch_failed` outcome with a detail naming it as blocked, so the title-only reason records it.",
+    "The address check and the connection use the same DNS resolution, so a name that re-resolves between check and connect cannot slip through, and each redirect's new connection is checked the same way.",
+    "Feed URLs themselves (chosen by the operator) and the LLM, Reddit and YouTube clients are untouched."
+  ],
+  "open": [
+    "How do the tests that serve pages from 127.0.0.1 through the fetchers keep reaching their local server once loopback is blocked, without a hidden switch that turns the guard off?"
+  ]
+}

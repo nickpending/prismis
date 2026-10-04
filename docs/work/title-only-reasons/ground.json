@@ -1,0 +1,123 @@
+{
+  "impacted": [
+    {
+      "path": "daemon/src/prismis_daemon/analysis.py",
+      "role": "`build_llm_analysis` (line 52) builds the stored analysis for both the daemon pipeline (orchestrator.py:168) and `analyze repair` (cli/src/cli/analyze.py:198) and sets `title_only` from `is_readable(content)` at line 84; it receives the summary, the evaluation and the content, not the fetcher's analysis"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/readability.py",
+      "role": "`is_readable` returns a bare boolean from placeholder checks, the has-prose rule and the JavaScript-wall rule; callers are analysis.py, orchestrator.py (readmit), storage.py (refetch selection), refetch.py, fetchers/rss.py and fetchers/reddit.py"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/article_extractor.py",
+      "role": "`extract_article` (line 19) returns None for a failed download, an empty extraction and any exception alike; called by fetchers/rss.py, fetchers/reddit.py and refetch.py"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/fetchers/youtube.py",
+      "role": "`_extract_transcript` (line 334) returns None on any failure (HTTP 429 or no subtitles alike) and `_process_video` falls through to `_handle_missing_transcript` (lines 305, 314); items carry `analysis={\"metrics\": ...}`"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/summarizer.py",
+      "role": "`summarize_with_analysis` parses one JSON object and validates five required fields; the standard prompt's OUTPUT FORMAT (line 297) serves standard, brief and detailed modes, and the diff prompt (line 386) serves file sources"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/orchestrator.py",
+      "role": "merges fetcher analysis into the LLM analysis, keeping metrics and every fetcher key the LLM analysis lacks; skips deep extraction for title_only (line 225); skips re-analysing a stored title-only item whose fresh content still fails `is_readable` (line 423)"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "role": "`get_readable_external_ids` treats title_only NULL or 0 as stored readably (lines 690-691); every other stored item is re-extracted each fetch cycle"
+    },
+    {
+      "path": "cli/src/cli/list.py",
+      "role": "prints id, title, priority, kind and published, with no title-only marker; cli/src/cli/get.py prints the entry with no title-only marker"
+    }
+  ],
+  "constraints": [
+    {
+      "tag": "RULE",
+      "path": ".specify/memory/constitution.md",
+      "line": 49,
+      "text": "Success, empty success, and failure are three answers and never share a representation."
+    },
+    {
+      "tag": "RULE",
+      "path": ".specify/memory/constitution.md",
+      "line": 55,
+      "text": "Anything running unattended (scheduled, triggered, retried, backgrounded) records what it decided, and why, at the moment it decides."
+    },
+    {
+      "tag": "RULE",
+      "path": "docs/architecture/boundaries.md",
+      "line": 55,
+      "text": "Content that is not readable is stored with `analysis.title_only = true`; it stays in the feed, skips deep extraction, and shows a marker in TUI and web."
+    },
+    {
+      "tag": "RULE",
+      "path": "docs/architecture/boundaries.md",
+      "line": 50,
+      "text": "The ten kinds and the 0.7 threshold change only with new measurement (gh #77)."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/orchestrator.py",
+      "line": 697,
+      "text": "The merge copies every fetcher analysis key the LLM analysis lacks into the stored analysis, so a fetcher-supplied fetch outcome reaches storage without a new path."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "line": 1,
+      "text": "Stored summaries for 9 known-junk items (HN youtube.com links, grapheneos.social walls): 7 say 'no substantive information' or 'no substantive content', 2 summarize the title as if it were content."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "line": 690,
+      "text": "An item marked title-only by the model alone would be re-extracted every cycle, pass the code check at orchestrator.py:423, and be re-analysed each time, so the retry query must treat model-only title-only items as settled."
+    }
+  ],
+  "adrs": {
+    "scanned": 0,
+    "binding": []
+  },
+  "related": {
+    "query": "gh issue list --state open --search \"readable OR title OR content OR extraction OR CLI\" --limit 20",
+    "issues": [
+      {
+        "number": 43,
+        "title": "feature: papers/PDF support (arxiv RSS + PDF ingestion)",
+        "why": "PDF links are one of the causes the recorded reason will name (fetched, nothing extractable); extracting them stays #43's capability"
+      },
+      {
+        "number": 34,
+        "title": "fetchers: add --naughty flag for browser user-agent fallback",
+        "why": "a recorded fetch-failure reason (403/429) is the measurement #34 would act on"
+      },
+      {
+        "number": 18,
+        "title": "prompt audit: summarizer + evaluator quality vs source-of-truth",
+        "why": "shares the summarizer prompt this change extends; the substantive field is one more output the audit would cover, and its accuracy check here measures that field only"
+      }
+    ]
+  },
+  "reuse": [
+    {
+      "path": "daemon/src/prismis_daemon/analysis.py",
+      "what": "`build_llm_analysis`, the one place title_only is decided"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/orchestrator.py",
+      "what": "the fetcher-key merge that already carries metrics into stored analysis"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/summarizer.py",
+      "what": "the existing light summarize call and its JSON output, extended with one field"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "what": "`get_readable_external_ids`, the retry query, extended to treat model-only title-only items as settled"
+    }
+  ],
+  "open": []
+}

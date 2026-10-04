@@ -1,0 +1,17 @@
+{
+  "scrutiny": [
+    {"test": "T0 purpose: prismis ingests third-party content unattended; letting a third-party link steer cerebro's fetcher at the home network would make the system a pivot into the LAN. Refusing non-public addresses keeps ingestion to the public web it is for.", "failureCase": "The guard reduced what prismis can ingest from its actual sources.", "result": "held"},
+    {"test": "T1 owners: constitution.md:86 (additive change) is met by reading the new key with a default; constitution 10 (validate input where it enters) is what the guard implements at the one entry point for article URLs.", "failureCase": "An owner required the key or forbade a config-scoped exception.", "result": "held"},
+    {"test": "T6 assumptions verified: Python 3.13's http.client.HTTPConnection holds `_create_connection` as an instance attribute (socket.create_connection), the hook the guarded connection replaces; `ipaddress.is_global` is False for 127.0.0.1, 10.0.0.1, 192.168.1.1, 169.254.169.254, 100.64.0.1, ::1, ::ffff:127.0.0.1 and fd00::1 and True for 8.8.8.8 and 2606:4700::1111, on this Mac (3.13.15) and on cerebro (3.13.5) for the mapped form.", "failureCase": "The hook or the classification behaved differently than the design assumes.", "result": "held"},
+    {"test": "T2 same noun: the check runs on the addresses getaddrinfo returned and the socket connects to one of those same addresses, so the claim 'checked address = connected address' rests on the connect call, not on a pre-flight lookup.", "failureCase": "A pre-flight check resolved the name separately from the connection, leaving a rebinding window.", "result": "held"},
+    {"test": "T3 degrades: LAN-hosted article links become title-only unless allowed; no current source has one (cerebro query); proxied requests check the proxy address.", "failureCase": "A current feed lost content.", "result": "held"},
+    {"test": "T4 reuse: extends `_http_only_opener` and the existing `[daemon]` config section, following `deep_extract_exclude`'s optional-list read.", "failureCase": "A second downloader or a parallel config mechanism were added.", "result": "held"},
+    {"test": "T7 callers of extract_article, enumerated with `grep -rn 'extract_article(' daemon/src`: fetchers/rss.py:267, fetchers/reddit.py:449, refetch.py:194; all pass their config's allow list.", "failureCase": "A caller fetched article URLs outside the guard.", "result": "held"},
+    {"test": "T8 shape: the check is structural, in the connection the opener builds, so redirects need no separate handling; the exception is a named host list, not a boolean off switch.", "failureCase": "A redirect handler re-implemented the check, or a global flag disabled it.", "result": "held"},
+    {"test": "T5 real-system proof: after deploy, the next fetch cycles on cerebro show `fetch_failed:blocked address` only for links that resolve to non-public addresses, by grouping new items' title_only_reason.", "failureCase": "The only proof were local tests.", "result": "held"},
+    {"test": "T10 undo: revert the commit; the config key is optional and ignored by older code.", "failureCase": "A one-way change.", "result": "held"}
+  ],
+  "decisions": [],
+  "verdict": "accept",
+  "carried": []
+}

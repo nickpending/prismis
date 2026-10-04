@@ -1,0 +1,55 @@
+{
+  "workOrder": "fetch-address-guard",
+  "issues": [],
+  "what": "Make `extract_article` refuse to connect to loopback, private, link-local or otherwise non-public addresses, checked on the address it connects to and on every redirect, with an explicit `[daemon] fetch_allow_private_hosts` config list as the only exception.",
+  "why": "Design: docs/work/fetch-address-guard/design.md. Article URLs come from third-party content (HN-submitted links, Reddit post urls), and cerebro sits on the home LAN beside the daemon's API, Home Assistant and the router; today any http(s) link to 127.0.0.1, 192.168.x.x or 169.254.169.254 is fetched, stored and sent to the LLM. No current source or stored item is on a private host (cerebro query 2026-10-03).",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a local HTTP server that records every request, and an empty allow list",
+      "when": "`extract_article` is called for `http://127.0.0.1:<port>/` and `http://localhost:<port>/`",
+      "then": "it fails if the server records any request or the result is anything but `fetch_failed` with detail `blocked address` (shown red against the pre-change extractor, which fetches the page); otherwise both are refused before a connection is made"
+    },
+    {
+      "id": "SC-2",
+      "given": "a server on 127.0.0.1 that answers a public-looking request with a redirect to another loopback URL, reached with its first hop allowed and its redirect target's host not allowed",
+      "when": "`extract_article` follows the redirect",
+      "then": "it fails if the redirect target is fetched; otherwise the redirect hop is refused with `blocked address`"
+    },
+    {
+      "id": "SC-3",
+      "given": "the addresses 10.0.0.1, 192.168.1.1, 169.254.169.254, 100.64.0.1, ::1, ::ffff:127.0.0.1 and fd00::1, and a public address",
+      "when": "the guarded connection checks them",
+      "then": "it fails if any non-public address is allowed or the public one refused; otherwise every listed non-public address is refused and the connection goes to the same address the check approved"
+    },
+    {
+      "id": "SC-4",
+      "given": "a config.toml with `fetch_allow_private_hosts = [\"127.0.0.1\"]`, and one without the key",
+      "when": "the config loads and the RSS fetcher, Reddit fetcher and refetch extract an article served on 127.0.0.1",
+      "then": "it fails if the config without the key fails to load or does not yield an empty list, or if the allowed host is refused; otherwise the allowed host's page is extracted through each caller and the test suite's materialized config lists 127.0.0.1 so existing local-server tests pass unchanged"
+    },
+    {
+      "id": "SC-5",
+      "given": "docs/architecture/boundaries.md and the config template after the change",
+      "when": "a reader looks up article fetching and the [daemon] settings",
+      "then": "it fails if either omits the guard or the setting; otherwise boundaries.md states that article fetches refuse non-public addresses at connect time except hosts named in `fetch_allow_private_hosts`, and defaults.py documents the key commented out"
+    },
+    {
+      "id": "SC-6",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "A feed whose entries link to pages on the operator's own network yields title-only items until those hosts are added to `fetch_allow_private_hosts`; no current source does.",
+    "A request through an HTTP proxy is checked against the proxy's address, not the final site; cerebro uses no proxy."
+  ],
+  "stakes": [
+    "`extract_article` never connects to a loopback, private, link-local or otherwise non-public address unless its hostname is named in `fetch_allow_private_hosts`.",
+    "The address checked is the address connected to, and every redirect hop is checked.",
+    "A refused fetch is recorded as `fetch_failed` with detail `blocked address`.",
+    "The only way to allow a private host is naming it in config.toml; no environment variable or default allows one.",
+    "Existing config.toml files load unchanged."
+  ]
+}

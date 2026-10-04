@@ -1,0 +1,15 @@
+{
+  "scrutiny": [
+    {"test": "T0 purpose: the CLI is one of prismis's interfaces for agents and the operator (the prismis skill drives it); two commands that fail or return less than documented make it worse at that job.", "failureCase": "The change were neutral for CLI users.", "result": "held"},
+    {"test": "T1 owners: commit b332c15 removed /api/reports because presentation belongs to the client; the design keeps it removed and renders in the CLI. The API's since_hours bound (api.py:877, le=720) is respected by refusing longer periods up front.", "failureCase": "The fix restored a daemon report endpoint against b332c15.", "result": "held"},
+    {"test": "T4 reuse: the CLI renderer is the daemon's format_as_markdown moved, not copied; the daemon copy and its only callers (two test files) go, so one renderer remains. `get_content(since_hours, view)` and the detail endpoint's include=content already exist.", "failureCase": "Two report renderers drifted apart.", "result": "held"},
+    {"test": "T6 assumptions: a remote CLI install lacks prismis-daemon (cli/pyproject.toml line 16, optional `local` extra), so the renderer must live in the CLI; the audio briefing still uses ContentSummary.time_ago (audio.py:57), so ContentSummary and generate_daily_report stay.", "failureCase": "Removing reports.py pieces broke the audio briefing.", "result": "held"},
+    {"test": "T7 consumers: `get_report` is called only by report.py:31; `get_entry` only by get.py:42 and :46 (grep over cli/src); format_as_markdown/format_as_html only by the two deleted test files (grep over daemon and cli).", "failureCase": "Another caller of a removed function broke.", "result": "held"},
+    {"test": "T11 class: every endpoint the CLI calls, enumerated from api_client.py, checked against the daemon's routes: /api/sources (six routes), /api/entries, /api/entries/{id}, /raw, /extract, /api/search, /api/statistics, /api/prune, /api/prune/count and /api/archive/status all exist; /api/reports is the only missing one.", "failureCase": "Another CLI call targeted a route the daemon no longer serves.", "result": "held"},
+    {"test": "T5 real-system proof: after deploy and `make install-cli`, `prismis-cli report daily` against cerebro prints a report and `prismis-cli get <id> --json` carries content.", "failureCase": "The only proof were local test servers.", "result": "held"},
+    {"test": "T10 undo: revert the commit; no data or schema changes.", "failureCase": "A one-way change.", "result": "held"}
+  ],
+  "decisions": [],
+  "verdict": "accept",
+  "carried": []
+}

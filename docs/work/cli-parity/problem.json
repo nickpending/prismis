@@ -1,0 +1,12 @@
+{
+  "what": "Bring the two CLI commands that drifted from the daemon back into line: `prismis-cli report` builds its report from list data the daemon serves instead of calling the `/api/reports` endpoint the daemon removed, and `prismis-cli get --json` returns the entry's content as its 'full API response' comment and the prismis skill both say it does.",
+  "why": "A sweep of every read-only CLI command against cerebro on 2026-10-03 found two breaks. `prismis-cli report daily` fails with 'API error: 404': `APIClient.get_report` in cli/src/cli/api_client.py calls GET /api/reports, which commit b332c15 (2025-10-14) removed from the daemon because a report endpoint 'violated data/presentation separation', so the command has failed in every mode since. `prismis-cli get <id> --json` returns no `content` key: `get_entry` calls GET /api/entries/{id} without `include=content`, which returns metadata only, while get.py's JSON branch says it outputs the full API response and the prismis skill (~/.claude/skills/prismis/SKILL.md) tells agents that `get --json` returns `content`. list, search, statistics and source list worked.",
+  "decided": [
+    "The daemon's /api/reports endpoint stays removed (b332c15: presentation belongs to the client); the CLI renders the report itself.",
+    "The CLI report reads GET /api/entries with `since_hours` from the period and `view=list`, and renders markdown with a formatter that lives in the CLI, since a remote CLI install does not carry the prismis-daemon package.",
+    "The daemon's `ReportGenerator.generate_daily_report` stays for the audio briefing; its `format_as_markdown` and `format_as_html`, which no production code calls, are removed with their tests so the CLI's formatter is the only report renderer.",
+    "`prismis-cli get --json` requests `include=content` and returns the full entry including content; `--raw` is unchanged.",
+    "A period longer than the API's 720-hour `since_hours` bound fails with a clear message instead of a request error."
+  ],
+  "open": []
+}

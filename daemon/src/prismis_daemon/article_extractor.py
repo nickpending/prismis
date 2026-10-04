@@ -79,7 +79,7 @@ def _resolve_guarded(
 def _guarded_connection(
     allowed_hosts: frozenset[str],
     address: tuple[str, int],
-    timeout: float | None = None,
+    timeout: object = None,
     source_address: tuple[str, int] | None = None,
 ) -> socket.socket:
     """`socket.create_connection` that connects only to the address it approved."""
@@ -89,7 +89,9 @@ def _guarded_connection(
     )
     sock = socket.socket(family, socktype, proto)
     try:
-        if timeout is not None:
+        # http.client passes socket's default-timeout sentinel when no timeout was
+        # given; like socket.create_connection, leave the socket's default then.
+        if isinstance(timeout, (int, float)):
             sock.settimeout(timeout)
         if source_address:
             sock.bind(source_address)

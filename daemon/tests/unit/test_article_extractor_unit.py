@@ -19,6 +19,7 @@ import pytest
 from prismis_daemon.article_extractor import (
     ArticleResult,
     BlockedAddressError,
+    _http_only_opener,
     _is_public,
     _resolve_guarded,
     extract_article,
@@ -300,6 +301,21 @@ def test_extract_article_fetches_an_allowed_private_host(
     )
 
     assert result.outcome == "extracted"
+    assert hits == ["/article"]
+
+
+def test_guarded_opener_accepts_the_default_timeout_sentinel(
+    recording_server: tuple[str, int, list[str], http.server.ThreadingHTTPServer],
+) -> None:
+    """An open() without a timeout hands the connection socket's default-timeout
+    sentinel object, not a number or None.
+    BREAKS: a guarded connect that passes the sentinel to settimeout() raises
+    TypeError instead of fetching."""
+    _, port, hits, _server = recording_server
+    opener = _http_only_opener(("127.0.0.1",))
+
+    with opener.open(f"http://127.0.0.1:{port}/article") as response:
+        assert response.status == 200
     assert hits == ["/article"]
 
 

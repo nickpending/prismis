@@ -1,0 +1,27 @@
+{
+  "impacted": [
+    {"path": "daemon/src/prismis_daemon/article_extractor.py", "role": "`extract_article` builds an http(s)-only urllib opener (`_http_only_opener`) and fetches any http(s) URL; no address check"},
+    {"path": "daemon/src/prismis_daemon/fetchers/rss.py", "role": "`_extract_full_content` calls `extract_article(url)` (line 267); the fetcher holds `self.config`"},
+    {"path": "daemon/src/prismis_daemon/fetchers/reddit.py", "role": "`_to_content_item` calls `extract_article(submission.url)` (line 449); the fetcher holds its config"},
+    {"path": "daemon/src/prismis_daemon/refetch.py", "role": "`_reextract_item` calls `extract_article(row[\"url\"])` (line 194) through the orchestrator, which holds the config"},
+    {"path": "daemon/src/prismis_daemon/config.py", "role": "`Config` reads `[daemon]` keys from config.toml; `from_file` indexes required keys directly (line 270)"},
+    {"path": "daemon/src/prismis_daemon/defaults.py", "role": "the config.toml template; the test suite materializes its config from it (daemon/tests/conftest.py `isolated_xdg_env`)"},
+    {"path": "daemon/tests/conftest.py", "role": "serves stub pages and the stub LLM from a ThreadingHTTPServer bound to 127.0.0.1 (line 391)"}
+  ],
+  "constraints": [
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 86, "text": "Interfaces, schemas, and contracts change additively; a breaking change requires an explicit migration."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/config.py", "line": 270, "text": "`from_file` reads `daemon[\"max_days_lookback\"]` and its siblings with direct indexing, so a new key indexed the same way would raise on every existing config.toml that lacks it."},
+    {"tag": "OBSERVED", "path": "cerebro:~/.local/share/prismis/prismis.db", "line": 1, "text": "No active source and none of 38,545 stored items is on a private host; the two items whose URL contains 'localhost' are public articles about localhost."},
+    {"tag": "OBSERVED", "path": "daemon/tests/conftest.py", "line": 391, "text": "Test pages are served on 127.0.0.1; at least the RSS, Reddit, refetch, readmit and verify-chain tests route article fetches there."},
+    {"tag": "INFERENCE", "path": "daemon/src/prismis_daemon/article_extractor.py", "line": 1, "text": "An environment-variable switch would disable the guard for any process whose environment carries it, invisibly; a setting in config.toml is explicit, scoped to named hosts and visible where the operator configures fetching."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --search \"SSRF OR security OR fetch OR private\" --limit 20", "issues": [{"number": 34, "title": "fetchers: add --naughty flag for browser user-agent fallback", "why": "changes how the same downloader presents itself; independent of which addresses it may reach"}]},
+  "reuse": [
+    {"path": "daemon/src/prismis_daemon/article_extractor.py", "what": "`_http_only_opener`, whose HTTP and HTTPS handlers gain a connection that checks the address it connects to"},
+    {"path": "daemon/src/prismis_daemon/config.py", "what": "the `[daemon]` section the fetchers already receive through `Config`"}
+  ],
+  "open": [
+    "How do the tests that serve pages from 127.0.0.1 through the fetchers keep reaching their local server once loopback is blocked, without a hidden switch that turns the guard off?"
+  ]
+}

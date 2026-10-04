@@ -127,10 +127,9 @@ class APIClient:
 
         Always raises `RuntimeError` on a >=400 status, using the body's
         `message` field when present. When `check_success` is True (the
-        default, and every caller except `count_unprioritized`,
-        `prune_unprioritized`, and `get_report`), also raises when the body's
-        `success` flag is falsy — those three callers' original bodies never
-        made that check, so it stays optional rather than folded into every
+        default, and every caller except `count_unprioritized` and
+        `prune_unprioritized`), also raises when the body's `success` flag is
+        falsy — those two callers' original bodies never made that check, so it stays optional rather than folded into every
         caller's behavior.
 
         Takes the same `method`/`path`/`json`/`params`/`timeout` arguments as
@@ -261,23 +260,6 @@ class APIClient:
         params = {"days": days} if days is not None else {}
         return self._send_json("POST", "/api/prune", params=params, check_success=False)
 
-    def get_report(self, period: str = "24h") -> str:
-        """Generate a content report for the specified period.
-
-        Args:
-            period: Time period like "24h", "7d", "30d"
-
-        Returns:
-            Markdown formatted report
-
-        Raises:
-            RuntimeError: If API request fails
-        """
-        data = self._send_json(
-            "GET", "/api/reports", params={"period": period}, check_success=False
-        )
-        return data.get("data", {}).get("markdown", "")
-
     def edit_source(self, source_id: str, name: str) -> bool:
         """Edit a source's name via API.
 
@@ -294,19 +276,24 @@ class APIClient:
         self._send_json("PATCH", f"/api/sources/{source_id}", json={"name": name})
         return True
 
-    def get_entry(self, entry_id: str) -> dict[str, Any]:
-        """Get a single content entry by ID (summary without content field).
+    def get_entry(
+        self, entry_id: str, include_content: bool = False
+    ) -> dict[str, Any]:
+        """Get a single content entry by ID.
 
         Args:
             entry_id: UUID of the content entry
+            include_content: Request the full entry including content
+                (sends `include=content`); default is the summary shape
 
         Returns:
-            Entry metadata dictionary (excludes content field)
+            Entry dictionary (includes content only when `include_content`)
 
         Raises:
             RuntimeError: If API request fails or entry not found
         """
-        data = self._send_json("GET", f"/api/entries/{entry_id}")
+        params = {"include": "content"} if include_content else None
+        data = self._send_json("GET", f"/api/entries/{entry_id}", params=params)
         return data.get("data", {})
 
     def get_entry_raw(self, entry_id: str) -> str:

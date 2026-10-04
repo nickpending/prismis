@@ -1,0 +1,18 @@
+{
+  "purpose": "The CLI's report and get commands work against the daemon as it is: the report is rendered in the CLI from list data, keeping presentation out of the daemon as b332c15 decided, and `get --json` returns the full entry the prismis skill tells agents it returns.",
+  "form": "Move report rendering to the client and ask the detail endpoint for content.\n\n1. `cli/src/cli/report.py` gains `render_report(items, period_hours, generated_at) -> str`, the markdown layout of `ReportGenerator.format_as_markdown` in daemon/src/prismis_daemon/reports.py (line 207) moved here with its relative-time helper: title with date, high-priority section with every item, medium with the first 10 and an 'and N more' line, low with the first 15, each item's title, source, age, link and summary. `generate` (and `daily`, `weekly`, `monthly`, which call it) parses the period (`<n>h` or `<n>d`) into hours, refuses more than 720 hours with a message naming the limit, calls `APIClient.get_content(since_hours=hours, view=\"list\", limit=10000)`, groups items by priority (unprioritized items left out, as the daemon's report did) and renders them; an empty window prints the existing 'No content found' line.\n\n2. `cli/src/cli/api_client.py` drops `get_report`; `get_entry(entry_id, include_content=False)` sends `include=content` when asked. `cli/src/cli/get.py`'s JSON branch calls `get_entry(entry_id, include_content=True)`; the formatted and `--raw` branches are unchanged.\n\n3. `daemon/src/prismis_daemon/reports.py` keeps `ContentSummary`, `DailyReport` and `generate_daily_report` (the audio briefing's input) and drops `format_as_markdown` and `format_as_html`; daemon/tests/unit/test_html_report_formatting_unit.py and daemon/tests/integration/test_html_report_formatting_integration.py, which test only those two, are deleted.\n\n4. Tests: a CLI test drives `prismis-cli report generate 48h` against a local HTTP server serving GET /api/entries and asserts the request carried `since_hours=48` and `view=list`, and that the output has the high, medium (capped at 10 with the 'more' line) and low (capped at 15) sections; `report generate 31d` exits non-zero naming the 720-hour limit without a request; a CLI test asserts `get <id> --json` requests `include=content` and prints the content; each shown red against the pre-change CLI.",
+  "commitments": [
+    "The daemon serves no report endpoint; the CLI renders reports from GET /api/entries list data.",
+    "`prismis-cli report` works in remote mode, which carries no daemon package.",
+    "There is one report renderer, in the CLI; the daemon's unused markdown and HTML formatters are removed.",
+    "`prismis-cli get --json` returns the full entry including content.",
+    "A period beyond the API's 720-hour bound is refused with a clear message before any request."
+  ],
+  "sacrifices": [
+    "The report reads the slim list shape, so it shows summaries and no full content, as the daemon's report did.",
+    "Reports cover at most 30 days, the API's `since_hours` bound.",
+    "The HTML report format is gone; nothing in production produced it."
+  ],
+  "risk": "If a user relied on the HTML formatter outside the repository it is gone; if the list response omits a field the renderer reads (summary, source_name, published_at), that line renders empty rather than failing.",
+  "licensedBy": {"path": "daemon/src/prismis_daemon/reports.py", "line": 207}
+}

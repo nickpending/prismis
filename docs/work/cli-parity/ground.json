@@ -1,0 +1,28 @@
+{
+  "impacted": [
+    {"path": "cli/src/cli/report.py", "role": "the `report` command group (generate, daily, weekly, monthly) calls `APIClient.get_report(period)` and prints or saves the markdown"},
+    {"path": "cli/src/cli/api_client.py", "role": "`get_report` (line 264) calls GET /api/reports; `get_entry` (line 297) calls GET /api/entries/{id} without include=content; `get_content` already takes `since_hours`"},
+    {"path": "cli/src/cli/get.py", "role": "the JSON branch says it outputs the full API response and prints `get_entry`'s result"},
+    {"path": "daemon/src/prismis_daemon/reports.py", "role": "`ReportGenerator.generate_daily_report` (used by the audio briefing in api.py) plus `format_as_markdown` (line 207) and `format_as_html` (line 305), which only tests call"},
+    {"path": "daemon/tests/unit/test_html_report_formatting_unit.py", "role": "tests of the unused formatters, with daemon/tests/integration/test_html_report_formatting_integration.py"}
+  ],
+  "constraints": [
+    {"tag": "RULE", "path": "git:b332c15", "line": 1, "text": "Commit b332c15 (2025-10-14): 'Removed /api/reports endpoint (violated data/presentation separation)'; report presentation belongs to the client."},
+    {"tag": "RULE", "path": "daemon/src/prismis_daemon/api.py", "line": 877, "text": "GET /api/entries `since_hours` is bounded ge=1, le=720."},
+    {"tag": "OBSERVED", "path": "cli/pyproject.toml", "line": 16, "text": "prismis-daemon is the CLI's optional `local` extra, so a remote CLI install cannot import daemon modules such as reports.py."},
+    {"tag": "OBSERVED", "path": "/Users/rudy/.claude/skills/prismis/SKILL.md", "line": 80, "text": "The prismis skill tells agents `prismis-cli get <article-id> --json` returns `content` (full transcript/text)."},
+    {"tag": "OBSERVED", "path": "cerebro", "line": 1, "text": "2026-10-03 sweep from this Mac against cerebro: list, search, statistics and source list exit 0; `report daily` exits 1 with 'API error: 404'; `get <id> --json` returns no content key."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {
+    "query": "gh issue list --state open --search \"CLI OR report OR digest\" --limit 20",
+    "issues": [
+      {"number": 45, "title": "feature: Reddit newsletter format for digest output", "why": "a digest format would build on the CLI-side report renderer this change creates"}
+    ]
+  },
+  "reuse": [
+    {"path": "cli/src/cli/api_client.py", "what": "`get_content(since_hours=..., view=...)`, the list call the report reads"},
+    {"path": "daemon/src/prismis_daemon/reports.py", "what": "the markdown layout of `format_as_markdown`, moved into the CLI as its renderer"}
+  ],
+  "open": []
+}

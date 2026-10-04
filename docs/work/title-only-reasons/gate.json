@@ -1,0 +1,18 @@
+{
+  "scrutiny": [
+    {"test": "T0 purpose: docs/IDEA.md makes prismis an unattended pipeline agents query; a title-only decision that records why turns failure analysis into one query and lets the model catch junk the rules miss.", "failureCase": "The change were neutral on what reaches analysis or on knowing why.", "result": "held"},
+    {"test": "T1 owners: constitution.md:49 (success, empty and failure never share a representation) and :55 (unattended behavior records what it decided and why) are what the design implements; boundaries.md:55 is extended, boundaries.md:50 (ten kinds) untouched.", "failureCase": "An owner forbade a model input to the title-only decision.", "result": "held"},
+    {"test": "T6 assumptions: trafilatura's `fetch_response` returns a Response with `.status` when a response arrives and None when the request failed outright (read in the installed trafilatura.downloads); the light model returned a boolean `substantive` for all 101 probe items on cerebro.", "failureCase": "The fetch status or the model field were not actually available.", "result": "held"},
+    {"test": "T7 writers of title_only, enumerated with grep over daemon/src and cli/src: analysis.py:84 (build_llm_analysis) and refetch.py:238, which patches `title_only = True` onto a still-unreadable row with no LLM call. The design decides title-only only in build_llm_analysis and leaves the refetch patch writing a flag with no reason.", "failureCase": "A second title-only writer stored the flag without a reason.", "result": "changed"},
+    {"test": "T3 degrades: a real short post the model misjudges becomes title-only (0 of 50 readable items in the probe); the TUI and web do not print the reason.", "failureCase": "A degradation were offered as an option.", "result": "held"},
+    {"test": "T4 reuse: the orchestrator merge already carries fetcher keys into storage (orchestrator.py:697); the existing summarize call gains one field; `is_readable` keeps its contract.", "failureCase": "A second LLM call or a second store path were added.", "result": "held"},
+    {"test": "T5 real-system proof: after deploy, group new items' `analysis.title_only_reason` on cerebro and read a sample of each reason against its content.", "failureCase": "The only proof were fixtures.", "result": "held"},
+    {"test": "T10 undo: revert the commit; the new keys are additive and nothing is migrated.", "failureCase": "A one-way change.", "result": "held"},
+    {"test": "T11 class: unattended decisions that drop their reason, swept across every extraction path (`grep -rn 'extract_article(\\|_extract_transcript(' daemon/src`): RSS fallback, Reddit article, YouTube transcript and refetch all record an outcome in the design.", "failureCase": "A sibling extraction path kept collapsing its failure into None.", "result": "held"}
+  ],
+  "decisions": [],
+  "verdict": "redesign",
+  "carried": [
+    "Where does refetch's no-LLM title-only patch (refetch.py:238) get its reason, given the design decides title-only only in build_llm_analysis?"
+  ]
+}

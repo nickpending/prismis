@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Literal
@@ -40,6 +41,22 @@ class ArticleResult:
         return {"outcome": self.outcome, "detail": self.detail}
 
 
+def _http_only_opener() -> urllib.request.OpenerDirector:
+    """An opener with http(s), redirect, proxy and error handling and no file/ftp/data."""
+    opener = urllib.request.OpenerDirector()
+    for handler in (
+        urllib.request.ProxyHandler(),
+        urllib.request.UnknownHandler(),
+        urllib.request.HTTPHandler(),
+        urllib.request.HTTPSHandler(),
+        urllib.request.HTTPDefaultErrorHandler(),
+        urllib.request.HTTPRedirectHandler(),
+        urllib.request.HTTPErrorProcessor(),
+    ):
+        opener.add_handler(handler)
+    return opener
+
+
 def extract_article(url: str) -> ArticleResult:
     """Fetch `url` and extract its main article text with trafilatura.
 
@@ -55,9 +72,14 @@ def extract_article(url: str) -> ArticleResult:
         # or 5xx with long backoff and then reports only None, which hides the status
         # this result exists to carry.
         request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+        # The URL is untrusted (a feed entry link, a Reddit post url): only http(s)
+        # is fetched, never `file://` or `ftp://`.
+        if urllib.parse.urlsplit(url).scheme.lower() not in ("http", "https"):
+            return ArticleResult(None, "fetch_failed", "unsupported scheme")
         # A fresh opener per call: `urlopen` caches one global opener, and with it
-        # the proxy environment of whichever call came first.
-        opener = urllib.request.build_opener()
+        # the proxy environment of whichever call came first. Built from http(s)
+        # handlers only, so a redirect cannot reach `ftp://` or `file://` either.
+        opener = _http_only_opener()
         with opener.open(request, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as response:
             body = response.read(_MAX_PAGE_BYTES + 1)
         if len(body) > _MAX_PAGE_BYTES:

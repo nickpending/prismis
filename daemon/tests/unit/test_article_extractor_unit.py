@@ -12,6 +12,7 @@ from __future__ import annotations
 import http.server
 import threading
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -37,7 +38,7 @@ that the extracted text is unambiguously the article body and not a snippet.</p>
 
 
 @pytest.fixture
-def article_server() -> Iterator[str]:
+def article_server_with_redirect() -> Iterator[tuple[str, http.server.ThreadingHTTPServer]]:
     """A local HTTP server serving a real article page, a page with nothing
     extractable, a 429 and a 404 -- the real boundary `extract_article` fetches, not
     a stand-in for it."""
@@ -57,20 +58,32 @@ def article_server() -> Iterator[str]:
                 self.wfile.write(body)
             elif self.path == "/rate-limited":
                 self.send_error(429)
+            elif self.path.startswith("/redirect-to-file"):
+                self.send_response(302)
+                self.send_header("Location", self.server.redirect_target)  # type: ignore[attr-defined]
+                self.end_headers()
             else:
                 self.send_error(404)
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    server.redirect_target = ""  # type: ignore[attr-defined]
     host, port = server.server_address[0], server.server_address[1]
     assert isinstance(host, str)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://{host}:{port}"
+        yield f"http://{host}:{port}", server
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2.0)
+
+
+@pytest.fixture
+def article_server(
+    article_server_with_redirect: tuple[str, http.server.ThreadingHTTPServer],
+) -> str:
+    return article_server_with_redirect[0]
 
 
 def test_extract_article_returns_extracted_text_for_a_real_page(
@@ -150,3 +163,36 @@ def test_extract_article_outcomes_are_pairwise_distinct(article_server: str) -> 
 
     pairs = [(r.outcome, r.detail) for r in results]
     assert len(set(pairs)) == len(pairs)
+
+
+def test_extract_article_refuses_a_file_url_and_never_reads_the_file(
+    tmp_path: Path,
+) -> None:
+    """
+    A feed entry or Reddit post can carry any URL; only http(s) may be fetched.
+    BREAKS: an opener that handles `file://` reads local disk into item content.
+    """
+    secret = tmp_path / "secret.html"
+    secret.write_text(_ARTICLE_HTML.decode())
+
+    result = extract_article(secret.as_uri())
+
+    assert result.text is None
+    assert result.outcome == "fetch_failed"
+    assert "first paragraph of a genuine article" not in (result.text or "")
+
+
+def test_extract_article_refuses_a_redirect_to_a_file_url(
+    article_server_with_redirect: tuple[str, http.server.ThreadingHTTPServer],
+    tmp_path: Path,
+) -> None:
+    """A server answering with a redirect to `file://` must not get the file read."""
+    base, server = article_server_with_redirect
+    secret = tmp_path / "secret.html"
+    secret.write_text(_ARTICLE_HTML.decode())
+    server.redirect_target = secret.as_uri()  # type: ignore[attr-defined]
+
+    result = extract_article(f"{base}/redirect-to-file")
+
+    assert result.text is None
+    assert result.outcome == "fetch_failed"

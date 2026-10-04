@@ -1,0 +1,78 @@
+{
+  "workOrder": "title-only-reasons",
+  "issues": [],
+  "what": "Record why every title-only item is title-only (fetch failed, nothing extractable, which content rule fired, or the light model judging it not substantive) through one helper, make the article and transcript extractors report three distinct outcomes, add a `substantive` verdict to the existing light summarize call, and show the marker and reason in the CLI.",
+  "why": "Design: docs/work/title-only-reasons/design.md. On 2026-10-03 no process recorded why items fail the readability check; `title_only` is a bare boolean and `extract_article` returns one None for a failed download, an empty page and an exception (constitution 2 and 3). A probe on cerebro the same day, with the instruction this design adds to the summarize prompt, called 50 of 51 known-junk items not substantive, and the 5 code-readable items it flagged were all junk the code check missed, with no real content flagged among 50 readable items.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "content shaped like each failure (empty, the RSS no-content fallback, Reddit link-only, YouTube no-transcript, navigation-only text, a short JavaScript wall) and readable content",
+      "when": "`readability_failure` classifies it, and `is_readable` is called on the same input",
+      "then": "it fails if a failure shape returns None or the wrong reason, or if `is_readable` disagrees with `readability_failure(...) is None`; otherwise each returns its reason (`empty`, `placeholder:rss_no_content`, `placeholder:reddit_link_only`, `placeholder:youtube_no_transcript`, `no_prose`, `js_wall`) and readable content returns None"
+    },
+    {
+      "id": "SC-2",
+      "given": "a local HTTP server answering 429, 404, a page with no extractable text, and a readable article, plus a URL nothing listens on",
+      "when": "`extract_article` fetches each",
+      "then": "it fails if two of these share an outcome they should not; otherwise the 429 and 404 return `fetch_failed` with details `HTTP 429` and `HTTP 404`, the dead URL returns `fetch_failed` with `no response`, the empty page returns `empty`, and the article returns `extracted` with its text; the RSS, Reddit and refetch callers keep using the text as before"
+    },
+    {
+      "id": "SC-3",
+      "given": "the YouTube transcript extraction where yt-dlp fails with an HTTP 429 error and where the video has no subtitles",
+      "when": "`_extract_transcript` runs",
+      "then": "it fails if both report the same outcome; otherwise the 429 is `fetch_failed` with the error and no subtitles is `empty`, and the YouTube, RSS and Reddit items carry `fetch_outcome` in their analysis beside metrics, which reaches stored analysis through the orchestrator merge"
+    },
+    {
+      "id": "SC-4",
+      "given": "a stub LLM server at the real HTTP boundary replying to the summarize call with `substantive` true, false, and absent",
+      "when": "`summarize_with_analysis` parses each reply",
+      "then": "it fails if an absent field reads as false or makes the parse fail; otherwise `ContentSummary.substantive` is True, False and None respectively, and the standard (standard, brief, detailed) and diff prompts both ask for the field"
+    },
+    {
+      "id": "SC-5",
+      "given": "each combination of a readability failure or none, a fetch outcome of fetch_failed, empty, extracted or absent, and a substantive verdict of True, False or None",
+      "when": "`title_only_reason` decides, through `build_llm_analysis` in the pipeline and through refetch's still-unreadable patch",
+      "then": "it fails if a readable, substantive item gets a reason, or if either writer stores `title_only` without `title_only_reason`; otherwise a content failure yields `content:<rule>` (prefixed `fetch_failed:<detail>; ` when the fetch failed), a readable item the model calls not substantive yields `model:not_substantive`, None otherwise, and `title_only` is true exactly when the reason is set"
+    },
+    {
+      "id": "SC-6",
+      "given": "stored items titled-only for `model:not_substantive`, for `content:no_prose`, and readable items",
+      "when": "`get_readable_external_ids` builds the set the fetchers skip, and a fetch cycle runs over those items",
+      "then": "it fails if a model-only title-only item is re-extracted or re-analysed in the cycle; otherwise model-only items are treated as settled while `content:` items are still retried, as today"
+    },
+    {
+      "id": "SC-7",
+      "given": "the API and CLI over items with and without a title-only reason",
+      "when": "GET /api/entries (default and `view=list`), GET /api/entries/{id}, `prismis-cli list` and `prismis-cli get` render them",
+      "then": "it fails if a title-only item's reason is missing from any of them; otherwise the API carries top-level `title_only_reason` (in the list projection too), the CLI list marks title-only rows with a lowercase 'title only' and the CLI get prints 'Title only: <reason>', and `--json` carries both fields"
+    },
+    {
+      "id": "SC-8",
+      "given": "docs/architecture/boundaries.md after the change",
+      "when": "a reader opens the title-only contract",
+      "then": "it fails if it does not name `title_only_reason` and its vocabulary or the model verdict as an input; otherwise it states both"
+    },
+    {
+      "id": "SC-9",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "Stored items keep no reason until re-analysed or refetched; the vocabulary applies to new analysis forward.",
+    "A real but unusual short post the model misjudges is labeled title-only and skips deep extraction; the measured sample had none.",
+    "The TUI and web show the marker but not the reason; the reason reaches them through the API, and of the three interfaces only the CLI prints it.",
+    "A model-only title-only item whose page later becomes substantive is not re-fetched by the retry loop; `prismis-daemon refetch` or `force_refetch` still re-processes it."
+  ],
+  "stakes": [
+    "Every title-only item stores `title_only_reason` from one fixed vocabulary: `content:<rule>` (optionally prefixed `fetch_failed:<detail>; `) or `model:not_substantive`.",
+    "`extract_article` and the YouTube transcript extraction report fetch failure, empty extraction and success as three different outcomes, and fetchers store that outcome on the item.",
+    "The light summarize call returns a `substantive` boolean in its existing JSON; no LLM call is added, and an absent field is unknown, not false.",
+    "Title-only and its reason come from one helper, `title_only_reason` in analysis.py, used by `build_llm_analysis` and refetch's no-LLM patch alike: code check fails, or the model says not substantive.",
+    "A model-only title-only item is not retried each fetch cycle.",
+    "`is_readable` keeps its boolean contract for every current caller.",
+    "The CLI shows the title-only marker and reason, matching the TUI and web marker.",
+    "Measured before design on cerebro, 2026-10-03, with the instruction this design adds: 50 of 51 known-junk items called not substantive; of 40 short and 10 long readable-by-code items, 5 short ones called not substantive, and all 5, opened, were junk the code missed (bare links, gibberish, an X page of view counts); none were real content."
+  ]
+}

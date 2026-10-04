@@ -1,0 +1,16 @@
+{
+  "what": "Every title-only item records why it is title-only, the reason covering both the fetch (could not fetch, fetched but nothing extractable) and the content check (which rule fired), and the light summarize call the daemon already makes returns a structured verdict on whether the content is substantive, which the one title-only decision combines with the code check as a backstop for junk the code rules cannot see.",
+  "why": "On 2026-10-03 the operator asked what process looks at why items fail the readability check: none does. `build_llm_analysis` in analysis.py stores `title_only` as a bare boolean, so every cause found that day (JavaScript walls, navigation-only pages, link-only Reddit posts, HN Comments stubs) came from querying the database by hand; constitution 3 requires an unattended process to record what it decided and why at the moment it decides. Upstream of the check, `extract_article` in article_extractor.py returns the same None for a failed download, an empty extraction and an exception, so a 429 and an empty page are indistinguishable (constitution 2). The code check is a heuristic with known blind spots: a junk page holding one sentence of four or more words ('We use cookies to improve your experience', 'Subscribe to continue reading') passes, and the JavaScript-wall rule rests on a keyword list and a 1,200-character bound measured over 45 days. The light model already reads every item, title-only ones included, and already notices junk in free text: of 9 known-junk items on cerebro, 7 stored summaries say 'no substantive information' or the like, and 2 summarize the title as if it were content.",
+  "decided": [
+    "The title-only decision stays in one place, `build_llm_analysis` in analysis.py, and stores a `title_only_reason` beside `title_only`.",
+    "`extract_article` reports which of fetch failed, nothing extractable or extracted it was, instead of one None for all three, and fetchers carry that outcome into the item the same way they carry Reddit and YouTube metrics.",
+    "The readability check reports which rule fired, and `is_readable` stays the boolean every current caller uses.",
+    "The light summarize call returns a structured substantive verdict in its existing JSON; no extra LLM call is added.",
+    "An item is title-only when the code check fails or the model says the content is not substantive, and the reason names which.",
+    "An item flagged title-only only by the model is not retried every fetch cycle, because the code check would pass it again and re-analyse it each cycle.",
+    "Before the model verdict decides anything in production, its accuracy is measured on real cerebro content: the 53 junk items the 2026-10-03 replay found plus about 50 short readable items, roughly 100 light calls, which the operator approved on 2026-10-03.",
+    "The CLI shows the title-only marker and its reason in list and get, as the TUI and web already show the marker.",
+    "The ten kinds stay as they are; no 'no content' kind is added."
+  ],
+  "open": []
+}

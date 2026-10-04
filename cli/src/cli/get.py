@@ -40,7 +40,7 @@ def get(
             # JSON mode - output full API response
             import json
 
-            entry = client.get_entry(entry_id)
+            entry = client.get_entry(entry_id, include_content=True)
             sys.stdout.write(json.dumps(entry, indent=2) + "\n")
         else:
             # Formatted mode - display entry details with rich

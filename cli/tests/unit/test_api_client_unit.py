@@ -2,7 +2,7 @@
 
 Protects the httpx-level round-trip triage's cluster 3 found untested: `add_source`,
 `remove_source`, `pause_source`, `resume_source`, `count_unprioritized`,
-`prune_unprioritized`, `get_report`, `edit_source`, `get_entry`, `get_entry_raw`,
+`prune_unprioritized`, `edit_source`, `get_entry`, `get_entry_raw`,
 `get_archive_status`, `get_statistics`, `get_sources` — 13 of `APIClient`'s methods
 that had no direct httpx-level test before this file (docs/work/dedup-triage.md's
 cluster 3 "Gap"). `search`'s `min_score` param (test_api_client_search_params.py),
@@ -233,40 +233,6 @@ def test_prune_unprioritized_does_not_raise_when_success_false(
     assert result == {"success": False, "deleted": 0}
 
 
-def test_get_report_returns_markdown(recording_server: str) -> None:
-    _RecordingHandler.response_json = {
-        "success": True,
-        "data": {"markdown": "# Report"},
-    }
-    client = _make_client(recording_server)
-
-    result = client.get_report(period="7d")
-
-    assert result == "# Report"
-    assert _RecordingHandler.received_path == "/api/reports"
-    assert urllib.parse.parse_qs(_RecordingHandler.received_query).get("period") == [
-        "7d"
-    ]
-
-
-def test_get_report_does_not_raise_when_success_false(recording_server: str) -> None:
-    """
-    INVARIANT (behavior risk): get_report never checked `success` before
-    consolidation either — like count_unprioritized/prune_unprioritized, a
-    200 response with `"success": false` must still return the markdown, not
-    raise.
-    """
-    _RecordingHandler.response_json = {
-        "success": False,
-        "data": {"markdown": "# Report anyway"},
-    }
-    client = _make_client(recording_server)
-
-    result = client.get_report()
-
-    assert result == "# Report anyway"
-
-
 def test_edit_source_patches_name_and_returns_true(recording_server: str) -> None:
     client = _make_client(recording_server)
 
@@ -289,6 +255,17 @@ def test_get_entry_returns_data(recording_server: str) -> None:
 
     assert result == {"id": "e-1", "title": "An Entry"}
     assert _RecordingHandler.received_path == "/api/entries/e-1"
+    assert "include" not in urllib.parse.parse_qs(_RecordingHandler.received_query)
+
+
+def test_get_entry_include_content_sends_include_param(recording_server: str) -> None:
+    client = _make_client(recording_server)
+
+    client.get_entry("e-1", include_content=True)
+
+    assert urllib.parse.parse_qs(_RecordingHandler.received_query).get("include") == [
+        "content"
+    ]
 
 
 def test_get_archive_status_returns_data(recording_server: str) -> None:

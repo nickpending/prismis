@@ -34,7 +34,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .analysis import get_learned_preferences
+from .analysis import get_learned_preferences, title_only_reason
 from .article_extractor import extract_article
 from .models import ContentItem
 from .observability import get_logger as get_obs_logger
@@ -187,9 +187,13 @@ def _reextract_item(
     source_type = row["source_type"]
 
     if source_type == "youtube":
-        content = orchestrator.youtube_fetcher.refetch_transcript(row["url"]) or ""
+        result = orchestrator.youtube_fetcher.refetch_transcript(row["url"])
+        content = result.text or ""
+        fetch_outcome: dict[str, str] | None = result.as_fetch_outcome()
     elif source_type == "rss":
-        content = extract_article(row["url"]) or ""
+        result = extract_article(row["url"])
+        content = result.text or ""
+        fetch_outcome = result.as_fetch_outcome()
     elif source_type == "reddit":
         return orchestrator.reddit_fetcher.refetch_one(
             row["external_id"], row["source_id"]
@@ -203,7 +207,10 @@ def _reextract_item(
         title=row["title"],
         url=row["url"],
         content=content,
-        analysis=row.get("analysis") or {},
+        analysis={
+            **(row.get("analysis") or {}),
+            **({"fetch_outcome": fetch_outcome} if fetch_outcome else {}),
+        },
     )
 
 
@@ -235,7 +242,12 @@ def _refetch_one(
             return RefetchOutcome(external_id, title, "recovered")
 
         analysis = dict(row.get("analysis") or {})
-        analysis["title_only"] = True
+        fetch_outcome = (item.analysis or {}).get("fetch_outcome")
+        reason = title_only_reason(item.content, fetch_outcome, None)
+        analysis["title_only"] = reason is not None
+        analysis["title_only_reason"] = reason
+        if fetch_outcome:
+            analysis["fetch_outcome"] = fetch_outcome
         orchestrator.storage.update_analysis(row["id"], analysis)
         return RefetchOutcome(external_id, title, "still_title_only")
 

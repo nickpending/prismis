@@ -404,11 +404,10 @@ def test_extract_transcript_uses_original_english_when_translation_is_rate_limit
     fetcher = YouTubeFetcher()
     fetcher.yt_dlp_cmd = _youtube_like_yt_dlp_cmd(tmp_path)
 
-    transcript = fetcher._extract_transcript(
-        "https://www.youtube.com/watch?v=osZZjdMZVvA"
-    )
+    result = fetcher._extract_transcript("https://www.youtube.com/watch?v=osZZjdMZVvA")
 
-    assert transcript == "original english words"
+    assert result.text == "original english words"
+    assert result.outcome == "extracted"
 
 
 def test_refetch_transcript_re_runs_extraction_for_a_stored_video_url(
@@ -425,24 +424,90 @@ def test_refetch_transcript_re_runs_extraction_for_a_stored_video_url(
     fetcher = YouTubeFetcher()
     fetcher.yt_dlp_cmd = _youtube_like_yt_dlp_cmd(tmp_path)
 
-    transcript = fetcher.refetch_transcript(
-        "https://www.youtube.com/watch?v=osZZjdMZVvA"
-    )
+    result = fetcher.refetch_transcript("https://www.youtube.com/watch?v=osZZjdMZVvA")
 
-    assert transcript == "original english words"
+    assert result.text == "original english words"
 
 
-def test_refetch_transcript_returns_none_when_still_unavailable(tmp_path) -> None:
+def test_refetch_transcript_returns_no_text_when_still_unavailable(tmp_path) -> None:
     """Companion to the above: a video with no transcript file at all still
-    returns None rather than raising, so the caller's is_readable check (not
-    an exception) decides the still-title-only outcome."""
+    returns a result with no text rather than raising, so the caller's
+    is_readable check (not an exception) decides the still-title-only outcome."""
     fetcher = YouTubeFetcher()
     marker = tmp_path / "invoked.marker"
     fetcher.yt_dlp_cmd = _recording_yt_dlp_cmd(marker)
 
-    transcript = fetcher.refetch_transcript(
+    result = fetcher.refetch_transcript(
         "https://www.youtube.com/watch?v=no-transcript-here"
     )
 
-    assert transcript is None
+    assert result.text is None
     assert marker.exists(), "yt-dlp should have actually been invoked"
+
+
+def _failing_yt_dlp_cmd(tmp_path, *, exit_code: int, stderr: str) -> list[str]:
+    """A runnable stand-in for yt-dlp that writes no subtitle file, prints `stderr`
+    and exits with `exit_code` -- the two ways a video ends up with no transcript."""
+    script = tmp_path / "fake_yt_dlp_failing.py"
+    script.write_text(
+        f"import sys\nsys.stderr.write({stderr!r})\nsys.exit({exit_code})\n"
+    )
+    return [sys.executable, str(script)]
+
+
+def test_extract_transcript_tells_a_429_from_a_video_with_no_subtitles(
+    tmp_path,
+) -> None:
+    """
+    title-only-reasons SC-3: a yt-dlp failure (HTTP 429) and a video with no
+    subtitles are different outcomes -- the first is `fetch_failed` carrying
+    yt-dlp's error, the second `empty`.
+    BREAKS: Returning one outcome for "no transcript file" blames a rate limit on a
+    video that has no captions, or the reverse, so the stored reason is wrong.
+    """
+    url = "https://www.youtube.com/watch?v=osZZjdMZVvA"
+    fetcher = YouTubeFetcher()
+
+    fetcher.yt_dlp_cmd = _failing_yt_dlp_cmd(
+        tmp_path,
+        exit_code=1,
+        stderr="ERROR: Unable to download video subtitles for en: HTTP Error 429\n",
+    )
+    rate_limited = fetcher._extract_transcript(url)
+
+    fetcher.yt_dlp_cmd = _failing_yt_dlp_cmd(tmp_path, exit_code=0, stderr="")
+    no_subtitles = fetcher._extract_transcript(url)
+
+    assert rate_limited.text is None
+    assert rate_limited.outcome == "fetch_failed"
+    assert "HTTP Error 429" in rate_limited.detail
+    assert no_subtitles.text is None
+    assert no_subtitles.outcome == "empty"
+
+
+def test_process_video_stores_the_transcript_outcome_beside_metrics(tmp_path) -> None:
+    """
+    title-only-reasons SC-3: the item a fetcher builds carries `fetch_outcome` in
+    its analysis next to `metrics`, for a transcript found and for a rate limit.
+    BREAKS: Dropping the outcome at `_process_video` leaves the orchestrator merge
+    nothing to carry into stored analysis.
+    """
+    fetcher = YouTubeFetcher()
+    video = _video_fixture()
+
+    fetcher.yt_dlp_cmd = _youtube_like_yt_dlp_cmd(tmp_path)
+    found = fetcher._process_video(
+        {**video, "url": "https://www.youtube.com/watch?v=osZZjdMZVvA"}, "src"
+    )
+    fetcher.yt_dlp_cmd = _failing_yt_dlp_cmd(
+        tmp_path, exit_code=1, stderr="ERROR: HTTP Error 429: Too Many Requests\n"
+    )
+    limited = fetcher._process_video(video, "src")
+
+    assert found is not None and found.analysis is not None
+    assert found.analysis["fetch_outcome"] == {"outcome": "extracted", "detail": ""}
+    assert "metrics" in found.analysis
+    assert limited is not None and limited.analysis is not None
+    assert limited.analysis["fetch_outcome"]["outcome"] == "fetch_failed"
+    assert "429" in limited.analysis["fetch_outcome"]["detail"]
+    assert "metrics" in limited.analysis

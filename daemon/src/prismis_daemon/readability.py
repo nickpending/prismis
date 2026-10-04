@@ -117,39 +117,48 @@ def _is_javascript_wall(content: str, visible: str) -> bool:
     )
 
 
-def is_readable(content: str | None) -> bool:
-    """Whether `content` is real content rather than one of the measured failure
-    shapes above.
+def readability_failure(content: str | None) -> str | None:
+    """The reason `content` is not real content, or None when it is readable.
+
+    Returns the first failing check's reason: `empty`, `placeholder:rss_no_content`,
+    `placeholder:reddit_link_only`, `placeholder:youtube_no_transcript`, `no_prose`
+    or `js_wall`.
 
     Genuine short text -- a one-sentence blurb, a two-line question -- is readable:
     the checks are about shape (a line of prose; a JavaScript-requirement notice in
     a small page), never a bare length threshold.
     """
     if not content:
-        return False
+        return "empty"
 
     stripped = content.strip()
     if not stripped:
-        return False
+        return "empty"
 
     visible = _normalize(_TAG_RE.sub("", stripped))
     if not visible:
         # Markup-only: tags with nothing readable between them.
-        return False
+        return "empty"
 
     if visible == RSS_NO_CONTENT_FALLBACK:
-        return False
+        return "placeholder:rss_no_content"
 
     if _is_reddit_link_only(visible):
-        return False
+        return "placeholder:reddit_link_only"
 
     if _is_youtube_no_transcript(visible):
-        return False
+        return "placeholder:youtube_no_transcript"
 
     if not _has_prose(stripped):
-        return False
+        return "no_prose"
 
     if _is_javascript_wall(stripped, visible):
-        return False
+        return "js_wall"
 
-    return True
+    return None
+
+
+def is_readable(content: str | None) -> bool:
+    """Whether `content` is real content rather than one of the measured failure
+    shapes above; `readability_failure` names which one when it is not."""
+    return readability_failure(content) is None

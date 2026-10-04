@@ -237,6 +237,17 @@ def test_refetch_rss_recovers_readable_items_and_patches_still_unreadable_ones(
         "a still-unreadable item's stored content must be left alone"
     )
     assert still_unreadable["analysis"]["title_only"] is True
+    # title-only-reasons SC-5: the no-LLM patch stores the reason through the one
+    # helper, naming the failed fetch and the content rule, beside title_only.
+    assert (
+        still_unreadable["analysis"]["title_only_reason"]
+        == "fetch_failed:HTTP 404; content:empty"
+    )
+    assert still_unreadable["analysis"]["fetch_outcome"] == {
+        "outcome": "fetch_failed",
+        "detail": "HTTP 404",
+    }
+    assert recovered["analysis"]["title_only_reason"] is None
     assert still_unreadable["summary"] is None, (
         "a still-unreadable item must get no LLM call -- no summary is written"
     )

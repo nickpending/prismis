@@ -23,6 +23,7 @@ LIST_ANALYSIS_KEYS = {
     "kind",
     "kind_confidence",
     "title_only",
+    "title_only_reason",
     "metrics",
     "metadata",
     "matched_interests",
@@ -45,7 +46,12 @@ def seeded(test_db: Path) -> Generator[tuple[TestClient, dict[str, str]]]:
             "full_text": "FULLTEXT classified",
             "topics": ["a"],
         },
-        "title-only": {"kind": "question", "title_only": True, "full_text": "FULLTEXT"},
+        "title-only": {
+            "kind": "question",
+            "title_only": True,
+            "title_only_reason": "content:no_prose",
+            "full_text": "FULLTEXT",
+        },
         "deep": {
             "kind": "tutorial",
             "full_text": "FULLTEXT deep",
@@ -103,6 +109,11 @@ def test_view_list_mirrors_kind_title_only_and_has_deep_extraction(seeded) -> No
     assert items["classified"]["kind"] == "news"
     assert items["title-only"]["title_only"] is True
     assert items["classified"]["title_only"] is False
+    # title-only-reasons SC-7: the reason rides in the list projection and is
+    # mirrored top-level; an item with none mirrors to null.
+    assert items["title-only"]["title_only_reason"] == "content:no_prose"
+    assert items["title-only"]["analysis"]["title_only_reason"] == "content:no_prose"
+    assert items["classified"]["title_only_reason"] is None
     assert items["deep"]["has_deep_extraction"] is True
     for name in ("classified", "title-only", "plain"):
         assert items[name]["has_deep_extraction"] is False
@@ -121,6 +132,8 @@ def test_default_view_keeps_content_and_full_analysis(seeded) -> None:  # type: 
     client, _ = seeded
     for query in ("", "view=full"):
         items = _items(client, query)
+        assert items["title-only"]["title_only_reason"] == "content:no_prose"
+        assert items["classified"]["title_only_reason"] is None
         assert items["classified"]["content"] == "BODY of classified"
         assert items["classified"]["analysis"]["full_text"] == "FULLTEXT classified"
         assert items["classified"]["analysis"]["topics"] == ["a"]

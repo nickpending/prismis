@@ -10,22 +10,26 @@ through DaemonOrchestrator's own constructor seam -- not a patch of internal sta
 from __future__ import annotations
 
 import http.server
+import itertools
 import json as _json
 import os
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from prismis_daemon.analysis import build_llm_analysis, title_only_reason
 from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.config import Config
-from prismis_daemon.evaluator import ContentEvaluator
+from prismis_daemon.evaluator import ContentEvaluation, ContentEvaluator
 from prismis_daemon.models import ContentItem
 from prismis_daemon.notifier import Notifier
+from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.readability import RSS_NO_CONTENT_FALLBACK
 from prismis_daemon.storage import Storage
-from prismis_daemon.summarizer import ContentSummarizer
+from prismis_daemon.summarizer import ContentSummarizer, ContentSummary
 
 from conftest import configure_local_services
 
@@ -335,3 +339,386 @@ def test_title_only_item_never_deep_extracts_even_when_priority_passes_gate(
     assert "deep_extraction" in readable_stored["analysis"], (
         "the gate must still deep-extract a readable HIGH-priority item"
     )
+
+
+# ---------------------------------------------------------------------------
+# title-only-reasons (SC-3, SC-5, SC-6): why an item is title-only.
+#
+# `analysis.title_only_reason` is the one producer of the reason; these drive it
+# directly over its input space, through `build_llm_analysis`, and through the real
+# orchestrator pipeline (real Storage, real summarizer and evaluator, an LLM stub at
+# the HTTP boundary).
+# ---------------------------------------------------------------------------
+
+_READABLE = (
+    "Researchers at the university published a new study this week examining "
+    "long-term outcomes across a decade of patient records, finding a pattern "
+    "that held even after controlling for age, income, and health history."
+)
+_NAVIGATION = "Home\nAbout\nContact us\nPrivacy\nTerms"
+_FAILED_429 = {"outcome": "fetch_failed", "detail": "HTTP 429"}
+_EMPTY_OUTCOME = {"outcome": "empty", "detail": ""}
+_EXTRACTED = {"outcome": "extracted", "detail": ""}
+
+
+@pytest.mark.parametrize(
+    ("content", "fetch_outcome", "substantive", "expected"),
+    [
+        pytest.param(_READABLE, None, True, None, id="readable-substantive"),
+        pytest.param(_READABLE, None, None, None, id="readable-verdict-unknown"),
+        pytest.param(_READABLE, _EXTRACTED, True, None, id="readable-extracted"),
+        pytest.param(
+            _READABLE, None, False, "model:not_substantive", id="readable-model-says-no"
+        ),
+        pytest.param(
+            _READABLE,
+            _FAILED_429,
+            False,
+            "model:not_substantive",
+            id="readable-fallback-after-failed-fetch-model-says-no",
+        ),
+        pytest.param(_NAVIGATION, None, None, "content:no_prose", id="code-rule"),
+        pytest.param(_NAVIGATION, None, True, "content:no_prose", id="code-beats-model"),
+        pytest.param(
+            _NAVIGATION, _EMPTY_OUTCOME, None, "content:no_prose", id="empty-outcome"
+        ),
+        pytest.param(
+            _NAVIGATION,
+            _FAILED_429,
+            None,
+            "fetch_failed:HTTP 429; content:no_prose",
+            id="failed-fetch-prefixes",
+        ),
+        pytest.param(
+            "",
+            {"outcome": "fetch_failed", "detail": "no response"},
+            False,
+            "fetch_failed:no response; content:empty",
+            id="failed-fetch-empty-content",
+        ),
+        pytest.param(
+            RSS_NO_CONTENT_FALLBACK,
+            None,
+            None,
+            "content:placeholder:rss_no_content",
+            id="placeholder",
+        ),
+    ],
+)
+def test_title_only_reason_yields_each_reason(
+    content: str,
+    fetch_outcome: dict[str, str] | None,
+    substantive: bool | None,
+    expected: str | None,
+) -> None:
+    """
+    BREAKS: Reading an unknown verdict as false, letting the model override a failed
+    code check, or dropping the fetch_failed prefix each changes one row here.
+    """
+    assert title_only_reason(content, fetch_outcome, substantive) == expected
+
+
+_ALL_CONTENT = [_READABLE, _NAVIGATION, "", RSS_NO_CONTENT_FALLBACK]
+_ALL_OUTCOMES = [None, _FAILED_429, _EMPTY_OUTCOME, _EXTRACTED]
+_ALL_VERDICTS = [True, False, None]
+
+
+def _summary(substantive: bool | None) -> ContentSummary:
+    return ContentSummary(
+        summary="s",
+        reading_summary="r",
+        alpha_insights=[],
+        patterns=[],
+        quotes=[],
+        tools=[],
+        urls=[],
+        metadata={},
+        substantive=substantive,
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "fetch_outcome", "substantive"),
+    list(itertools.product(_ALL_CONTENT, _ALL_OUTCOMES, _ALL_VERDICTS)),
+)
+def test_build_llm_analysis_stores_title_only_exactly_when_a_reason_is_set(
+    content: str, fetch_outcome: dict[str, str] | None, substantive: bool | None
+) -> None:
+    """
+    SC-5 over every combination: `title_only` is true exactly when
+    `title_only_reason` is set, a readable substantive item gets no reason, and the
+    stored reason is what the one helper returns.
+    BREAKS: Computing the flag separately from the reason lets the two disagree.
+    """
+    evaluation = ContentEvaluation(priority=None, matched_interests=[])
+
+    analysis = build_llm_analysis(
+        _summary(substantive), evaluation, content, fetch_outcome
+    )
+
+    reason = title_only_reason(content, fetch_outcome, substantive)
+    assert analysis["title_only_reason"] == reason
+    assert analysis["title_only"] is (reason is not None)
+    if content == _READABLE and substantive is not False:
+        assert analysis["title_only_reason"] is None
+
+
+# ---------------------------------------------------------------------------
+# Through the real pipeline: the model's verdict and the fetcher's outcome
+# ---------------------------------------------------------------------------
+
+
+class _LLMStub:
+    """An OpenAI-shaped completion endpoint whose light reply carries a configurable
+    `substantive` verdict (omitted when None) and counts the requests it serves."""
+
+    def __init__(self) -> None:
+        self.substantive: bool | None = True
+        self.requests = 0
+        outer = self
+
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args: object) -> None:
+                return
+
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                outer.requests += 1
+                reply: dict[str, Any] = {
+                    "summary": "A stubbed summary.",
+                    "reading_summary": "A stubbed reading summary.",
+                    "alpha_insights": [],
+                    "patterns": [],
+                    "quotes": [],
+                    "tools": [],
+                    "urls": [],
+                    "priority": "low",
+                    "matched_interests": [],
+                    "reasoning": "stubbed",
+                }
+                if outer.substantive is not None:
+                    reply["substantive"] = outer.substantive
+                payload = {
+                    "id": "stub",
+                    "object": "chat.completion",
+                    "model": "stub-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": _json.dumps(reply)},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                }
+                body = _json.dumps(payload).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        host, port = self._server.server_address[0], self._server.server_address[1]
+        assert isinstance(host, str)
+        self.base_url = f"http://{host}:{port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+    def shutdown(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2.0)
+
+
+@pytest.fixture
+def llm_stub() -> Iterator[_LLMStub]:
+    stub = _LLMStub()
+    try:
+        yield stub
+    finally:
+        stub.shutdown()
+
+
+class _RecordingFetcher:
+    """Returns fixed items and records the `known_readable_ids` it was handed."""
+
+    def __init__(self, items: list[ContentItem]) -> None:
+        self.items = items
+        self.known_readable_ids: set[str] | None = None
+
+    def fetch_content(self, source, **kw):
+        self.known_readable_ids = kw.get("known_readable_ids")
+        return self.items
+
+
+def _orchestrator(
+    base_url: str, storage: Storage, rss_fetcher: _RecordingFetcher | _NullFetcher | None = None
+) -> DaemonOrchestrator:
+    configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), base_url)
+    config = Config.from_file()
+    return DaemonOrchestrator(
+        storage=storage,
+        rss_fetcher=rss_fetcher or _NullFetcher(),
+        reddit_fetcher=_NullFetcher(),
+        youtube_fetcher=_NullFetcher(),
+        file_fetcher=_NullFetcher(),
+        summarizer=ContentSummarizer(config.llm_light_service),
+        evaluator=ContentEvaluator(config.llm_light_service),
+        notifier=Notifier(),
+        config=config,
+    )
+
+
+def _source(source_id: str) -> dict[str, Any]:
+    return {
+        "id": source_id,
+        "url": "https://feeds.example.com/rss",
+        "type": "rss",
+        "name": "Test Feed",
+        "active": True,
+    }
+
+
+def _stored_analysis(storage: Storage, external_id: str) -> dict[str, Any]:
+    row = storage.conn.execute(
+        "SELECT id FROM content WHERE external_id = ?", (external_id,)
+    ).fetchone()
+    assert row is not None, f"{external_id} was not stored"
+    stored = storage.get_content_by_id(row["id"])
+    assert stored is not None
+    return stored["analysis"]
+
+
+@pytest.mark.parametrize(
+    ("substantive", "expected_reason"),
+    [(False, "model:not_substantive"), (True, None), (None, None)],
+    ids=["model-says-no", "model-says-yes", "verdict-absent"],
+)
+def test_pipeline_stores_the_model_verdict_as_the_reason(
+    test_db: Path,
+    isolated_xdg_env: Path,
+    llm_stub: _LLMStub,
+    substantive: bool | None,
+    expected_reason: str | None,
+) -> None:
+    """
+    SC-5 through `build_llm_analysis` in the pipeline: readable content the model
+    calls not substantive is stored title-only with `model:not_substantive`; a yes
+    or an absent verdict stores no reason.
+    BREAKS: A summarizer that never parses `substantive`, or a pipeline that does
+    not pass it on, stores no reason for the False row.
+    """
+    llm_stub.substantive = substantive
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Test Feed")
+    orchestrator = _orchestrator(llm_stub.base_url, storage)
+    item = ContentItem(
+        source_id=source_id,
+        external_id="verdict-item",
+        title="Verdict Item",
+        url="https://example.com/verdict",
+        content=_READABLE,
+    )
+
+    result = orchestrator.analyze_and_store_item(item, _source(source_id))
+
+    assert result is not None
+    analysis = _stored_analysis(storage, "verdict-item")
+    assert analysis["title_only_reason"] == expected_reason
+    assert analysis["title_only"] is (expected_reason is not None)
+
+
+def test_pipeline_carries_the_fetch_outcome_into_stored_analysis_and_reason(
+    test_db: Path, isolated_xdg_env: Path, llm_stub: _LLMStub
+) -> None:
+    """
+    SC-3 and SC-5: a fetcher's `fetch_outcome` rides in the item's analysis beside
+    metrics, survives the orchestrator merge into stored analysis, and prefixes the
+    reason when the fetch failed.
+    BREAKS: Passing no outcome from the item to `build_llm_analysis` stores the bare
+    content rule; dropping it in the merge loses `fetch_outcome` from storage.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Test Feed")
+    orchestrator = _orchestrator(llm_stub.base_url, storage)
+    item = ContentItem(
+        source_id=source_id,
+        external_id="failed-fetch-item",
+        title="Failed Fetch Item",
+        url="https://example.com/failed",
+        content=RSS_NO_CONTENT_FALLBACK,
+        analysis={"metrics": {"score": 1}, "fetch_outcome": _FAILED_429},
+    )
+
+    result = orchestrator.analyze_and_store_item(item, _source(source_id))
+
+    assert result is not None
+    analysis = _stored_analysis(storage, "failed-fetch-item")
+    assert analysis["fetch_outcome"] == _FAILED_429
+    assert analysis["metrics"] == {"score": 1}
+    assert (
+        analysis["title_only_reason"]
+        == "fetch_failed:HTTP 429; content:placeholder:rss_no_content"
+    )
+
+
+def test_fetch_cycle_settles_model_only_items_and_retries_content_items(
+    test_db: Path, isolated_xdg_env: Path, llm_stub: _LLMStub
+) -> None:
+    """
+    SC-6: over stored items title-only for `model:not_substantive`, for
+    `content:no_prose`, and a readable one, a fetch cycle hands the fetcher a
+    `known_readable_ids` holding the model-only and readable items but not the
+    content one, and spends no LLM call on the model-only item while it still
+    re-analyses the content item whose fresh fetch is readable.
+    BREAKS: Treating a `model:` row as unreadable re-extracts and re-analyses it every
+    cycle; treating a `content:` row as settled stops its retry.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Test Feed")
+
+    def seed(external_id: str, analysis: dict[str, Any]) -> None:
+        storage.add_content(
+            ContentItem(
+                source_id=source_id,
+                external_id=external_id,
+                title=external_id,
+                url=f"https://example.com/{external_id}",
+                content=_READABLE if external_id != "content-only" else _NAVIGATION,
+                analysis=analysis,
+            )
+        )
+
+    seed("model-only", {"title_only": True, "title_only_reason": "model:not_substantive"})
+    seed("content-only", {"title_only": True, "title_only_reason": "content:no_prose"})
+    seed("readable", {"title_only": False, "title_only_reason": None})
+
+    fetched = [
+        ContentItem(
+            source_id=source_id,
+            external_id=external_id,
+            title=external_id,
+            url=f"https://example.com/{external_id}",
+            content=_READABLE,
+        )
+        for external_id in ("model-only", "content-only", "readable")
+    ]
+    fetcher = _RecordingFetcher(fetched)
+    orchestrator = _orchestrator(llm_stub.base_url, storage, rss_fetcher=fetcher)
+
+    stats = orchestrator.fetch_source_content(_source(source_id))
+
+    assert fetcher.known_readable_ids is not None
+    assert fetcher.known_readable_ids == {"model-only", "readable"}
+    assert stats["items_processed"] == 1
+    assert llm_stub.requests >= 1
+    assert _stored_analysis(storage, "model-only")["title_only_reason"] == (
+        "model:not_substantive"
+    ), "a settled model-only item must not be re-analysed"
+    assert _stored_analysis(storage, "content-only")["title_only"] is False

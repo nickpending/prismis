@@ -4,6 +4,7 @@ import sys
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -65,6 +66,11 @@ def get(
             # Display table
             console.print("\n")
             console.print(table)
+
+            # Title-only items say why (stored as analysis.title_only_reason)
+            if entry.get("title_only"):
+                reason = entry.get("title_only_reason") or "no reason recorded"
+                console.print(f"Title only: {escape(reason)}")
 
             # Display summary in panel if available
             summary = entry.get("summary")

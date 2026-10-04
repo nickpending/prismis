@@ -28,6 +28,10 @@ class ContentSummary:
     tools: list[str]  # Novel/interesting tools and libraries mentioned
     urls: list[str]  # URLs referenced in the content
     metadata: dict[str, Any]
+    # The model's verdict that the content is the piece itself rather than a notice,
+    # navigation, error page, bare link or body-less teaser. None when the reply
+    # carried no boolean for it: unknown, never false.
+    substantive: bool | None = None
 
 
 def _squash(text: str) -> str:
@@ -153,6 +157,11 @@ class ContentSummarizer:
                 quotes=parsed.get("quotes", []),
                 tools=parsed.get("tools", []),
                 urls=parsed.get("urls", []),
+                substantive=(
+                    parsed["substantive"]
+                    if isinstance(parsed.get("substantive"), bool)
+                    else None
+                ),
                 metadata={
                     "model": result.model,
                     "content_length": len(content),
@@ -316,8 +325,12 @@ OUTPUT FORMAT:
   "urls": [
     "https://example.com/referenced-link",
     "https://github.com/project"
-  ]
-}"""
+  ],
+  "substantive": true
+}
+
+SUBSTANTIVE:
+"substantive" is a boolean. Set it to false when the content is not the piece itself: a JavaScript, cookie or bot-check notice, site navigation or footer text, an error or login page, a bare link, or a teaser with no body. Set it to true otherwise, including short genuine posts."""
 
     def _get_brief_system_prompt(self) -> str:
         """Get brief system prompt for short content (Reddit <300 words).
@@ -383,7 +396,10 @@ Only tools that were ADDED or REMOVED in the changes, not tools mentioned in con
 STEP 5: EXTRACT URLs
 Only URLs that were ADDED in the changes (lines starting with "+").
 
-Return JSON with: summary, reading_summary, alpha_insights, patterns, quotes, tools, urls, metadata"""
+STEP 6: JUDGE SUBSTANCE
+"substantive" is a boolean. Set it to false when the content is not the piece itself: a JavaScript, cookie or bot-check notice, site navigation or footer text, an error or login page, a bare link, or a teaser with no body. Set it to true otherwise, including a short genuine change.
+
+Return JSON with: summary, reading_summary, alpha_insights, patterns, quotes, tools, urls, substantive, metadata"""
 
     def _build_prompt(
         self,

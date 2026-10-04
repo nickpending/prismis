@@ -12,12 +12,33 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from ..article_extractor import ArticleResult
 from ..config import Config
 from ..models import ContentItem
 from ..observability import log as obs_log
 from ..readability import format_youtube_no_transcript
 
 logger = logging.getLogger(__name__)
+
+
+def _fetcher_analysis(
+    metrics: dict[str, Any], fetch_outcome: dict[str, str] | None
+) -> dict[str, Any]:
+    """The analysis a fetcher hands the pipeline: metrics, plus `fetch_outcome`
+    when an extraction was attempted."""
+    analysis: dict[str, Any] = {"metrics": metrics}
+    if fetch_outcome is not None:
+        analysis["fetch_outcome"] = fetch_outcome
+    return analysis
+
+
+def _yt_dlp_error(stderr: str | None) -> str:
+    """yt-dlp's last `ERROR:` line (without the prefix), or the last stderr line
+    when none is marked, trimmed to 200 characters; empty when stderr is empty."""
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+    errors = [line for line in lines if line.startswith("ERROR:")]
+    chosen = (errors or lines or [""])[-1]
+    return chosen.removeprefix("ERROR:").strip()[:200]
 
 
 class YouTubeFetcher:
@@ -307,16 +328,20 @@ class YouTubeFetcher:
         logger.debug(f"Processing video: {video_title}")
 
         # Extract transcript
-        transcript = self._extract_transcript(video_url)
+        result = self._extract_transcript(video_url)
 
-        if not transcript:
+        if not result.text:
             # Handle missing transcript
-            return self._handle_missing_transcript(video, source_id)
+            return self._handle_missing_transcript(
+                video, source_id, result.as_fetch_outcome()
+            )
 
         # Convert to ContentItem
-        return self._to_content_item(video, transcript, source_id)
+        return self._to_content_item(
+            video, result.text, source_id, result.as_fetch_outcome()
+        )
 
-    def refetch_transcript(self, video_url: str) -> str | None:
+    def refetch_transcript(self, video_url: str) -> ArticleResult:
         """Re-run just the transcript extraction for a stored video URL (job 2,
         SC-2 of refetch-unreadable) -- no channel discovery, since the video is
         already known. The public seam `refetch.py` calls; a thin wrapper around
@@ -327,18 +352,21 @@ class YouTubeFetcher:
             video_url: The stored item's URL (the video's own external_id)
 
         Returns:
-            Transcript text or None if still not available
+            The transcript result: text when found, otherwise `empty` or
+            `fetch_failed` (see `_extract_transcript`)
         """
         return self._extract_transcript(video_url)
 
-    def _extract_transcript(self, video_url: str) -> str | None:
+    def _extract_transcript(self, video_url: str) -> ArticleResult:
         """Extract transcript from a YouTube video using yt-dlp.
 
         Args:
             video_url: YouTube video URL
 
         Returns:
-            Transcript text or None if not available
+            `extracted` with the transcript text; `empty` when yt-dlp ran cleanly
+            and found no subtitles; `fetch_failed` with yt-dlp's error line (for
+            example HTTP 429), or the timeout / exception class, when it did not.
         """
         # Use temp directory for subtitle files
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -373,7 +401,7 @@ class YouTubeFetcher:
             logger.debug(f"Extracting transcript for: {video_url}")
 
             try:
-                subprocess.run(
+                completed = subprocess.run(
                     cmd,
                     capture_output=True,
                     text=True,
@@ -408,16 +436,19 @@ class YouTubeFetcher:
 
                 if not transcript_text:
                     logger.debug(f"No transcript file found for video: {video_url}")
-                    return None
+                    error = _yt_dlp_error(completed.stderr)
+                    if completed.returncode != 0 and error:
+                        return ArticleResult(None, "fetch_failed", error)
+                    return ArticleResult(None, "empty")
 
-                return transcript_text
+                return ArticleResult(transcript_text, "extracted")
 
             except subprocess.TimeoutExpired:
                 logger.warning(f"Transcript extraction timed out for: {video_url}")
-                return None
+                return ArticleResult(None, "fetch_failed", "timeout")
             except Exception as e:
                 logger.warning(f"Failed to extract transcript: {e}")
-                return None
+                return ArticleResult(None, "fetch_failed", type(e).__name__)
 
     def _parse_vtt_transcript(self, vtt_content: str) -> str:
         """Parse VTT subtitle file to extract plain text.
@@ -467,13 +498,18 @@ class YouTubeFetcher:
         return " ".join(text_lines)
 
     def _handle_missing_transcript(
-        self, video: dict[str, Any], source_id: str
+        self,
+        video: dict[str, Any],
+        source_id: str,
+        fetch_outcome: dict[str, str] | None = None,
     ) -> ContentItem | None:
         """Handle videos that don't have transcripts available.
 
         Args:
             video: Video metadata
             source_id: Source UUID
+            fetch_outcome: The transcript attempt's `{"outcome", "detail"}`, stored
+                beside metrics; None when no attempt was made
 
         Returns:
             ContentItem with low priority and error note
@@ -496,11 +532,15 @@ class YouTubeFetcher:
             fetched_at=datetime.now(UTC),
             priority="low",  # Mark as low priority since no transcript
             notes="No transcript available",
-            analysis={"metrics": metrics},
+            analysis=_fetcher_analysis(metrics, fetch_outcome),
         )
 
     def _to_content_item(
-        self, video: dict[str, Any], transcript: str, source_id: str
+        self,
+        video: dict[str, Any],
+        transcript: str,
+        source_id: str,
+        fetch_outcome: dict[str, str] | None = None,
     ) -> ContentItem:
         """Convert video data and transcript to ContentItem.
 
@@ -508,6 +548,7 @@ class YouTubeFetcher:
             video: Video metadata
             transcript: Extracted transcript text
             source_id: Source UUID
+            fetch_outcome: The transcript attempt's `{"outcome", "detail"}`
 
         Returns:
             ContentItem with video content
@@ -530,7 +571,7 @@ class YouTubeFetcher:
             content=transcript,
             published_at=published_at,
             fetched_at=datetime.now(UTC),
-            analysis={"metrics": metrics},
+            analysis=_fetcher_analysis(metrics, fetch_outcome),
         )
 
     def _parse_upload_date(self, date_str: str | None) -> datetime | None:

@@ -1,10 +1,16 @@
 """Unit tests for ContentSummarizer logic functions."""
 
 import dataclasses
+import http.server
 import json
+import os
+import threading
+from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import MagicMock, patch  # claudex-guard: allow-mock
 
 import pytest
+from conftest import LOCAL_LIGHT_SERVICE, configure_local_services
 
 from prismis_daemon.circuit_breaker import (
     CircuitState,
@@ -296,3 +302,138 @@ def test_summarize_with_analysis_drops_tools_the_content_never_names() -> None:
 
     assert result is not None
     assert result.tools == ["kotlin-compose", "ripgrep"]
+
+
+# --- title-only-reasons SC-4: the `substantive` verdict ---
+
+
+def test_every_summarize_prompt_asks_for_the_substantive_field() -> None:
+    """The standard, brief, detailed and diff prompts all ask for `substantive`.
+    BREAKS: a mode whose prompt never asks returns no verdict, so items summarized
+    in that mode could never be judged not substantive."""
+    summarizer = ContentSummarizer(SERVICE)
+
+    prompts = {
+        "standard": summarizer._get_system_prompt(),
+        "brief": summarizer._get_brief_system_prompt(),
+        "detailed": summarizer._get_detailed_system_prompt(),
+        "diff": summarizer._get_diff_system_prompt(),
+    }
+
+    for mode, prompt in prompts.items():
+        assert "substantive" in prompt, f"{mode} prompt does not ask for substantive"
+
+
+class _ReplyStub:
+    """An OpenAI-shaped completion endpoint at the real HTTP boundary whose reply
+    JSON is whatever `reply` holds when the request arrives."""
+
+    def __init__(self) -> None:
+        self.reply: dict = {}
+        outer = self
+
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args: object) -> None:
+                return
+
+            def do_POST(self) -> None:
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                payload = {
+                    "id": "stub",
+                    "object": "chat.completion",
+                    "model": "stub-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": json.dumps(outer.reply),
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                }
+                body = json.dumps(payload).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        host, port = self._server.server_address[0], self._server.server_address[1]
+        assert isinstance(host, str)
+        self.base_url = f"http://{host}:{port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+    def shutdown(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2.0)
+
+
+@pytest.fixture
+def reply_stub() -> Iterator[_ReplyStub]:
+    stub = _ReplyStub()
+    try:
+        yield stub
+    finally:
+        stub.shutdown()
+        reset_circuit_breaker()
+
+
+_REPLY_BASE = {
+    "summary": "s",
+    "reading_summary": "# r",
+    "alpha_insights": [],
+    "patterns": [],
+    "quotes": [],
+    "tools": [],
+    "urls": [],
+}
+
+
+@pytest.mark.parametrize(
+    ("reply_extra", "expected"),
+    [
+        ({"substantive": True}, True),
+        ({"substantive": False}, False),
+        ({}, None),
+        ({"substantive": "false"}, None),
+        ({"substantive": None}, None),
+    ],
+    ids=["true", "false", "absent", "non-boolean-string", "null"],
+)
+def test_summarize_with_analysis_parses_the_substantive_verdict(
+    isolated_xdg_env: Path,
+    reply_stub: _ReplyStub,
+    reply_extra: dict,
+    expected: bool | None,
+) -> None:
+    """
+    SC-4: a reply with `substantive` true, false or absent parses to True, False and
+    None; a value that is not a boolean is unknown too, never false.
+    BREAKS: reading an absent field as false marks every reply from a model that
+    skips the field not substantive; requiring it fails the whole parse.
+    """
+    reply_stub.reply = {**_REPLY_BASE, **reply_extra}
+    configure_local_services(
+        Path(os.environ["XDG_CONFIG_HOME"]), reply_stub.base_url
+    )
+    summarizer = ContentSummarizer(LOCAL_LIGHT_SERVICE)
+
+    result = summarizer.summarize_with_analysis(
+        content="A paragraph of content for the model to judge.",
+        title="t",
+        url="https://example.com",
+        source_type="rss",
+    )
+
+    assert result is not None
+    assert result.substantive is expected

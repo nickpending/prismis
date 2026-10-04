@@ -347,6 +347,50 @@ def test_to_content_item_link_post_fetches_the_external_article(
     assert "genuine article body" in item.content
 
 
+def test_to_content_item_link_post_records_the_extraction_outcome_beside_metrics(
+    link_post_article_server: str,
+) -> None:
+    """
+    title-only-reasons SC-3: a link post whose article was attempted carries that
+    attempt's `fetch_outcome` in its analysis next to `metrics` -- `extracted` for a
+    fetched article, `fetch_failed` with the status for a 404.
+    BREAKS: a Reddit item that drops the outcome stores the bare `Link:` placeholder
+    rule with no sign the download failed.
+    """
+    fetcher = RedditFetcher()
+
+    fetched = fetcher._to_content_item(
+        _link_post_submission(f"{link_post_article_server}/article"), "src"
+    )
+    missing = fetcher._to_content_item(
+        _link_post_submission(f"{link_post_article_server}/missing"), "src"
+    )
+
+    assert fetched.analysis is not None and missing.analysis is not None
+    assert fetched.analysis["fetch_outcome"] == {"outcome": "extracted", "detail": ""}
+    assert missing.analysis["fetch_outcome"] == {
+        "outcome": "fetch_failed",
+        "detail": "HTTP 404",
+    }
+    assert fetched.analysis["metrics"]["score"] == 100
+    assert missing.analysis["metrics"]["score"] == 100
+
+
+def test_to_content_item_self_post_attempts_no_extraction_so_stores_no_outcome() -> (
+    None
+):
+    """A self post makes no article request, so no `fetch_outcome` is stored."""
+    fetcher = RedditFetcher()
+    submission = _link_post_submission("https://example.com/unused")
+    submission.is_self = True
+    submission.selftext = "A self post with its own text and no outbound article."
+
+    item = fetcher._to_content_item(submission, "src")
+
+    assert item.analysis is not None
+    assert "fetch_outcome" not in item.analysis
+
+
 def test_to_content_item_link_post_with_self_text_gets_the_article_appended(
     link_post_article_server: str,
 ) -> None:

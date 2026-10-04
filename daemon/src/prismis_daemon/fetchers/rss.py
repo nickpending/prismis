@@ -124,10 +124,11 @@ class RSSFetcher:
                     # an entry already stored readably (SC-4): the orchestrator's
                     # dedup filter discards this item either way, so extracting
                     # again would only be wasted network and CPU.
+                    fetch_outcome: dict[str, str] | None = None
                     if external_id in known_readable_ids:
                         content = self._fallback_content(entry)
                     else:
-                        content = self._extract_full_content(url, entry)
+                        content, fetch_outcome = self._extract_full_content(url, entry)
 
                     # Create ContentItem (use fetched_at if no published_at)
                     fetched_at = datetime.now(UTC)
@@ -139,6 +140,9 @@ class RSSFetcher:
                         content=content,
                         published_at=published_at or fetched_at,
                         fetched_at=fetched_at,
+                        analysis=(
+                            {"fetch_outcome": fetch_outcome} if fetch_outcome else None
+                        ),
                     )
 
                     items.append(item)
@@ -246,7 +250,9 @@ class RSSFetcher:
 
         return None
 
-    def _extract_full_content(self, url: str, entry: dict) -> str:
+    def _extract_full_content(
+        self, url: str, entry: dict
+    ) -> tuple[str, dict[str, str]]:
         """Extract full article content using the shared article extractor.
 
         Args:
@@ -254,16 +260,18 @@ class RSSFetcher:
             entry: Original feed entry (fallback for content)
 
         Returns:
-            Full article text or summary/description as fallback
+            (content, fetch_outcome): the full article text or the summary/
+            description fallback, and the extraction's `{"outcome", "detail"}`
         """
         logger.debug(f"Extracting full content from: {url}")
-        content = extract_article(url)
+        result = extract_article(url)
+        content = result.text
         if content and is_readable(content):
             logger.debug(f"Extracted {len(content)} chars from {url}")
-            return content
+            return content, result.as_fetch_outcome()
 
         logger.debug(f"No readable extraction for {url}, using fallback")
-        return self._fallback_content(entry)
+        return self._fallback_content(entry), result.as_fetch_outcome()
 
     def _fallback_content(self, entry: dict) -> str:
         """The feed entry's own content/summary/description, or the shared

@@ -457,6 +457,16 @@ def _item_title_only(item: dict) -> bool:
     return bool(analysis.get("title_only")) if isinstance(analysis, dict) else False
 
 
+def _item_title_only_reason(item: dict) -> str | None:
+    """The item's title_only_reason, mirrored out of analysis beside `_item_title_only`;
+    None when absent, null, or analysis is not a dict."""
+    analysis = item.get("analysis")
+    if not isinstance(analysis, dict):
+        return None
+    reason = analysis.get("title_only_reason")
+    return reason if isinstance(reason, str) else None
+
+
 def _item_has_deep_extraction(item: dict) -> bool:
     """Whether the item's full analysis holds a deep_extraction.
 
@@ -978,6 +988,7 @@ async def get_content(
         for item in content_items:
             item["kind"] = _item_kind(item)
             item["title_only"] = _item_title_only(item)
+            item["title_only_reason"] = _item_title_only_reason(item)
 
         # Deduplicate by fuzzy title matching (80% similarity) if enabled
         # Groups similar items, keeps highest priority as primary
@@ -1000,6 +1011,7 @@ async def get_content(
                 "priority",
                 "kind",
                 "title_only",
+                "title_only_reason",
                 "published_at",
                 "source_name",
                 "summary",
@@ -1152,6 +1164,7 @@ async def semantic_search(
         for item in results:
             item["kind"] = _item_kind(item)
             item["title_only"] = _item_title_only(item)
+            item["title_only_reason"] = _item_title_only_reason(item)
             item["has_deep_extraction"] = _item_has_deep_extraction(item)
 
         # Filter to compact fields if requested
@@ -1163,6 +1176,7 @@ async def semantic_search(
                 "priority",
                 "kind",
                 "title_only",
+                "title_only_reason",
                 "relevance_score",
                 "published_at",
                 "source_name",
@@ -1229,6 +1243,7 @@ async def get_entry_summary(
         # every entry as unclassified, including ones the classifier actually kinded.
         entry["kind"] = _item_kind(entry)
         entry["title_only"] = _item_title_only(entry)
+        entry["title_only_reason"] = _item_title_only_reason(entry)
         entry["has_deep_extraction"] = _item_has_deep_extraction(entry)
 
         # INV-API-TS-4: route through ContentItemModel so @field_serializer emits RFC3339 datetimes

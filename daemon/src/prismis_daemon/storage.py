@@ -666,7 +666,9 @@ class Storage:
 
     def get_readable_external_ids(self, source_id: str) -> set[str]:
         """external_ids for `source_id` whose stored analysis marks them
-        readable -- title_only false or absent (SC-4).
+        settled -- title_only false or absent, or title-only only because the
+        light model judged it not substantive (`title_only_reason` starting
+        `model:`), which re-extraction cannot change (SC-4).
 
         The orchestrator hands this set (not `get_existing_external_ids`'s full
         set) to the RSS/Reddit/YouTube fetchers so they skip re-extraction for
@@ -688,7 +690,8 @@ class Storage:
                 SELECT external_id FROM content
                 WHERE source_id = ?
                   AND (json_extract(analysis, '$.title_only') IS NULL
-                       OR json_extract(analysis, '$.title_only') = 0)
+                       OR json_extract(analysis, '$.title_only') = 0
+                       OR json_extract(analysis, '$.title_only_reason') LIKE 'model:%')
                 """,
                 (source_id,),
             )
@@ -921,6 +924,7 @@ class Storage:
         "kind",
         "kind_confidence",
         "title_only",
+        "title_only_reason",
         "metrics",
         "metadata",
         "matched_interests",

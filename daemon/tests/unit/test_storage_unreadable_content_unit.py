@@ -153,3 +153,48 @@ def test_excludes_archived_rows(test_db: Path) -> None:
     results = storage.get_unreadable_content("rss", limit=10)
 
     assert [row["id"] for row in results] == [active_id]
+
+
+def test_readable_external_ids_settle_model_only_title_only_items(
+    test_db: Path,
+) -> None:
+    """
+    title-only-reasons SC-6: `get_readable_external_ids` -- the set the fetchers skip
+    re-extracting -- holds readable items and items title-only only because the model
+    judged them not substantive, and leaves out a `content:` title-only item (and a
+    fetch-failed one) so it is still retried.
+    BREAKS: a query that ignores `title_only_reason` re-extracts and re-analyses every
+    model-only item each cycle; one that settles every reason stops retrying items
+    whose page may yet become readable.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
+
+    def seed(external_id: str, analysis: dict | None) -> None:
+        storage.add_content(
+            ContentItem(
+                source_id=source_id,
+                external_id=external_id,
+                title=external_id,
+                url=f"http://example.com/{external_id}",
+                content=_READABLE_CONTENT,
+                analysis=analysis,
+            )
+        )
+
+    seed("readable", {"title_only": False, "title_only_reason": None})
+    seed("no-analysis-key", {"metrics": {}})
+    seed("model-only", {"title_only": True, "title_only_reason": "model:not_substantive"})
+    seed("content-rule", {"title_only": True, "title_only_reason": "content:no_prose"})
+    seed(
+        "fetch-failed",
+        {
+            "title_only": True,
+            "title_only_reason": "fetch_failed:HTTP 429; content:empty",
+        },
+    )
+    seed("legacy-no-reason", {"title_only": True})
+
+    settled = storage.get_readable_external_ids(source_id)
+
+    assert settled == {"readable", "no-analysis-key", "model-only"}

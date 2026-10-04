@@ -731,3 +731,49 @@ def test_repair_sets_title_only_false_for_readable_content(local_env: Path) -> N
 
     assert stored is not None
     assert stored["analysis"]["title_only"] is False, stored["analysis"]
+
+
+# ---------------------------------------------------------------------------
+# title-only-reasons SC-5: `analyze repair` stores the reason through the same
+# helper, from the model's verdict. (Repair selects only rows whose analysis is
+# NULL, so no stored fetch outcome exists for it to pass on.)
+# ---------------------------------------------------------------------------
+
+
+def test_repair_stores_the_model_verdict_as_the_reason(local_env: Path) -> None:
+    """
+    SC-5: readable content whose summarize reply says `substantive: false` is
+    repaired title-only with `model:not_substantive`.
+    BREAKS: repair that drops the summarizer's verdict stores no reason.
+    """
+    storage = Storage(local_env)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
+    target_id = _seed(
+        storage,
+        source_id,
+        title="Bare Teaser",
+        summary=None,
+        analysis=None,
+        content=(
+            "Researchers published a new decade-long study of patient records "
+            "this week, finding a pattern that held after controlling for age."
+        ),
+    )
+    storage.close()
+
+    with patch(
+        _PATCH_COMPLETE,
+        side_effect=[
+            _fake_complete_result({**_SUMMARY_PAYLOAD, "substantive": False}),
+            _fake_complete_result(_EVAL_PAYLOAD),
+        ],
+    ):  # claudex-guard: allow-mock
+        result = runner.invoke(analyze_app, ["repair", "--force", "--limit", "1"])
+
+    assert result.exit_code == 0, result.output
+    reread = Storage(local_env)
+    stored = reread.get_content_by_id(target_id)
+    reread.close()
+    assert stored is not None
+    assert stored["analysis"]["title_only_reason"] == "model:not_substantive"
+    assert stored["analysis"]["title_only"] is True

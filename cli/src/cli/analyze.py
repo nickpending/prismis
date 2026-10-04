@@ -195,14 +195,22 @@ def repair(
                     # Step 3: Build analysis dict (same daemon-side helper the
                     # pipeline uses -- includes preference_influenced, SC-10,
                     # and title_only, SC-3)
+                    stored_fetch_outcome = (item.get("analysis") or {}).get(
+                        "fetch_outcome"
+                    )
                     analysis = build_llm_analysis(
-                        summary_result, evaluation, item["content"]
+                        summary_result,
+                        evaluation,
+                        item["content"],
+                        stored_fetch_outcome,
                     )
 
                     # Merge with existing analysis (preserve any fetcher metrics)
                     if item.get("analysis"):
                         if "metrics" in item["analysis"]:
                             analysis["metrics"] = item["analysis"]["metrics"]
+                        if stored_fetch_outcome:
+                            analysis["fetch_outcome"] = stored_fetch_outcome
 
                     # Step 4: Update atomically
                     item_dict = item.copy()

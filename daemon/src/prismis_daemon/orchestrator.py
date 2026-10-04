@@ -165,7 +165,12 @@ class DaemonOrchestrator:
             learned_preferences=learned_preferences,
         )
 
-        llm_analysis = build_llm_analysis(summary_result, evaluation, item.content)
+        llm_analysis = build_llm_analysis(
+            summary_result,
+            evaluation,
+            item.content,
+            (item.analysis or {}).get("fetch_outcome"),
+        )
 
         existing_analysis = item.analysis or {}
         merged_analysis = self._merge_analysis(existing_analysis, llm_analysis)

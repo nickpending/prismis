@@ -237,7 +237,7 @@ def test_extract_transcript_from_specific_video() -> None:
     )
 
     try:
-        transcript = fetcher._extract_transcript(video_url)
+        transcript = fetcher._extract_transcript(video_url).text
 
         if transcript:
             # If transcript was extracted, verify it's reasonable

@@ -119,6 +119,7 @@ class ContentItemModel(BaseModel):
     priority: str | None = None
     kind: str | None = None  # SC-5: mirrored from analysis.kind, like priority
     title_only: bool = False  # SC-6: mirrored from analysis.title_only, like kind
+    title_only_reason: str | None = None  # mirrored from analysis.title_only_reason
     # True when analysis has deep_extraction; a list view reads this because it
     # carries no full analysis to look in. None means the path did not compute it
     # (compact entries), never "false".

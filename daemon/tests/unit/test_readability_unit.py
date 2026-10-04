@@ -20,6 +20,7 @@ from prismis_daemon.readability import (
     format_reddit_link_only,
     format_youtube_no_transcript,
     is_readable,
+    readability_failure,
 )
 
 
@@ -206,3 +207,67 @@ def test_is_readable_javascript_wall_size_bound_is_1200_visible_characters() -> 
     assert len(" ".join(small.split())) < 1200 <= len(" ".join(large.split()))
     assert is_readable(small) is False
     assert is_readable(large) is True
+
+
+# ---------------------------------------------------------------------------
+# readability_failure: the reason behind each failure (title-only-reasons SC-1)
+# ---------------------------------------------------------------------------
+
+_NAVIGATION_ONLY = "Home\nAbout\nContact us\nPrivacy\nTerms"
+_SHORT_JS_WALL = (
+    "Sorry about this. Our site needs JavaScript to show you anything at all, "
+    "so please turn it on and then reload this page again."
+)
+_READABLE_ARTICLE = (
+    "The council voted on Tuesday to extend the pilot for another year, citing "
+    "ridership numbers that beat every forecast made when it began."
+)
+
+
+@pytest.mark.parametrize(
+    ("content", "reason"),
+    [
+        pytest.param("", "empty", id="empty"),
+        pytest.param(None, "empty", id="none"),
+        pytest.param("<p></p><br/>", "empty", id="markup-only"),
+        pytest.param(
+            RSS_NO_CONTENT_FALLBACK,
+            "placeholder:rss_no_content",
+            id="rss-no-content",
+        ),
+        pytest.param(
+            format_reddit_link_only("https://example.com/a"),
+            "placeholder:reddit_link_only",
+            id="reddit-link-only",
+        ),
+        pytest.param(
+            format_youtube_no_transcript("A video"),
+            "placeholder:youtube_no_transcript",
+            id="youtube-no-transcript",
+        ),
+        pytest.param(_NAVIGATION_ONLY, "no_prose", id="navigation-only"),
+        pytest.param(_SHORT_JS_WALL, "js_wall", id="short-javascript-wall"),
+    ],
+)
+def test_readability_failure_names_the_rule_that_fired(
+    content: str | None, reason: str
+) -> None:
+    """
+    BREAKS: A classifier that returns a generic reason (or None) for a shape makes
+    every stored `content:<rule>` say nothing about which rule fired; and
+    `is_readable` must agree with it on the same input.
+    """
+    assert readability_failure(content) == reason
+    assert is_readable(content) is False
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(_READABLE_ARTICLE, id="article"),
+        pytest.param("Is anyone else seeing this?\nIt started this morning.", id="two-lines"),
+    ],
+)
+def test_readability_failure_is_none_for_readable_content(content: str) -> None:
+    assert readability_failure(content) is None
+    assert is_readable(content) is True

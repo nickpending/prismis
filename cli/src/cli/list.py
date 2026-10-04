@@ -108,6 +108,7 @@ def list(
         table.add_column("Priority", justify="center", width=8)
         table.add_column("Kind", justify="center", width=10)
         table.add_column("Published", style="dim", width=19)
+        table.add_column("Note", style="dim", width=10)
 
         # Add entries to table
         for entry in entries:
@@ -129,7 +130,12 @@ def list(
             # Format published date (already formatted from API)
             published = entry.get("published", "N/A")
 
-            table.add_row(entry_id, title, priority_display, kind_display, published)
+            # Title-only rows carry the same marker the TUI and web show
+            note = "title only" if entry.get("title_only") else ""
+
+            table.add_row(
+                entry_id, title, priority_display, kind_display, published, note
+            )
 
         # Display table
         console.print("\n")

@@ -266,6 +266,9 @@ _UNREADABLE_FEED_XML = """<?xml version="1.0" encoding="UTF-8"?>
   <item><title>Real Article Item</title><link>{base}/article</link>
     <description>A summary that the real article should replace.</description>
     <guid isPermaLink="false">article-item</guid></item>
+  <item><title>Gone Item</title><link>{base}/gone</link>
+    <description>The entry's own summary survives a missing page.</description>
+    <guid isPermaLink="false">gone-item</guid></item>
 </channel></rss>
 """
 
@@ -334,3 +337,29 @@ def test_fetch_content_unreadable_extraction_falls_back_to_entry_summary(
     assert article is not None
     assert "genuine article body" in article
     assert "A summary that the real article should replace" not in article
+
+
+def test_fetch_content_records_each_entrys_extraction_outcome(
+    rss_unreadable_extraction_server: str,
+) -> None:
+    """
+    title-only-reasons SC-2/SC-3: every entry whose article was attempted carries
+    that attempt's `fetch_outcome` in its analysis -- `extracted` for a page that
+    answered with text, `fetch_failed` with the status for one that 404s.
+    BREAKS: a fetcher that discards the extractor's outcome leaves a failed
+    download looking like any other unreadable entry.
+    """
+    fetcher = RSSFetcher(max_items=5)
+    source = {"url": f"{rss_unreadable_extraction_server}/feed.xml", "id": "src-1"}
+
+    items = {item.external_id: item for item in fetcher.fetch_content(source)}
+
+    assert items["article-item"].analysis == {
+        "fetch_outcome": {"outcome": "extracted", "detail": ""}
+    }
+    assert items["gone-item"].analysis == {
+        "fetch_outcome": {"outcome": "fetch_failed", "detail": "HTTP 404"}
+    }
+    assert items["gone-item"].content == (
+        "The entry's own summary survives a missing page."
+    )

@@ -52,7 +52,11 @@ def title_only_populated_storage(test_db: Path) -> Storage:
             content="Comments",
             published_at=recent_time,
             priority="low",
-            analysis={"title_only": True, "kind": None},
+            analysis={
+                "title_only": True,
+                "title_only_reason": "fetch_failed:HTTP 429; content:no_prose",
+                "kind": None,
+            },
         ),
         ContentItem(
             external_id="readable-1",
@@ -172,3 +176,42 @@ def test_search_mirrors_title_only(api_client: TestClient) -> None:
     items = {i["external_id"]: i for i in response.json()["data"]["items"]}
     assert "readable-1" in items
     assert items["readable-1"]["title_only"] is False
+
+
+_REASON = "fetch_failed:HTTP 429; content:no_prose"
+
+
+def test_entries_and_single_entry_carry_the_title_only_reason(
+    api_client: TestClient,
+) -> None:
+    """
+    title-only-reasons SC-7: `title_only_reason` is a top-level field on the entries
+    list and the single-entry read, the reason for a title-only item and null for
+    a readable one or one analysed before reasons existed.
+    BREAKS: a mirror that is added to one read path only leaves the CLI `get` (single
+    entry) and `list` (entries) disagreeing about why an item is title-only.
+    """
+    headers = {"X-API-Key": TEST_API_KEY}
+    listed = api_client.get("/api/entries", headers=headers)
+    assert listed.status_code == 200, listed.text
+    items = {i["external_id"]: i for i in listed.json()["data"]["items"]}
+    assert items["title-only-1"]["title_only_reason"] == _REASON
+    assert items["readable-1"]["title_only_reason"] is None
+    assert items["legacy-1"]["title_only_reason"] is None
+
+    single = api_client.get(f"/api/entries/{items['title-only-1']['id']}", headers=headers)
+    assert single.status_code == 200, single.text
+    assert single.json()["data"]["title_only_reason"] == _REASON
+
+
+def test_search_carries_the_title_only_reason(api_client: TestClient) -> None:
+    """The search read path mirrors the reason like the entries paths do."""
+    response = api_client.get(
+        "/api/search",
+        params={"q": "test", "min_score": 0.0},
+        headers={"X-API-Key": TEST_API_KEY},
+    )
+    assert response.status_code == 200, response.text
+    items = {i["external_id"]: i for i in response.json()["data"]["items"]}
+    assert items["title-only-1"]["title_only_reason"] == _REASON
+    assert items["readable-1"]["title_only_reason"] is None

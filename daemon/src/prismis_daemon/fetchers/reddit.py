@@ -434,6 +434,7 @@ class RedditFetcher:
         # readably, SC-4) leaves the link line and self-text in place rather than
         # dropping the item.
         content = ""
+        fetch_outcome: dict[str, str] | None = None
         if submission.is_self and submission.selftext:
             content = submission.selftext
         else:
@@ -445,7 +446,9 @@ class RedditFetcher:
                 and not self._is_image_post(submission)
                 and not _is_reddit_domain(submission.url)
             ):
-                article_text = extract_article(submission.url)
+                article = extract_article(submission.url)
+                fetch_outcome = article.as_fetch_outcome()
+                article_text = article.text
                 if article_text and is_readable(article_text):
                     if content.endswith("\n\n"):
                         content += article_text
@@ -496,7 +499,12 @@ class RedditFetcher:
             content=content,
             published_at=published_at,
             fetched_at=datetime.now(UTC),
-            analysis={"metrics": metrics},  # Store Reddit metrics here
+            # Reddit metrics, plus the article extraction's outcome when one ran
+            analysis=(
+                {"metrics": metrics, "fetch_outcome": fetch_outcome}
+                if fetch_outcome
+                else {"metrics": metrics}
+            ),
         )
 
         return item

@@ -21,7 +21,7 @@ printing anything itself.
 from typing import Any
 
 from .evaluator import ContentEvaluation
-from .readability import is_readable
+from .readability import readability_failure
 from .storage import Storage
 from .summarizer import ContentSummary
 
@@ -49,10 +49,37 @@ def get_learned_preferences(
     return feedback_stats.get("for_llm_context"), total_votes
 
 
+def title_only_reason(
+    content: str | None,
+    fetch_outcome: dict[str, Any] | None,
+    substantive: bool | None,
+) -> str | None:
+    """Why an item is title-only, or None when it is not -- the one producer.
+
+    `content:<rule>` when the readability check fails (prefixed
+    `fetch_failed:<detail>; ` when the fetcher's extraction outcome was a failed
+    fetch); else `model:not_substantive` when the light model judged readable
+    content not substantive; else None. An unknown (None) verdict never counts
+    as not substantive.
+    """
+    rule = readability_failure(content)
+    if rule is not None:
+        reason = f"content:{rule}"
+        if isinstance(fetch_outcome, dict) and (
+            fetch_outcome.get("outcome") == "fetch_failed"
+        ):
+            reason = f"fetch_failed:{fetch_outcome.get('detail') or ''}; {reason}"
+        return reason
+    if substantive is False:
+        return "model:not_substantive"
+    return None
+
+
 def build_llm_analysis(
     summary_result: ContentSummary,
     evaluation: ContentEvaluation,
     content: str | None,
+    fetch_outcome: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the analysis dict written after a summarize+evaluate pass.
 
@@ -60,16 +87,20 @@ def build_llm_analysis(
         summary_result: Output of ContentSummarizer.summarize_with_analysis
         evaluation: Output of ContentEvaluator.evaluate_content
         content: The raw content the item was summarized/evaluated from --
-            used only to set `title_only` (SC-3); neither caller computes that
-            flag itself.
+            used only to set `title_only` and `title_only_reason` (SC-3);
+            neither caller computes those itself.
+        fetch_outcome: The fetcher's `{"outcome", "detail"}` record for the
+            extraction it attempted, when it recorded one.
 
     Returns:
         The analysis dict both the daemon pipeline and `analyze repair` store.
         Always includes `preference_influenced` from `evaluation` -- the
         daemon pipeline always did; `analyze repair` previously did not,
         which this consolidation fixes (SC-10). Always includes `title_only`,
-        true when `content` failed the shared readability check (gh #80).
+        true when `title_only_reason` yields a reason (gh #80), and
+        `title_only_reason` (None when readable and substantive).
     """
+    reason = title_only_reason(content, fetch_outcome, summary_result.substantive)
     return {
         "reading_summary": summary_result.reading_summary,
         "alpha_insights": summary_result.alpha_insights,
@@ -81,5 +112,6 @@ def build_llm_analysis(
         "priority_reasoning": evaluation.reasoning,
         "preference_influenced": evaluation.preference_influenced,
         "metadata": summary_result.metadata,
-        "title_only": not is_readable(content),
+        "title_only": reason is not None,
+        "title_only_reason": reason,
     }

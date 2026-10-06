@@ -4,8 +4,8 @@ subtype: boundaries
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-10-03"
-last_change: "tz-aware-timestamps (+00:00 storage, user_version migration, _rfc3339 simplified) ([2026-10-03]). Prior: verify.sh tool-directive pinning (go tool staticcheck/gitleaks), uv --locked, gate self-tests. Prior: content-kind (#77): new Daemon <-> OpenRouter Decisions and kind-filter contracts. Prior: openai-sdk-migration: the daemon's LLM boundary is now a direct openai-SDK client (llm_client.py), not a separate library; see decisions.md [2026-09-25]"
+updated: "2026-10-06"
+last_change: "cli-parity (report rendered in CLI, daemon report formatters removed, TUI hydration), fetch-address-guard, title-only-reasons ([2026-10-04]). Prior: tz-aware-timestamps (+00:00 storage, user_version migration, _rfc3339 simplified) ([2026-10-03]). Prior: verify.sh tool-directive pinning (go tool staticcheck/gitleaks), uv --locked, gate self-tests. Prior: content-kind (#77): new Daemon <-> OpenRouter Decisions and kind-filter contracts. Prior: openai-sdk-migration: the daemon's LLM boundary is now a direct openai-SDK client (llm_client.py), not a separate library; see decisions.md [2026-09-25]"
 tags: [architecture, boundaries]
 ---
 

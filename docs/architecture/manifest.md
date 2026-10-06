@@ -1,9 +1,9 @@
 ---
 type: manifest
 project: prismis
-generated: "2026-10-03"
+generated: "2026-10-06"
 source: /Users/rudy/development/projects/prismis/docs/architecture
-reconciled_at: d6b5a2cc7fda091581bfa31a553865ec6bb278b4
+reconciled_at: 63b9bfb39d2adc238ebd82f893cd28d2d3f37e1c
 ---
 
 ## Components
@@ -24,9 +24,9 @@ reconciled_at: d6b5a2cc7fda091581bfa31a553865ec6bb278b4
 - **Notifier** — Desktop notifications for new HIGH items.
 - **Observability** — JSONL event logger, cross-cutting across daemon modules.
 - **Source Validator** — Pre-add validation of RSS/Reddit/YouTube/file.
-- **TUI** — Go reading/triage UI; `:extract` triggers deep extraction.
+- **TUI** — Go reading/triage UI; slim list items hydrated on open; `:extract` deep extraction.
 - **Web View** — Single-page frontend served from daemon.
-- **CLI** — Python admin/batch ops against the daemon API.
+- **CLI** — Python admin/batch ops against the daemon API; renders reports client-side.
 - **LLM Validator** — Dual-service startup health check (light fatal, deep non-fatal).
 - **Refetch** — `refetch` backfill: re-extract and re-analyse unreadable stored items.
 - **Secret Scan** — gitleaks gate (go.mod tool pin) in verify.sh and CI history scan.

@@ -1,0 +1,45 @@
+{
+  "impacted": [
+    {"path": "daemon/pyproject.toml", "role": "the `\"**/*.py\" = [\"BLE001\"]` per-file-ignore (line 95) that hides the whole class"},
+    {"path": "daemon/src/prismis_daemon/orchestrator.py", "role": "12 handlers: the per-source and per-item isolation boundaries of the fetch cycle (541, 548, 642), the kind and deep enrichment catches returned as failure fields under INV-002 (196, 248), embedding catches (278, 482, 789), learned-preference fetch (586), merge fallback (710), and the archival (750) and embedding-backfill (802) jobs that return zero counts on failure"},
+    {"path": "daemon/src/prismis_daemon/__main__.py", "role": "9 handlers: CLI fatal-error exits (269, 455, 477), the LLM connection check (411) and the doctor checks (754, 764, 779, 796, 813)"},
+    {"path": "daemon/src/prismis_daemon/validator.py", "role": "5 handlers that turn any validation error into a redacted refusal message"},
+    {"path": "daemon/src/prismis_daemon/fetchers/reddit.py", "role": "4 handlers: client init (99), two date parses (178, 499), and the comment fetch (385) that returns [] on failure"},
+    {"path": "daemon/src/prismis_daemon/fetchers/rss.py", "role": "3 handlers: per-entry boundary (155) and two date parses (238, 248)"},
+    {"path": "daemon/src/prismis_daemon/fetchers/youtube.py", "role": "3 handlers: per-video boundary (132), metadata line parse (291), transcript extraction outcome (451)"},
+    {"path": "daemon/src/prismis_daemon/api.py", "role": "4 handlers: item-count parse (141), validator config load (249), plain-text entry endpoint (1299), embedding regen (1398)"},
+    {"path": "daemon/src/prismis_daemon/storage.py", "role": "`count_unprioritized` returns 0 on any error (1655)"},
+    {"path": "daemon/src/prismis_daemon/evaluator.py", "role": "`_parse_evaluation_response` returns priority None on any error (260)"},
+    {"path": "daemon/src/prismis_daemon/context_auto_updater.py", "role": "`_get_voted_articles` returns [] on any error (159)"},
+    {"path": "daemon/src/prismis_daemon/config.py", "role": "an existing but unreadable context.md silently becomes DEFAULT_CONTEXT_MD (240)"},
+    {"path": "daemon/src/prismis_daemon/fetchers/file.py", "role": "`_generate_diff` and `_calculate_diff_stats` fall back to full content and zero stats (259, 302)"},
+    {"path": "daemon/src/prismis_daemon/{article_extractor,llm_validator,notifier,observability,refetch,verify_chain}.py", "role": "one or two handlers each, mostly outcome boundaries that already return a typed failure"},
+    {"path": "daemon/tests/", "role": "15 test-side handlers across conftest.py and 8 test modules"}
+  ],
+  "constraints": [
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 47, "text": "Principle II (non-negotiable): success, empty success and failure never share a representation, and the caller must tell them apart without reading logs."},
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 126, "text": "A content item that failed and one that legitimately produced nothing must be distinguishable in storage."},
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 53, "text": "Principle III: anything running unattended records what it decided and why at the moment it decides."},
+    {"tag": "RULE", "path": "daemon/src/prismis_daemon/orchestrator.py", "line": 205, "text": "INV-002: kind classification and deep extraction failures never raise into the pipeline; they are returned as named failure fields and the item stores with its light summary."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/storage.py", "line": 1638, "text": "`count_unprioritized`'s docstring already declares `Raises: sqlite3.Error`; its catch returns 0 instead, and the prune endpoint then reports \"No unprioritized items to prune\" (api.py:1451), so a failed count reads as an empty one."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/evaluator.py", "line": 83, "text": "`evaluate_content` re-raises every LLM and JSON failure \"to stop processing\"; only a failure inside `_parse_evaluation_response` returns priority None, which is the same value a genuinely uninteresting item gets."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/context_auto_updater.py", "line": 434, "text": "`update_context` already has an outer boundary that logs with the traceback and returns `(False, \"Error: ...\")`; `_get_voted_articles` returning [] on failure bypasses it and reports \"No voted articles found\" instead."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/orchestrator.py", "line": 751, "text": "The archival and embedding-backfill jobs return zero counts on failure, the same answer as having nothing to do; they run only as APScheduler jobs, and APScheduler 3.11.0 already logs any job exception with its traceback (apscheduler/executors/base.py:145, `logger.exception('Job \"%s\" raised an exception')`) and keeps the scheduler running."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/fetchers/reddit.py", "line": 387, "text": "A failed comment fetch returns [], so the stored post is indistinguishable from one with no comments; the item already carries a per-item `fetch_outcome` in its analysis JSON (line 516) for the article fetch."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/config.py", "line": 240, "text": "An existing context.md that cannot be read is replaced by the default context with no record, so evaluation silently runs against interests the operator never wrote."},
+    {"tag": "OBSERVED", "path": "daemon/pyproject.toml", "line": 95, "text": "BLE001 is suppressed for every file; with the suppression lifted, `ruff check . --select BLE001 --config 'lint.per-file-ignores = {}'` reports 67 findings (52 src, 15 tests) on 2026-10-07."},
+    {"tag": "OBSERVED", "path": "daemon/pyproject.toml", "line": 95, "text": "ruff 0.16.6 does not flag a broad catch that logs with `logger.exception(...)` or `exc_info=True` and does flag one that logs only the message (checked on a scratch file this session)."},
+    {"tag": "INFERENCE", "path": "daemon/src/prismis_daemon/fetchers/file.py", "line": 259, "text": "difflib over two str values has no expected failure, so the diff catches guard nothing but a bug; removing them, not narrowing them, is the honest form."},
+    {"tag": "INFERENCE", "path": "daemon/src/prismis_daemon/orchestrator.py", "line": 541, "text": "The per-source, per-item and per-entry catches are real isolation boundaries for an unattended pipeline, so they stay broad, and the form BLE001 accepts (traceback recorded) is also what Principle III asks of them."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --limit 30", "issues": []},
+  "reuse": [
+    {"path": "daemon/src/prismis_daemon/orchestrator.py", "what": "the INV-002 returned-failure fields (`kind_classify_failure`, `deep_extract_failure`) for enrichment failures the item tolerates"},
+    {"path": "daemon/src/prismis_daemon/fetchers/reddit.py", "what": "the per-item `fetch_outcome` in the analysis JSON, the place an item already records how its content fetch went"},
+    {"path": "daemon/src/prismis_daemon/api.py", "what": "`_server_error`, the API's existing boundary that logs the detail and returns a 500"}
+  ],
+  "open": [
+    "Several handlers turn a failure into a value a genuine empty result also produces (a count of 0, an empty list, no priority, zeroed diff stats), which constitution Principle II forbids; how is each one's failure represented so its caller can tell failure from empty, and does any of them need a stored or API-visible change?"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "what": "Turn the integration tests that today skip unless a live LLM is configured into tests that run in every gate run, by recording the real provider replies once and replaying them from the existing local stub server, while the tests that check provider behavior itself stay as an opt-in live run (gh #60).",
+  "why": "Five daemon test files skip without a live LLM: test_audio_api_integration.py (audio briefing), test_daemon_integration.py (the orchestrator pipeline against simonwillison.net's real feed), test_context_api.py (context suggestions), test_summarizer_evaluator_integration.py (summarizer and evaluator parsing), all gated on PRISMIS_LIVE_LLM_TESTS or OPENAI_API_KEY, and test_llm_client_live_integration.py (provider cost reporting and parameter rejection). CI has no key, so none of these paths is checked by `.specify/verify.sh`; a regression in prompt building, reply parsing or storage on them ships unseen. The suite already has `local_pipeline_stub` (daemon/tests/conftest.py), an OpenAI-shaped `/v1/chat/completions` server with a canned reply, and `configure_local_services`, which points the sealed config's services at it with no credential. The #59 Reddit blocker the issue names is closed. The operator chose on 2026-10-06: record real replies once, replay from the stub, no new dependency, live provider tests stay opt-in.",
+  "decided": [
+    "Replay runs through `local_pipeline_stub` extended to serve recorded replies; no new dependency (vcrpy or similar) is added.",
+    "A record mode, switched on for a test run, sends each request to the real configured service and saves the real reply into the repository as a JSON recording; every other run, the gate and CI included, replays recordings and makes no provider call.",
+    "A recording that no longer matches the request it answers makes the test fail with a message to re-record, rather than replay a stale answer.",
+    "test_llm_client_live_integration.py stays live and opt-in under PRISMIS_LIVE_LLM_TESTS: it checks the provider's own behavior, which a replay cannot.",
+    "The orchestrator pipeline test reads its feed from the local stub's `/feed.xml` instead of simonwillison.net.",
+    "One recording run costs about a dozen light LLM calls."
+  ],
+  "open": [
+    "What identifies a recording and detects that it has gone stale, given the audio briefing's prompt embeds the report date (audio.py) and the content each test seeds varies the user message?"
+  ]
+}

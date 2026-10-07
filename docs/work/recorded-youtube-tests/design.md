@@ -2,7 +2,7 @@
 type: design
 date: 2026-10-07
 title: "Design: recorded-youtube-tests"
-description: "Every daemon test that today skips for want of a live third party runs in every gate run against what that third party really returned, recorded once, while the six provider-behavior tests and the macOS notifier test stay opt-in. On 2026-10-07 the operator widened this work order from the content-aware and YouTube tests to all 32 live-resource-gated tests and chose vcrpy for HTTP."
+description: "Every daemon test that today skips for want of a live third party runs in every gate run against what that third party really returned, recorded once, while the six provider-behavior tests and the macOS notifier test stay opt-in. On 2026-10-07 the operator widened this work order from the content-aware and YouTube tests to all 31 live-resource-gated tests outside the provider-behavior and notifier tests and chose vcrpy for HTTP."
 purpose: "The recorded design of the recorded-youtube-tests work order, read by its plan and its builders."
 producer: cli:shape
 ---
@@ -11,7 +11,7 @@ producer: cli:shape
 
 ## Purpose
 
-Every daemon test that today skips for want of a live third party runs in every gate run against what that third party really returned, recorded once, while the six provider-behavior tests and the macOS notifier test stay opt-in. On 2026-10-07 the operator widened this work order from the content-aware and YouTube tests to all 32 live-resource-gated tests and chose vcrpy for HTTP.
+Every daemon test that today skips for want of a live third party runs in every gate run against what that third party really returned, recorded once, while the six provider-behavior tests and the macOS notifier test stay opt-in. On 2026-10-07 the operator widened this work order from the content-aware and YouTube tests to all 31 live-resource-gated tests outside the provider-behavior and notifier tests and chose vcrpy for HTTP.
 
 ## Form
 
@@ -33,7 +33,7 @@ Three record-and-replay boundaries, one per kind of third party, each strict on 
 
 ## Commitments
 
-- All 32 live-resource-gated tests outside the provider-behavior and notifier tests run in the gate with no network.
+- All 31 live-resource-gated tests (content-aware 3, YouTube 8, validator 8, RSS fetcher 5, Reddit fetcher 5, API 2) run in the gate with no network.
 - Each boundary replays strictly: a missing or changed request fails with the command to re-record.
 - Failure modes (timeouts, status codes, unresolvable hosts, non-feed pages) are produced locally, not replayed.
 - No credential or token is ever written to a recording; Reddit recordings are made on cerebro and checked there before they leave.

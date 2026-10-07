@@ -1,0 +1,56 @@
+{
+  "workOrder": "bounded-llm-content",
+  "issues": [],
+  "what": "Bound the article text the summarizer, evaluator and deep extractor send to the model at 350,000 UTF-8 bytes through one helper in llm_call.py, tell the model when the text was cut, and record the cut on the item as analysis `content_bounded`, so an article larger than the model's window is stored and summarized instead of refused on every cycle.",
+  "why": "Design: docs/work/bounded-llm-content/design.md. Found on real work: cerebro's first cycle after the gh #58 deploy (2026-10-07) refused https://ascii.rest/ at 482,792 tokens against openai/gpt-5.4-nano's 400,000-token window; its text is 1,724,631 UTF-8 bytes, half non-ASCII, and the summarizer sends full content by design, so the page is fetched and refused again every cycle HN lists it.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "content of 1,100,000 characters, half of them non-ASCII box-drawing or braille characters, and separately 400,000 bytes of ASCII prose",
+      "when": "the summarizer, evaluator and deep extractor each build their prompt for it",
+      "then": "it fails if any prompt carries more than 350,000 UTF-8 bytes of the article text or splits a character; otherwise each carries the article's leading 350,000 bytes or fewer, cut on a character boundary, followed by one line stating it was cut and the sizes"
+    },
+    {
+      "id": "SC-2",
+      "given": "content of 2,000 bytes",
+      "when": "the three prompts are built",
+      "then": "it fails if the content is altered or a cut line appears; otherwise each prompt carries the content exactly as before"
+    },
+    {
+      "id": "SC-3",
+      "given": "the local LLM stub made to refuse with a 400 any request whose body exceeds 400,000 bytes, the way the provider refused ascii.rest, and an RSS item whose content is the SC-1 non-ASCII text",
+      "when": "`analyze_and_store_item` runs on it",
+      "then": "it fails if the item is not stored, if any request to the stub was refused, or if the stored content is not the full original; otherwise the item stores with a summary and analysis `content_bounded` {\"sent_bytes\": <= 350000, \"total_bytes\": its full byte length}, and the same test is shown red with the bound removed"
+    },
+    {
+      "id": "SC-4",
+      "given": "an item whose content is under the bound",
+      "when": "it is analyzed through `analyze_and_store_item` and, separately, through the CLI's `analyze repair` path that also uses `build_llm_analysis`",
+      "then": "it fails if either stored analysis carries a `content_bounded` key; otherwise neither does, and an over-bound item through `analyze repair` carries it"
+    },
+    {
+      "id": "SC-5",
+      "given": "the daemon source after the change",
+      "when": "`grep -rn \"{content}\"` runs over the summarizer, evaluator and deep extractor prompt builders and the helper's callers are listed",
+      "then": "it fails if any of the three interpolates content that did not pass through the one bounding helper in llm_call.py; otherwise all three call it and MAX_CONTENT_BYTES is defined once"
+    },
+    {
+      "id": "SC-6",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "The 8 stored items over 350,000 bytes (the largest 790,301 bytes), if ever re-analyzed, are summarized from their first 350,000 bytes, about 60,000 words, with the cut recorded.",
+    "The bound is sized for a 400,000-token window; a model with a smaller window would need MAX_CONTENT_BYTES lowered, and until then its overflow fails at the per-item boundary as it does today."
+  ],
+  "stakes": [
+    "No request from the summarizer, evaluator or deep extractor carries more than MAX_CONTENT_BYTES (350,000) UTF-8 bytes of article text, for any content, including text that tokenizes below one character per token.",
+    "An item whose content exceeds the bound is stored with its full content, a summary, and analysis `content_bounded` {sent_bytes, total_bytes}; an item under the bound carries no `content_bounded` key.",
+    "When the text is cut, the prompt says so, so the model does not summarize a part as the whole.",
+    "One helper decides the bound for all three prompts.",
+    "The defect walk: content shaped like ascii.rest (over a million characters, about half non-ASCII) through `analyze_and_store_item` against the local LLM stub is refused before the change by a stub that enforces the window in bytes, and is stored with a summary and `content_bounded` after it.",
+    "After deploy, cerebro's next cycle that lists an article over the bound stores it with `content_bounded` instead of logging a context-length failure."
+  ]
+}

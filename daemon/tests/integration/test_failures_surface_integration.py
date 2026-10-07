@@ -331,10 +331,17 @@ def test_a_cycle_isolates_a_failed_source_and_a_failed_item_and_logs_both(
     )
 
 
+@pytest.mark.parametrize(
+    ("priority", "matched_interests"),
+    [(5, ["AI"]), ("high", "AI, Python")],
+    ids=["non-string-priority", "matched-interests-not-a-list"],
+)
 def test_a_malformed_evaluation_reply_fails_the_item_in_the_cycle(
     test_db: Path,
     isolated_xdg_env: Path,
     local_pipeline_stub: str,
+    priority: object,
+    matched_interests: object,
 ) -> None:
     """
     INVARIANT: an item whose evaluation reply cannot be parsed is recorded in
@@ -357,8 +364,8 @@ def test_a_malformed_evaluation_reply_fails_the_item_in_the_cycle(
             "quotes": [],
             "tools": [],
             "urls": [],
-            "priority": 5,
-            "matched_interests": ["AI"],
+            "priority": priority,
+            "matched_interests": matched_interests,
             "reasoning": "r",
         }
     )

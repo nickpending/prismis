@@ -95,20 +95,21 @@ def test_parse_evaluation_response_handles_missing_fields() -> None:
     assert result.reasoning is None
 
 
-def test_parse_evaluation_response_validates_matched_interests() -> None:
-    """Test parsing validates matched_interests is a list."""
+def test_parse_evaluation_response_refuses_matched_interests_that_is_not_a_list() -> None:
+    """A malformed matched_interests is a failed reply, not an item with no interests.
+
+    Coercing it to [] used to store a "high" reply as unprioritized, the same value a
+    genuinely uninteresting item gets (constitution Principle II).
+    """
     evaluator = ContentEvaluator(SERVICE)
 
-    # Test with non-list value
     response = {
         "priority": "high",
-        "matched_interests": "AI, Python",  # String instead of list
+        "matched_interests": "AI, Python",
     }
 
-    result = evaluator._parse_evaluation_response(response)
-
-    # Should convert to empty list
-    assert result.matched_interests == []
+    with pytest.raises(ValueError, match="matched_interests"):
+        evaluator._parse_evaluation_response(response)
 
 
 def test_build_evaluation_prompt_includes_all_parts() -> None:

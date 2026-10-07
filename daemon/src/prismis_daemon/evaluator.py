@@ -211,8 +211,9 @@ Evaluate this content and respond with the JSON format specified."""
             ContentEvaluation object
 
         Raises:
-            AttributeError, TypeError: If the reply is valid JSON of the wrong shape
-                (an array, a non-string priority). Not caught here: a reply that
+            AttributeError, TypeError, ValueError: If the reply is valid JSON of the
+                wrong shape (an array, a non-string priority, a matched_interests that
+                is not a list). Not caught here: a reply that
                 cannot be parsed is a failed evaluation, never "no priority" -- the
                 caller (evaluate_content) re-raises to the per-item boundary.
         """
@@ -222,10 +223,14 @@ Evaluate this content and respond with the JSON format specified."""
         # Parse matched interests first to validate priority
         matched_interests = response.get("matched_interests", [])
 
-        # Validate matched_interests format
-        if matched_interests and not isinstance(matched_interests, list):
-            logger.warning("matched_interests should be a list, converting")
+        # null is the model saying "none"; any other non-list is a malformed reply,
+        # and coercing it to [] would store a matched item as unprioritized.
+        if matched_interests is None:
             matched_interests = []
+        elif not isinstance(matched_interests, list):
+            raise ValueError(
+                f"matched_interests must be a list, got {type(matched_interests).__name__}"
+            )
 
         # Handle null priority or empty matched interests
         if priority_str is None or (not matched_interests and priority_str != "low"):

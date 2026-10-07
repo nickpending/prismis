@@ -1,0 +1,15 @@
+{
+  "scrutiny": [
+    {"test": "T0 purpose: prismis runs unattended; the paths these tests cover (audio, the orchestrator pipeline, context suggestions, summarize and evaluate parsing) are exactly where a silent regression would corrupt what agents read. Running them in every gate advances that.", "failureCase": "The change added coverage nobody's regressions would reach.", "result": "held"},
+    {"test": "T1 owners: conftest.py's stub doc and the constitution allow standing in only for the LLM; recordings replay at that same boundary, with fetchers, Storage and Embedder real.", "failureCase": "Replay faked an internal collaborator.", "result": "held"},
+    {"test": "T2/T6 assumptions checked: audio (audio.py:32), context analysis (api.py:1681) and summarize/evaluate all use the configured light service, which configure_local_services points at the stub; the sealed config template defines no kind service, so the pipeline test makes no kind call; production's light and deep services both use openai/gpt-5.4-nano via OpenRouter (cerebro services.toml), reachable from this Mac through its `openrouter` service for recording.", "failureCase": "A covered path called a service the stub does not stand in for, or recordings came from a different model than production.", "result": "held"},
+    {"test": "T3 degrades: prompt edits require re-recording; replays prove handling of one real reply per call; recording needs real credentials.", "failureCase": "A degradation went unstated.", "result": "held"},
+    {"test": "T4 reuse: extends `local_pipeline_stub` and `configure_local_services`; no vcrpy or other new dependency.", "failureCase": "A second stub or a recording library were added beside the existing stub.", "result": "held"},
+    {"test": "T8 shape: staleness is detected by comparing the recorded request with the live one (dates and model normalized), so a stale recording cannot pass silently; a missing recording fails rather than skips (constitution 2).", "failureCase": "A replay served an answer to a request it was not recorded for.", "result": "held"},
+    {"test": "T5 proof: the replay tests run under `no_network` in the gate; the recording run is executed once with the production model and its files committed.", "failureCase": "The tests could still reach a provider in the gate.", "result": "held"},
+    {"test": "T10 undo: revert the commit; the skip marks return.", "failureCase": "A one-way change.", "result": "held"}
+  ],
+  "decisions": [],
+  "verdict": "accept",
+  "carried": []
+}

@@ -155,19 +155,22 @@ def test_evaluator_with_real_llm_high_priority(stub_service: str) -> None:
 
 @pytest.mark.recorded_llm
 def test_evaluator_with_real_llm_low_priority(stub_service: str) -> None:
-    """Test ContentEvaluator leaves "Not Interested" content unprioritized.
+    """Test ContentEvaluator correctly identifies low priority content.
 
     This test:
-    - Uses content about topics in "Not Interested" section
-    - Verifies no priority is assigned (null, not LOW)
+    - Uses gaming news, which the context lists under "Low Priority Topics"
+    - Verifies LOW priority assigned
+
+    The input is not "Not Interested" content: the evaluator contract maps that to
+    priority null (evaluator.py), so only a Low Priority Topic match yields LOW.
     """
     evaluator = ContentEvaluator(stub_service)
 
-    # Content that should be low priority (crypto - in Not Interested)
+    # Content that should be low priority (gaming news - a Low Priority Topic)
     content = """
-    Bitcoin reaches new all-time high as institutional investors continue 
-    to pour money into cryptocurrency markets. The latest DeFi protocol 
-    promises 1000% APY returns through yield farming strategies.
+    A major studio has announced the release date for its next console game, with a
+    new gameplay trailer and a limited collector's edition. Gaming news sites expect
+    pre-orders to open next week.
     """
 
     # Same context as above
@@ -190,14 +193,13 @@ def test_evaluator_with_real_llm_low_priority(stub_service: str) -> None:
     # The recorded real LLM reply
     result = evaluator.evaluate_content(
         content=content,
-        title="Bitcoin Reaches New High",
-        url="https://example.com/bitcoin",
+        title="Studio Announces Release Date for Next Console Game",
+        url="https://example.com/game-release",
         context=context,
     )
 
-    # Content matching "Not Interested" is left unprioritized: the evaluator prompt
-    # demands priority null for it (evaluator.py), never LOW.
-    assert result.priority is None
+    # Should identify as low priority (matches the Low Priority Topic: gaming news)
+    assert result.priority == PriorityLevel.LOW
 
     # Should still have reasoning explaining why
     assert result.reasoning is not None

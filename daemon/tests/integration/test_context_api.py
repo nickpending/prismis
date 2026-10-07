@@ -28,6 +28,17 @@ from prismis_daemon.storage import Storage
 pytestmark = pytest.mark.usefixtures("no_network")
 
 
+@pytest.fixture(autouse=True)
+def _clear_dependency_overrides() -> Generator[None]:
+    """Undo the app overrides each test installs.
+
+    `create_api_client_with_config` is a generator the tests drive with `next()`, so its
+    own cleanup never runs and the overrides would leak into every later API test.
+    """
+    yield
+    app.dependency_overrides.clear()
+
+
 @pytest.fixture
 def full_config(local_pipeline_stub: str, isolated_xdg_env: Path) -> Config:
     """The sealed config with its LLM services pointed at `local_pipeline_stub`.

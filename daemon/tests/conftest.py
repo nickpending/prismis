@@ -337,11 +337,6 @@ RECORDED_LLM_MARKER = "recorded_llm"
 
 _MODEL_TOKEN = "<model>"
 _DATE_TOKEN = "<date>"
-_LOOPBACK_TOKEN = "<stub>"
-# The local stub binds an ephemeral port, and a pipeline test that reads its feed from
-# the stub carries that port into the prompt (the item URL). It differs on every run and
-# is the stub's own address rather than anything the code under test decided.
-_LOOPBACK_ORIGIN = re.compile(r"127\.0\.0\.1:\d+")
 _ISO_DATE = re.compile(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)")
 _LONG_DATE = re.compile(
     r"\b(?:January|February|March|April|May|June|July|August|September|October"
@@ -420,7 +415,6 @@ _IMPORT_TIME_RECORD_TARGET = _resolve_import_time_record_target()
 
 
 def _normalize_text(text: str) -> str:
-    text = _LOOPBACK_ORIGIN.sub(_LOOPBACK_TOKEN, text)
     return _LONG_DATE.sub(_DATE_TOKEN, _ISO_DATE.sub(_DATE_TOKEN, text))
 
 
@@ -438,12 +432,11 @@ def _normalize_node(node: _Json) -> _Json:
 
 
 def _normalize_request(body: dict[str, Any]) -> dict[str, Any]:
-    """The request with its model name, dates and stub port replaced by fixed tokens.
+    """The request with its model name and dates replaced by fixed tokens.
 
     These are the only volatile parts a replay ignores: the stub is addressed under a
-    stub model name while the recording carries the real one, a prompt built from
-    "today" carries a different date on every run, and a URL on the stub carries its
-    ephemeral port. Everything else must match.
+    stub model name while the recording carries the real one, and a prompt built from
+    "today" carries a different date on every run. Everything else must match.
     """
     out = _normalize_node(copy.deepcopy(body))
     assert isinstance(out, dict)
@@ -704,7 +697,14 @@ def local_pipeline_stub(llm_recorder: LlmRecorder | None) -> Iterator[str]:
                     f"<html><body><p>{article}</p></body></html>".encode(), "text/html"
                 )
             elif self.path.startswith("/feed.xml"):
-                base = f"http://{self.headers.get('Host', '127.0.0.1')}"
+                # `?links=external` makes the items link to example.com instead of this
+                # server, for a test whose recorded prompt must not carry the stub's
+                # ephemeral port; the article fetch then fails and the fetcher uses the
+                # feed entry's own text.
+                if "links=external" in self.path:
+                    base = "https://example.com"
+                else:
+                    base = f"http://{self.headers.get('Host', '127.0.0.1')}"
                 self._send(_STUB_FEED.format(base=base).encode(), "application/rss+xml")
             else:
                 self.send_error(404)

@@ -15,7 +15,11 @@ from prismis_daemon.defaults import ensure_config
 
 @pytest.mark.recorded_llm
 def test_daemon_orchestration_with_test_database(
-    test_db, local_pipeline_stub: str, isolated_xdg_env: Path
+    test_db,
+    local_pipeline_stub: str,
+    isolated_xdg_env: Path,
+    no_network: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test daemon orchestration with real services and test database.
 
@@ -27,12 +31,12 @@ def test_daemon_orchestration_with_test_database(
     - Runs the orchestration logic
     - Verifies it works end-to-end
 
-    Deliberately not under `no_network`: the real Embedder fetches its model files from
-    huggingface.co, and an item whose embedding fails is not stored, so the dead proxy
-    would fail the pipeline for a reason unrelated to the LLM. The LLM calls cannot
-    leave regardless: both services point at the stub, which in replay mode serves the
-    recording or refuses and never forwards.
+    Runs under `no_network`. The real Embedder would otherwise ask huggingface.co about
+    its model files, so the test forces the hub offline and the model loads from the
+    local cache.
     """
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_OFFLINE", True)
     from prismis_daemon.orchestrator import DaemonOrchestrator
     from prismis_daemon.fetchers.rss import RSSFetcher
     from prismis_daemon.fetchers.reddit import RedditFetcher
@@ -66,7 +70,9 @@ def test_daemon_orchestration_with_test_database(
     test_console = Console(file=output)
 
     # Add the stub's RSS feed as the source
-    storage.add_source(f"{local_pipeline_stub}/feed.xml", "rss")
+    # Items link to example.com, so the recorded prompt carries no stub port; under
+    # no_network the article fetch fails and the entry's own feed text is analyzed.
+    storage.add_source(f"{local_pipeline_stub}/feed.xml?links=external", "rss")
 
     # Create orchestrator with test dependencies
     orchestrator = DaemonOrchestrator(

@@ -8,7 +8,7 @@
         },
         {
           "role": "user",
-          "content": "User's Personal Context:\n\n    ## High Priority Topics\n    - AI/LLM breakthroughs\n    - Systems programming\n    \n    ## Medium Priority Topics\n    - Web development\n    \n    ## Low Priority Topics\n    - Gaming news\n    \n    ## Not Interested\n    - Cryptocurrency, blockchain, DeFi\n    - Celebrity news\n    \n\nContent to Evaluate:\nTitle: Bitcoin Reaches New High\nURL: https://example.com/bitcoin\n\nContent Text:\n\n    Bitcoin reaches new all-time high as institutional investors continue \n    to pour money into cryptocurrency markets. The latest DeFi protocol \n    promises 1000% APY returns through yield farming strategies.\n    \n\nEvaluate this content and respond with the JSON format specified."
+          "content": "User's Personal Context:\n\n    ## High Priority Topics\n    - AI/LLM breakthroughs\n    - Systems programming\n    \n    ## Medium Priority Topics\n    - Web development\n    \n    ## Low Priority Topics\n    - Gaming news\n    \n    ## Not Interested\n    - Cryptocurrency, blockchain, DeFi\n    - Celebrity news\n    \n\nContent to Evaluate:\nTitle: Studio Announces Release Date for Next Console Game\nURL: https://example.com/game-release\n\nContent Text:\n\n    A major studio has announced the release date for its next console game, with a\n    new gameplay trailer and a limited collector's edition. Gaming news sites expect\n    pre-orders to open next week.\n    \n\nEvaluate this content and respond with the JSON format specified."
         }
       ],
       "model": "openai/gpt-5.4-nano",
@@ -16,7 +16,7 @@
         "type": "json_object"
       }
     },
-    "reply": "{\n  \"priority\": null,\n  \"matched_interests\": [],\n  \"reasoning\": \"Content focuses on Bitcoin and DeFi yields, matching neither AI/LLM nor systems programming interests.\"\n}",
+    "reply": "{\n  \"priority\": \"low\",\n  \"matched_interests\": [\"Gaming news\"],\n  \"reasoning\": \"Console game release date announcement aligns with gaming news interest.\"\n}",
     "model": "openai/gpt-5.4-nano"
   }
 ]

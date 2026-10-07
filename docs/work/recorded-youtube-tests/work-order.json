@@ -1,0 +1,77 @@
+{
+  "workOrder": "recorded-youtube-tests",
+  "issues": [
+    60
+  ],
+  "what": "Run the remaining 31 live-resource-gated daemon tests in every gate from real recordings: the 3 content-aware tests through the existing LLM recorder, the 8 YouTube tests through a yt-dlp record/replay stand-in, and the HTTP-backed validator, RSS fetcher, Reddit fetcher and API tests through vcrpy cassettes, with failure-mode tests rebuilt on local servers and no credential or token in any recording (gh #60).",
+  "why": "Design: docs/work/recorded-youtube-tests/design.md. After recorded-llm-tests, `uv run pytest -q -rs` still reports 38 skipped; 31 of them are tests of prismis's own handling of third-party data that never run in the gate (content-aware 3, YouTube 8, validator 8, RSS fetcher 5, Reddit fetcher 5, API 2). The operator chose vcrpy for HTTP and this single work order on 2026-10-07.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "the daemon test suite with no credentials, no PRISMIS_LIVE_* variable and network access blocked",
+      "when": "`uv run pytest -q -rs` runs",
+      "then": "it fails if any of the 31 named tests is skipped or reaches the network; otherwise exactly the 7 opt-in tests skip (4 llm_client_live, 2 llm_startup_validation, 1 notifier) and the 31 pass from committed recordings"
+    },
+    {
+      "id": "SC-2",
+      "given": "a YouTube test with its yt-dlp recording present, the same test with the recording missing, and one whose recorded arguments differ from the live call in something other than a YYYYMMDD date or the temporary output path",
+      "when": "each replays",
+      "then": "it fails if the missing or mismatched case passes, skips or runs the real yt-dlp; otherwise the first passes under `no_network` with the recorded output and files, and the other two fail naming the recording and the PRISMIS_RECORD_YTDLP command"
+    },
+    {
+      "id": "SC-3",
+      "given": "an HTTP test whose cassette lacks a request the code makes",
+      "when": "it runs in the default replay mode",
+      "then": "it fails if the request reaches the network or the test passes; otherwise vcrpy refuses the unrecorded request and the test fails naming the PRISMIS_RECORD_HTTP command"
+    },
+    {
+      "id": "SC-4",
+      "given": "a cassette written in record mode for a Reddit test, and every committed cassette",
+      "when": "its contents are inspected",
+      "then": "it fails if any holds an Authorization, Cookie or Set-Cookie header or a non-placeholder access_token value; otherwise all are scrubbed, and the Reddit cassettes were recorded and checked on cerebro"
+    },
+    {
+      "id": "SC-5",
+      "given": "the timeout, 429, invalid-domain and non-RSS-content tests",
+      "when": "they run",
+      "then": "it fails if any depends on httpbin.org or a real unresolvable domain or passes against a replay that cannot fail the way it claims; otherwise each runs against a local server or the reserved .invalid TLD and keeps its assertion"
+    },
+    {
+      "id": "SC-6",
+      "given": "test_youtube_fetcher_integration.py after the change",
+      "when": "its assertions are read",
+      "then": "it fails if an `if items:` or `if transcript:` guard remains around assertions; otherwise those assertions are unconditional"
+    },
+    {
+      "id": "SC-7",
+      "given": "the RSS fetcher's article extraction (`extract_article`'s guarded urllib opener) inside a recorded fetcher test",
+      "when": "it runs under `no_network`",
+      "then": "it fails if the request bypasses the cassette; otherwise it is served from the cassette"
+    },
+    {
+      "id": "SC-8",
+      "given": "daemon/pyproject.toml, uv.lock and docs/architecture/boundaries.md",
+      "when": "they are read",
+      "then": "it fails if vcrpy is a runtime dependency or the doc omits a record command; otherwise vcrpy is in the dev group only and boundaries.md names the three replay mechanisms, their record commands and the opt-in live runs"
+    },
+    {
+      "id": "SC-9",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "Third-party changes (a feed's format, Reddit's API shape, yt-dlp's output) are not seen until the recordings are refreshed with the record commands.",
+    "Re-recording Reddit needs cerebro.",
+    "Two record/replay mechanisms exist, the LLM stub and vcrpy, at two different boundaries: a configured service URL and arbitrary third-party URLs."
+  ],
+  "stakes": [
+    "All 31 live-resource-gated tests (content-aware 3, YouTube 8, validator 8, RSS fetcher 5, Reddit fetcher 5, API 2) run in the gate with no network.",
+    "Each boundary replays strictly: a missing or changed request fails with the command to re-record.",
+    "Failure modes (timeouts, status codes, unresolvable hosts, non-feed pages) are produced locally, not replayed.",
+    "No credential or token is ever written to a recording; Reddit recordings are made on cerebro and checked there before they leave.",
+    "vcrpy is a dev-only dependency; the LLM recorder from recorded-llm-tests stays as it is.",
+    "The YouTube tests' conditional guards become unconditional."
+  ]
+}

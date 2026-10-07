@@ -1,0 +1,100 @@
+{
+  "scrutiny": [
+    {
+      "test": "T0 purpose: prismis is an unattended local-first content pipeline (docs/IDEA.md); this makes a defect surface where failure is already reported instead of reading as an empty result, which is what the constitution's Project Constraints call the characteristic failure of this system (.specify/memory/constitution.md:126). Result: boundaries keep one bad source or item from stopping the cycle, and only failures that used to masquerade as empty now surface.",
+      "failureCase": "The change left defects as invisible as before, or made the pipeline less able to finish a cycle.",
+      "result": "held"
+    },
+    {
+      "test": "T1 owners: constitution Principles II and III, INV-002 (orchestrator.py:205), ruff's BLE001 config (daemon/pyproject.toml:95) and APScheduler's job-exception log (executors/base.py:145) all already decide pieces of this; the design defers to each rather than restating it.",
+      "failureCase": "The design redefined how a pipeline failure is recorded instead of using INV-002 and fetch_outcome.",
+      "result": "held"
+    },
+    {
+      "test": "T2 same noun: the BLE001 exemption was checked on the installed ruff 0.16.6 against a scratch file (logger.exception and exc_info=True pass, a plain warning is flagged), and APScheduler's behavior was read in the installed 3.11.0 source.",
+      "failureCase": "The exemption were taken from ruff's docs for a different version.",
+      "result": "held"
+    },
+    {
+      "test": "T3 degrade: the three sacrifices are louder failures, not lost capability: an unreadable context.md stops start-up, a job failure shows as APScheduler's traceback, a malformed evaluation reply fails the item for this cycle. Result: a malformed-reply item is analyzed again on a later fetch while its source lists it, the same as an invalid-JSON reply today.",
+      "failureCase": "An item that used to store now never stores.",
+      "result": "held"
+    },
+    {
+      "test": "T4 reuse: INV-002 failure fields, the item's analysis JSON beside fetch_outcome, the API's _server_error, update_context's outer boundary, APScheduler's job log.",
+      "failureCase": "A new failure-reporting channel were invented.",
+      "result": "held"
+    },
+    {
+      "test": "T5 running system: the proof on real data is a deployed daemon's first full fetch cycle on cerebro, read from its journal: the cycle completes, and any traceback it logs names a real failure rather than a narrowing that missed its expected type. Result: carried into the work order as a post-deploy check.",
+      "failureCase": "The only proof were unit tests whose failures the test built.",
+      "result": "held"
+    },
+    {
+      "test": "T6 assumptions: that each library's documented error base (praw/prawcore, requests, httpx, sqlite3, the LLM client) is what its calls raise. Unverified per handler here; the design makes the builder read it in the called code and prove the expected failure is still handled per handler. Result: as a stated risk with a per-handler test guard.",
+      "failureCase": "A handler narrowed to the wrong base turns a routine timeout into a source crash.",
+      "result": "held"
+    },
+    {
+      "test": "T7 consumers, enumerated with `grep -rn count_unprioritized` and `grep -rn PruneCount`: count_unprioritized is read by api.py's /api/prune (1446) and /api/prune/count (1495), both inside `except Exception: raise _server_error` (api.py:1475), and by Storage.delete_unprioritized (1676); the HTTP endpoint is read by the CLI's api_client (244), which raises on a non-2xx, and by the TUI twice: GetPruneCount handles the error, but ExecutePrune (tui/internal/ui/operations/prune.go:58) discards it with `count, _ :=`, and PruneResultMsg.Count is never read by model.go (only Deleted, 969-978). Result: ExecutePrune does exactly that; the call is dead (its result is never read), so the form is to delete it. Reopened as a question.",
+      "failureCase": "A consumer that silently turns the new 500 back into a 0.",
+      "result": "changed"
+    },
+    {
+      "test": "T8 shape: the noqa ban is a unit test because ruff cannot forbid a per-rule noqa; the four forms are structural (lint-enforced catch shape), not a runtime guard.",
+      "failureCase": "A knob or runtime check where the lint rule could hold it.",
+      "result": "held"
+    },
+    {
+      "test": "T9 six months: a new blind except fails ruff; a new noqa fails the unit test; a boundary logging at debug with exc_info passes ruff and hides the traceback, which only review catches. Result: with the debug-level gap accepted out loud in the design's risk.",
+      "failureCase": "The rule decays without anyone noticing.",
+      "result": "held"
+    },
+    {
+      "test": "T10 reversibility: a revert of code and config; the only stored change is an additive analysis-JSON key, no migration.",
+      "failureCase": "A one-way schema change resting on reasoning.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class, swept on every stack in the repo: daemon BLE001 67 (`ruff check . --select BLE001 --config 'lint.per-file-ignores = {}'`), daemon bare except 0 (E722), daemon `except BaseException` 2, both re-raise (database.py:141, article_extractor.py:99); CLI BLE001 5 (analyze.py 135, 244, 349; embeddings.py 157; remote.py 35) under an identical blanket suppression whose comment cites #58 (cli/pyproject.toml:52-58); Go, `grep -rnE` for discarded results: clipboard.go:56 kills a process on a path already returning an error (fine), prune.go:58 discards an error (the T7 finding); no JS or Rust units exist. Engines axis: not ember code, n/a. Result: the CLI's suppression is the same issue and was missed at ground. Reopened as a question.",
+      "failureCase": "The daemon's handlers fixed while the CLI keeps the same #58 suppression.",
+      "result": "changed"
+    },
+    {
+      "test": "T12 new state: `comments_outcome` distinguishes a failed comment fetch from a post with no comments, which constitution line 126 requires in storage; nothing else records it.",
+      "failureCase": "A key nobody needs.",
+      "result": "held"
+    },
+    {
+      "test": "T13 two places: `comments_outcome` uses the same {outcome, detail} shape as fetch_outcome rather than a second format; no fact is computed twice.",
+      "failureCase": "A second outcome format beside fetch_outcome.",
+      "result": "held"
+    },
+    {
+      "test": "T14 prose vs gate: the catch shape is held by BLE001 and the noqa ban by a test; only the warning-or-above level rests on review.",
+      "failureCase": "The core rule lives only in prose.",
+      "result": "held"
+    },
+    {
+      "test": "T18 cause: the cause is the blanket suppression that made the class invisible; deleting it is the upstream fix, and the handlers are resolved so the gate can stay on.",
+      "failureCase": "Handlers patched while the suppression stays.",
+      "result": "held"
+    },
+    {
+      "test": "T19 direct observation: the 67 comes from ruff with the suppression lifted, not from grepping `except Exception` (89, which counts handlers that re-raise or log the traceback).",
+      "failureCase": "A grep proxy for the lint rule's set.",
+      "result": "held"
+    },
+    {
+      "test": "T20 walk: a locked database during `prismis prune` from the TUI: count_unprioritized raises sqlite3.OperationalError, /api/prune returns a 500 via _server_error, and the TUI's ExecutePrune first calls PruneCount, discards its 500, then calls PruneUnprioritized, whose error it does report. Result: for the API path; the discarded count is the T7 finding.",
+      "failureCase": "A step that shows a wrong number to the operator.",
+      "result": "held"
+    }
+  ],
+  "decisions": [],
+  "verdict": "redesign",
+  "carried": [
+    "cli/pyproject.toml carries the identical blanket BLE001 suppression, whose comment cites #58, over 5 handlers (cli/src/cli/analyze.py 135, 244, 349; embeddings.py 157; remote.py 35); does this work order resolve them under the same four forms?",
+    "The TUI's ExecutePrune (tui/internal/ui/operations/prune.go:58) discards PruneCount's error with `count, _ :=`, and PruneResultMsg.Count is never read by tui/internal/ui/model.go; once count_unprioritized raises into a 500, how does ExecutePrune treat that failure?"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "impacted": [
+    {"path": "daemon/src/prismis_daemon/summarizer.py", "role": "`_build_analysis_prompt` interpolates the full content (line 454) under the comment 'Use full content - no truncation' (line 426); the summarization mode is chosen from the full word count"},
+    {"path": "daemon/src/prismis_daemon/evaluator.py", "role": "`_build_evaluation_prompt` interpolates the full content (line 153)"},
+    {"path": "daemon/src/prismis_daemon/deep_extractor.py", "role": "`_user_prompt` interpolates the full content (line 207)"},
+    {"path": "daemon/src/prismis_daemon/kind_classifier.py", "role": "already bounds its request with `_READING_SUMMARY_CAP` and `_RAW_CONTENT_CAP` (lines 59-63, the SC-2 caps)"},
+    {"path": "daemon/src/prismis_daemon/analysis.py", "role": "`build_llm_analysis` (line 78) assembles the analysis JSON and already reads the fetcher's `fetch_outcome` (line 54), the place a per-item content record lands"},
+    {"path": "daemon/src/prismis_daemon/orchestrator.py", "role": "`analyze_and_store_item` passes `item.content` whole to the summarizer, evaluator and deep extractor and stores it whole"}
+  ],
+  "constraints": [
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 47, "text": "Principle II: a summary of part of an article must be distinguishable from a summary of the whole."},
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 126, "text": "A content item that failed and one that produced a result must be distinguishable in storage; today the oversized item is never stored at all and is retried every cycle."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/kind_classifier.py", "line": 59, "text": "The kind classifier bounds its request 'regardless of the source content's length, so the request is about the same size for a 3-line RSS blurb and a 700k-character page': bounding, not refusing, is the existing precedent."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/summarizer.py", "line": 454, "text": "Measured 2026-10-07: https://ascii.rest/ extracts to 1,037,842 characters / 1,724,631 UTF-8 bytes (497,171 non-ASCII characters) and was refused at 482,792 tokens against a 400,000-token window: about 2.15 characters or 3.57 bytes per token."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/summarizer.py", "line": 454, "text": "Measured on cerebro's 39,022 stored items: the largest is 790,301 UTF-8 bytes (785,911 characters), all 12 items over 259k characters carry a summary, and 8 exceed 350,000 bytes."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/summarizer.py", "line": 454, "text": "Both production services (cerebro ~/.config/llm-core/services.toml, prismis-light and prismis-deep) run openai/gpt-5.4-nano, a 400,000-token window; services.toml records no context-window size."},
+    {"tag": "INFERENCE", "path": "daemon/src/prismis_daemon/summarizer.py", "line": 454, "text": "A byte-level BPE token always encodes at least one byte, so a prompt's token count never exceeds its UTF-8 byte count: a byte bound under the window guarantees a fit for any text, while a character bound guarantees nothing for text that tokenizes below one character per token."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --limit 30", "issues": []},
+  "reuse": [
+    {"path": "daemon/src/prismis_daemon/kind_classifier.py", "what": "the existing request caps, the pattern for bounding a prompt by content size"},
+    {"path": "daemon/src/prismis_daemon/analysis.py", "what": "`build_llm_analysis`, where the analysis JSON already records per-item fetch facts"}
+  ],
+  "open": [
+    "Is the bound sized to guarantee a fit (UTF-8 bytes, since a BPE token always covers at least one byte, set under the 400,000-token window, which also cuts the tails of the 12 stored book-length pages between 259k and 786k characters that fit today), or sized to ordinary prose (characters, about a million, which leaves those 12 whole but can still overflow on pages like ascii.rest)?"
+  ]
+}

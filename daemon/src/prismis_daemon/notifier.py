@@ -56,7 +56,8 @@ class Notifier:
                 count=len(high_items),
                 error=str(e),
             )
-            logger.warning(f"Failed to send notification: {e}")
+            # Notification boundary: a failed alert never stops the fetch cycle.
+            logger.warning(f"Failed to send notification: {e}", exc_info=True)
 
     def _send_notification(self, high_items: List[Dict[str, Any]]) -> None:
         """Send the actual notification using terminal-notifier.

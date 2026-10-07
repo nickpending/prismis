@@ -244,5 +244,6 @@ def extract_article(
             return ArticleResult(None, "fetch_failed", "blocked address")
         return ArticleResult(None, "fetch_failed", "no response")
     except Exception as e:
-        logger.warning(f"Error extracting article from {url}: {e}")
+        # Per-article boundary: one URL's extraction failure never stops the fetch.
+        logger.warning(f"Error extracting article from {url}: {e}", exc_info=True)
         return ArticleResult(None, "fetch_failed", type(e).__name__)

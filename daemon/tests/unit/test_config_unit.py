@@ -108,36 +108,57 @@ def test_config_loading_with_malformed_toml_raises() -> None:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def test_config_loading_with_unreadable_context_uses_default() -> None:
-    """Test Config.from_file() handles context.md read errors by using default."""
-    temp_dir = tempfile.mkdtemp()
-
+def test_config_loading_with_unreadable_context_raises_naming_context_md(
+    tmp_path: Path,
+) -> None:
+    """
+    INVARIANT: an existing context.md that cannot be read stops the load, naming the file
+    BREAKS: the daemon evaluates every item against the default context while the
+            operator's own context sits unread, and nothing says so
+    """
+    config_path = _write_config(tmp_path, fetch_interval=60)
+    context_path = tmp_path / "context.md"
+    context_path.write_text("Some content")
+    context_path.chmod(0o000)
     try:
-        config_path = _write_config(Path(temp_dir), fetch_interval=60)
-        context_path = Path(temp_dir) / "context.md"
-
-        # Create context file but make it unreadable (on Unix systems)
-        context_path.write_text("Some content")
-        import os
-
-        if os.name != "nt":  # Skip on Windows
-            context_path.chmod(0o000)  # Remove all permissions
-
-        config = Config.from_file(config_path)
-
-        # Config should load normally
-        assert config.fetch_interval == 60
-
-        # Should use default context due to read error (or if Windows, will read it)
-        if os.name != "nt":
-            assert config.context == DEFAULT_CONTEXT_MD
-            # Restore permissions for cleanup
-            context_path.chmod(0o644)
-
+        with pytest.raises(ValueError, match="context.md") as raised:
+            Config.from_file(config_path)
     finally:
-        import shutil
+        context_path.chmod(0o644)
 
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    assert isinstance(raised.value.__cause__, PermissionError), (
+        "the cause is the read error itself, not a wrapper around nothing"
+    )
+
+
+def test_config_loading_with_non_utf8_context_raises_naming_context_md(
+    tmp_path: Path,
+) -> None:
+    """
+    INVARIANT: a context.md whose bytes are not text stops the load, naming the file
+    BREAKS: a corrupted context.md silently becomes the default context
+    """
+    config_path = _write_config(tmp_path, fetch_interval=60)
+    (tmp_path / "context.md").write_bytes(b"\xff\xfe\x00 not utf-8 \x80\x81")
+
+    with pytest.raises(ValueError, match="context.md") as raised:
+        Config.from_file(config_path)
+
+    assert isinstance(raised.value.__cause__, UnicodeDecodeError)
+
+
+def test_config_loading_without_context_md_uses_default(tmp_path: Path) -> None:
+    """
+    INVARIANT: a missing context.md is the default context, not an error
+    BREAKS: a fresh install, which has no context.md yet, cannot start
+    """
+    config_path = _write_config(tmp_path, fetch_interval=60)
+
+    config = Config.from_file(config_path)
+
+    assert config.fetch_interval == 60
+    assert config.context == DEFAULT_CONTEXT_MD
+
 
 
 def test_config_structure_contains_all_expected_fields() -> None:

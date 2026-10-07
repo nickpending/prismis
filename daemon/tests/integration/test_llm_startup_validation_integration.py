@@ -3,6 +3,7 @@
 import os
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,8 +12,11 @@ import pytest
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
+from prismis_daemon import llm_client
 from prismis_daemon.__main__ import validate_llm_config
 from prismis_daemon.config import Config
+
+from conftest import rejected_key_error, timed_out_service_error
 
 # llm_validator.py IS the wrapper around llm_client — mocking through it is correct
 _HEALTH_CHECK_MOCK = (
@@ -82,8 +86,6 @@ def _create_config_dir(config_toml: str = VALID_CONFIG_TOML) -> tuple:
 def _has_prismis_openai_service() -> bool:
     """Check if prismis-openai service is configured in services.toml."""
     try:
-        import tomllib
-
         config_home = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
         services_path = Path(config_home) / "llm-core" / "services.toml"
         if not services_path.exists():
@@ -91,7 +93,7 @@ def _has_prismis_openai_service() -> bool:
         with open(services_path, "rb") as f:
             data = tomllib.load(f)
         return "prismis-openai" in data.get("services", {})
-    except Exception:
+    except (OSError, tomllib.TOMLDecodeError):
         return False
 
 
@@ -135,7 +137,7 @@ def test_FAILURE_network_timeout_handling() -> None:
         config = Config.from_file(config_path)
 
         with patch(_HEALTH_CHECK_MOCK) as mock_health:
-            mock_health.side_effect = TimeoutError("Connection timeout")
+            mock_health.side_effect = timed_out_service_error()
 
             # Should fail gracefully with timeout guidance
             with pytest.raises(SystemExit):
@@ -158,7 +160,7 @@ def test_FAILURE_provider_auth_failure_guidance() -> None:
         config = Config.from_file(config_path)
 
         with patch(_HEALTH_CHECK_MOCK) as mock_health:
-            mock_health.side_effect = Exception("Incorrect API key provided")
+            mock_health.side_effect = rejected_key_error()
 
             # Should fail with auth guidance
             with pytest.raises(SystemExit):
@@ -181,7 +183,7 @@ def test_FAILURE_model_unavailable_detection() -> None:
         config = Config.from_file(config_path)
 
         with patch(_HEALTH_CHECK_MOCK) as mock_health:
-            mock_health.side_effect = Exception(
+            mock_health.side_effect = llm_client.ConfigError(
                 "Model gpt-nonexistent-model does not exist"
             )
 

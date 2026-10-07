@@ -130,6 +130,7 @@ def test_is_image_post_self_posts() -> None:
 
     # Mock self post
     submission = Mock()
+    submission.comments.list.return_value = []  # a post with no comments
     submission.is_self = True
     submission.url = "https://reddit.com/r/python/comments/123/title"
 
@@ -143,6 +144,7 @@ def test_is_image_post_image_domains() -> None:
 
     # Mock submission with image domains
     submission = Mock()
+    submission.comments.list.return_value = []  # a post with no comments
     submission.is_self = False
 
     image_urls = [
@@ -167,6 +169,7 @@ def test_is_image_post_file_extensions() -> None:
     fetcher = RedditFetcher()
 
     submission = Mock()
+    submission.comments.list.return_value = []  # a post with no comments
     submission.is_self = False
 
     image_extensions = [
@@ -190,6 +193,7 @@ def test_is_image_post_text_links() -> None:
     fetcher = RedditFetcher()
 
     submission = Mock()
+    submission.comments.list.return_value = []  # a post with no comments
     submission.is_self = False
 
     text_urls = [
@@ -212,6 +216,7 @@ def test_extract_metrics_all_fields_present() -> None:
 
     # Mock submission with all fields
     submission = Mock()
+    submission.comments.list.return_value = []  # a post with no comments
     submission.score = 42
     submission.upvote_ratio = 0.85
     submission.num_comments = 15
@@ -235,6 +240,7 @@ def test_extract_metrics_missing_fields() -> None:
 
     # Mock submission with missing fields
     submission = Mock()
+    submission.comments.list.return_value = []  # a post with no comments
     # Remove attributes to simulate missing fields
     del submission.score
     del submission.upvote_ratio
@@ -255,6 +261,7 @@ def test_to_content_item_self_post() -> None:
 
     # Mock self post submission
     submission = Mock()
+    submission.comments.list.return_value = []  # a post with no comments
     submission.permalink = "/r/python/comments/123/test_title/"
     submission.title = "How to learn Python?"
     submission.is_self = True
@@ -292,6 +299,7 @@ def test_to_content_item_self_post() -> None:
 
 def _link_post_submission(url: str) -> Mock:
     submission = Mock()
+    submission.comments.list.return_value = []  # a post with no comments
     submission.permalink = "/r/programming/comments/456/cool_article/"
     submission.title = "Cool Programming Article"
     submission.is_self = False
@@ -650,6 +658,7 @@ def test_to_content_item_deleted_content() -> None:
 
     # Mock submission with deleted content
     submission = Mock()
+    submission.comments.list.return_value = []  # a post with no comments
     submission.permalink = "/r/test/comments/789/deleted/"
     submission.title = "Deleted Post"
     submission.is_self = True
@@ -676,6 +685,7 @@ def test_to_content_item_date_parsing_error() -> None:
 
     # Mock submission with invalid timestamp
     submission = Mock()
+    submission.comments.list.return_value = []  # a post with no comments
     submission.permalink = "/r/test/comments/999/no_date/"
     submission.title = "Post Without Date"
     submission.is_self = True

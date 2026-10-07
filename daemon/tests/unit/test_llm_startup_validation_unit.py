@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
 import pytest
 
 # Add src directory to path for imports
@@ -13,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from prismis_daemon.__main__ import validate_llm_config
 from prismis_daemon.config import Config
+
+from conftest import unreachable_service_error
 
 # llm_validator.py IS the wrapper around llm_client — mocking through it is correct
 _HEALTH_CHECK_MOCK = (
@@ -254,7 +257,7 @@ def test_INVARIANT_health_check_failure_prevents_daemon_start() -> None:
         config = Config.from_file(config_path)
 
         with patch(_HEALTH_CHECK_MOCK) as mock_health:
-            mock_health.side_effect = Exception("Connection refused")
+            mock_health.side_effect = unreachable_service_error("Connection refused")
 
             # Validation MUST prevent daemon start on light service failure
             with pytest.raises(SystemExit):
@@ -367,7 +370,7 @@ def test_INVARIANT_deep_service_failure_is_non_fatal() -> None:
         def mock_health_check(service: str) -> None:
             call_count[0] += 1
             if service == "prismis-openai-deep":
-                raise Exception("Service unreachable")
+                raise unreachable_service_error("Service unreachable")
             # light service succeeds (returns None)
 
         with patch(_HEALTH_CHECK_MOCK, side_effect=mock_health_check):
@@ -451,7 +454,7 @@ def test_INVARIANT_kind_service_failure_is_non_fatal() -> None:
             mock_health.return_value = None  # light succeeds
 
             with patch(
-                _SUBMIT_DECISION_MOCK, side_effect=RuntimeError("connection refused")
+                _SUBMIT_DECISION_MOCK, side_effect=httpx.ConnectError("connection refused")
             ):
                 try:
                     validate_llm_config(config)
@@ -549,12 +552,12 @@ def test_kind_service_and_deep_service_unreachable_warnings_describe_what_actual
 
         def mock_health_check(service: str) -> None:
             if service == "prismis-openai-deep":
-                raise Exception("Service unreachable")
+                raise unreachable_service_error("Service unreachable")
             # light succeeds
 
         with patch(_HEALTH_CHECK_MOCK, side_effect=mock_health_check):
             with patch(
-                _SUBMIT_DECISION_MOCK, side_effect=RuntimeError("connection refused")
+                _SUBMIT_DECISION_MOCK, side_effect=httpx.ConnectError("connection refused")
             ):
                 validate_llm_config(config)
 

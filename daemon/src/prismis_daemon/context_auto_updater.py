@@ -132,33 +132,28 @@ class ContextAutoUpdater:
         Returns:
             List of article metadata with votes
         """
-        # Use storage to get content with user_feedback
-        # We need to query voted items directly
-        try:
-            # Get all content with votes in the time window
-            voted_items = []
+        # A storage failure raises to update(), which logs the traceback and
+        # returns (False, "Error: ..."); an empty list means no voted articles.
+        # Get all content with votes in the time window
+        voted_items = []
 
-            # Query upvoted items
-            up_items = self.storage.get_content_by_feedback(
-                feedback="up",
-                since_days=self.config.context_auto_update_interval_days,
-            )
-            for item in up_items:
-                voted_items.append(self._format_article(item, "up"))
+        # Query upvoted items
+        up_items = self.storage.get_content_by_feedback(
+            feedback="up",
+            since_days=self.config.context_auto_update_interval_days,
+        )
+        for item in up_items:
+            voted_items.append(self._format_article(item, "up"))
 
-            # Query downvoted items
-            down_items = self.storage.get_content_by_feedback(
-                feedback="down",
-                since_days=self.config.context_auto_update_interval_days,
-            )
-            for item in down_items:
-                voted_items.append(self._format_article(item, "down"))
+        # Query downvoted items
+        down_items = self.storage.get_content_by_feedback(
+            feedback="down",
+            since_days=self.config.context_auto_update_interval_days,
+        )
+        for item in down_items:
+            voted_items.append(self._format_article(item, "down"))
 
-            return voted_items
-
-        except Exception as e:
-            logger.error(f"Failed to get voted articles: {e}")
-            return []
+        return voted_items
 
     def _format_article(self, item: dict[str, Any], vote: str) -> dict[str, Any]:
         """Format an article for the LLM prompt.

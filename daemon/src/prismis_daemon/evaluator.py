@@ -209,59 +209,51 @@ Evaluate this content and respond with the JSON format specified."""
 
         Returns:
             ContentEvaluation object
+
+        Raises:
+            AttributeError, TypeError: If the reply is valid JSON of the wrong shape
+                (an array, a non-string priority). Not caught here: a reply that
+                cannot be parsed is a failed evaluation, never "no priority" -- the
+                caller (evaluate_content) re-raises to the per-item boundary.
         """
-        try:
-            # Parse priority - can be null now!
-            priority_str = response.get("priority")
+        # Parse priority - can be null now!
+        priority_str = response.get("priority")
 
-            # Parse matched interests first to validate priority
-            matched_interests = response.get("matched_interests", [])
+        # Parse matched interests first to validate priority
+        matched_interests = response.get("matched_interests", [])
 
-            # Validate matched_interests format
-            if matched_interests and not isinstance(matched_interests, list):
-                logger.warning("matched_interests should be a list, converting")
-                matched_interests = []
+        # Validate matched_interests format
+        if matched_interests and not isinstance(matched_interests, list):
+            logger.warning("matched_interests should be a list, converting")
+            matched_interests = []
 
-            # Handle null priority or empty matched interests
-            if priority_str is None or (
-                not matched_interests and priority_str != "low"
-            ):
-                # NULL priority - content doesn't match any interests
-                priority = None
-                logger.debug("Content has no priority (null) - no interests matched")
-            else:
-                # Validate and convert to enum
-                priority_str = priority_str.lower() if priority_str else "medium"
-                try:
-                    priority = PriorityLevel(priority_str)
-                except ValueError:
-                    # Invalid priority, but has matched interests - default to medium
-                    if matched_interests:
-                        logger.warning(
-                            f"Invalid priority level from LLM: {priority_str}, using MEDIUM"
-                        )
-                        priority = PriorityLevel.MEDIUM
-                    else:
-                        # No matches and invalid priority - set to null
-                        priority = None
-                        logger.debug(
-                            "Invalid priority and no matches - setting to null"
-                        )
+        # Handle null priority or empty matched interests
+        if priority_str is None or (not matched_interests and priority_str != "low"):
+            # NULL priority - content doesn't match any interests
+            priority = None
+            logger.debug("Content has no priority (null) - no interests matched")
+        else:
+            # Validate and convert to enum
+            priority_str = priority_str.lower() if priority_str else "medium"
+            try:
+                priority = PriorityLevel(priority_str)
+            except ValueError:
+                # Invalid priority, but has matched interests - default to medium
+                if matched_interests:
+                    logger.warning(
+                        f"Invalid priority level from LLM: {priority_str}, using MEDIUM"
+                    )
+                    priority = PriorityLevel.MEDIUM
+                else:
+                    # No matches and invalid priority - set to null
+                    priority = None
+                    logger.debug("Invalid priority and no matches - setting to null")
 
-            # Parse reasoning
-            reasoning = response.get("reasoning")
+        # Parse reasoning
+        reasoning = response.get("reasoning")
 
-            return ContentEvaluation(
-                priority=priority,
-                matched_interests=matched_interests,
-                reasoning=reasoning,
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to parse evaluation response: {e}")
-            # Return a safe default - no priority assignment on parse errors
-            return ContentEvaluation(
-                priority=None,
-                matched_interests=[],
-                reasoning=str(e),
-            )
+        return ContentEvaluation(
+            priority=priority,
+            matched_interests=matched_interests,
+            reasoning=reasoning,
+        )

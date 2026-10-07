@@ -1,5 +1,6 @@
 """Content analysis and repair commands."""
 
+import logging
 import time
 from typing import Optional
 
@@ -11,6 +12,7 @@ from .remote import is_remote_mode
 
 # Heavy imports (litellm, Storage) are lazy-loaded to support client-only installs
 
+logger = logging.getLogger(__name__)
 console = Console()
 app = typer.Typer()  # Sub-typer for analyze commands
 
@@ -133,6 +135,8 @@ def repair(
                         f"[dim]🧠 Using learned preferences from {total_votes} votes (last 30 days)[/dim]"
                     )
             except Exception as e:
+                # Not critical: repair proceeds without learned preferences.
+                logger.warning("Failed to fetch feedback statistics", exc_info=True)
                 obs_log(
                     "cli.repair.feedback_statistics_failed", source="cli", error=str(e)
                 )
@@ -242,6 +246,8 @@ def repair(
                     processed += 1
 
                 except Exception as e:
+                    # Per-item boundary: one item's failure never stops the repair.
+                    logger.warning("Repair failed for %s", item["title"], exc_info=True)
                     console.print(f"  [red]✗ Failed: {e}[/red]")
                     failed += 1
 
@@ -347,6 +353,10 @@ def kinds(
                         raw_content=item.get("content") or "",
                     )
                 except Exception as e:
+                    # Per-item boundary: one item's failure never stops the run.
+                    logger.warning(
+                        "Kind classification failed for %s", item["title"], exc_info=True
+                    )
                     console.print(f"  [red]✗ Failed: {e}[/red]")
                     failed += 1
                     continue

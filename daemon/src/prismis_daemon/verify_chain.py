@@ -651,7 +651,7 @@ def execute_chain(
     try:
         try:
             config = Config.from_file()
-        except Exception as e:
+        except (ValueError, OSError) as e:
             console.print(f"[red]✗ config: {e}[/red]")
             return 1, []
 

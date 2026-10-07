@@ -10,7 +10,6 @@ import (
 
 // PruneResultMsg contains the result of a prune operation
 type PruneResultMsg struct {
-	Count   int
 	Deleted int
 	Days    *int
 	Error   error
@@ -54,9 +53,6 @@ func ExecutePrune(days *int) tea.Cmd {
 			return errMsg
 		}
 
-		// Get count first (for the message)
-		count, _ := apiClient.PruneCount(days)
-
 		// Execute the prune
 		deleted, err := apiClient.PruneUnprioritized(days)
 		if err != nil {
@@ -66,7 +62,6 @@ func ExecutePrune(days *int) tea.Cmd {
 		}
 
 		return PruneResultMsg{
-			Count:   count,
 			Deleted: deleted,
 			Days:    days,
 		}

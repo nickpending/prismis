@@ -118,21 +118,14 @@ def test_invalid_host_binding_errors() -> None:
 
     for invalid_host in invalid_hosts:
         # uvicorn should handle these gracefully, not crash
-        try:
-            # This should not crash the config creation
-            uvicorn_config = uvicorn.Config(app, host=invalid_host, port=8989)
+        # This should not crash the config creation
+        uvicorn_config = uvicorn.Config(app, host=invalid_host, port=8989)
 
-            # uvicorn will validate the host when server starts, not during config creation
-            # So we test that config creation doesn't crash
-            assert uvicorn_config.host == invalid_host, (
-                "Config should store the host value"
-            )
-
-        except Exception as e:
-            # If uvicorn does validate early, it should give clear error
-            assert "host" in str(e).lower() or "address" in str(e).lower(), (
-                f"Error should mention host/address issue: {e}"
-            )
+        # uvicorn will validate the host when server starts, not during config creation
+        # So we test that config creation doesn't crash
+        assert uvicorn_config.host == invalid_host, (
+            "Config should store the host value"
+        )
 
 
 def test_port_conflict_handling() -> None:

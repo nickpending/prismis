@@ -19,6 +19,7 @@ from typing import Any
 import httpx
 import pytest
 import requests
+import vcr.errors
 import yaml
 
 from conftest import (
@@ -116,8 +117,8 @@ def test_a_refusal_the_code_under_test_swallowed_still_fails_the_test(
     assert httpx.get(seeded_cassette).content == ARTICLE
     try:
         httpx.get(f"{local_http_server.base_url}/unrecorded")
-    except Exception:  # noqa: S110 - the code under test swallows, which is the point
-        pass
+    except vcr.errors.CannotOverwriteExistingCassetteException:
+        pass  # the code under test swallows the refusal, which is the point
 
     with pytest.raises(pytest.fail.Exception) as failed:
         http_cassette.finalize()

@@ -1638,24 +1638,19 @@ class Storage:
         Raises:
             sqlite3.Error: If database operation fails
         """
-        try:
-            # PRUNE_EXCLUSION_WHERE is a class constant (not user input)
-            query = "SELECT COUNT(*) FROM content WHERE " + self.PRUNE_EXCLUSION_WHERE
-            params: list[Any] = []
+        # A database failure raises (sqlite3.Error): 0 would read as "nothing to prune".
+        # PRUNE_EXCLUSION_WHERE is a class constant (not user input)
+        query = "SELECT COUNT(*) FROM content WHERE " + self.PRUNE_EXCLUSION_WHERE
+        params: list[Any] = []
 
-            if days is not None:
-                # Calculate cutoff datetime
-                cutoff = datetime.now(UTC) - timedelta(days=days)
-                query += " AND datetime(published_at) < datetime(?)"
-                params.append(cutoff.isoformat())
+        if days is not None:
+            # Calculate cutoff datetime
+            cutoff = datetime.now(UTC) - timedelta(days=days)
+            query += " AND datetime(published_at) < datetime(?)"
+            params.append(cutoff.isoformat())
 
-            cursor = self.conn.execute(query, params)
-            return cursor.fetchone()[0]
-
-        except Exception as e:
-            # Return 0 on error for safety
-            print(f"Error counting unprioritized items: {e}")
-            return 0
+        cursor = self.conn.execute(query, params)
+        return cursor.fetchone()[0]
 
     def delete_unprioritized(self, days: int | None = None) -> int:
         """Delete unprioritized content items, optionally filtered by age.

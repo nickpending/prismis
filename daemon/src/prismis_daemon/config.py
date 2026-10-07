@@ -235,10 +235,14 @@ class Config:
         # Load context markdown
         context_file = config_path.parent / "context.md"
         if context_file.exists():
+            # An existing context.md that cannot be read is an error, not a reason to
+            # evaluate against the default context. A missing file is the default.
             try:
                 context_content = context_file.read_text()
-            except Exception:
-                context_content = DEFAULT_CONTEXT_MD
+            except (OSError, UnicodeDecodeError) as e:
+                raise ValueError(
+                    f"Failed to read context file {context_file}: {e}"
+                ) from e
         else:
             context_content = DEFAULT_CONTEXT_MD
 

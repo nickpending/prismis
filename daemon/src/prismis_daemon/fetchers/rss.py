@@ -153,8 +153,10 @@ class RSSFetcher:
                         break
 
                 except Exception as e:
+                    # Per-entry boundary: one bad entry never stops the feed.
                     logger.error(
-                        f"Error processing entry '{entry.get('title', 'Unknown')}': {e}"
+                        f"Error processing entry '{entry.get('title', 'Unknown')}': {e}",
+                        exc_info=True,
                     )
                     continue
 
@@ -235,7 +237,7 @@ class RSSFetcher:
                 # Convert time tuple to timezone-aware datetime
                 year, month, day, hour, minute, second = published_parsed[:6]
                 return datetime(year, month, day, hour, minute, second, tzinfo=UTC)
-            except Exception as e:
+            except (TypeError, ValueError, OverflowError) as e:
                 logger.debug(f"Could not parse published date: {e}")
 
         # Try updated date as fallback
@@ -245,7 +247,7 @@ class RSSFetcher:
                 # Convert time tuple to timezone-aware datetime
                 year, month, day, hour, minute, second = updated_parsed[:6]
                 return datetime(year, month, day, hour, minute, second, tzinfo=UTC)
-            except Exception as e:
+            except (TypeError, ValueError, OverflowError) as e:
                 logger.debug(f"Could not parse updated date: {e}")
 
         return None

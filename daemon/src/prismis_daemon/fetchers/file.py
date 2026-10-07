@@ -242,24 +242,18 @@ class FileFetcher:
         Returns:
             Unified diff text
         """
-        try:
-            previous_lines = previous_content.splitlines(keepends=False)
-            current_lines = current_content.splitlines(keepends=False)
+        previous_lines = previous_content.splitlines(keepends=False)
+        current_lines = current_content.splitlines(keepends=False)
 
-            diff = difflib.unified_diff(
-                previous_lines,
-                current_lines,
-                fromfile=f"{url} (previous)",
-                tofile=f"{url} (current)",
-                lineterm="",
-            )
+        diff = difflib.unified_diff(
+            previous_lines,
+            current_lines,
+            fromfile=f"{url} (previous)",
+            tofile=f"{url} (current)",
+            lineterm="",
+        )
 
-            return "\n".join(diff)
-
-        except Exception as e:
-            logger.warning(f"Diff generation failed for {url}: {e}")
-            # Fallback to full current content
-            return current_content
+        return "\n".join(diff)
 
     def _calculate_diff_stats(
         self, previous_content: str, current_content: str
@@ -273,35 +267,26 @@ class FileFetcher:
         Returns:
             Dict with added_lines, removed_lines, changed_lines counts
         """
-        try:
-            previous_lines = previous_content.splitlines(keepends=False)
-            current_lines = current_content.splitlines(keepends=False)
+        previous_lines = previous_content.splitlines(keepends=False)
+        current_lines = current_content.splitlines(keepends=False)
 
-            # Use difflib to calculate actual diff
-            diff = list(
-                difflib.unified_diff(previous_lines, current_lines, lineterm="", n=0)
-            )
+        # Use difflib to calculate actual diff
+        diff = list(
+            difflib.unified_diff(previous_lines, current_lines, lineterm="", n=0)
+        )
 
-            added = sum(
-                1
-                for line in diff
-                if line.startswith("+") and not line.startswith("+++")
-            )
-            removed = sum(
-                1
-                for line in diff
-                if line.startswith("-") and not line.startswith("---")
-            )
+        added = sum(
+            1 for line in diff if line.startswith("+") and not line.startswith("+++")
+        )
+        removed = sum(
+            1 for line in diff if line.startswith("-") and not line.startswith("---")
+        )
 
-            return {
-                "added_lines": added,
-                "removed_lines": removed,
-                "changed_lines": added + removed,
-            }
-
-        except Exception as e:
-            logger.warning(f"Diff stats calculation failed: {e}")
-            return {"added_lines": 0, "removed_lines": 0, "changed_lines": 0}
+        return {
+            "added_lines": added,
+            "removed_lines": removed,
+            "changed_lines": added + removed,
+        }
 
     def __del__(self):
         """Cleanup HTTP client on deletion."""

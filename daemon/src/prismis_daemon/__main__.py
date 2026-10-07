@@ -2,12 +2,16 @@
 
 import asyncio
 import contextlib
+import logging
 import os
 import signal
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Annotated
 
+import httpx
+import openai
 import typer
 import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -32,6 +36,8 @@ from .orchestrator import DaemonOrchestrator
 from .refetch import REFETCH_TYPES, RefetchReport, run_refetch
 from .storage import Storage
 from .summarizer import ContentSummarizer
+
+logger = logging.getLogger(__name__)
 
 console = Console()
 scheduler = None  # Global for signal handler
@@ -267,6 +273,8 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
         console.print("[green]✅ Shutdown complete[/green]")
 
     except Exception as e:
+        # Process boundary: report, record the traceback, exit non-zero.
+        logger.exception("Scheduler run failed")
         console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
         sys.exit(1)
     finally:
@@ -408,7 +416,7 @@ def validate_llm_config(config: Config) -> None:
     except ValueError as e:
         console.print(f"[bold red]❌ LLM configuration error: {e}[/bold red]")
         sys.exit(1)
-    except Exception as e:
+    except (llm_client.ConfigError, openai.OpenAIError) as e:
         console.print(f"[bold red]❌ LLM connection failed: {e}[/bold red]")
         console.print(
             "[yellow]💡 Check your service configuration in ~/.config/llm-core/services.toml[/yellow]"
@@ -453,6 +461,8 @@ def main(
             # fetch or request reads or writes it.
             init_db()
         except Exception as e:
+            # Startup boundary: report, record the traceback, exit non-zero.
+            logger.exception("Daemon startup failed")
             console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
             sys.exit(1)
         if once:
@@ -475,6 +485,8 @@ def main(
                     sys.exit(1)
 
             except Exception as e:
+                # --once boundary: report, record the traceback, exit non-zero.
+                logger.exception("Daemon --once run failed")
                 console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
                 sys.exit(1)
         else:
@@ -751,7 +763,7 @@ def verify(
     try:
         config = Config.from_file()  # also runs validate()
         console.print("[green]✓ config valid[/green]")
-    except Exception as e:
+    except (ValueError, OSError) as e:
         console.print(f"[red]✗ config: {e}[/red]")
         sys.exit(1)  # can't continue without config
 
@@ -761,7 +773,7 @@ def verify(
         console.print(
             f"[green]✓ light service reachable ({config.llm_light_service})[/green]"
         )
-    except Exception as e:
+    except (llm_client.ConfigError, openai.OpenAIError) as e:
         console.print(
             f"[red]✗ light service unreachable ({config.llm_light_service}): {e}[/red]"
         )
@@ -776,7 +788,7 @@ def verify(
             console.print(
                 f"[green]✓ deep service reachable ({config.llm_deep_service})[/green]"
             )
-        except Exception as e:
+        except (llm_client.ConfigError, openai.OpenAIError) as e:
             console.print(
                 f"[red]✗ deep service unreachable ({config.llm_deep_service}): {e}[/red]"
             )
@@ -793,7 +805,7 @@ def verify(
             console.print(
                 f"[green]✓ kind service reachable ({config.llm_kind_service})[/green]"
             )
-        except Exception as e:
+        except (llm_client.ConfigError, ValueError, httpx.HTTPError) as e:
             console.print(
                 f"[red]✗ kind service unreachable ({config.llm_kind_service}): {e}[/red]"
             )
@@ -810,7 +822,7 @@ def verify(
                 "[red]✗ no active sources (add with 'prismis-cli source add <url>')[/red]"
             )
             failures += 1
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         console.print(f"[red]✗ sources check failed: {e}[/red]")
         failures += 1
 

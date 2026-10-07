@@ -51,7 +51,7 @@ def test_all_fetchers_timezone_aware() -> None:
     # Test YouTube date parsing produces timezone-aware datetime
     try:
         youtube_fetcher = YouTubeFetcher()
-    except Exception:
+    except RuntimeError:
         # Handle yt-dlp not available in test environment
         youtube_fetcher = object.__new__(YouTubeFetcher)
         youtube_fetcher.config = Config.from_file()
@@ -132,7 +132,7 @@ def test_unparseable_dates_allowed_through() -> None:
     # Test YouTube with invalid date string
     try:
         youtube_fetcher = YouTubeFetcher()
-    except Exception:
+    except RuntimeError:
         youtube_fetcher = object.__new__(YouTubeFetcher)
         youtube_fetcher.config = Config.from_file()
 

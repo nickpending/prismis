@@ -19,7 +19,12 @@ def _load_remote_config() -> tuple[str | None, str | None]:
     """Load [remote] config from config.toml if present.
 
     Returns:
-        Tuple of (url, key) or (None, None) if not configured.
+        Tuple of (url, key) or (None, None) if there is no config.toml or it has no
+        [remote] section.
+
+    Raises:
+        RuntimeError: If config.toml exists but cannot be read or parsed. Falling back
+            to localhost with no key would send the command to the wrong daemon.
     """
     xdg_config_home = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
     config_path = Path(xdg_config_home) / "prismis" / "config.toml"
@@ -30,10 +35,13 @@ def _load_remote_config() -> tuple[str | None, str | None]:
     try:
         with open(config_path, "rb") as f:
             config = tomllib.load(f)
-        remote = config.get("remote", {})
-        return remote.get("url"), remote.get("key")
-    except Exception:
-        return None, None
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+        raise RuntimeError(f"Failed to read {config_path}: {e}") from e
+
+    remote = config.get("remote", {})
+    if not isinstance(remote, dict):
+        raise RuntimeError(f"Invalid {config_path}: [remote] must be a table")
+    return remote.get("url"), remote.get("key")
 
 
 def get_remote_url() -> str:

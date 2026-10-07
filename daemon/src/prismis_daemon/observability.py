@@ -2,6 +2,7 @@
 
 import fcntl
 import json
+import logging
 import os
 import sys
 import time
@@ -25,6 +26,9 @@ def set_run_id(run_id: str | None) -> None:
 def get_run_id() -> str | None:
     """The run id currently in effect for this process, or None."""
     return _current_run_id
+
+
+logger = logging.getLogger(__name__)
 
 
 class ObservabilityLogger:
@@ -94,7 +98,10 @@ class ObservabilityLogger:
                         file=sys.stderr,
                     )
             except Exception as e:
-                # Any other error - log to stderr and give up
+                # Writer boundary: a failed event write never stops the caller. Any
+                # error other than a lock timeout is logged with its traceback and
+                # given up on.
+                logger.exception("[Observability] Error logging event '%s'", event)
                 print(
                     f"[Observability] Error logging event '{event}': {e}",
                     file=sys.stderr,
@@ -128,7 +135,7 @@ class ObservabilityLogger:
             except (ValueError, IndexError):
                 # Invalid filename format - skip
                 continue
-            except Exception as e:
+            except OSError as e:
                 print(
                     f"[Observability] Error removing old file {file_path}: {e}",
                     file=sys.stderr,

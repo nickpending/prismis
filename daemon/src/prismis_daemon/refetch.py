@@ -255,6 +255,8 @@ def _refetch_one(
         return RefetchOutcome(external_id, title, "still_title_only")
 
     except Exception as e:
+        # Per-item boundary: one item's failure is its own "failed" outcome.
+        logger.warning(f"Refetch failed for '{title}': {e}", exc_info=True)
         return RefetchOutcome(external_id, title, "failed", str(e))
 
 
@@ -312,7 +314,7 @@ def run_refetch(
                 total_votes=total_votes,
             )
     except Exception as e:
-        logger.warning(f"Failed to fetch feedback statistics: {e}")
+        logger.warning(f"Failed to fetch feedback statistics: {e}", exc_info=True)
 
     run_id = str(uuid.uuid4())
     set_run_id(run_id)

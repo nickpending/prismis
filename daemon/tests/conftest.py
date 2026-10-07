@@ -17,6 +17,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import httpx2
+import openai
 import pytest
 import vcr
 import vcr.errors
@@ -34,6 +36,32 @@ import ytdlp_replay as ytdlp
 # and no real key can be committed. Production's own generator (defaults.ensure_config)
 # is random, which is why the template is formatted here instead of calling it.
 TEST_API_KEY = "prismis-test-key"
+
+
+def unreachable_service_error(message: str = "Connection refused") -> Exception:
+    """The error the openai SDK raises when a service's endpoint cannot be reached.
+
+    What `llm_client.health_check` really raises for an unreachable service, so a test
+    that fakes the LLM boundary fails it with the error production sees.
+    """
+    return openai.APIConnectionError(
+        message=message, request=httpx2.Request("GET", "http://unreachable.invalid/v1")
+    )
+
+
+def timed_out_service_error() -> Exception:
+    """The error the openai SDK raises when a service's endpoint times out."""
+    return openai.APITimeoutError(
+        request=httpx2.Request("GET", "http://unreachable.invalid/v1")
+    )
+
+
+def rejected_key_error(message: str = "Incorrect API key provided") -> Exception:
+    """The error the openai SDK raises when a service refuses the API key."""
+    request = httpx2.Request("GET", "http://unreachable.invalid/v1")
+    return openai.AuthenticationError(
+        message, response=httpx2.Response(401, request=request), body=None
+    )
 
 # Popped at import, not in the fixture below, and this ordering is the whole point.
 # Rich resolves a Console's color system once, in its constructor, and caches it — only
@@ -412,7 +440,7 @@ def _resolve_import_time_record_target() -> RecordTarget | Exception | None:
         return resolve_record_target(
             service, os.environ.get(RECORD_MODEL_ENV), _real_llm_core_dir()
         )
-    except Exception as e:  # reported when a recorded test first needs the target
+    except llm_client.ConfigError as e:  # reported when a recorded test first needs the target
         return e
 
 

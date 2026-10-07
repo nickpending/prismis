@@ -266,12 +266,10 @@ def test_INVARIANT_flagged_items_unchanged_after_suggest(
     flagged_titles_before = {item["title"] for item in flagged_before}
 
     # Make API call (will fail without OpenAI key, but that's OK for this test)
-    try:
-        api_client.post("/api/context", headers={"X-API-Key": TEST_API_KEY})
-        # Response might be 422 (no flagged items if wrong DB) or 500 (LLM error)
-        # We don't care - we're testing database integrity
-    except Exception as exc:
-        logger.debug("Expected API failure during state integrity test: %s", exc)
+    # Response might be 422 (no flagged items if wrong DB) or 500 (LLM error);
+    # the API turns failures into responses, so nothing is caught here.
+    # We don't care about the status - we're testing database integrity
+    api_client.post("/api/context", headers={"X-API-Key": TEST_API_KEY})
 
     # Verify state unchanged after API call
     flagged_after = storage.get_flagged_items()

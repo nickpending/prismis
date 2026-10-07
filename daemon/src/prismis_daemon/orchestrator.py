@@ -197,7 +197,7 @@ class DaemonOrchestrator:
                 kind_classify_failure = (
                     f"Kind classification failed for '{item.title}': {e}"
                 )
-                logger.warning(kind_classify_failure)
+                logger.warning(kind_classify_failure, exc_info=True)
                 self.console.print(
                     f"       ⚠️  Kind classification failed: {e}",
                     style="yellow",
@@ -250,7 +250,7 @@ class DaemonOrchestrator:
                 # light-only item is indistinguishable from one that was
                 # never meant to be deep-extracted (#72).
                 deep_extract_failure = f"Deep extraction failed for '{item.title}': {e}"
-                logger.warning(deep_extract_failure)
+                logger.warning(deep_extract_failure, exc_info=True)
                 self.console.print(
                     f"       ⚠️  Deep extraction failed: {e}",
                     style="yellow",
@@ -278,7 +278,8 @@ class DaemonOrchestrator:
         except Exception as embed_error:
             # Log embedding failure but don't block content storage
             logger.warning(
-                f"Failed to generate embedding for {content_id}: {embed_error}"
+                f"Failed to generate embedding for {content_id}: {embed_error}",
+                exc_info=True,
             )
             self.console.print(
                 "       ⚠️  Embedding generation failed", style="yellow"
@@ -481,7 +482,8 @@ class DaemonOrchestrator:
                                 )
                         except Exception as e:
                             logger.warning(
-                                f"Failed to generate embedding for {item.title}: {e}"
+                                f"Failed to generate embedding for {item.title}: {e}",
+                                exc_info=True,
                             )
 
                         if is_new:
@@ -539,14 +541,18 @@ class DaemonOrchestrator:
                     )
 
                 except Exception as e:
+                    # Per-item boundary: one item's failure never stops the source.
                     error_msg = f"Failed to analyze item '{item.title}': {e}"
+                    logger.exception(error_msg)
                     self.console.print(f"    [red]{error_msg}[/red]")
                     stats["errors"].append(error_msg)
 
             return stats
 
         except Exception as e:
+            # Per-source fetch boundary: one source's failure never stops the cycle.
             error_msg = f"Failed to fetch from {source['url']}: {e}"
+            logger.exception(error_msg)
             self.console.print(f"  [red]{error_msg}[/red]")
             stats["errors"].append(error_msg)
             stats["fetch_error"] = str(e)
@@ -584,7 +590,7 @@ class DaemonOrchestrator:
                     f"🧠 Using learned preferences from {total_votes} votes (last 30 days)"
                 )
         except Exception as e:
-            logger.warning(f"Failed to fetch feedback statistics: {e}")
+            logger.warning(f"Failed to fetch feedback statistics: {e}", exc_info=True)
             # Continue without learned preferences - not critical
 
         # Get active sources
@@ -640,7 +646,9 @@ class DaemonOrchestrator:
                     self.storage.update_source_fetch_status(source["id"], True)
 
             except Exception as e:
+                # Per-source boundary: one source's failure never stops the cycle.
                 error_msg = f"Failed to process source {source['url']}: {e}"
+                logger.exception(error_msg)
                 self.console.print(f"  [red]{error_msg}[/red]")
                 stats["errors"].append(error_msg)
                 # Update source fetch status (failure)
@@ -688,36 +696,23 @@ class DaemonOrchestrator:
         Returns:
             Merged analysis dict preserving fetcher metrics while adding LLM data
         """
-        try:
-            # Start with LLM analysis as base
-            merged = llm_analysis.copy()
+        # Start with LLM analysis as base
+        merged = llm_analysis.copy()
 
-            # Preserve important fetcher data if present
-            if existing_analysis:
-                # Preserve metrics from Reddit/YouTube fetchers
-                if "metrics" in existing_analysis:
-                    merged["metrics"] = existing_analysis["metrics"]
-                    logger.debug("Preserved fetcher metrics in analysis")
+        # Preserve important fetcher data if present
+        if existing_analysis:
+            # Preserve metrics from Reddit/YouTube fetchers
+            if "metrics" in existing_analysis:
+                merged["metrics"] = existing_analysis["metrics"]
+                logger.debug("Preserved fetcher metrics in analysis")
 
-                # Preserve any other fetcher-specific data
-                for key, value in existing_analysis.items():
-                    if key not in merged and key != "metrics":
-                        merged[key] = value
-                        logger.debug(f"Preserved existing analysis field: {key}")
+            # Preserve any other fetcher-specific data
+            for key, value in existing_analysis.items():
+                if key not in merged and key != "metrics":
+                    merged[key] = value
+                    logger.debug(f"Preserved existing analysis field: {key}")
 
-            return merged
-
-        except Exception as e:
-            # Fallback: If merge fails, preserve metrics over LLM analysis
-            logger.warning(f"Analysis merge failed: {e}, preserving existing analysis")
-            if existing_analysis and "metrics" in existing_analysis:
-                # Metrics are more important than LLM analysis for user decision-making
-                fallback = {"metrics": existing_analysis["metrics"]}
-                fallback.update(llm_analysis)
-                return fallback
-            else:
-                # No metrics to preserve, just return LLM analysis
-                return llm_analysis
+        return merged
 
     def run_archival_policy(self) -> dict:
         """Run archival policy based on config.
@@ -737,19 +732,14 @@ class DaemonOrchestrator:
             "low_read": self.config.archival_low_read,
         }
 
-        try:
-            count = self.storage.archive_old_content(archival_config)
+        # A storage failure raises: the scheduler logs the job exception with its
+        # traceback, where a zero count would read as "nothing to archive".
+        count = self.storage.archive_old_content(archival_config)
 
-            if count > 0:
-                self.console.print(
-                    f"[cyan]📦 Auto-archival: {count} items archived[/cyan]"
-                )
+        if count > 0:
+            self.console.print(f"[cyan]📦 Auto-archival: {count} items archived[/cyan]")
 
-            return {"archived_count": count}
-
-        except Exception as e:
-            self.console.print(f"[red]❌ Archival failed: {e}[/red]")
-            return {"archived_count": 0}
+        return {"archived_count": count}
 
     def backfill_embeddings(self, limit: int = 50) -> dict:
         """Generate embeddings for items without them (stragglers from failures).
@@ -760,45 +750,46 @@ class DaemonOrchestrator:
         Returns:
             Dict with stats: processed_count, failed_count
         """
-        try:
-            # Get items without embeddings
-            batch = self.storage.get_content_without_embeddings(limit=limit)
+        # A storage failure raises: the scheduler logs the job exception with its
+        # traceback, where a zero count would read as "nothing to backfill".
+        batch = self.storage.get_content_without_embeddings(limit=limit)
 
-            if not batch:
-                return {"processed": 0, "failed": 0}
+        if not batch:
+            return {"processed": 0, "failed": 0}
 
-            processed = 0
-            failed = 0
+        processed = 0
+        failed = 0
 
-            for item in batch:
-                try:
-                    # Generate embedding from summary or content
-                    text = item["summary"] or item["content"] or item["title"]
-                    embedding = self.embedder.generate_embedding(
-                        text=text, title=item["title"]
-                    )
-
-                    if embedding:
-                        self.storage.add_embedding(
-                            content_id=item["id"], embedding=embedding
-                        )
-                        processed += 1
-                    else:
-                        failed += 1
-
-                except Exception as e:
-                    self.console.print(
-                        f"[yellow]⚠ Failed embedding for '{item['title']}': {e}[/yellow]"
-                    )
-                    failed += 1
-
-            if processed > 0:
-                self.console.print(
-                    f"[cyan]🔗 Auto-indexed {processed} stragglers ({failed} failed)[/cyan]"
+        for item in batch:
+            try:
+                # Generate embedding from summary or content
+                text = item["summary"] or item["content"] or item["title"]
+                embedding = self.embedder.generate_embedding(
+                    text=text, title=item["title"]
                 )
 
-            return {"processed": processed, "failed": failed}
+                if embedding:
+                    self.storage.add_embedding(
+                        content_id=item["id"], embedding=embedding
+                    )
+                    processed += 1
+                else:
+                    failed += 1
 
-        except Exception as e:
-            self.console.print(f"[red]❌ Embedding backfill failed: {e}[/red]")
-            return {"processed": 0, "failed": 0}
+            except Exception as e:
+                # Per-item boundary: one item's embedding failure counts as failed
+                # and the loop continues.
+                logger.warning(
+                    f"Failed embedding for '{item['title']}': {e}", exc_info=True
+                )
+                self.console.print(
+                    f"[yellow]⚠ Failed embedding for '{item['title']}': {e}[/yellow]"
+                )
+                failed += 1
+
+        if processed > 0:
+            self.console.print(
+                f"[cyan]🔗 Auto-indexed {processed} stragglers ({failed} failed)[/cyan]"
+            )
+
+        return {"processed": processed, "failed": failed}

@@ -32,6 +32,10 @@ def create_base_submission_mock(**overrides) -> Mock:
     for key, value in config.items():
         setattr(submission, key, value)
 
+    # A post whose comment fetch completed with no comments; a bare Mock is not
+    # iterable, which the fetcher rightly treats as a defect, not as no comments.
+    submission.comments.list.return_value = []
+
     # Create mock subreddit object
     if "subreddit" not in overrides:
         # __str__ passed to the constructor, not assigned after: Mock dynamically

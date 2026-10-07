@@ -8,8 +8,6 @@ with PRISMIS_RECORD_YTDLP=1 (see docs/architecture/boundaries.md).
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from prismis_daemon.config import Config
 from prismis_daemon.models import ContentItem
 from conftest import YtdlpReplay, make_config
@@ -182,12 +180,9 @@ def test_fetch_youtube_handles_various_url_formats(ytdlp_replay: YtdlpReplay) ->
     for url in url_formats:
         source = {"url": url, "id": "test-id"}
 
-        try:
-            items = fetcher.fetch_content(source)
-            # Should not raise exception
-            assert isinstance(items, list)
-        except Exception as e:
-            pytest.fail(f"Failed to fetch from URL format '{url}': {e}")
+        # Should not raise exception
+        items = fetcher.fetch_content(source)
+        assert isinstance(items, list), f"URL format '{url}' did not yield a list"
 
 
 def test_extract_transcript_from_specific_video(ytdlp_replay: YtdlpReplay) -> None:

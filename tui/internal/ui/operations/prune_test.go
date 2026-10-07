@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/nickpending/prismis/internal/commands"
@@ -71,15 +73,21 @@ func TestGetPruneCount_Error(t *testing.T) {
 }
 
 func TestExecutePrune_Success(t *testing.T) {
+	var mu sync.Mutex
+	requests := map[string]int{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests[r.Method+" "+r.URL.Path]++
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.URL.Path == "/api/prune/count" && r.Method == http.MethodGet:
-			fmt.Fprint(w, `{"success":true,"message":"ok","data":{"count":5,"days_filter":null}}`)
 		case r.URL.Path == "/api/prune" && r.Method == http.MethodPost:
 			fmt.Fprint(w, `{"success":true,"message":"ok","data":{"deleted":5,"days_filter":null}}`)
 		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			// Any other request (notably GET /api/prune/count) is counted and
+			// answered with an error the assertions below turn into a failure.
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, `{"success":false,"message":"unexpected request"}`)
 		}
 	}))
 	defer server.Close()
@@ -93,8 +101,23 @@ func TestExecutePrune_Success(t *testing.T) {
 	if msg.Error != nil {
 		t.Fatalf("unexpected error: %v", msg.Error)
 	}
-	if msg.Count != 5 || msg.Deleted != 5 {
-		t.Errorf("expected Count=5 Deleted=5, got Count=%d Deleted=%d", msg.Count, msg.Deleted)
+	if msg.Deleted != 5 {
+		t.Errorf("expected Deleted=5, got Deleted=%d", msg.Deleted)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if n := requests["GET /api/prune/count"]; n != 0 {
+		t.Errorf("ExecutePrune must not call the count endpoint, got %d requests", n)
+	}
+	if n := requests["POST /api/prune"]; n != 1 {
+		t.Errorf("expected exactly one POST /api/prune, got %d", n)
+	}
+	if len(requests) != 1 {
+		t.Errorf("expected only POST /api/prune to be requested, got %v", requests)
+	}
+	if _, has := reflect.TypeOf(PruneResultMsg{}).FieldByName("Count"); has {
+		t.Error("PruneResultMsg must not declare a Count field: nothing reads it")
 	}
 }
 

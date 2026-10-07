@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import openai
 import pytest
 
 # migrate_config() uses os.getenv("XDG_CONFIG_HOME") at call-time — isolate via env.
@@ -23,8 +24,11 @@ import pytest
 from prismis_daemon.__main__ import (
     migrate_config,
 )
+from prismis_daemon import llm_client
 from prismis_daemon.config import Config
 from prismis_daemon.llm_validator import validate_llm_services
+
+from conftest import unreachable_service_error
 
 # Mock path for llm_client.health_check inside the validator module
 _HEALTH_CHECK_MOCK = (
@@ -396,7 +400,7 @@ def test_validate_llm_services_deep_failure_is_non_fatal() -> None:
     def _side_effect(service: str) -> None:
         calls.append(service)
         if service == "prismis-openai-deep":
-            raise Exception("Unknown service: prismis-openai-deep")
+            raise llm_client.ConfigError("Unknown service: prismis-openai-deep")
 
     with patch(_HEALTH_CHECK_MOCK, side_effect=_side_effect):
         result = validate_llm_services("prismis-openai", "prismis-openai-deep")
@@ -417,8 +421,8 @@ def test_validate_llm_services_light_failure_raises() -> None:
     BREAKS: Daemon starts with a broken light service and silently fails on every
     summarization / evaluation call.
     """
-    with patch(_HEALTH_CHECK_MOCK, side_effect=Exception("Connection refused")):
-        with pytest.raises(Exception, match="Connection refused"):
+    with patch(_HEALTH_CHECK_MOCK, side_effect=unreachable_service_error("Connection refused")):
+        with pytest.raises(openai.APIConnectionError, match="Connection refused"):
             validate_llm_services("prismis-openai", None)
 
 

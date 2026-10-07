@@ -8,6 +8,8 @@ from typing import Any, cast
 from urllib.parse import urlparse
 
 import praw
+import prawcore
+import requests
 
 from ..article_extractor import extract_article
 from ..config import REDDIT_NOT_CONFIGURED, Config
@@ -22,6 +24,17 @@ from ..readability import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The error bases praw, prawcore and the requests session beneath them document for a
+# Reddit call that did not complete. Anything outside them is a defect, not a hiccup.
+_REDDIT_CLIENT_ERRORS = (
+    praw.exceptions.PRAWException,
+    prawcore.exceptions.PrawcoreException,
+    requests.exceptions.RequestException,
+)
+
+# What datetime.fromtimestamp raises for an unusable created_utc.
+_TIMESTAMP_ERRORS = (TypeError, ValueError, OverflowError, OSError)
 
 # One subreddit fetch is a token, a listing and a comment request per post; a normal
 # one takes a few seconds. Without a budget, prawcore's per-request 16s and three
@@ -96,7 +109,7 @@ class RedditFetcher:
             )
             self.reddit.read_only = True
             logger.info("Reddit fetcher initialized successfully")
-        except Exception as e:
+        except _REDDIT_CLIENT_ERRORS as e:
             logger.error(f"Failed to initialize Reddit client: {e}")
             self.reddit = None
 
@@ -175,7 +188,7 @@ class RedditFetcher:
                         post_date = datetime.fromtimestamp(
                             submission.created_utc, tz=UTC
                         )
-                    except Exception as e:
+                    except _TIMESTAMP_ERRORS as e:
                         logger.debug(f"Could not parse post date: {e}")
 
                 # Skip posts older than cutoff
@@ -336,14 +349,20 @@ class RedditFetcher:
 
         return False
 
-    def _fetch_comments(self, submission) -> list[dict[str, str]]:
+    def _fetch_comments(
+        self, submission
+    ) -> tuple[list[dict[str, str]], dict[str, str] | None]:
         """Fetch top comments from a Reddit submission.
 
         Args:
             submission: PRAW submission object
 
         Returns:
-            List of dicts with 'author' and 'body' (top-level only, filtered for deleted)
+            Tuple of (comments, comments_outcome). comments holds dicts with 'author'
+            and 'body' (top-level only, filtered for deleted). comments_outcome is None
+            when the fetch completed -- including with zero comments -- and
+            {"outcome": "fetch_failed", "detail": <exception type>} when the client's
+            request failed, so a failed fetch is not mistaken for a quiet post.
         """
         comments = []
 
@@ -382,12 +401,12 @@ class RedditFetcher:
 
             logger.debug(f"Fetched {len(comments)} comments from {submission.id}")
 
-        except Exception as e:
+        except _REDDIT_CLIENT_ERRORS as e:
             logger.warning(f"Failed to fetch comments for {submission.id}: {e}")
-            # Return empty list on error - don't fail the whole fetch
-            return []
+            # Don't fail the whole fetch, but say the comments are missing
+            return [], {"outcome": "fetch_failed", "detail": type(e).__name__}
 
-        return comments
+        return comments, None
 
     def _extract_metrics(self, submission) -> dict[str, Any]:
         """Extract Reddit-specific metrics from a post.
@@ -478,7 +497,10 @@ class RedditFetcher:
         # Fetch and append comments to content for LLM enrichment -- skipped for a
         # post already stored readably (SC-4): the orchestrator's dedup filter
         # discards this item either way, so reading comments would be wasted work.
-        comments = [] if already_readable else self._fetch_comments(submission)
+        comments: list[dict[str, str]] = []
+        comments_outcome: dict[str, str] | None = None
+        if not already_readable:
+            comments, comments_outcome = self._fetch_comments(submission)
         if comments:
             # Format comments as markdown discussion section with author attribution
             discussion = f"\n\n{REDDIT_DISCUSSION_HEADER}\n\n"
@@ -496,11 +518,17 @@ class RedditFetcher:
         if hasattr(submission, "created_utc"):
             try:
                 published_at = datetime.fromtimestamp(submission.created_utc, tz=UTC)
-            except Exception as e:
+            except _TIMESTAMP_ERRORS as e:
                 logger.debug(f"Could not parse date for {external_id}: {e}")
 
         # Extract metrics
         metrics = self._extract_metrics(submission)
+
+        analysis: dict[str, Any] = {"metrics": metrics}
+        if fetch_outcome:
+            analysis["fetch_outcome"] = fetch_outcome
+        if comments_outcome:
+            analysis["comments_outcome"] = comments_outcome
 
         # Create ContentItem with metrics in analysis field
         item = ContentItem(
@@ -512,11 +540,8 @@ class RedditFetcher:
             published_at=published_at,
             fetched_at=datetime.now(UTC),
             # Reddit metrics, plus the article extraction's outcome when one ran
-            analysis=(
-                {"metrics": metrics, "fetch_outcome": fetch_outcome}
-                if fetch_outcome
-                else {"metrics": metrics}
-            ),
+            # and the comment fetch's outcome when it failed
+            analysis=analysis,
         )
 
         return item

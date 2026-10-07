@@ -2,6 +2,9 @@
 
 import logging
 
+import httpx
+import openai
+
 from . import kind_classifier, llm_client
 
 logger = logging.getLogger(__name__)
@@ -52,7 +55,7 @@ def validate_llm_services(
         try:
             llm_client.health_check(service=deep_service)
             result["deep"] = "ok"
-        except Exception as e:
+        except (llm_client.ConfigError, openai.OpenAIError) as e:
             logger.warning(
                 f"Deep service '{deep_service}' unreachable: {e}. "
                 f"build_orchestrator still constructs the deep extractor, so each "
@@ -69,7 +72,7 @@ def validate_llm_services(
         try:
             kind_classifier.health_check(service=kind_service)
             result["kind"] = "ok"
-        except Exception as e:
+        except (llm_client.ConfigError, ValueError, httpx.HTTPError) as e:
             logger.warning(
                 f"Kind service '{kind_service}' unreachable: {e}. "
                 f"Each classify call will fail at runtime: the item is stored "

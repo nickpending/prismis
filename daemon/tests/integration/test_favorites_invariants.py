@@ -1,6 +1,7 @@
 """Integration tests for favorites system - protecting invariants and handling failures."""
 
 import pytest
+import sqlite3
 import time
 from pathlib import Path
 from datetime import datetime
@@ -198,7 +199,7 @@ def test_database_lock_during_update(test_db: Path) -> None:
             elapsed = time.time() - start_time
             # If it succeeded, it waited for lock
             assert elapsed < 6, "Should timeout within 5 seconds + overhead"
-        except Exception as e:
+        except sqlite3.Error as e:
             # Should be a database lock error, not a crash
             assert "locked" in str(e).lower() or "database" in str(e).lower()
     finally:

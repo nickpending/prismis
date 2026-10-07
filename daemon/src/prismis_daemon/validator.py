@@ -1,11 +1,13 @@
 """Source validation module for verifying sources before adding to database."""
 
+import logging
 import re
 from urllib.parse import urlparse
 
 import feedparser
 import httpx
 import praw
+import requests
 from prawcore import exceptions as prawcore_exceptions
 from prawcore.sessions import FiniteRetryStrategy
 from praw.models import Subreddit
@@ -13,6 +15,8 @@ from praw.models import Subreddit
 from .config import REDDIT_NOT_CONFIGURED, Config
 from .http_deadline import deadline_session
 from .praw_defaults import pin_praw_defaults
+
+logger = logging.getLogger(__name__)
 
 
 class _SingleAttemptRetry(FiniteRetryStrategy):
@@ -113,6 +117,9 @@ class SourceValidator:
             else:
                 return False, f"Unknown source type: {source_type}", None
         except Exception as e:
+            # Validation boundary: whatever a validator did not route to its own
+            # message must still answer the request, with the traceback logged.
+            logger.exception("Source validation failed for %s source", source_type)
             return False, self._redact(f"Validation failed: {str(e)}"), None
 
     def _validate_rss(self, url: str) -> tuple[bool, str | None, dict | None]:
@@ -169,7 +176,7 @@ class SourceValidator:
             return False, "Request timed out after 5 seconds", None
         except httpx.RequestError as e:
             return False, self._redact(f"Network error: {str(e)}"), None
-        except Exception as e:
+        except httpx.InvalidURL as e:
             return False, self._redact(f"RSS validation error: {str(e)}"), None
 
     def _validate_reddit(self, url: str) -> tuple[bool, str | None, dict | None]:
@@ -195,7 +202,12 @@ class SourceValidator:
         outcome: object
         try:
             outcome = self._probe_subreddit(subreddit_name, config)
-        except Exception as e:
+        except (
+            prawcore_exceptions.PrawcoreException,
+            praw.exceptions.PRAWException,
+            requests.exceptions.RequestException,
+            KeyError,
+        ) as e:
             outcome = e
 
         return self._interpret_reddit_outcome(subreddit_name, outcome)
@@ -416,7 +428,7 @@ class SourceValidator:
 
             return False, "Invalid YouTube channel URL format", None
 
-        except Exception as e:
+        except ValueError as e:
             return False, self._redact(f"YouTube validation error: {str(e)}"), None
 
     def _validate_file(self, url: str) -> tuple[bool, str | None, dict | None]:
@@ -431,21 +443,17 @@ class SourceValidator:
         Returns:
             Tuple of (is_valid, error_message, metadata)
         """
-        try:
-            # Check for supported file extensions
-            supported_extensions = (".md", ".txt")
-            if not url.endswith(supported_extensions):
-                return (
-                    False,
-                    f"File URL must end with {' or '.join(supported_extensions)}",
-                    None,
-                )
+        # Check for supported file extensions
+        supported_extensions = (".md", ".txt")
+        if not url.endswith(supported_extensions):
+            return (
+                False,
+                f"File URL must end with {' or '.join(supported_extensions)}",
+                None,
+            )
 
-            # Basic URL validation
-            if not url.startswith(("http://", "https://")):
-                return False, "File URL must start with http:// or https://", None
+        # Basic URL validation
+        if not url.startswith(("http://", "https://")):
+            return False, "File URL must start with http:// or https://", None
 
-            return True, None, None
-
-        except Exception as e:
-            return False, self._redact(f"File validation error: {str(e)}"), None
+        return True, None, None

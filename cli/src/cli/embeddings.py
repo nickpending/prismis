@@ -1,5 +1,7 @@
 """Embedding management commands."""
 
+import logging
+
 import typer
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -8,6 +10,7 @@ from .remote import is_remote_mode
 
 # Heavy imports (sentence-transformers, Storage) are lazy-loaded to support client-only installs
 
+logger = logging.getLogger(__name__)
 console = Console()
 app = typer.Typer()  # Sub-typer for embeddings commands
 
@@ -155,6 +158,12 @@ def generate() -> None:
                                 failed += 1
 
                         except Exception as e:
+                            # Per-item boundary: one failure never stops the batch.
+                            logger.warning(
+                                "Failed to generate embedding for %s",
+                                item["title"],
+                                exc_info=True,
+                            )
                             console.print(
                                 f"[yellow]⚠ Failed to generate embedding for '{item['title']}': {e}[/yellow]"
                             )

@@ -183,7 +183,7 @@ def test_concurrent_storage_instances(test_db: Path) -> None:
                 results.append((worker_id, len(sources)))
                 time.sleep(0.01)  # Small delay to encourage interleaving
 
-        except Exception as e:
+        except (sqlite3.Error, OSError) as e:
             errors.append((worker_id, str(e)))
         finally:
             if storage:

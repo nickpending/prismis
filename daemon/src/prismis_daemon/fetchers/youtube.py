@@ -65,7 +65,7 @@ class YouTubeFetcher:
         # tool install yt-dlp`, PATH resolution silently ran that install (without
         # the curl-cffi extra below) instead of the daemon's own dependency.
         if importlib.util.find_spec("yt_dlp") is None:
-            raise Exception("yt-dlp not found. Please install it: pip install yt-dlp")
+            raise RuntimeError("yt-dlp not found. Please install it: pip install yt-dlp")
         self.yt_dlp_cmd: list[str] = [sys.executable, "-m", "yt_dlp"]
 
         logger.info(
@@ -130,8 +130,10 @@ class YouTubeFetcher:
                             f"  ✓ Processed in {time.time() - video_start:.1f}s"
                         )
                 except Exception as e:
+                    # Per-video boundary: one bad video never stops the channel.
                     logger.warning(
-                        f"Failed to process video {video.get('title', 'Unknown')}: {e}"
+                        f"Failed to process video {video.get('title', 'Unknown')}: {e}",
+                        exc_info=True,
                     )
                     continue
 
@@ -288,7 +290,7 @@ class YouTubeFetcher:
                                 else None,
                             }
                         )
-                    except Exception as e:
+                    except (ValueError, KeyError, TypeError) as e:
                         logger.warning(
                             f"Failed to parse video metadata: {line}, error: {e}"
                         )
@@ -448,7 +450,7 @@ class YouTubeFetcher:
             except subprocess.TimeoutExpired:
                 logger.warning(f"Transcript extraction timed out for: {video_url}")
                 return ArticleResult(None, "fetch_failed", "timeout")
-            except Exception as e:
+            except (OSError, UnicodeDecodeError) as e:
                 logger.warning(f"Failed to extract transcript: {e}")
                 return ArticleResult(None, "fetch_failed", type(e).__name__)
 

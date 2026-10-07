@@ -20,10 +20,14 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
 import pytest
 
+from prismis_daemon import llm_client
 from prismis_daemon.__main__ import verify
 from prismis_daemon.storage import Storage
+
+from conftest import unreachable_service_error
 
 # External API boundary -- llm_client.health_check is a third-party network call.
 # Patched where verify() looks it up (module attribute, not the imported symbol) --
@@ -262,7 +266,7 @@ def test_verify_light_service_unreachable_exits_1(monkeypatch, test_db) -> None:
 
     try:
         with patch(_HEALTH_CHECK_MOCK) as mock_hc:
-            mock_hc.side_effect = Exception("Connection refused")
+            mock_hc.side_effect = unreachable_service_error("Connection refused")
             with pytest.raises(SystemExit) as exc_info:
                 verify()
 
@@ -318,7 +322,7 @@ def test_verify_deep_service_configured_but_unreachable_exits_1(
         def _side_effect(service: str) -> None:
             calls.append(service)
             if service == "prismis-openai-deep":
-                raise Exception("Unknown service: prismis-openai-deep")
+                raise llm_client.ConfigError("Unknown service: prismis-openai-deep")
 
         with patch(_HEALTH_CHECK_MOCK, side_effect=_side_effect):
             with pytest.raises(SystemExit) as exc_info:
@@ -382,7 +386,7 @@ def test_verify_continues_all_checks_after_light_failure(
     # If the function short-circuited on light failure, sources check would not run
 
     try:
-        with patch(_HEALTH_CHECK_MOCK, side_effect=Exception("Connection refused")):
+        with patch(_HEALTH_CHECK_MOCK, side_effect=unreachable_service_error("Connection refused")):
             with pytest.raises(SystemExit) as exc_info:
                 verify()
 
@@ -493,7 +497,7 @@ def test_verify_kind_service_unreachable_counts_failure_and_exits_1(
             mock_hc.return_value = None
             with patch(
                 _SUBMIT_DECISION_MOCK,
-                side_effect=RuntimeError("connection refused"),
+                side_effect=httpx.ConnectError("connection refused"),
             ):
                 with pytest.raises(SystemExit) as exc_info:
                     verify()

@@ -1,6 +1,8 @@
 """REST API server for Prismis daemon."""
 
 import asyncio
+import json
+import logging
 import os
 import re
 import time
@@ -47,6 +49,7 @@ from .storage import Storage
 from .validator import SourceValidator
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 # Per-content_id lock registry for POST /api/entries/{id}/extract.
 # Follows the module-level keyed-registry pattern from circuit_breaker.py:175-182.
@@ -92,6 +95,21 @@ def _server_error(message: str, exc: Exception) -> ServerError:
     return ServerError(f"{message}. Check the daemon log for detail.")
 
 
+def _item_count(body: bytes) -> int | None:
+    """The number of items in a list endpoint's JSON envelope, or None if it has none.
+
+    None means the body is not that envelope (not JSON, not an object, no `items`),
+    which only costs the count in the request log line.
+    """
+    try:
+        data = json.loads(body)
+        if data.get("success") and "data" in data and "items" in data["data"]:
+            return len(data["data"]["items"])
+    except (ValueError, AttributeError, TypeError) as e:
+        console.print(f"[dim red]Failed to parse response for item count: {e}[/dim red]")
+    return None
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next) -> Response:
     """Log API requests in same style as daemon output."""
@@ -114,34 +132,25 @@ async def log_requests(request: Request, call_next) -> Response:
             request.url.path in ["/api/entries", "/api/search"]
             and response.status_code == 200
         ):
-            try:
-                import json
+            body = b""
+            async for chunk in response.body_iterator:
+                body += chunk
 
-                body = b""
-                async for chunk in response.body_iterator:
-                    body += chunk
+            # A body that is not the expected JSON envelope only costs the count in
+            # the log line.
+            item_count = _item_count(body)
+            if item_count is not None:
+                count_info = f" [{item_count} items]"
 
-                # Parse response to get count
-                data = json.loads(body)
-                if data.get("success") and "data" in data:
-                    if "items" in data["data"]:
-                        count = len(data["data"]["items"])
-                        count_info = f" [{count} items]"
-                        item_count = count
+            # Rebuild response with same body
+            from fastapi.responses import Response as FastAPIResponse
 
-                # Rebuild response with same body
-                from fastapi.responses import Response as FastAPIResponse
-
-                response = FastAPIResponse(
-                    content=body,
-                    status_code=response.status_code,
-                    headers=dict(response.headers),
-                    media_type=response.media_type,
-                )
-            except Exception as e:
-                console.print(
-                    f"[dim red]Failed to parse response for item count: {e}[/dim red]"
-                )
+            response = FastAPIResponse(
+                content=body,
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                media_type=response.media_type,
+            )
 
         # Include query parameters for debugging
         query_str = f"?{request.url.query}" if request.url.query else ""
@@ -246,7 +255,8 @@ async def get_validator() -> SourceValidator:
     """
     try:
         config = Config.from_file()
-    except Exception:
+    except (ValueError, OSError):
+        logger.warning("Config did not load for the source validator", exc_info=True)
         config = None
     return SourceValidator(config)
 
@@ -1298,6 +1308,7 @@ async def get_entry_raw(
 
     except Exception as e:
         # Plain text, but the same rule as _server_error: the detail goes to the log.
+        logger.exception("Failed to get entry content")
         message = _server_error("Failed to get entry content", e).message
         return PlainTextResponse(f"Error: {message}", status_code=500)
 
@@ -1396,6 +1407,9 @@ async def extract_entry(
             )
             storage.add_embedding(content_id, emb)
         except Exception as e:
+            logger.warning(
+                "Embedding regen failed for %s", content_id, exc_info=True
+            )
             console.print(
                 f"[yellow]Embedding regen failed for {content_id}: {e}[/yellow]"
             )

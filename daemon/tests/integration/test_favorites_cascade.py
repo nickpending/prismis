@@ -1,5 +1,6 @@
 """Integration tests for favorites cascade deletion behavior - critical invariants."""
 
+import sqlite3
 import threading
 from pathlib import Path
 from datetime import datetime
@@ -145,7 +146,7 @@ def test_concurrent_favorite_during_delete(test_db: Path) -> None:
         for content_id in items_to_favorite:
             try:
                 storage_instance.update_content_status(content_id, favorited=True)
-            except Exception as e:
+            except sqlite3.Error as e:
                 # Expected under the race: the sibling thread may already have deleted
                 # this row. Recorded rather than swallowed silently.
                 failures.append((content_id, str(e)))
@@ -218,7 +219,7 @@ def test_simultaneous_source_deletions(test_db: Path) -> None:
         try:
             result = storage_instance.remove_source(source_id)
             return (client_num, result)
-        except Exception:
+        except sqlite3.Error:
             return (client_num, False)
 
     # Run 5 concurrent deletion attempts

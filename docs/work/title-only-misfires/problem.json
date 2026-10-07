@@ -1,0 +1,14 @@
+{
+  "what": "Stop the model's substantive verdict from marking short genuine posts title-only, catch the Reddit and markdown-link junk the verdict was catching by code instead, and stop the Reddit fetcher trying to download relative crosspost links.",
+  "why": "Checked on cerebro 2026-10-06, three days after title-only-reasons deployed (63b9bfb): 3 of the 7 `model:not_substantive` items are real content (the Nobel physics announcement, Simon Willison's llm-mistral 0.16 and datasette-atom 0.11a0 release notes), which extract as a short body followed by site navigation and read to the model as 'a teaser with no body'; such items skip deep extraction and, being model-only, are never retried. Probes on a labeled set of 108 cerebro items: a wording that judges whether the piece the title refers to is present ('the article, post, announcement or release note the title refers to'), not its length, called all 48 real items substantive (the 3 misfires included) but caught only 3 of the 9 junk items the code check passes; the deployed wording caught all 9 but misfired on real release notes. Five of the 6 it misses are structural, not judgment: Reddit link posts whose article was never obtained, holding only the link line and reader comments (`readability.py`'s link-only check matches the bare link but not link plus comments), and a self-post that is only a markdown link (the has-prose rule counts the link's text as words). Separately, `_is_reddit_domain` in fetchers/reddit.py misses a crosspost's relative url ('/r/oscp/...'), so the fetcher tries to download it and records `fetch_failed:ValueError`.",
+  "decided": [
+    "The standard summarize prompt's substantive instruction (shared by standard, brief and detailed modes) asks whether the piece the title refers to is present rather than whether the text is short, with the wording measured on 2026-10-06 (48 of 48 real items substantive).",
+    "`readability_failure` gains `link_without_article`: a Reddit link post whose body between the link line and the discussion section is empty, the shape the Reddit fetcher writes when it obtained no article and the poster wrote nothing.",
+    "The has-prose rule removes markdown links, text included, before counting words, as it already removes bare URLs.",
+    "The Reddit discussion header is defined once in readability.py and imported by the Reddit fetcher, like the other shapes the two share.",
+    "`_is_reddit_domain` treats a relative url (no scheme or host) as reddit-internal.",
+    "The diff prompt for file sources is unchanged.",
+    "The three misfired items on cerebro are re-analysed once at deploy, 3 light calls."
+  ],
+  "open": []
+}

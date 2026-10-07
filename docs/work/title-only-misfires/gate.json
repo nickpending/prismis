@@ -1,0 +1,14 @@
+{
+  "scrutiny": [
+    {"test": "T0 purpose: honest labels are what make prismis's summaries trustworthy to agents; misfiring on Simon Willison release notes hides high-signal content, and letting link-only posts through presents comment chatter as article analysis. Code for structural facts, model for judgment, advances both.", "failureCase": "The change traded one mislabel class for another without measurement.", "result": "held"},
+    {"test": "T1 owners: boundaries.md:56 (shape-based readability, placeholder text defined once and imported by the writer) is met by moving the discussion header into readability.py and judging link posts by shape.", "failureCase": "A rule were added as a second copy of a shape the fetcher also defines.", "result": "held"},
+    {"test": "T2/T5 evidence on the same noun: the wording was chosen on real stored cerebro items run through the deployed summarizer call with only the paragraph replaced (substantive_probe3.json); the code rules were replayed over 45 days of real Reddit content.", "failureCase": "The wording or rules were chosen on invented examples.", "result": "held"},
+    {"test": "T3 degrades: three hard junk items stay readable (status quo before the verdict); link posts without articles become title-only even with long threads; reddit-internal link posts (galleries, crossposts), now title-only, are re-read each fetch cycle while in the discovery window although no article can come (about 4 in 3 days on cerebro).", "failureCase": "A degradation went unstated.", "result": "held"},
+    {"test": "T7 consumers of the new reason, enumerated with `grep -rn 'is_readable(\\|readability_failure(' daemon/src`: analysis.py title_only_reason, orchestrator readmit, storage refetch selection, refetch.py, fetchers/rss.py and fetchers/reddit.py extraction acceptance; for link posts only the reason helper and readmit/selection change behavior, all intended.", "failureCase": "A consumer started rejecting article text because of the new rule.", "result": "held"},
+    {"test": "T11 class: link plus comments was the unhandled sibling of the existing bare-link placeholder check, and a markdown link the sibling of the bare-URL stripping; both siblings are handled together.", "failureCase": "Only the reported instances were patched.", "result": "held"},
+    {"test": "T10 undo: revert the commit; no stored data changes beyond the three re-analysed items.", "failureCase": "A one-way change.", "result": "held"}
+  ],
+  "decisions": [],
+  "verdict": "accept",
+  "carried": ["Reddit link posts to reddit-internal targets (galleries, crossposts) are title-only and re-read each fetch cycle while in the discovery window, though no article can come."]
+}

@@ -9,6 +9,16 @@ INSTALL_DIR := $(HOME)/.local/bin
 CONFIG_DIR := $(XDG_CONFIG_HOME)/prismis
 DATA_DIR := $(XDG_DATA_HOME)/prismis
 
+# Interpreter version per unit comes from its .python-version, never from this file.
+DAEMON_PY := $(shell cat daemon/.python-version)
+CLI_PY := $(shell cat cli/.python-version)
+
+# A deployed tool must run the versions the gate tested. `uv tool install` resolves fresh and
+# ignores uv.lock, so each install exports its unit's lock and installs with the pins as
+# constraints. Only `name==version` lines are kept: the editable path and git source lines
+# uv export emits are not valid constraints.
+LOCK_PINS := grep -E '^[A-Za-z0-9_.-]+(\[[^]]*\])?=='
+
 .PHONY: help
 help: ## Show available targets
 	@echo "Prismis Build & Installation"
@@ -34,12 +44,12 @@ check-deps: ## Check and install required dependencies
 	else \
 		echo "✓ uv is installed"; \
 	fi
-	@if ! uv python list 2>/dev/null | grep -q "cpython-3\.13"; then \
-		echo "⚠️  Python 3.13 not found. Installing..."; \
-		uv python install 3.13; \
-		echo "✓ Python 3.13 installed"; \
+	@if ! uv python list --only-installed 2>/dev/null | grep -q "cpython-$(DAEMON_PY)"; then \
+		echo "⚠️  Python $(DAEMON_PY) not found. Installing..."; \
+		uv python install $(DAEMON_PY); \
+		echo "✓ Python $(DAEMON_PY) installed"; \
 	else \
-		echo "✓ Python 3.13 is available"; \
+		echo "✓ Python $(DAEMON_PY) is available"; \
 	fi
 
 .PHONY: build
@@ -94,14 +104,17 @@ install-daemon: ## Install daemon only (no Go/TUI required)
 		echo "❌ uv is not installed. Install it first: https://docs.astral.sh/uv/"; \
 		exit 1; \
 	fi
-	@if ! uv python list 2>/dev/null | grep -q "cpython-3\.13"; then \
-		echo "⚠️  Python 3.13 not found. Installing..."; \
-		uv python install 3.13; \
-		echo "✓ Python 3.13 installed"; \
+	@if ! uv python list --only-installed 2>/dev/null | grep -q "cpython-$(DAEMON_PY)"; then \
+		echo "⚠️  Python $(DAEMON_PY) not found. Installing..."; \
+		uv python install $(DAEMON_PY); \
+		echo "✓ Python $(DAEMON_PY) installed"; \
 	else \
-		echo "✓ Python 3.13 is available"; \
+		echo "✓ Python $(DAEMON_PY) is available"; \
 	fi
-	cd daemon && uv tool install . --python 3.13 --reinstall
+	cd daemon && uv export --locked --no-emit-project --no-dev --no-hashes --no-header --output-file .tool-lock.txt
+	cd daemon && $(LOCK_PINS) .tool-lock.txt > .tool-constraints.txt
+	cd daemon && uv tool install . --python $(DAEMON_PY) --constraints .tool-constraints.txt --reinstall; \
+		status=$$?; rm -f .tool-lock.txt .tool-constraints.txt; exit $$status
 	@echo "✓ Installed prismis-daemon"
 
 # Local-mode commands (analyze, embeddings) import prismis_daemon, which only the [local] extra installs.
@@ -118,14 +131,17 @@ install-cli: ## Install CLI only (no Go/TUI required)
 		echo "❌ uv is not installed. Install it first: https://docs.astral.sh/uv/"; \
 		exit 1; \
 	fi
-	@if ! uv python list 2>/dev/null | grep -q "cpython-3\.13"; then \
-		echo "⚠️  Python 3.13 not found. Installing..."; \
-		uv python install 3.13; \
-		echo "✓ Python 3.13 installed"; \
+	@if ! uv python list --only-installed 2>/dev/null | grep -q "cpython-$(CLI_PY)"; then \
+		echo "⚠️  Python $(CLI_PY) not found. Installing..."; \
+		uv python install $(CLI_PY); \
+		echo "✓ Python $(CLI_PY) installed"; \
 	else \
-		echo "✓ Python 3.13 is available"; \
+		echo "✓ Python $(CLI_PY) is available"; \
 	fi
-	cd cli && uv tool install '$(CLI_SPEC)' --python 3.13 --reinstall
+	cd cli && uv export --locked --no-emit-project --no-dev --no-hashes --no-header --extra local --output-file .tool-lock.txt
+	cd cli && $(LOCK_PINS) .tool-lock.txt > .tool-constraints.txt
+	cd cli && uv tool install '$(CLI_SPEC)' --python $(CLI_PY) --constraints .tool-constraints.txt --reinstall; \
+		status=$$?; rm -f .tool-lock.txt .tool-constraints.txt; exit $$status
 	@echo "✓ Installed prismis-cli"
 	@echo ""
 	@echo "Usage: prismis-cli --remote http://server:8989 <command>"

@@ -88,7 +88,7 @@ select = [
 
 [tool.mypy]
 # `uv run mypy .` from this directory is the gate's typecheck (ember's house toolchain).
-python_version = "3.13"
+python_version = "3.14"
 mypy_path = ["src", "tests"]
 explicit_package_bases = true
 exclude = ["^scripts/", "^\\.venv/"]

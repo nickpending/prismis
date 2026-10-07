@@ -4,7 +4,7 @@ subtype: decisions
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-10-06"
+updated: "2026-10-07"
 last_change: "cli-parity (report rendered in CLI, daemon report formatters removed, TUI hydration), fetch-address-guard, title-only-reasons ([2026-10-04]). Prior: tz-aware-timestamps (+00:00 storage, user_version migration, _rfc3339 simplified) ([2026-10-03]). Prior: async-offload + pinned-deps ([2026-10-02]). Prior: content-kind (#77): ten-kind classification via Jev/OpenRouter Decisions endpoint ([2026-09-28]). Prior: openai-sdk-migration: daemon LLM calls go through a direct openai-SDK client (llm_client.py), replacing llm-core ([2026-09-25]); same migration's uv lock re-resolution upper-bounds praw to <8 until test_reddit_validation_unit.py is updated for prawcore 4's Session shape. Every unexpected API failure returns a generic 500 with detail redacted to the log (#76, commit 66cb94e); internal collaborators are no longer mocked in daemon or CLI tests, enforced by a structural guard test (no-internal-mocks, #73, #62)"
 tags: [architecture, decisions]
 ---
@@ -12,6 +12,12 @@ tags: [architecture, decisions]
 # Decisions
 
 Architectural decisions and their rationale. Most recent first.
+
+## CLI and daemon move to Python 3.14; deploys install under the lock's versions [2026-10-07]
+
+**Context:** gh #56. The 3.13 pin was ours, not a dependency's, but the old locks could not install on 3.14 (lxml, markupsafe, pydantic-core and pyyaml shipped no 3.14 wheel). Separately `uv tool install` ignores `uv.lock` and resolves fresh, so cerebro ran dependency versions the gate never tested.
+**Choice:** Both `.python-version` files and both `[tool.mypy] python_version` settings read 3.14; `requires-python` stays `>=3.13`. Both `uv.lock` files were refreshed with `uv lock --upgrade` so every PyPI package installs from a wheel on 3.14 (`uv sync --locked --no-build`, with the project and the apiconf git source exempted because those build from source by nature). The Makefile reads each unit's `.python-version` into `DAEMON_PY`/`CLI_PY` instead of naming a version, and `install-daemon`/`install-cli` (and `install-cli-local` through it) run `uv export --locked --no-dev`, keep the `name==version` lines, and pass them to `uv tool install --constraints`. `daemon/tests/unit/test_makefile_install_unit.py` fails if a recipe names a Python version or installs without the lock constraints.
+**Why:** The tested versions are the deployed versions. A deploy now fails when the lock cannot be satisfied on the host rather than silently resolving something else, and a dependency bump reaches production only through a committed `uv lock --upgrade`. Python 3.13 stays installed on hosts until the operator removes it.
 
 ## Reports render in the CLI, not the daemon [2026-10-04]
 

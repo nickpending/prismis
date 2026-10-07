@@ -9,7 +9,7 @@
   [![Status](https://img.shields.io/badge/Status-Alpha-orange?style=flat)](#status-alpha)
   [![Built with](https://img.shields.io/badge/Built%20with-Momentum-blueviolet?style=flat)](https://github.com/nickpending/momentum)
   [![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev)
-  [![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat&logo=python)](https://python.org)
+  [![Python](https://img.shields.io/badge/Python-3.14+-3776AB?style=flat&logo=python)](https://python.org)
   [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
   [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/nickpending)
@@ -325,7 +325,7 @@ Internet Sources          Python Daemon           Go TUI
 
 - **macOS or Linux**
 - **Go 1.21+** for the TUI
-- **Python 3.13+** for the daemon
+- **Python 3.14+** for the daemon
 - **LLM API key** - OpenAI, Anthropic, Groq, or local Ollama
 - **Fabric** (optional) - AI content analysis patterns with tab completion
 - **lspeak** (optional) - Text-to-speech for audio briefings (`uv tool install git+https://github.com/nickpending/lspeak.git`)

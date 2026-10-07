@@ -1,0 +1,21 @@
+{
+  "impacted": [
+    {"path": "daemon/src/prismis_daemon/fetchers/youtube.py", "role": "`YouTubeFetcher.yt_dlp_cmd` (set in `__init__` to `[sys.executable, '-m', 'yt_dlp']`) prefixes both subprocess calls: channel discovery in `_discover_channel_videos` (stdout JSON lines; a `--break-match-filters upload_date>=YYYYMMDD` argument computed from today) and transcript download in `_extract_transcript` (writes subtitle files into a per-call temporary directory passed with `--output`)"},
+    {"path": "daemon/tests/integration/test_youtube_fetcher_integration.py", "role": "six tests skipped unless PRISMIS_LIVE_NETWORK_TESTS is set; `test_fetch_youtube_with_real_api` guards its item checks with `if items:` and `test_extract_transcript_from_specific_video` guards with `if transcript:`"},
+    {"path": "daemon/tests/integration/test_content_aware_summarization_integration.py", "role": "three tests skipped unless OPENAI_API_KEY is set"},
+    {"path": "daemon/tests/conftest.py", "role": "the `recorded_llm` marker, recorder and strict replay from recorded-llm-tests"},
+    {"path": "daemon/tests/unit/test_youtube_fetcher_unit.py", "role": "swaps `fetcher.yt_dlp_cmd` for a stand-in script written to tmp_path, the subprocess-boundary pattern"}
+  ],
+  "constraints": [
+    {"tag": "RULE", "path": "daemon/tests/conftest.py", "line": 300, "text": "Only external third parties are stood in for; yt-dlp and YouTube are external, the fetcher's parsing is ours and runs for real."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/fetchers/youtube.py", "line": 230, "text": "The discovery command carries a date filter computed from the current date, and the transcript command carries a per-call temporary output path, so both vary between runs."},
+    {"tag": "OBSERVED", "path": "docs/work/recorded-llm-tests/design.md", "line": 1, "text": "The LLM replay normalizes only dates and the model name and fails loudly on any other mismatch or a missing recording."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --search \"youtube OR test\" --limit 10", "issues": []},
+  "reuse": [
+    {"path": "daemon/tests/conftest.py", "what": "the `recorded_llm` marker and recorder, applied unchanged to the content-aware tests"},
+    {"path": "daemon/tests/unit/test_youtube_fetcher_unit.py", "what": "the `yt_dlp_cmd` stand-in pattern, extended to record and replay"}
+  ],
+  "open": []
+}

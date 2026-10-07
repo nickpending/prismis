@@ -10,8 +10,70 @@ Invariant protected:
 Each test drives the real failure through the real code: a script that prints a broken
 line stands in for yt-dlp (the way the other youtube tests do), a path that does not exist
 stands in for a missing binary, and a stand-in praw submission raises the request error
-the client raises. Handlers already driven by an existing test are named in the work
-order's plan instead of repeated here.
+the client raises.
+
+Every narrowed handler, the exception types it catches, and the test that drives it. Each
+was shown red by swapping its catch for an exception nothing raises. Tests named alone are
+in this file; the rest are existing tests, under daemon/tests/ (cli/tests/ for the last).
+
+  __main__.py validate_llm_config   ConfigError, openai.OpenAIError
+      integration/test_llm_startup_validation_integration.py
+      test_FAILURE_network_timeout_handling, test_FAILURE_provider_auth_failure_guidance
+  __main__.py verify, config        ValueError, OSError
+      unit/test_verify_subcommand_unit.py test_verify_config_failure_exits_1_immediately
+  __main__.py verify, light/deep    ConfigError, openai.OpenAIError
+      unit/test_verify_subcommand_unit.py test_verify_light_service_unreachable_exits_1,
+      test_verify_deep_service_configured_but_unreachable_exits_1
+  __main__.py verify, kind          ConfigError, ValueError, httpx.HTTPError
+      unit/test_verify_subcommand_unit.py
+      test_verify_kind_service_unreachable_counts_failure_and_exits_1
+  __main__.py verify, sources       sqlite3.Error, OSError
+      test_the_doctor_reports_a_sources_check_that_cannot_open_the_database
+  llm_validator.py deep             ConfigError, openai.OpenAIError
+      unit/test_dual_service_config_unit.py
+      test_validate_llm_services_deep_failure_is_non_fatal
+  llm_validator.py kind             ConfigError, ValueError, httpx.HTTPError
+      unit/test_llm_startup_validation_unit.py test_INVARIANT_kind_service_failure_is_non_fatal
+  api.py get_validator              ValueError, OSError
+      integration/test_api_integration.py
+      test_validator_dependency_degrades_when_config_will_not_load
+  api.py _item_count                ValueError, AttributeError, TypeError
+      test_the_request_log_counts_items_only_in_the_list_envelope
+  config.py context.md read         OSError, UnicodeDecodeError (re-raised as ValueError)
+      unit/test_config_unit.py
+      test_config_loading_with_unreadable_context_raises_naming_context_md,
+      test_config_loading_with_non_utf8_context_raises_naming_context_md
+  verify_chain.py config            ValueError, OSError
+      test_verify_chain_reports_a_config_that_cannot_load
+  validator.py rss                  httpx.InvalidURL
+      test_an_rss_url_httpx_cannot_parse_is_a_validation_error_not_a_crash
+  validator.py reddit probe         PrawcoreException, PRAWException, requests.RequestException,
+                                    KeyError
+      integration/test_validator_integration.py test_validate_source_routes_a_real_probe_failure
+  validator.py youtube              ValueError
+      test_a_youtube_url_urlparse_rejects_is_a_validation_error
+  observability.py cleanup          OSError
+      test_cleanup_skips_a_file_it_cannot_remove_and_says_so
+  fetchers/rss.py published date    TypeError, ValueError, OverflowError
+      unit/test_fetcher_unit.py test_parse_published_date_handles_invalid_dates
+  fetchers/rss.py updated date      TypeError, ValueError, OverflowError
+      test_rss_falls_back_from_a_bad_published_date_to_the_updated_one
+  fetchers/reddit.py client init    PRAWException, PrawcoreException, requests.RequestException
+      test_a_reddit_client_that_cannot_be_built_leaves_the_fetcher_without_one
+  fetchers/reddit.py listing date   TypeError, ValueError, OverflowError, OSError
+      test_a_post_with_an_unusable_date_is_still_fetched
+  fetchers/reddit.py item date      TypeError, ValueError, OverflowError, OSError
+      unit/test_reddit_fetcher_unit.py test_to_content_item_date_parsing_error
+  fetchers/reddit.py comments       PRAWException, PrawcoreException, requests.RequestException
+      test_a_failed_comment_fetch_is_recorded_on_the_item,
+      test_a_defect_in_the_comment_fetch_is_not_swallowed
+  fetchers/youtube.py metadata line ValueError, KeyError, TypeError
+      test_discovery_skips_a_broken_metadata_line_and_keeps_the_rest
+  fetchers/youtube.py transcript    OSError, UnicodeDecodeError
+      test_transcript_extraction_reports_a_missing_binary_as_a_failed_fetch,
+      test_transcript_extraction_reports_an_undecodable_transcript_as_a_failed_fetch
+  cli remote.py _load_remote_config OSError, TOMLDecodeError, UnicodeDecodeError
+      cli/tests/unit/test_remote_config_unit.py
 """
 
 import logging

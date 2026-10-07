@@ -1,0 +1,29 @@
+{
+  "impacted": [
+    {"path": "Makefile", "role": "the 3.13 guard (`uv python install 3.13`) at lines 38-42, 98-102 and 122-126, and `--python 3.13` on `install-daemon` (line 104) and `install-cli` (line 128); neither install passes the lock"},
+    {"path": "daemon/.python-version", "role": "3.13; read by `uv run`, which is how verify.sh and CI pick the interpreter"},
+    {"path": "cli/.python-version", "role": "3.13"},
+    {"path": "daemon/pyproject.toml", "role": "requires-python >=3.13 (line 9) and [tool.mypy] python_version \"3.13\" (line 91)"},
+    {"path": "cli/pyproject.toml", "role": "requires-python >=3.13 (line 6) and [tool.mypy] python_version \"3.13\" (line 55)"},
+    {"path": "daemon/uv.lock", "role": "locks lxml 5.4.0, markupsafe 3.0.2, pydantic-core 2.33.2, pyyaml 6.0.2, none with a 3.14 wheel"},
+    {"path": "cli/uv.lock", "role": "locks the same four packages"},
+    {"path": "docs/architecture/decisions.md", "role": "records python_version 3.13 for mypy (line 75) and the git-source-only fix for uv tool install bypassing the lock (line 277)"}
+  ],
+  "constraints": [
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 59, "text": "Principle IV: verification executes in the environment the code runs in; the gate testing the lock while cerebro runs freshly resolved versions breaks it."},
+    {"tag": "OBSERVED", "path": "docs/architecture/decisions.md", "line": 277, "text": "uv tool install --reinstall bypasses daemon/uv.lock; the prior fix pinned only git sources with rev=, leaving PyPI dependencies to float on every deploy."},
+    {"tag": "OBSERVED", "path": "Makefile", "line": 104, "text": "The 2026-10-07 cerebro deploy installed pydantic 2.13.5, trafilatura 2.3.1 and lxml 6.1.3 while daemon/uv.lock locks pydantic 2.11.7, trafilatura 2.0.0 and lxml 5.4.0."},
+    {"tag": "OBSERVED", "path": "daemon/uv.lock", "line": 3, "text": "Measured: uv sync --python 3.14 on the current lock fails building pydantic-core 2.33.2 ('the configured Python interpreter version (3.14) is newer than PyO3's maximum supported version (3.13)')."},
+    {"tag": "OBSERVED", "path": "daemon/uv.lock", "line": 3, "text": "Measured in a scratch worktree: after `uv lock --upgrade` in both units with .python-version at 3.14, the daemon suite passes on 3.14.6 (980 passed, 7 skipped), the CLI suite passes (126), mypy and ruff are clean in both, and the refreshed daemon lock differs from cerebro's installed set only by fastapi 0.142.3 vs 0.142.2 and three platform-only packages."},
+    {"tag": "OBSERVED", "path": ".specify/verify.sh", "line": 1, "text": "Neither verify.sh nor .github/workflows/ci.yml names a Python version; both run through `uv run`, so .python-version alone decides CI's interpreter."},
+    {"tag": "OBSERVED", "path": "Makefile", "line": 128, "text": "`uv tool install` accepts `-c/--constraints <requirements file>`, and `uv export --locked --no-dev --no-emit-project --no-hashes` writes the lock as one."},
+    {"tag": "INFERENCE", "path": "daemon/pyproject.toml", "line": 9, "text": "Keeping requires-python at >=3.13 leaves the lock resolvable for 3.13 too, so a host still on 3.13 keeps working until it reinstalls."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --search \"lock OR deploy OR install\"", "issues": []},
+  "reuse": [
+    {"path": "Makefile", "what": "the existing install-daemon / install-cli targets and their uv-python guard"},
+    {"path": "daemon/tests/unit/test_dep_pin_unit.py", "what": "the dependency-pin invariants test, where a check that the install path passes the lock belongs"}
+  ],
+  "open": []
+}

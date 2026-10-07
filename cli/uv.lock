@@ -1211,6 +1211,7 @@ dev = [
     { name = "ruff" },
     { name = "types-pyyaml" },
     { name = "types-requests" },
+    { name = "vcrpy", specifier = ">=8.3.0" },
 ]
 
 [[package]]

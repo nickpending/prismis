@@ -1,0 +1,58 @@
+{
+  "workOrder": "title-only-misfires",
+  "issues": [],
+  "what": "Narrow the summarize prompt's substantive question to whether the piece the title refers to is present, catch Reddit link posts without their article and standalone markdown links in the code readability check, define the Reddit discussion header once, and treat relative Reddit urls as reddit-internal.",
+  "why": "Design: docs/work/title-only-misfires/design.md. Three days after title-only-reasons deployed, 3 of 7 `model:not_substantive` items on cerebro were real content (the Nobel physics announcement and two Simon Willison release notes), and a relative crosspost url raised `fetch_failed:ValueError`. On 108 labeled cerebro items the measured wording called all 48 real items substantive; the structural cases it no longer catches (link posts holding only the link and comments, a markdown-link-only self-post) are facts the code can see.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "the standard, brief and detailed summarize system prompts",
+      "when": "they are built",
+      "then": "it fails if any still contains 'a teaser with no body' or lacks the measured paragraph; otherwise each carries the paragraph 'substantive says whether the text contains the piece itself (the article, post, announcement or release note the title refers to) ...' as written in the design, and the diff prompt is unchanged"
+    },
+    {
+      "id": "SC-2",
+      "given": "Reddit-shaped content: a link line followed only by a discussion section, a link line with self-text and a discussion, a link line with article text and a discussion, and the bare link line",
+      "when": "`readability_failure` classifies each",
+      "then": "it fails if the link-plus-discussion content is readable (as the pre-change check returns, shown red) or if either of the next two is not readable; otherwise the first is `link_without_article`, the self-text and article forms are readable, and the bare link keeps its existing placeholder reason"
+    },
+    {
+      "id": "SC-3",
+      "given": "a self-post whose text is only `[On the Navier-Stokes Millennium Prize Problem | OpenAI](https://openai.com/x)`, a paragraph of prose containing a markdown link, and the existing readable fixtures",
+      "when": "`readability_failure` classifies each",
+      "then": "it fails if the markdown-link-only post is readable (shown red against the pre-change rule) or any of the others is not; otherwise the first is `no_prose` and the rest are readable"
+    },
+    {
+      "id": "SC-4",
+      "given": "the Reddit fetcher and readability.py after the change",
+      "when": "a link post's content is built",
+      "then": "it fails if the discussion separator is a literal in reddit.py rather than built from `REDDIT_DISCUSSION_HEADER` in readability.py; otherwise both sides use the one constant and the content shape is unchanged"
+    },
+    {
+      "id": "SC-5",
+      "given": "a Reddit link post whose url is the relative crosspost path '/r/oscp/comments/1wz626q/x/', served to the fetcher through its real code path with a local server recording requests",
+      "when": "`_to_content_item` builds the item",
+      "then": "it fails if an extraction is attempted or `fetch_outcome` records a ValueError (as the pre-change fetcher does, shown red); otherwise no request is made and the item carries no fetch outcome"
+    },
+    {
+      "id": "SC-6",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "An X page showing only metadata, a map's interface labels and a paywalled listing (3 items in the labeled set) stay readable, as they were before the model verdict existed.",
+    "A Reddit link post whose article was not obtained is title-only even when its comment thread is long; its summary is still written from the comments.",
+    "Items stored before this change keep their label until re-analysed or refetched, except the three misfires re-analysed at deploy.",
+    "Reddit link posts to reddit-internal targets (galleries, crossposts) are title-only and re-read each fetch cycle while in the discovery window, though no article can come."
+  ],
+  "stakes": [
+    "The model is asked whether the piece the title refers to is present, not whether the text is short.",
+    "A Reddit link post with no article and no self-text is title-only by code (`content:link_without_article`), whatever its comments.",
+    "A markdown link counts as a link, not prose, in the has-prose rule.",
+    "The Reddit discussion header is defined once in readability.py.",
+    "Relative Reddit urls are reddit-internal and never fetched.",
+    "Measured on 108 labeled cerebro items: the new wording called 48 of 48 real items substantive; the new code rules catch 5 of the 6 code-passing junk items the new wording misses."
+  ]
+}

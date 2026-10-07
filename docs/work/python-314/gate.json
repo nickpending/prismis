@@ -1,0 +1,77 @@
+{
+  "scrutiny": [
+    {
+      "test": "T0 purpose: prismis is a local-first tool that runs unattended on the operator's hosts (docs/IDEA.md); this keeps it on the interpreter the hosts already run and makes production run what the gate tested.",
+      "failureCase": "The move left production on unverified dependency versions.",
+      "result": "held"
+    },
+    {
+      "test": "T1 owners: .python-version is what uv run reads, so verify.sh and CI follow it (neither names a version); the prior decision at docs/architecture/decisions.md:277 owns install-time pinning and is extended, not contradicted.",
+      "failureCase": "A second place that decides the interpreter, or a pinning rule weaker than the existing one.",
+      "result": "held"
+    },
+    {
+      "test": "T2 same noun: the 3.14 proof is the full suites run on 3.14.6 against the refreshed locks (980 and 126 passed); the production comparison read cerebro's installed tool environment with uv pip list, not the lock.",
+      "failureCase": "A wheel's existence taken as proof it works.",
+      "result": "held"
+    },
+    {
+      "test": "T3 degrade: a deploy now fails when the lock cannot be satisfied instead of resolving something else, and 3.13 stays installed until the operator removes it; both stated as sacrifices.",
+      "failureCase": "A silent loss of capability.",
+      "result": "held"
+    },
+    {
+      "test": "T4 reuse: the existing install targets, the uv python guard and test_dep_pin_unit.py are extended; `uv export` plus `uv tool install --constraints` are uv's own primitives.",
+      "failureCase": "A custom version-pinning mechanism.",
+      "result": "held"
+    },
+    {
+      "test": "T5 running system: commitment 4 installs into a scratch tool directory and compares installed versions to the lock; commitment 6 is cerebro's deployed fetch cycle on 3.14.",
+      "failureCase": "Only a Makefile text check.",
+      "result": "held"
+    },
+    {
+      "test": "T6 assumptions checked: uv tool install accepts -c/--constraints (its --help); the CLI's lock carries an editable path entry for prismis-daemon (cli/pyproject.toml:69), so the export drops it by name.",
+      "failureCase": "A constraints file uv refuses at deploy time.",
+      "result": "held"
+    },
+    {
+      "test": "T7 consumers, enumerated with grep: install-binaries depends on install-daemon and install-cli-local (Makefile:83); cerebro's deploy runs make install-daemon and make install-cli-local; nothing else installs prismis.",
+      "failureCase": "A deploy path left unpinned.",
+      "result": "held"
+    },
+    {
+      "test": "T9 six months: the version lives once per unit in .python-version; a test fails if the Makefile hardcodes it again or drops the constraints.",
+      "failureCase": "A hardcoded version reappearing silently.",
+      "result": "held"
+    },
+    {
+      "test": "T10 reversibility: a revert reinstalls on 3.13 with the old locks; no data or schema change.",
+      "failureCase": "A one-way change resting on reasoning.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class, swept with grep for uv tool install, uv python install and 3.13 over *.md, Makefile, *.sh, *.yml and *.toml: every prismis install and interpreter pin is in the Makefile, the two .python-version files and the two mypy settings; the README's lspeak lines install a separate tool. Go (the TUI) pins its own toolchain in tui/go.mod and is untouched. Engines axis n/a.",
+      "failureCase": "A pin or unpinned install left elsewhere.",
+      "result": "held"
+    },
+    {
+      "test": "T13 two places: today the version is written in eight Makefile spots plus .python-version; after, once per unit.",
+      "failureCase": "The version computed twice.",
+      "result": "held"
+    },
+    {
+      "test": "T18 cause: the cause of production drift is the install resolving fresh; passing the lock as constraints removes it for every dependency, where the prior fix covered git sources only.",
+      "failureCase": "A fix that pins only the packages that happened to drift.",
+      "result": "held"
+    },
+    {
+      "test": "T20 walk: on cerebro, `git pull && make install-daemon` reads 3.14 from daemon/.python-version, installs CPython 3.14 if missing, exports the lock to a temp constraints file, installs prismis-daemon with it, restarts; `uv pip list` on the tool env then matches the lock; `prismis-daemon verify` passes; the next cycle runs.",
+      "failureCase": "A step that only works from a developer shell.",
+      "result": "held"
+    }
+  ],
+  "decisions": [],
+  "verdict": "accept",
+  "carried": []
+}

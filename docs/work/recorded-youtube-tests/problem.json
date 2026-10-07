@@ -1,0 +1,13 @@
+{
+  "what": "Finish gh #60: run the three content-aware summarizer tests and the six YouTube fetcher tests in every gate run from recordings, the first through the existing `recorded_llm` mechanism and the second through a record-and-replay stand-in for yt-dlp, and make the YouTube tests' guarded assertions unconditional now that replayed results are fixed.",
+  "why": "After recorded-llm-tests (a5ef677) two gated sets remain. test_content_aware_summarization_integration.py has 3 tests skipped without OPENAI_API_KEY, the same class the first work order converted, missed when it was scoped. test_youtube_fetcher_integration.py has 6 tests skipped without PRISMIS_LIVE_NETWORK_TESTS: they run the real yt-dlp against YouTube (channel discovery for @LexClips, max_items, a 1-day lookback, URL formats, an invalid channel, a transcript for dQw4w9WgXcQ), so the fetcher's discovery parsing, item building and transcript cleanup are never checked by the gate. Several of those tests guard their checks with `if items:` or `if transcript:` and pass on an empty result, so even a live run proves little when YouTube returns nothing. The unit tests already swap `YouTubeFetcher.yt_dlp_cmd` for a stand-in script at the subprocess boundary (tests/unit/test_youtube_fetcher_unit.py), the pattern a recorded stand-in extends.",
+  "decided": [
+    "The three content-aware tests drop their skip marks, take the `recorded_llm` marker and run from openai/gpt-5.4-nano recordings, keeping their assertions.",
+    "yt-dlp is stood in for at the subprocess boundary only, by pointing `YouTubeFetcher.yt_dlp_cmd` at a recorder/replayer; the fetcher's own discovery parsing, item building and transcript cleanup run for real.",
+    "Record mode (operator-run, switched by an environment variable) runs the real `python -m yt_dlp`, captures each invocation's arguments, stdout, stderr, exit code and the subtitle files it writes, and saves them under daemon/tests/fixtures/; replay serves them and writes the recorded files into the requested output directory.",
+    "Replay is strict like the LLM replay: arguments are compared after normalizing dates (the `upload_date>=YYYYMMDD` filter) and per-run temporary paths, and a missing or mismatched recording fails with the re-record command.",
+    "The YouTube tests' `if items:` / `if transcript:` guards become unconditional assertions, since a replay always returns the recorded result; their other assertions stay.",
+    "PRISMIS_LIVE_NETWORK_TESTS keeps running the same tests against live YouTube as an opt-in."
+  ],
+  "open": []
+}

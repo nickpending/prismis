@@ -109,6 +109,10 @@ Generate the briefing script:"""
             raise RuntimeError(f"LLM script generation failed: {e}") from e
 
 
+# How long one lspeak run may take before it is killed and the briefing fails.
+LSPEAK_TIMEOUT_SECONDS = 180.0
+
+
 class LspeakTTSEngine:
     """Text-to-speech using lspeak (ElevenLabs/system TTS)."""
 
@@ -116,15 +120,18 @@ class LspeakTTSEngine:
         self,
         provider: str = "elevenlabs",
         voice: str | None = None,
+        timeout: float | None = None,
     ):
         """Initialize lspeak TTS engine.
 
         Args:
             provider: TTS provider (elevenlabs, system)
             voice: Voice ID for provider (optional, uses provider default)
+            timeout: Seconds one lspeak run may take (default LSPEAK_TIMEOUT_SECONDS)
         """
         self.provider = provider
         self.voice = voice
+        self.timeout = LSPEAK_TIMEOUT_SECONDS if timeout is None else timeout
 
         # Check if lspeak is installed
         if not shutil.which("lspeak"):
@@ -169,7 +176,7 @@ class LspeakTTSEngine:
             result = subprocess.run(
                 cmd,
                 check=True,
-                timeout=180,  # 3 minute timeout for API calls
+                timeout=self.timeout,
                 capture_output=True,
                 text=True,
             )
@@ -190,7 +197,9 @@ class LspeakTTSEngine:
             if result.stdout:
                 logger.debug(f"lspeak output: {result.stdout}")
         except subprocess.TimeoutExpired as e:
-            raise RuntimeError("Audio generation timed out (>3 minutes)") from e
+            raise RuntimeError(
+                f"Audio generation timed out (>{self.timeout:g}s)"
+            ) from e
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr or e.stdout or str(e)
 

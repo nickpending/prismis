@@ -2,13 +2,14 @@
 
 import os
 import stat
+import time
 
 import pytest
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
-from prismis_daemon import api
+from prismis_daemon import api, audio
 from prismis_daemon.storage import Storage
 from prismis_daemon.models import ContentItem
 from conftest import TEST_API_KEY, configure_local_services
@@ -61,20 +62,28 @@ def test_audio_fails_without_high_priority(
     assert "Add content sources" in data["message"] or "adjust" in data["message"]
 
 
-def _install_lspeak(bin_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _install_lspeak(
+    bin_dir: Path, monkeypatch: pytest.MonkeyPatch, hang_seconds: int = 0
+) -> None:
     """A stand-in `lspeak` first on PATH that writes some bytes to its -o file.
 
     The briefing script comes from a recorded real LLM reply; only the TTS binary is
     stood in for, so the test needs neither a TTS provider nor a machine with lspeak.
+    With `hang_seconds`, it becomes `sleep` (exec, so no child outlives the kill)
+    and never writes, the way a hung provider call behaves.
     """
     bin_dir.mkdir(parents=True, exist_ok=True)
     exe = bin_dir / "lspeak"
-    exe.write_text(
-        "#!/bin/sh\n"
-        'out=""\n'
-        'while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done\n'
-        'echo audio-bytes > "$out"\n'
+    body = (
+        f"exec sleep {hang_seconds}\n"
+        if hang_seconds
+        else (
+            'out=""\n'
+            'while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done\n'
+            'echo audio-bytes > "$out"\n'
+        )
     )
+    exe.write_text("#!/bin/sh\n" + body)
     exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
 
@@ -120,7 +129,6 @@ def test_audio_generates_with_high_priority(
     response = api_client.post(
         "/api/audio/briefings",
         headers={"X-API-Key": TEST_API_KEY},
-        timeout=90,
     )
 
     # Should succeed
@@ -138,50 +146,49 @@ def test_audio_generates_with_high_priority(
     assert file_path.stat().st_size > 0, "Audio file is empty"
 
 
-def test_audio_timeout_protection(api_client: TestClient, test_db: Path) -> None:
+@pytest.mark.recorded_llm
+def test_a_hung_tts_run_fails_the_briefing_at_the_timeout(
+    api_client: TestClient,
+    test_db: Path,
+    local_pipeline_stub: str,
+    isolated_xdg_env: Path,
+    no_network: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """
-    INVARIANT: HTTP timeout >= generation time (60s > 30s max)
-    BREAKS: User experiences permanent hang vs graceful timeout
+    INVARIANT: an lspeak run that never finishes is killed at the engine's timeout and
+               the endpoint answers with an error
+    BREAKS: a hung TTS provider holds the request (and a worker thread) indefinitely
     """
-    # Add HIGH priority content
+    configure_local_services(isolated_xdg_env.parent, local_pipeline_stub)
+    _install_lspeak(tmp_path / "bin", monkeypatch, hang_seconds=30)
+    monkeypatch.setattr(audio, "LSPEAK_TIMEOUT_SECONDS", 1.0)
     storage = Storage(test_db)
     source_id = storage.add_source("https://example.com/feed", "rss", "Test")
-
-    item = ContentItem(
-        source_id=source_id,
-        external_id="test-timeout-1",
-        title="Test Article for Timeout",
-        url="https://example.com/test",
-        content="Test content for timeout verification",
-        summary="Test content for timeout",
-        priority="high",
-        published_at=datetime.now(),
+    storage.add_content(
+        ContentItem(
+            source_id=source_id,
+            external_id="test-hung-tts-1",
+            title="Rust 1.80 Released",
+            url="https://example.com/rust-180",
+            content="Rust 1.80 introduces significant performance improvements",
+            summary="Rust 1.80 introduces significant performance improvements",
+            priority="high",
+            published_at=datetime.now(timezone.utc) - timedelta(hours=2, minutes=30),
+        )
     )
-    storage.add_content(item)
     storage.close()
 
-    # Verify endpoint completes within reasonable time
-    import time
-
-    start = time.time()
-
+    start = time.monotonic()
     response = api_client.post(
-        "/api/audio/briefings",
-        headers={"X-API-Key": TEST_API_KEY},
-        timeout=65,  # Slightly longer than backend's 60s
+        "/api/audio/briefings", headers={"X-API-Key": TEST_API_KEY}
     )
+    elapsed = time.monotonic() - start
 
-    duration = time.time() - start
-
-    # Should complete or timeout gracefully, not hang forever
-    assert duration < 65, "Request should complete or timeout within 65s"
-
-    # If succeeded, great. If timed out, should be graceful error
-    if response.status_code == 200:
-        assert response.json()["success"] is True
-    else:
-        # Should be proper error, not a hang
-        assert response.status_code in [500, 503, 504]
+    assert elapsed < 15, f"the hung lspeak held the request for {elapsed:.1f}s"
+    assert response.status_code == 500, response.text
+    assert "Audio generation failed" in response.json()["message"]
 
 
 def test_audio_requires_authentication(api_client: TestClient) -> None:

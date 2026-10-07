@@ -2,7 +2,7 @@
 type: design
 date: 2026-10-07
 title: "Design: narrow-blind-excepts"
-description: "Every failure in the daemon either is handled because it was expected, or surfaces where something already reports failure, so a defect stops reading as an empty result in an unattended pipeline, and the lint gate keeps it that way: the blanket BLE001 suppression in daemon/pyproject.toml goes, and all 67 handlers it hides are resolved."
+description: "Every failure in the daemon either is handled because it was expected, or surfaces where something already reports failure, so a defect stops reading as an empty result in an unattended pipeline, and the lint gate keeps it that way: the blanket BLE001 suppressions in daemon/pyproject.toml and cli/pyproject.toml go, both tracked by #58, and all 72 handlers they hide (67 daemon, 5 CLI) are resolved."
 purpose: "The recorded design of the narrow-blind-excepts work order, read by its plan and its builders."
 producer: cli:shape
 ---
@@ -11,11 +11,11 @@ producer: cli:shape
 
 ## Purpose
 
-Every failure in the daemon either is handled because it was expected, or surfaces where something already reports failure, so a defect stops reading as an empty result in an unattended pipeline, and the lint gate keeps it that way: the blanket BLE001 suppression in daemon/pyproject.toml goes, and all 67 handlers it hides are resolved.
+Every failure in the daemon either is handled because it was expected, or surfaces where something already reports failure, so a defect stops reading as an empty result in an unattended pipeline, and the lint gate keeps it that way: the blanket BLE001 suppressions in daemon/pyproject.toml and cli/pyproject.toml go, both tracked by #58, and all 72 handlers they hide (67 daemon, 5 CLI) are resolved.
 
 ## Form
 
-Delete the `"**/*.py" = ["BLE001"]` per-file-ignore (daemon/pyproject.toml:95) and give each of the 67 handlers exactly one of four forms, judged one handler at a time.
+Delete the `"**/*.py" = ["BLE001"]` per-file-ignore in both Python units (daemon/pyproject.toml:95, cli/pyproject.toml:58) and give each of the 72 handlers (67 daemon, 5 CLI: analyze.py 135, 244, 349, embeddings.py 157, remote.py 35) exactly one of four forms, judged one handler at a time.
 
 1. Narrowed: the handler exists for a known failure, so it catches that type and nothing else. Date parses in the Reddit and RSS fetchers catch the parse errors their inputs raise; the context.md read is not caught at all (form 3); metadata-line parses catch the JSON/key errors of that line; the Reddit client init, comment fetch and validator probes catch the praw/prawcore/requests/httpx error bases those libraries document; the doctor and LLM checks catch the errors the called client raises. The type comes from what the called code actually raises, read in its source, not guessed.
 
@@ -25,16 +25,20 @@ Delete the `"**/*.py" = ["BLE001"]` per-file-ignore (daemon/pyproject.toml:95) a
 
 4. Recorded on the item: the one enrichment a stored item tolerates losing, the Reddit comment fetch, keeps its narrowed catch but returns the failure, and the item records it in its analysis JSON as `comments_outcome` (`{"outcome": "fetch_failed", "detail": <exception type>}`), beside the existing `fetch_outcome` (fetchers/reddit.py:516); `_merge_analysis` already preserves fetcher keys, so it reaches storage and the API with no schema change.
 
-The 15 test-side handlers are narrowed to the exception each test expects, or become `pytest.raises` where the test is asserting a failure. Nothing is silenced with `# noqa: BLE001`; a unit test fails if that comment appears anywhere under daemon/.
+The 15 test-side handlers are narrowed to the exception each test expects, or become `pytest.raises` where the test is asserting a failure. Nothing is silenced with `# noqa: BLE001`; a unit test in each Python unit fails if that comment appears anywhere under daemon/ or cli/.
+
+The TUI's ExecutePrune (tui/internal/ui/operations/prune.go:58) stops calling PruneCount and PruneResultMsg drops its Count field: that call discarded its error with `count, _ :=`, and its result was never read (model.go's PruneResultMsg case reads only Error and Deleted), so once the count endpoint returns a 500 on failure nothing turns it back into a 0. The confirm prompt's count still comes from GetPruneCount, which already reports its error.
 
 ## Commitments
 
-- The BLE001 per-file-ignore is gone and `uv run ruff check .` in daemon/ passes with BLE001 active on every file, src and tests.
-- No `noqa` for BLE001 or BLE exists under daemon/, enforced by a unit test that fails when one appears.
+- The BLE001 per-file-ignore is gone from both daemon/pyproject.toml and cli/pyproject.toml, and `uv run ruff check .` passes in both with BLE001 active on every file, src and tests.
+- No `noqa` for BLE001 or BLE exists under daemon/ or cli/, enforced by a unit test in each unit that fails when one appears.
 - Every narrowed handler still handles the failure it exists for, proven by a test that drives that real failure through it, or by an existing test named in the plan that already does.
 - Every isolation boundary records the traceback at warning level or above.
 - count_unprioritized, _get_voted_articles, _parse_evaluation_response, run_archival_policy, backfill_embeddings and an unreadable context.md each surface their failure where their caller reports failure, each proven by a test that injects the real failure and asserts the distinguishable outcome: the 500, the (False, "Error") return, the per-item stats error, the raised job, the raised config error.
 - A Reddit item whose comment fetch failed stores `comments_outcome` with outcome fetch_failed; one with no comments and no failure stores no such key.
+- The TUI's ExecutePrune makes no PruneCount call and PruneResultMsg has no Count field.
+- After deploy, the daemon's first full fetch cycle on cerebro completes, and every traceback its journal shows for that cycle names a real failure, not an expected one a narrowed handler missed.
 
 ## Sacrifices
 

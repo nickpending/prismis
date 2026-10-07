@@ -8,8 +8,10 @@ are dropped and the token the handshake returned is replaced. Re-record with
 PRISMIS_RECORD_HTTP=1 (see docs/architecture/boundaries.md).
 """
 
+import json
+
 import pytest
-from conftest import make_config
+from conftest import HttpCassette, make_config
 from prismis_daemon.fetchers.reddit import RedditFetcher
 from prismis_daemon.models import ContentItem
 
@@ -19,6 +21,17 @@ pytestmark = pytest.mark.usefixtures("reddit_credentials", "http_cassette")
 # than the lookback, so the lookback is far wider than the recording will ever be old.
 # What is under test is fetching, filtering and shaping, not the cutoff.
 RECORDED_LOOKBACK_DAYS = 36500
+IMAGE_DOMAINS = (
+    "i.redd.it",
+    "i.imgur.com",
+    "imgur.com",
+    "gfycat.com",
+    "v.redd.it",
+    "youtube.com",
+    "youtu.be",
+    "streamable.com",
+)
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".webm")
 
 
 def test_fetch_reddit_with_real_api() -> None:
@@ -105,26 +118,55 @@ def test_fetch_reddit_respects_max_items() -> None:
     assert len(items) <= 1
 
 
-def test_fetch_reddit_filters_image_posts() -> None:
-    """Test that image posts are filtered out."""
+def _listing_in_order(http_cassette: HttpCassette) -> list[tuple[str, bool]]:
+    """The cassette's subreddit listing as (external id, is an image/video post)."""
+    posts: list[tuple[str, bool]] = []
+    for _request, response in http_cassette.cassette.data:
+        try:
+            listing = json.loads(response["body"]["string"])
+        except ValueError:
+            continue
+        if not isinstance(listing, dict):
+            continue
+        for child in listing.get("data", {}).get("children", []):
+            post = child["data"]
+            url = str(post.get("url", "")).lower()
+            is_image = not post.get("is_self") and (
+                any(d in url for d in IMAGE_DOMAINS) or url.endswith(IMAGE_EXTENSIONS)
+            )
+            posts.append((f"https://reddit.com{post['permalink']}", is_image))
+    return posts
+
+
+def test_fetch_reddit_filters_image_posts(http_cassette: HttpCassette) -> None:
+    """Test that image posts are filtered out.
+
+    The fetcher stops walking the listing once it has `max_items` posts, so only image
+    posts listed before its last kept post were ever its to drop. The recorded listing
+    must hold such a post, or the assertion below would pass with the filter deleted.
+    """
     config = make_config(max_days_lookback=RECORDED_LOOKBACK_DAYS)
     fetcher = RedditFetcher(max_items=10, config=config)
 
-    # Use a subreddit that has mix of text and image posts
-    source = {"url": "r/programming", "id": "test-id"}
+    # A subreddit that mixes text, link and image posts
+    source = {"url": "r/linux", "id": "test-id"}
 
     items = fetcher.fetch_content(source)
 
-    # All returned items should be text posts (not image domains)
-    image_domains = ["i.redd.it", "imgur.com", "v.redd.it"]
-    for item in items:
-        assert item.content is not None
-        # Check that content doesn't start with image link
-        for domain in image_domains:
-            if item.content.startswith(f"Link: https://{domain}"):
-                pytest.fail(
-                    f"Found image post that should have been filtered: {item.url}"
-                )
+    assert items, "the fetcher kept nothing from the recorded listing"
+    kept = {item.external_id for item in items}
+    listing = _listing_in_order(http_cassette)
+    last_kept = max(i for i, (post_id, _img) in enumerate(listing) if post_id in kept)
+    dropped_images = {
+        post_id for post_id, is_image in listing[:last_kept] if is_image
+    }
+    assert dropped_images, (
+        "no image post precedes the last kept post in the recorded listing, so the "
+        "filter had nothing to drop"
+    )
+    assert not kept & dropped_images, (
+        f"image posts were not filtered: {kept & dropped_images}"
+    )
 
 
 def test_fetch_reddit_handles_various_url_formats() -> None:

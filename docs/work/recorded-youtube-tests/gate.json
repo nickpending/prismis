@@ -6,9 +6,9 @@
       "result": "held"
     },
     {
-      "test": "B4 count, enumerated with `uv run pytest -q -rs` over the daemon suite: 38 skipped = youtube 8, validator 8, reddit fetcher 5, fetcher 5, llm_client_live 4, content-aware 3, startup validation 2, api 2, notifier 1. Un-gated here: 3 + 8 + 8 + 5 + 5 + 2 = 31; staying opt-in: 4 + 2 + 1 = 7. The design's '32' counts the notifier test; the work order states 31.",
+      "test": "B4 count, enumerated with `uv run pytest -q -rs` over the daemon suite: 38 skipped = youtube 8, validator 8, reddit fetcher 5, fetcher 5, llm_client_live 4, content-aware 3, startup validation 2, api 2, notifier 1. Un-gated here: 3 + 8 + 8 + 5 + 5 + 2 = 31; staying opt-in: 4 + 2 + 1 = 7. The design now states 31.",
       "failureCase": "The set were assembled from memory rather than the suite's own skip report.",
-      "result": "changed"
+      "result": "held"
     },
     {
       "test": "T1 owners: conftest.py permits standing in only for third parties; vcrpy intercepts at the HTTP transport, yt-dlp is stood in at the subprocess boundary, the LLM at its configured service; fetchers, validator, Storage and API run for real.",
@@ -47,8 +47,6 @@
       "answer": "Add vcrpy, and cover all live-resource-gated tests in this one work order (operator, 2026-10-07)."
     }
   ],
-  "verdict": "redesign",
-  "carried": [
-    "How many tests does this work order un-gate, given the suite's skip report shows 38 skipped of which the 4 llm_client_live, 2 startup-validation and 1 notifier tests stay opt-in?"
-  ]
+  "verdict": "accept",
+  "carried": []
 }

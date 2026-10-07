@@ -1,20 +1,24 @@
-"""Integration tests for SourceValidator - real network validation.
+"""Integration tests for SourceValidator against recorded third-party answers.
 
-Some tests here are ungated and run in the gate. They are not exceptions to the rule
-below: a socket this suite opens on loopback and controls for the length of one test is
-not a third party, and a bound proven against one is proven, where the same bound read
-back off the object that just set it is not.
+Everything a third party answers is replayed from a vcrpy cassette (`http_cassette`
+fixture, conftest.py) under `no_network`, recorded once from the real service. Re-record
+with PRISMIS_RECORD_HTTP=1 (see docs/architecture/boundaries.md); the Reddit cassettes
+need Reddit credentials and are recorded on the host that holds them.
 
-Two gates guard the rest, and they are not the same gate. PRISMIS_LIVE_NETWORK_TESTS
-covers everything here that reaches a third party. Reddit credentials are a second,
-narrower requirement, and both variables are checked wherever they are needed: the
-suite's XDG seal means credentials reach these tests only through the environment, so
-setting one of the pair un-skips a test that then fails on a 401 and reads as a broken
-subreddit rather than a half-set environment.
+Failure modes a recording cannot reproduce are not replayed: a timeout is a loopback
+listener that never answers, a 429 and a page that is not a feed are a loopback server
+that answers them, and a host that does not resolve is the reserved `.invalid` TLD.
+Each of those drives the real validator against something real this suite controls, and
+none of them goes under `no_network` or a cassette, which would make the dead proxy or
+the replay the cause of the failure being asserted.
+
+A socket this suite opens on loopback and controls for the length of one test is not a
+third party, and a bound proven against one is proven, where the same bound read back off
+the object that just set it is not.
 
 Refusing a credential and never having one are different answers, so the test that
-proves the first needs no secret at all — garbage credentials earn a real 401 from
-Reddit — while the tests that prove a subreddit's own state need working ones.
+proves the first needs no secret at all, while the tests that prove a subreddit's own
+state were recorded with working ones.
 """
 
 import os
@@ -24,21 +28,7 @@ import pytest
 
 from prismis_daemon.validator import SourceValidator
 
-from conftest import make_config
-
-LIVE_NETWORK = pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Hits live third-party endpoints. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
-)
-
-LIVE_REDDIT = pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS")
-    or not os.environ.get("REDDIT_CLIENT_ID")
-    or not os.environ.get("REDDIT_CLIENT_SECRET"),
-    reason="Hits Reddit's authenticated API. Set PRISMIS_LIVE_NETWORK_TESTS=1 and BOTH "
-    "REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET to run.",
-)
-
+from conftest import LocalHttpServer, make_config
 
 def reddit_validator() -> SourceValidator:
     """Build a validator carrying the credentials the environment supplies."""
@@ -50,7 +40,7 @@ def reddit_validator() -> SourceValidator:
     )
 
 
-@LIVE_NETWORK
+@pytest.mark.usefixtures("http_cassette")
 def test_valid_sources_accepted() -> None:
     """
     INVARIANT: Known-good sources must always validate as true
@@ -78,7 +68,6 @@ def test_valid_sources_accepted() -> None:
         assert error is None, f"Valid YouTube URL should have no error: {url}"
 
 
-@LIVE_NETWORK
 def test_invalid_sources_rejected() -> None:
     """
     INVARIANT: Invalid sources must be rejected with clear errors
@@ -86,9 +75,9 @@ def test_invalid_sources_rejected() -> None:
     """
     validator = SourceValidator()
 
-    # Test non-existent domain
+    # Test non-existent domain: `.invalid` is reserved (RFC 6761) and never resolves
     is_valid, error, _metadata = validator.validate_source(
-        "https://this-domain-definitely-does-not-exist-12345.com/feed.xml", "rss"
+        "https://no-such-host.invalid/feed.xml", "rss"
     )
     assert is_valid is False, "Non-existent domain should fail"
     assert error is not None, "Should have error message"
@@ -107,48 +96,67 @@ def test_invalid_sources_rejected() -> None:
     )
 
 
-@LIVE_NETWORK
-def test_network_timeout_handling() -> None:
+def test_network_timeout_handling(hung_peer: str) -> None:
     """
     FAILURE MODE: Network timeouts must fail gracefully
     GRACEFUL: Clear error message, no hanging
     """
     validator = SourceValidator()
 
-    # Override timeout to be very short to trigger timeout on slow endpoints
-    validator.timeout = 0.001  # 1ms timeout - will timeout on any real network call
+    # A short budget against a peer that accepts the connection and never answers, so the
+    # read is what times out
+    validator.timeout = 0.5
 
-    # Test RSS timeout with a real endpoint that will be too slow
     is_valid, error, _metadata = validator.validate_source(
-        "https://httpbin.org/delay/5",
-        "rss",  # This endpoint delays 5 seconds
+        f"http://{hung_peer}/feed.xml", "rss"
     )
     assert is_valid is False, "Timeout should fail validation"
     assert error is not None, "Should have error message"
     assert "timed out" in error.lower(), "Should mention timeout"
 
-    # Reset timeout for other tests
-    validator.timeout = 5.0
 
-
-@LIVE_NETWORK
-def test_malformed_rss_handling() -> None:
+def test_malformed_rss_handling(local_http_server: LocalHttpServer) -> None:
     """
     FAILURE MODE: Malformed RSS/XML must be rejected
     GRACEFUL: Clear error about invalid feed format
     """
     validator = SourceValidator()
 
-    # Test with a real URL that returns HTML instead of RSS
+    # A page that answers 200 with HTML instead of a feed
+    local_http_server.routes["/"] = (
+        200,
+        "text/html",
+        b"<!doctype html><html><head><title>Home</title></head>"
+        b"<body><p>Not a feed.</p></body></html>",
+    )
     is_valid, error, _metadata = validator.validate_source(
-        "https://google.com",
-        "rss",  # Google homepage, not an RSS feed
+        f"{local_http_server.base_url}/",
+        "rss",
     )
     assert is_valid is False, "HTML page should fail RSS validation"
     assert error is not None, "Should have error message"
     assert "invalid" in error.lower() or "format" in error.lower(), (
         "Should mention invalid format"
     )
+
+
+def test_rate_limited_feed_is_reported_with_its_status(
+    local_http_server: LocalHttpServer,
+) -> None:
+    """
+    FAILURE MODE: A feed host answering 429 must fail validation, naming the status
+    GRACEFUL: The operator sees HTTP 429, not a parse error from an empty body
+    """
+    local_http_server.routes["/feed.xml"] = (429, "text/plain", b"slow down")
+
+    is_valid, error, _metadata = SourceValidator().validate_source(
+        f"{local_http_server.base_url}/feed.xml", "rss"
+    )
+
+    assert local_http_server.requests == ["/feed.xml"], "the validator must ask the server"
+    assert is_valid is False
+    assert error is not None
+    assert error.startswith("HTTP 429"), f"Should name the status, got: {error!r}"
 
 
 def test_validate_reddit_rejects_an_unparseable_url() -> None:
@@ -163,7 +171,7 @@ def test_validate_reddit_rejects_an_unparseable_url() -> None:
     validator = SourceValidator()
 
     is_valid, error, metadata = validator._validate_reddit(
-        "https://httpbin.org/status/429"
+        "https://no-such-host.invalid/status/429"
     )
 
     assert is_valid is False
@@ -171,7 +179,7 @@ def test_validate_reddit_rejects_an_unparseable_url() -> None:
     assert metadata is None
 
 
-@LIVE_NETWORK
+@pytest.mark.usefixtures("http_cassette")
 def test_reddit_invalid_credentials_are_named() -> None:
     """
     INVARIANT: Credentials Reddit refuses are reported as credentials, not as a private
@@ -204,7 +212,7 @@ def test_reddit_invalid_credentials_are_named() -> None:
     assert "prismis-not-a-real" not in error, "No credential may reach the message"
 
 
-@LIVE_REDDIT
+@pytest.mark.usefixtures("reddit_credentials", "http_cassette")
 def test_reddit_valid_subreddit_accepted_with_display_name() -> None:
     """
     INVARIANT: A real public subreddit validates and reports its prefixed display name
@@ -223,7 +231,7 @@ def test_reddit_valid_subreddit_accepted_with_display_name() -> None:
     )
 
 
-@LIVE_REDDIT
+@pytest.mark.usefixtures("reddit_credentials", "http_cassette")
 def test_reddit_missing_subreddit_rejected() -> None:
     """
     INVARIANT: A subreddit that does not exist is named as absent
@@ -238,21 +246,19 @@ def test_reddit_missing_subreddit_rejected() -> None:
     assert "does not exist" in error, f"Should explain the subreddit is absent: {error}"
 
 
-@LIVE_REDDIT
+@pytest.mark.usefixtures("reddit_credentials", "http_cassette")
 def test_reddit_private_subreddit_handling() -> None:
     """
     FAILURE MODE: A subreddit that exists but refuses access returns 403
     GRACEFUL: The message says private or quarantined, not missing
-    NOTE: r/lounge is restricted to Reddit Premium members. If that ever changes the
-          test skips rather than asserting something it can no longer observe.
+    NOTE: r/lounge is restricted to Reddit Premium members, and the cassette holds the
+          403 Reddit answered with. A change on Reddit's side shows only on re-recording.
     """
     is_valid, error, _metadata = reddit_validator().validate_source(
         "https://reddit.com/r/lounge", "reddit"
     )
 
-    if is_valid:
-        pytest.skip("r/lounge is not private/restricted anymore")
-
+    assert is_valid is False, "r/lounge was recorded as restricted"
     assert error is not None, "Should have error message"
     assert "private or quarantined" in error, (
         f"An inaccessible subreddit must be named as such: {error}"

@@ -1,0 +1,24 @@
+[
+  {
+    "args": [
+      "--ignore-config",
+      "--simulate",
+      "--playlist-end",
+      "10",
+      "--print",
+      "%(.{id,title,duration,upload_date,view_count,webpage_url})j",
+      "--socket-timeout",
+      "120",
+      "--retries",
+      "3",
+      "--break-match-filters",
+      "upload_date>=<date>",
+      "--",
+      "https://www.youtube.com/@LexClips"
+    ],
+    "returncode": 101,
+    "stdout": "",
+    "stderr": "WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is enabled by default; to use another runtime add  --js-runtimes RUNTIME[:PATH]  to your command/config. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See  https://github.com/yt-dlp/yt-dlp/wiki/EJS  for details on installing one\n",
+    "files": {}
+  }
+]

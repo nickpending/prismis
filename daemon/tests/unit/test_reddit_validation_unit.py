@@ -1,7 +1,7 @@
 """Unit tests for the Reddit validation path — parse, credential gate, interpret.
 
-Every test here runs with no network and no credentials, so none is gated behind
-PRISMIS_LIVE_NETWORK_TESTS or REDDIT_CLIENT_ID and all of them run in the gate.
+Every test here runs with no network and no credentials, so none needs a cassette or a
+credential and all of them run in the gate.
 
 Nothing is mocked, faked or stubbed. The probe is the only step that needs Reddit, and
 it is the only step not exercised here: the two steps that hold decisions take plain

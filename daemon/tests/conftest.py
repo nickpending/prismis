@@ -7,6 +7,7 @@ import json
 import os
 import re
 import socket
+import sys
 import tempfile
 import threading
 import time
@@ -17,12 +18,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import vcr
+import vcr.errors
 
 from prismis_daemon import config, database, llm_client
 from prismis_daemon.defaults import DEFAULT_CONFIG_TOML, DEFAULT_CONTEXT_MD
+from prismis_daemon.fetchers.youtube import YouTubeFetcher
 from prismis_daemon.models import ContentItem
 from prismis_daemon.observability import reset_logger, set_run_id
 from prismis_daemon.storage import Storage
+import ytdlp_replay as ytdlp
 
 # The API key the sealed config is written with. Every test that authenticates against
 # the API imports this rather than hardcoding a literal, so there is one source of truth
@@ -772,6 +777,317 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     # Loopback is exempt so a test can still reach `local_pipeline_stub`; every other
     # host, including any provider, goes to the dead proxy and fails.
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+
+
+# Recorded yt-dlp calls ------------------------------------------------------------------
+# `YouTubeFetcher` runs yt-dlp as a subprocess. A test using `ytdlp_replay` has the
+# fetcher's `yt_dlp_cmd` pointed at `ytdlp_replay.py` (`YtdlpReplay.fetcher` builds it
+# that way; nothing of prismis's is patched), which answers each call from a
+# recording of what the real yt-dlp printed and wrote (see that module for the format and
+# what it tolerates). Replay is the default in every gate and CI run and is strict: a
+# missing recording, an extra call, or a call whose arguments differ in anything other
+# than a YYYYMMDD date or the temporary output directory fails the test, naming the
+# recording and the command that re-records. It never runs the real yt-dlp.
+#
+# Record is operator-run: PRISMIS_RECORD_YTDLP=1 runs the real yt-dlp over the network
+# and rewrites the test's recording.
+YTDLP_RECORDINGS_DIR = Path(__file__).parent / "fixtures" / "ytdlp_recordings"
+
+
+class YtdlpReplay:
+    """One test's yt-dlp stand-in: the command to run and what it refused."""
+
+    def __init__(self, path: Path, state: Path, nodeid: str, recording: bool) -> None:
+        self.path = path
+        self.state = state
+        self.recording = recording
+        self.command = f"cd daemon && {ytdlp.RECORD_YTDLP_ENV}=1 uv run pytest {nodeid}"
+        self.cmd = [sys.executable, str(Path(ytdlp.__file__))]
+
+    def fetcher(
+        self, config: config.Config | None = None, max_items: int | None = None
+    ) -> YouTubeFetcher:
+        """A real `YouTubeFetcher` whose yt-dlp command is this stand-in."""
+        built = YouTubeFetcher(config=config, max_items=max_items)
+        built.yt_dlp_cmd = self.cmd
+        return built
+
+    @property
+    def calls(self) -> int:
+        counter = self.state / "calls"
+        return int(counter.read_text()) if counter.exists() else 0
+
+    @property
+    def failures(self) -> list[str]:
+        """Every refusal the stand-in made, as the message it wrote."""
+        log = self.state / "failures.txt"
+        if not log.exists():
+            return []
+        return [f for f in log.read_text().split("\n---\n") if f.strip()]
+
+    def clear_failures(self) -> None:
+        """For a test that provoked a refusal on purpose and has asserted on it."""
+        (self.state / "failures.txt").unlink(missing_ok=True)
+
+    def finalize(self) -> None:
+        problems = self.failures
+        if not self.recording and not problems:
+            if not self.path.exists():
+                problems = [
+                    f"No yt-dlp recording exists at {self.path}.\n"
+                    f"Re-record with: {self.command}"
+                ]
+            elif self.calls < len(json.loads(self.path.read_text())):
+                problems = [
+                    f"The test made {self.calls} yt-dlp call(s); {self.path} holds "
+                    f"{len(json.loads(self.path.read_text()))}.\n"
+                    f"Re-record with: {self.command}"
+                ]
+        if problems:
+            pytest.fail("recorded yt-dlp replay failed:\n" + "\n".join(problems), pytrace=False)
+
+
+@pytest.fixture
+def ytdlp_recordings_dir() -> Path:
+    """Where yt-dlp recordings live. A test module may override this to use its own dir."""
+    return YTDLP_RECORDINGS_DIR
+
+
+@pytest.fixture
+def ytdlp_replay(
+    request: pytest.FixtureRequest,
+    ytdlp_recordings_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[YtdlpReplay]:
+    """The stand-in for yt-dlp: `ytdlp_replay.fetcher(...)` builds a `YouTubeFetcher` on it.
+
+    Replay runs under `no_network`. Record (PRISMIS_RECORD_YTDLP=1) does not, since it
+    runs the real yt-dlp, and starts the test's recording afresh.
+    """
+    recording = bool(os.environ.get(ytdlp.RECORD_YTDLP_ENV))
+    path = ytdlp_recordings_dir / request.module.__name__ / f"{request.node.name}.json"
+    state = tmp_path / "ytdlp-state"
+    state.mkdir()
+    replay = YtdlpReplay(path, state, request.node.nodeid, recording)
+    if recording:
+        path.unlink(missing_ok=True)
+    else:
+        request.getfixturevalue("no_network")
+    monkeypatch.setenv(ytdlp.RECORDING_ENV, str(path))
+    monkeypatch.setenv(ytdlp.STATE_ENV, str(state))
+    monkeypatch.setenv(ytdlp.MODE_ENV, "record" if recording else "replay")
+    monkeypatch.setenv(ytdlp.COMMAND_ENV, replay.command)
+
+    yield replay
+    replay.finalize()
+
+
+# Recorded HTTP exchanges ----------------------------------------------------------------
+# A test using `http_cassette` has every HTTP request it makes, through httpx, requests or
+# urllib alike, answered from a vcrpy cassette: `<CASSETTES_DIR>/<test module>/<test
+# name>.yaml`, a recording of what the third party really sent. Replay is the default in
+# every gate and CI run, under `no_network`, and is strict: a request the cassette lacks
+# (matched on method, scheme, host, path and query) is refused by vcrpy before anything
+# reaches the network, and the test fails naming the cassette and the command that
+# re-records, even when the code under test swallows the error. The cassette is also
+# required to be used up, so a recording the code no longer asks for does not linger.
+#
+# Record is operator-run: PRISMIS_RECORD_HTTP=1 sends the requests for real and writes a
+# fresh cassette. A credential never reaches a cassette: request Authorization and Cookie
+# headers are dropped, response Set-Cookie headers are dropped, and the value of any
+# `access_token` field in a response body is replaced (`scrub_response`).
+HTTP_CASSETTES_DIR = Path(__file__).parent / "fixtures" / "http_cassettes"
+RECORD_HTTP_ENV = "PRISMIS_RECORD_HTTP"
+SCRUBBED_REQUEST_HEADERS = ("Authorization", "Cookie", "Set-Cookie")
+SCRUBBED_RESPONSE_HEADERS = ("set-cookie", "authorization", "cookie")
+ACCESS_TOKEN_PLACEHOLDER = "<scrubbed-access-token>"
+_ACCESS_TOKEN = re.compile(rb'("access_token"\s*:\s*")[^"]*(")')
+
+
+def scrub_response(response: dict[str, Any]) -> dict[str, Any]:
+    """vcrpy's `before_record_response` hook: no cookie or token reaches the cassette."""
+    headers = response.get("headers", {})
+    for name in list(headers):
+        if name.lower() in SCRUBBED_RESPONSE_HEADERS:
+            del headers[name]
+    body = response.get("body", {}).get("string")
+    if isinstance(body, bytes):
+        response["body"]["string"] = _ACCESS_TOKEN.sub(
+            rb"\1" + ACCESS_TOKEN_PLACEHOLDER.encode() + rb"\2", body
+        )
+    return response
+
+
+def make_vcr(record: bool) -> vcr.VCR:
+    """The vcrpy configuration every cassette in this suite is written and read with."""
+    return vcr.VCR(
+        record_mode="once" if record else "none",
+        match_on=("method", "scheme", "host", "path", "query"),
+        filter_headers=SCRUBBED_REQUEST_HEADERS,
+        before_record_response=scrub_response,
+        decode_compressed_response=True,
+        # FastAPI's TestClient is an httpx client addressed to this made-up host; the
+        # request never leaves the process, so it is the one request left alone.
+        ignore_hosts=("testserver",),
+    )
+
+
+class HttpCassette:
+    """One test's cassette: where it lives, how to re-record it, what it refused."""
+
+    def __init__(self, path: Path, nodeid: str, recording: bool) -> None:
+        self.path = path
+        self.recording = recording
+        self.failures: list[str] = []
+        self.command = f"cd daemon && {RECORD_HTTP_ENV}=1 uv run pytest {nodeid}"
+        self.cassette: Any = None
+
+    def finalize(self) -> None:
+        """Fail the test if a request was refused, or the cassette was not used up.
+
+        A refusal the code under test swallowed still fails here. A test that provoked
+        one on purpose asserts on `failures` and clears it first.
+        """
+        if self.recording:
+            return
+        if self.failures:
+            pytest.fail(
+                "recorded HTTP replay failed:\n" + "\n".join(self.failures),
+                pytrace=False,
+            )
+        if not self.path.exists():
+            pytest.fail(
+                f"No HTTP cassette exists at {self.path}.\n"
+                f"Re-record with: {self.command}",
+                pytrace=False,
+            )
+        if not self.cassette.all_played:
+            pytest.fail(
+                f"The test did not make every request recorded in {self.path}.\n"
+                f"Re-record with: {self.command}",
+                pytrace=False,
+            )
+
+
+@pytest.fixture
+def http_cassettes_dir() -> Path:
+    """Where cassettes live. A test module may override this to use its own dir."""
+    return HTTP_CASSETTES_DIR
+
+
+@pytest.fixture
+def http_cassette(
+    request: pytest.FixtureRequest,
+    http_cassettes_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[HttpCassette]:
+    """Serve the test's HTTP requests from its cassette.
+
+    Replay runs under `no_network`, so a request that escapes the cassette is stopped
+    by the dead proxy as well as refused by vcrpy. Record (PRISMIS_RECORD_HTTP=1) does
+    not, and starts the test's cassette afresh.
+    """
+    recording = bool(os.environ.get(RECORD_HTTP_ENV))
+    path = http_cassettes_dir / request.module.__name__ / f"{request.node.name}.yaml"
+    handle = HttpCassette(path, request.node.nodeid, recording)
+    if recording:
+        path.unlink(missing_ok=True)
+    else:
+        request.getfixturevalue("no_network")
+
+    real_init = vcr.errors.CannotOverwriteExistingCassetteException.__init__
+
+    def init_naming_command(
+        self: vcr.errors.CannotOverwriteExistingCassetteException,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        real_init(self, *args, **kwargs)
+        message = f"{self.args[0]}\nRe-record with: {handle.command}"
+        self.args = (message,)
+        handle.failures.append(message)
+
+    monkeypatch.setattr(
+        vcr.errors.CannotOverwriteExistingCassetteException,
+        "__init__",
+        init_naming_command,
+    )
+    with make_vcr(recording).use_cassette(str(path)) as cassette:
+        handle.cassette = cassette
+        yield handle
+    handle.finalize()
+
+
+@pytest.fixture
+def reddit_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Reddit credentials a cassette test runs with.
+
+    Replay sends placeholders: a cassette matches on URL, never on a credential, so the
+    recorded exchange does not depend on one. Record needs the operator's real pair in
+    the environment (REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET).
+    """
+    if os.environ.get(RECORD_HTTP_ENV):
+        if not (os.environ.get("REDDIT_CLIENT_ID") and os.environ.get("REDDIT_CLIENT_SECRET")):
+            pytest.fail(
+                "Recording a Reddit cassette needs REDDIT_CLIENT_ID and "
+                "REDDIT_CLIENT_SECRET in the environment (cerebro holds them).",
+                pytrace=False,
+            )
+        return
+    monkeypatch.setenv("REDDIT_CLIENT_ID", "prismis-recorded-client-id")
+    monkeypatch.setenv("REDDIT_CLIENT_SECRET", "prismis-recorded-client-secret")
+
+
+class LocalHttpServer:
+    """A loopback HTTP server a test scripts; `requests` lists what it was asked."""
+
+    def __init__(self, base_url: str, routes: dict[str, tuple[int, str, bytes]]) -> None:
+        self.base_url = base_url
+        self.routes = routes
+        self.requests: list[str] = []
+
+
+@pytest.fixture
+def local_http_server() -> Iterator[LocalHttpServer]:
+    """A loopback HTTP server whose routes the test sets: path -> (status, type, body).
+
+    For failure modes a recording cannot reproduce, such as a 429 or a page that is not
+    a feed: the code under test makes a real request to this, and nothing stands in for
+    it. An unknown path answers 404.
+    """
+    import http.server
+
+    routes: dict[str, tuple[int, str, bytes]] = {}
+    served: list[str] = []
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            served.append(self.path)
+            status, content_type, body = routes.get(
+                self.path.split("?")[0], (404, "text/plain", b"not found")
+            )
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address[0], server.server_address[1]
+    handle = LocalHttpServer(f"http://{host!s}:{port}", routes)
+    handle.requests = served
+    try:
+        yield handle
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
 
 
 LOCAL_LIGHT_SERVICE = "prismis-verify-stub"

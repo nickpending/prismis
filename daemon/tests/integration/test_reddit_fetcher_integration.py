@@ -1,18 +1,26 @@
-"""Integration tests for RedditFetcher with real Reddit API."""
+"""Integration tests for RedditFetcher against recorded Reddit API answers.
 
-import os
+Reddit's OAuth handshake, its listing responses and the outbound link pages the fetcher
+extracts are replayed from a vcrpy cassette (`http_cassette` fixture, conftest.py) under
+`no_network`, recorded once from the real service with the credentials of the host that
+holds them. The cassette keeps no credential: the Authorization and Set-Cookie headers
+are dropped and the token the handshake returned is replaced. Re-record with
+PRISMIS_RECORD_HTTP=1 (see docs/architecture/boundaries.md).
+"""
 
 import pytest
+from conftest import make_config
 from prismis_daemon.fetchers.reddit import RedditFetcher
 from prismis_daemon.models import ContentItem
-from prismis_daemon.config import Config
+
+pytestmark = pytest.mark.usefixtures("reddit_credentials", "http_cassette")
+
+# The recorded posts age every day the cassette is kept, and the fetcher drops posts older
+# than the lookback, so the lookback is far wider than the recording will ever be old.
+# What is under test is fetching, filtering and shaping, not the cutoff.
+RECORDED_LOOKBACK_DAYS = 36500
 
 
-@pytest.mark.skipif(
-    not os.environ.get("REDDIT_CLIENT_ID"),
-    reason="Requires Reddit OAuth credentials (REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET); "
-    "PRAW returns 401 without them. Tracked: gh #60",
-)
 def test_fetch_reddit_with_real_api() -> None:
     """Test complete Reddit fetching workflow with real API.
 
@@ -22,14 +30,13 @@ def test_fetch_reddit_with_real_api() -> None:
     - Filters out image posts
     - Returns proper ContentItem objects
     """
-    # Load config with Reddit credentials
-    config = Config.from_file()
+    config = make_config(max_days_lookback=RECORDED_LOOKBACK_DAYS)
     fetcher = RedditFetcher(max_items=3, config=config)
 
     # Use a stable subreddit for testing
     source = {"url": "https://reddit.com/r/python", "id": "test-source-123"}
 
-    # Fetch content - this makes real API calls
+    # Fetch content - the recorded API answers
     items = fetcher.fetch_content(source)
 
     # Verify we got items back
@@ -37,47 +44,41 @@ def test_fetch_reddit_with_real_api() -> None:
     assert len(items) <= 3  # Should respect max_items
 
     # Verify first item has all required fields
-    if items:
-        first_item = items[0]
-        assert isinstance(first_item, ContentItem)
-        assert first_item.source_id == "test-source-123"
-        assert first_item.external_id is not None
-        assert first_item.external_id.startswith("https://reddit.com/r/")
-        assert first_item.title is not None
-        assert len(first_item.title) > 0
-        assert first_item.url is not None
-        assert first_item.url.startswith("https://reddit.com")
+    first_item = items[0]
+    assert isinstance(first_item, ContentItem)
+    assert first_item.source_id == "test-source-123"
+    assert first_item.external_id is not None
+    assert first_item.external_id.startswith("https://reddit.com/r/")
+    assert first_item.title is not None
+    assert len(first_item.title) > 0
+    assert first_item.url is not None
+    assert first_item.url.startswith("https://reddit.com")
 
-        # Verify content was extracted
-        assert first_item.content is not None
-        assert len(first_item.content) > 0
+    # Verify content was extracted
+    assert first_item.content is not None
+    assert len(first_item.content) > 0
 
-        # Verify metrics were extracted
-        assert first_item.analysis is not None
-        assert "metrics" in first_item.analysis
-        metrics = first_item.analysis["metrics"]
-        assert "score" in metrics
-        assert "upvote_ratio" in metrics
-        assert "num_comments" in metrics
-        assert "author" in metrics
-        assert "subreddit" in metrics
+    # Verify metrics were extracted
+    assert first_item.analysis is not None
+    assert "metrics" in first_item.analysis
+    metrics = first_item.analysis["metrics"]
+    assert "score" in metrics
+    assert "upvote_ratio" in metrics
+    assert "num_comments" in metrics
+    assert "author" in metrics
+    assert "subreddit" in metrics
 
-        # Verify fetched_at was set
-        assert first_item.fetched_at is not None
+    # Verify fetched_at was set
+    assert first_item.fetched_at is not None
 
-        # Verify consistent external IDs (no duplicates)
-        external_ids = [item.external_id for item in items]
-        assert len(external_ids) == len(set(external_ids))
+    # Verify consistent external IDs (no duplicates)
+    external_ids = [item.external_id for item in items]
+    assert len(external_ids) == len(set(external_ids))
 
 
-@pytest.mark.skipif(
-    not os.environ.get("REDDIT_CLIENT_ID"),
-    reason="Requires Reddit OAuth credentials (REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET); "
-    "PRAW returns 401 without them. Tracked: gh #60",
-)
 def test_fetch_reddit_handles_invalid_subreddit() -> None:
     """Test fetcher handles invalid subreddit gracefully."""
-    config = Config.from_file()
+    config = make_config(max_days_lookback=RECORDED_LOOKBACK_DAYS)
     fetcher = RedditFetcher(config=config)
 
     # Try to fetch from non-existent subreddit
@@ -93,14 +94,9 @@ def test_fetch_reddit_handles_invalid_subreddit() -> None:
     assert "Failed to fetch Reddit content" in str(exc_info.value)
 
 
-@pytest.mark.skipif(
-    not os.environ.get("REDDIT_CLIENT_ID"),
-    reason="Requires Reddit OAuth credentials (REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET); "
-    "PRAW returns 401 without them. Tracked: gh #60",
-)
 def test_fetch_reddit_respects_max_items() -> None:
     """Test fetcher respects max_items configuration."""
-    config = Config.from_file()
+    config = make_config(max_days_lookback=RECORDED_LOOKBACK_DAYS)
     fetcher = RedditFetcher(max_items=1, config=config)
 
     source = {"url": "r/python", "id": "test-id"}
@@ -109,14 +105,9 @@ def test_fetch_reddit_respects_max_items() -> None:
     assert len(items) <= 1
 
 
-@pytest.mark.skipif(
-    not os.environ.get("REDDIT_CLIENT_ID"),
-    reason="Requires Reddit OAuth credentials (REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET); "
-    "PRAW returns 401 without them. Tracked: gh #60",
-)
 def test_fetch_reddit_filters_image_posts() -> None:
     """Test that image posts are filtered out."""
-    config = Config.from_file()
+    config = make_config(max_days_lookback=RECORDED_LOOKBACK_DAYS)
     fetcher = RedditFetcher(max_items=10, config=config)
 
     # Use a subreddit that has mix of text and image posts
@@ -136,14 +127,9 @@ def test_fetch_reddit_filters_image_posts() -> None:
                 )
 
 
-@pytest.mark.skipif(
-    not os.environ.get("REDDIT_CLIENT_ID"),
-    reason="Requires Reddit OAuth credentials (REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET); "
-    "PRAW returns 401 without them. Tracked: gh #60",
-)
 def test_fetch_reddit_handles_various_url_formats() -> None:
     """Test that various Reddit URL formats are parsed correctly."""
-    config = Config.from_file()
+    config = make_config(max_days_lookback=RECORDED_LOOKBACK_DAYS)
     fetcher = RedditFetcher(max_items=1, config=config)
 
     url_formats = ["https://reddit.com/r/python", "r/python", "python"]

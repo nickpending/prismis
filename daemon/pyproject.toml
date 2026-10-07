@@ -65,6 +65,7 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "ruff",
+    "vcrpy>=8.3.0",
 ]
 
 [tool.ruff]
@@ -102,7 +103,7 @@ exclude = ["^scripts/", "^\\.venv/"]
 
 # These ship no type information and have no stubs package; their calls are unchecked.
 [[tool.mypy.overrides]]
-module = ["apscheduler.*", "feedparser", "praw", "praw.*", "prawcore", "prawcore.*", "sqlite_vec"]
+module = ["apscheduler.*", "feedparser", "praw", "praw.*", "prawcore", "prawcore.*", "sqlite_vec", "vcr", "vcr.*"]
 ignore_missing_imports = true
 
 [tool.uv.sources]

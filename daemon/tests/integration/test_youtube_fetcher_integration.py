@@ -1,6 +1,9 @@
-"""Integration tests for YouTubeFetcher with real YouTube API and yt-dlp."""
+"""Integration tests for YouTubeFetcher against recorded yt-dlp output.
 
-import os
+Every yt-dlp call the fetcher makes is answered from a recording of what the real yt-dlp
+printed and wrote (`ytdlp_replay` fixture, conftest.py), under `no_network`. Re-record
+with PRISMIS_RECORD_YTDLP=1 (see docs/architecture/boundaries.md).
+"""
 
 import tempfile
 from pathlib import Path
@@ -8,9 +11,8 @@ from pathlib import Path
 import pytest
 
 from prismis_daemon.config import Config
-from prismis_daemon.fetchers.youtube import YouTubeFetcher
 from prismis_daemon.models import ContentItem
-from conftest import make_config
+from conftest import YtdlpReplay, make_config
 
 # Minimal valid config TOML — light_service= format (task 1.1).
 # YouTubeFetcher only needs max_items and max_days_lookback; no real credentials required.
@@ -65,13 +67,7 @@ def _make_config() -> Config:
         return Config.from_file(config_path)
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
-    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
-    "Tracked: gh #60.",
-)
-def test_fetch_youtube_with_real_api() -> None:
+def test_fetch_youtube_with_real_api(ytdlp_replay: YtdlpReplay) -> None:
     """Test complete YouTube fetching workflow with real yt-dlp and YouTube API.
 
     This test:
@@ -81,60 +77,53 @@ def test_fetch_youtube_with_real_api() -> None:
     - Returns proper ContentItem objects with all fields
     """
     config = _make_config()
-    fetcher = YouTubeFetcher(max_items=1, config=config)
+    fetcher = ytdlp_replay.fetcher(max_items=1, config=config)
 
     # Use a stable YouTube channel for testing - @LexClips posts frequently
     source = {"url": "@LexClips", "id": "test-source-123"}
 
-    # Fetch content - this makes real yt-dlp calls to YouTube
+    # Fetch content - the recorded yt-dlp calls
     items = fetcher.fetch_content(source)
 
-    # Verify we got items back (might be 0 if no videos in date range)
+    # The recording holds one video
     assert isinstance(items, list)
-    assert len(items) <= 1  # Should respect max_items
+    assert len(items) == 1  # Should respect max_items
 
-    # If we got items, verify they have all required fields
-    if items:
-        first_item = items[0]
-        assert isinstance(first_item, ContentItem)
-        assert first_item.source_id == "test-source-123"
-        assert first_item.external_id is not None
-        assert first_item.external_id.startswith("https://www.youtube.com/watch?v=")
-        assert first_item.title is not None
-        assert len(first_item.title) > 0
-        assert first_item.url is not None
-        assert first_item.url.startswith("https://www.youtube.com/watch?v=")
+    # Verify the item has all required fields
+    first_item = items[0]
+    assert isinstance(first_item, ContentItem)
+    assert first_item.source_id == "test-source-123"
+    assert first_item.external_id is not None
+    assert first_item.external_id.startswith("https://www.youtube.com/watch?v=")
+    assert first_item.title is not None
+    assert len(first_item.title) > 0
+    assert first_item.url is not None
+    assert first_item.url.startswith("https://www.youtube.com/watch?v=")
 
-        # Verify content was extracted (transcript or fallback message)
-        assert first_item.content is not None
-        assert len(first_item.content) > 0
+    # Verify content was extracted (transcript or fallback message)
+    assert first_item.content is not None
+    assert len(first_item.content) > 0
 
-        # Verify metrics were extracted
-        assert first_item.analysis is not None
-        assert "metrics" in first_item.analysis
-        metrics = first_item.analysis["metrics"]
-        assert "video_id" in metrics
-        assert "view_count" in metrics
-        assert "duration" in metrics
+    # Verify metrics were extracted
+    assert first_item.analysis is not None
+    assert "metrics" in first_item.analysis
+    metrics = first_item.analysis["metrics"]
+    assert "video_id" in metrics
+    assert "view_count" in metrics
+    assert "duration" in metrics
 
-        # Verify fetched_at was set
-        assert first_item.fetched_at is not None
+    # Verify fetched_at was set
+    assert first_item.fetched_at is not None
 
-        # Verify consistent external IDs (no duplicates)
-        external_ids = [item.external_id for item in items]
-        assert len(external_ids) == len(set(external_ids))
+    # Verify consistent external IDs (no duplicates)
+    external_ids = [item.external_id for item in items]
+    assert len(external_ids) == len(set(external_ids))
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
-    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
-    "Tracked: gh #60.",
-)
-def test_fetch_youtube_handles_invalid_channel() -> None:
+def test_fetch_youtube_handles_invalid_channel(ytdlp_replay: YtdlpReplay) -> None:
     """Test fetcher handles invalid YouTube channel gracefully."""
     config = make_config()
-    fetcher = YouTubeFetcher(config=config)
+    fetcher = ytdlp_replay.fetcher(config=config)
 
     # Try to fetch from non-existent channel
     source = {
@@ -150,16 +139,10 @@ def test_fetch_youtube_handles_invalid_channel() -> None:
     assert len(items) == 0
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
-    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
-    "Tracked: gh #60.",
-)
-def test_fetch_youtube_respects_max_items() -> None:
+def test_fetch_youtube_respects_max_items(ytdlp_replay: YtdlpReplay) -> None:
     """Test fetcher respects max_items configuration."""
     config = make_config()
-    fetcher = YouTubeFetcher(max_items=1, config=config)
+    fetcher = ytdlp_replay.fetcher(max_items=1, config=config)
 
     source = {"url": "@LexClips", "id": "test-id"}
 
@@ -167,19 +150,13 @@ def test_fetch_youtube_respects_max_items() -> None:
     assert len(items) <= 1
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
-    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
-    "Tracked: gh #60.",
-)
-def test_fetch_youtube_respects_date_range() -> None:
+def test_fetch_youtube_respects_date_range(ytdlp_replay: YtdlpReplay) -> None:
     """Test fetcher only gets videos from configured date range."""
     # Use very short date range to limit results
     config = make_config()
     config.max_days_lookback = 1  # Only videos from yesterday
 
-    fetcher = YouTubeFetcher(max_items=10, config=config)
+    fetcher = ytdlp_replay.fetcher(max_items=10, config=config)
 
     source = {"url": "@LexClips", "id": "test-id"}
 
@@ -190,16 +167,10 @@ def test_fetch_youtube_respects_date_range() -> None:
     assert isinstance(items, list)
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
-    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
-    "Tracked: gh #60.",
-)
-def test_fetch_youtube_handles_various_url_formats() -> None:
+def test_fetch_youtube_handles_various_url_formats(ytdlp_replay: YtdlpReplay) -> None:
     """Test that various YouTube channel URL formats work correctly."""
     config = make_config()
-    fetcher = YouTubeFetcher(max_items=1, config=config)
+    fetcher = ytdlp_replay.fetcher(max_items=1, config=config)
 
     # Test different URL formats that should all work
     url_formats = [
@@ -219,16 +190,10 @@ def test_fetch_youtube_handles_various_url_formats() -> None:
             pytest.fail(f"Failed to fetch from URL format '{url}': {e}")
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
-    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
-    "Tracked: gh #60.",
-)
-def test_extract_transcript_from_specific_video() -> None:
+def test_extract_transcript_from_specific_video(ytdlp_replay: YtdlpReplay) -> None:
     """Test transcript extraction from a specific video with known transcript."""
     config = make_config()
-    fetcher = YouTubeFetcher(config=config)
+    fetcher = ytdlp_replay.fetcher(config=config)
 
     # Use a known video that should have transcripts
     # This is a popular tech talk that typically has captions
@@ -236,75 +201,45 @@ def test_extract_transcript_from_specific_video() -> None:
         "https://www.youtube.com/watch?v=dQw4w9WgXcQ"  # Rick Roll - has captions
     )
 
-    try:
-        transcript = fetcher._extract_transcript(video_url).text
+    transcript = fetcher._extract_transcript(video_url).text
 
-        if transcript:
-            # If transcript was extracted, verify it's reasonable
-            assert len(transcript) > 50  # Should have substantial content
-            assert isinstance(transcript, str)
-            # Should not contain VTT formatting
-            assert "WEBVTT" not in transcript
-            assert "-->" not in transcript
-        else:
-            # It's OK if transcript not available - video might not have captions
-            # This tests that the method handles missing transcripts gracefully
-            pass
-
-    except Exception as e:
-        # If extraction fails, it should be a reasonable error
-        assert "timed out" in str(e) or "not available" in str(e) or "failed" in str(e)
+    # The recorded video has captions, so the transcript is extracted
+    assert transcript is not None
+    assert len(transcript) > 50  # Should have substantial content
+    assert isinstance(transcript, str)
+    # Should not contain VTT formatting
+    assert "WEBVTT" not in transcript
+    assert "-->" not in transcript
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
-    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
-    "Tracked: gh #60.",
-)
-def test_channel_url_normalization_integration() -> None:
+def test_channel_url_normalization_integration(ytdlp_replay: YtdlpReplay) -> None:
     """Test that URL normalization works in complete fetching workflow."""
     config = make_config()
-    fetcher = YouTubeFetcher(max_items=1, config=config)
+    fetcher = ytdlp_replay.fetcher(max_items=1, config=config)
 
     # Test that different URL formats for same channel work
     test_urls = ["@LexClips", "LexClips"]
 
-    results: list[tuple[str, int | str]] = []
-    for url in test_urls:
-        try:
-            source = {"url": url, "id": f"test-{url}"}
-            items = fetcher.fetch_content(source)
-            results.append((url, len(items)))
-        except Exception as e:
-            results.append((url, f"Error: {e}"))
+    counts = {
+        url: len(fetcher.fetch_content({"url": url, "id": f"test-{url}"}))
+        for url in test_urls
+    }
 
-    # Both formats should work (though may return different counts based on timing)
-    for _url, result in results:
-        if isinstance(result, int):
-            assert result >= 0  # Should not fail
-        else:
-            # If it failed, should be a reasonable error
-            assert "Error:" in str(result)
+    # Both formats reach the same channel, so the recorded discovery answers both
+    assert counts["@LexClips"] == counts["LexClips"] >= 1
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Fetches live third-party endpoints on every run, so the gate's result depends "
-    "on a third party rather than on this code. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run. "
-    "Tracked: gh #60.",
-)
-def test_youtube_fetcher_date_filtering() -> None:
+def test_youtube_fetcher_date_filtering(ytdlp_replay: YtdlpReplay) -> None:
     """Test that date filtering works correctly in video discovery."""
     # Create fetcher with very restrictive date range
     config = make_config()
     config.max_days_lookback = 1  # Only videos from last day
-    fetcher_recent = YouTubeFetcher(max_items=1, config=config)
+    fetcher_recent = ytdlp_replay.fetcher(max_items=1, config=config)
 
     # Create fetcher with longer date range
     config_long = make_config()
     config_long.max_days_lookback = 30  # Videos from last 30 days
-    fetcher_long = YouTubeFetcher(max_items=1, config=config_long)
+    fetcher_long = ytdlp_replay.fetcher(max_items=1, config=config_long)
 
     source = {"url": "@LexClips", "id": "test-id"}
 

@@ -1,7 +1,6 @@
 """Integration tests for REST API - protecting invariants and handling failures."""
 
 import asyncio
-import os
 import re
 import time
 from pathlib import Path
@@ -58,15 +57,12 @@ def test_api_auth_required(api_client: TestClient) -> None:
     assert response.status_code == 200
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS"),
-    reason="Adds sources through POST /api/sources, which validates the rss row against "
-    "a live third-party feed. Set PRISMIS_LIVE_NETWORK_TESTS=1 to run.",
-)
+@pytest.mark.usefixtures("http_cassette")
 def test_url_normalization(api_client: TestClient, test_db: Path) -> None:
     """
     INVARIANT: Special protocol URLs must be normalized to real URLs
     BREAKS: Fetchers expect real URLs, not protocol URLs
+    NOTE: The rss row's validation fetch is answered from the recorded feed.
     NOTE: The reddit rows moved to the companion test below. Reddit validation now needs
           credentials, so on a host without them the credential gate refuses the source
           and the add returns a 422 — which would read here as a normalization failure.
@@ -108,14 +104,7 @@ def test_url_normalization(api_client: TestClient, test_db: Path) -> None:
         assert source["url"] == expected_url, "Database should store normalized URL"
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_NETWORK_TESTS")
-    or not os.environ.get("REDDIT_CLIENT_ID")
-    or not os.environ.get("REDDIT_CLIENT_SECRET"),
-    reason="Adds reddit sources through POST /api/sources, which now probes Reddit's "
-    "authenticated API. Set PRISMIS_LIVE_NETWORK_TESTS=1 and BOTH REDDIT_CLIENT_ID and "
-    "REDDIT_CLIENT_SECRET to run.",
-)
+@pytest.mark.usefixtures("reddit_credentials", "http_cassette")
 def test_url_normalization_reddit(api_client: TestClient, test_db: Path) -> None:
     """
     INVARIANT: reddit:// URLs are normalized to real URLs on the way into the database
@@ -169,7 +158,7 @@ def test_source_type_validation_blocks_invalid(
     invalid_sources = [
         # These should all be rejected
         ("not-a-url", "rss"),
-        ("https://definitely-not-a-real-domain-12345.com/feed.xml", "rss"),
+        ("https://no-such-host.invalid/feed.xml", "rss"),
         ("reddit://", "reddit"),  # Empty subreddit
         ("youtube://", "youtube"),  # Empty channel
         (

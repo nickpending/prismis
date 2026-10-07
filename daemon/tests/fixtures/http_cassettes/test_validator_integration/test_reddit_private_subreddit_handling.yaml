@@ -1,0 +1,143 @@
+interactions:
+- request:
+    body: grant_type=client_credentials
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - close
+      Content-Length:
+      - '29'
+      Content-Type:
+      - application/x-www-form-urlencoded
+      User-Agent:
+      - prismis:local:v1.0 (by /u/prismis) PRAW/7.8.1 prawcore/2.4.0
+    method: POST
+    uri: https://www.reddit.com/api/v1/access_token
+  response:
+    body:
+      string: '{"access_token": "<scrubbed-access-token>", "token_type": "bearer",
+        "expires_in": 86400, "scope": "*"}'
+    headers:
+      Accept-Ranges:
+      - bytes
+      Connection:
+      - close
+      Date:
+      - Wed, 07 Oct 2026 13:59:36 GMT
+      NEL:
+      - '{"report_to": "w3-reporting-nel", "max_age": 14400, "include_subdomains":
+        false, "success_fraction": 1.0, "failure_fraction": 1.0}'
+      Report-To:
+      - '{"group": "w3-reporting-nel", "max_age": 14400, "include_subdomains": true,  "endpoints":
+        [{ "url": "https://w3-reporting-nel.reddit.com/reports" }]}, {"group": "w3-reporting",
+        "max_age": 14400, "include_subdomains": true, "endpoints": [{ "url": "https://w3-reporting.reddit.com/reports"
+        }]}, {"group": "w3-reporting-csp", "max_age": 14400, "include_subdomains":
+        true, "endpoints": [{ "url": "https://w3-reporting-csp.reddit.com/reports"
+        }]}'
+      Server:
+      - snooserv
+      Strict-Transport-Security:
+      - max-age=31536000; includeSubdomains
+      Vary:
+      - accept-encoding
+      Via:
+      - 1.1 varnish
+      X-Content-Type-Options:
+      - nosniff
+      X-Frame-Options:
+      - SAMEORIGIN
+      X-XSS-Protection:
+      - 1; mode=block
+      cache-control:
+      - private, s-maxage=0, max-age=0, must-revalidate, no-store
+      content-length:
+      - '866'
+      content-type:
+      - application/json; charset=UTF-8
+      expires:
+      - '-1'
+      server-timing:
+      - reddit-ct;desc="dn=FT,p=BUR,cs=MISS"
+      x-reddit-loid:
+      - 000000002od4jth3ls.2.1791381576084.Z0FBQUFBQnF4bEJJR2tKNk56TVo2NjZOeENCSlVBUXdMd2lLMXcwbU91cHJRbUpRSGhROUFpZlNQZk5ZbHhVSk14VEJiUDNUUm1wUnRjQTJzb2M4VVVCcVFvWVhkY0c0Wm9xRnNwZldfWlBHZmg2OER4dUFXa0l2eVpZNFdOTDZzQVhSWmtCdHp1RmM
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - prismis:local:v1.0 (by /u/prismis) PRAW/7.8.1 prawcore/2.4.0
+    method: GET
+    uri: https://oauth.reddit.com/r/lounge/about/?raw_json=1
+  response:
+    body:
+      string: '{"reason": "gold_only", "message": "Forbidden", "error": 403}'
+    headers:
+      Accept-Ranges:
+      - bytes
+      Connection:
+      - keep-alive
+      Date:
+      - Wed, 07 Oct 2026 13:59:36 GMT
+      NEL:
+      - '{"report_to": "w3-reporting-nel", "max_age": 14400, "include_subdomains":
+        false, "success_fraction": 1.0, "failure_fraction": 1.0}'
+      Report-To:
+      - '{"group": "w3-reporting-nel", "max_age": 14400, "include_subdomains": true,  "endpoints":
+        [{ "url": "https://w3-reporting-nel.reddit.com/reports" }]}, {"group": "w3-reporting",
+        "max_age": 14400, "include_subdomains": true, "endpoints": [{ "url": "https://w3-reporting.reddit.com/reports"
+        }]}, {"group": "w3-reporting-csp", "max_age": 14400, "include_subdomains":
+        true, "endpoints": [{ "url": "https://w3-reporting-csp.reddit.com/reports"
+        }]}'
+      Server:
+      - snooserv
+      Strict-Transport-Security:
+      - max-age=31536000; includeSubdomains
+      Vary:
+      - Accept-Encoding
+      Via:
+      - 1.1 varnish
+      X-Content-Type-Options:
+      - nosniff
+      X-Frame-Options:
+      - SAMEORIGIN
+      X-XSS-Protection:
+      - 1; mode=block
+      access-control-allow-origin:
+      - '*'
+      access-control-expose-headers:
+      - X-Moose
+      cache-control:
+      - private, s-maxage=0, max-age=0, must-revalidate, no-store
+      content-length:
+      - '61'
+      content-type:
+      - application/json; charset=UTF-8
+      expires:
+      - '-1'
+      server-timing:
+      - reddit-ct;desc="dn=FT,p=BUR,cs=MISS"
+      transfer-encoding:
+      - chunked
+      x-ratelimit-remaining:
+      - '997.0'
+      x-ratelimit-reset:
+      - '23'
+      x-ratelimit-used:
+      - '3'
+      x-ua-compatible:
+      - IE=edge
+    status:
+      code: 403
+      message: Forbidden
+version: 1

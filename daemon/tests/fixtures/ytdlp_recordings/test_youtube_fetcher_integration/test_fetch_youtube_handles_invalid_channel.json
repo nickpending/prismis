@@ -1,0 +1,24 @@
+[
+  {
+    "args": [
+      "--ignore-config",
+      "--simulate",
+      "--playlist-end",
+      "10",
+      "--print",
+      "%(.{id,title,duration,upload_date,view_count,webpage_url})j",
+      "--socket-timeout",
+      "120",
+      "--retries",
+      "3",
+      "--break-match-filters",
+      "upload_date>=<date>",
+      "--",
+      "https://www.youtube.com/@thisChannelDoesNotExist123456789"
+    ],
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "WARNING: [youtube:tab] HTTP Error 404: Not Found. Retrying (1/3)...\nWARNING: [youtube:tab] HTTP Error 404: Not Found. Retrying (2/3)...\nWARNING: [youtube:tab] HTTP Error 404: Not Found. Retrying (3/3)...\nWARNING: [youtube:tab] @thisChannelDoesNotExist123456789: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>). Giving up after 3 retries\nWARNING: [youtube:tab] YouTube said: ERROR - Requested entity was not found.\nWARNING: [youtube:tab] HTTP Error 404: Not Found. Retrying (1/3)...\nWARNING: [youtube:tab] YouTube said: ERROR - Requested entity was not found.\nWARNING: [youtube:tab] HTTP Error 404: Not Found. Retrying (2/3)...\nWARNING: [youtube:tab] YouTube said: ERROR - Requested entity was not found.\nWARNING: [youtube:tab] HTTP Error 404: Not Found. Retrying (3/3)...\nWARNING: [youtube:tab] YouTube said: ERROR - Requested entity was not found.\nERROR: [youtube:tab] @thisChannelDoesNotExist123456789: Unable to download API page: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)\n",
+    "files": {}
+  }
+]

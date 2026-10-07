@@ -230,8 +230,9 @@ class YouTubeFetcher:
             ).strftime("%Y%m%d")
             cmd.extend(["--break-match-filters", f"upload_date>={date_after}"])
 
-        # Add URL as last argument
-        cmd.append(channel_url)
+        # The URL goes last, after "--", so yt-dlp can never parse it as an option
+        # (gh #24).
+        cmd.extend(["--", channel_url])
 
         logger.info("Running yt-dlp discovery command...")
         logger.debug(f"Full command: {' '.join(cmd)}")
@@ -395,6 +396,7 @@ class YouTubeFetcher:
                 "--no-warnings",
                 "--output",
                 str(temp_path / "%(id)s.%(ext)s"),
+                "--",  # end of options: the URL is never read as one (gh #24)
                 video_url,
             ]
 

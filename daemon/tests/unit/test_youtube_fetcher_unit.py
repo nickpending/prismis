@@ -1,7 +1,9 @@
 """Unit tests for YouTubeFetcher logic functions."""
 
+import json
 import subprocess
 import sys
+from pathlib import Path
 
 from prismis_daemon.fetchers.youtube import YouTubeFetcher
 from prismis_daemon.models import ContentItem
@@ -511,3 +513,31 @@ def test_process_video_stores_the_transcript_outcome_beside_metrics(tmp_path) ->
     assert limited.analysis["fetch_outcome"]["outcome"] == "fetch_failed"
     assert "429" in limited.analysis["fetch_outcome"]["detail"]
     assert "metrics" in limited.analysis
+
+
+def _argv_recording_yt_dlp_cmd(tmp_path) -> tuple[list[str], Path]:
+    """A stand-in for yt-dlp that records its argv as JSON and prints nothing."""
+    record = tmp_path / "argv.json"
+    script = tmp_path / "recording_yt_dlp.py"
+    script.write_text(
+        "import json, sys\n"
+        f"open({str(record)!r}, 'w').write(json.dumps(sys.argv[1:]))\n"
+    )
+    return [sys.executable, str(script)], record
+
+
+def test_yt_dlp_never_reads_a_url_as_an_option(tmp_path) -> None:
+    """gh #24: the URL is the last argument of both yt-dlp calls; one that starts
+    with '-' would be parsed as an option (yt-dlp has --exec). An end-of-options
+    marker right before it makes that impossible whatever the URL holds.
+    BREAKS: without the '--' marker the recorded argv ends in the bare URL."""
+    fetcher = YouTubeFetcher()
+    fetcher.yt_dlp_cmd, record = _argv_recording_yt_dlp_cmd(tmp_path)
+
+    fetcher._extract_transcript("--exec=touch-pwned")
+    transcript_argv = json.loads(record.read_text())
+    fetcher._discover_channel_videos("--exec=touch-pwned")
+    discovery_argv = json.loads(record.read_text())
+
+    for argv in (transcript_argv, discovery_argv):
+        assert argv[-2:] == ["--", "--exec=touch-pwned"]

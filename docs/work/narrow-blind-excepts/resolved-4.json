@@ -1,0 +1,9 @@
+{
+  "question": "cli/src/cli/remote.py's _load_remote_config returns (None, None) when config.toml exists but cannot be read or parsed, the same value as having no [remote] section, so the CLI silently talks to http://localhost:8989 with no key; how is that failure represented?",
+  "answer": "A missing config.toml stays (None, None), the genuine empty case already handled before the try; an existing file that cannot be read or parsed raises an error naming the file and the cause, so the command fails instead of silently using localhost with no key.",
+  "by": "evidence",
+  "evidence": {
+    "path": ".specify/memory/constitution.md",
+    "line": 47
+  }
+}

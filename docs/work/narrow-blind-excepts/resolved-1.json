@@ -1,0 +1,6 @@
+{
+  "question": "Several handlers turn a failure into a value a genuine empty result also produces (a count of 0, an empty list, no priority, zeroed diff stats), which constitution Principle II forbids; how is each one's failure represented so its caller can tell failure from empty, and does any of them need a stored or API-visible change?",
+  "answer": "Each failure raises to the boundary that already reports failure (count_unprioritized to the API's _server_error 500, _get_voted_articles to update_context's traceback-logging (False, \"Error\") return, a parse failure in _parse_evaluation_response through evaluate_content's re-raise to the per-item boundary, archival and backfill to APScheduler's job-exception log, an unreadable context.md out of Config.from_file, and the difflib catches are deleted), and the one item-level enrichment the item tolerates, Reddit comments, records its failure in the item's analysis JSON beside fetch_outcome, an additive key with no schema change.",
+  "by": "evidence",
+  "evidence": {"path": ".specify/memory/constitution.md", "line": 126}
+}

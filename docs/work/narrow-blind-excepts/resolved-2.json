@@ -1,0 +1,9 @@
+{
+  "question": "cli/pyproject.toml carries the identical blanket BLE001 suppression, whose comment cites #58, over 5 handlers (cli/src/cli/analyze.py 135, 244, 349; embeddings.py 157; remote.py 35); does this work order resolve them under the same four forms?",
+  "answer": "Yes: the CLI's suppression is tracked by #58 itself, so this work order deletes it and resolves its 5 handlers under the same four forms, and #58 closes only when both units gate on BLE001.",
+  "by": "evidence",
+  "evidence": {
+    "path": "cli/pyproject.toml",
+    "line": 57
+  }
+}

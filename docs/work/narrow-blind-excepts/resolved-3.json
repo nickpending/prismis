@@ -1,0 +1,9 @@
+{
+  "question": "The TUI's ExecutePrune (tui/internal/ui/operations/prune.go:58) discards PruneCount's error with `count, _ :=`, and PruneResultMsg.Count is never read by tui/internal/ui/model.go; once count_unprioritized raises into a 500, how does ExecutePrune treat that failure?",
+  "answer": "ExecutePrune stops calling PruneCount and PruneResultMsg drops its Count field: the result's only reader uses Error and Deleted (model.go's PruneResultMsg case), so the call whose error was discarded is dead, and the count the operator confirms comes from GetPruneCount, which already reports its error.",
+  "by": "evidence",
+  "evidence": {
+    "path": "tui/internal/ui/model.go",
+    "line": 969
+  }
+}

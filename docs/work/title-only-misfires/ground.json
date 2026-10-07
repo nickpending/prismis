@@ -1,0 +1,22 @@
+{
+  "impacted": [
+    {"path": "daemon/src/prismis_daemon/summarizer.py", "role": "the standard system prompt's SUBSTANTIVE paragraph (line 332), shared by standard, brief and detailed modes; the diff prompt's STEP 6 (line 399) serves file sources"},
+    {"path": "daemon/src/prismis_daemon/readability.py", "role": "`readability_failure` (line 120) runs the placeholder checks, the has-prose rule (`_word_count`, line 94, strips tags and bare URLs) and the JavaScript-wall rule; `_is_reddit_link_only` matches a link line with nothing after it"},
+    {"path": "daemon/src/prismis_daemon/fetchers/reddit.py", "role": "`_is_reddit_domain` (line 31) checks for 'reddit.com' or 'redd.it' in the url; `_to_content_item` builds 'Link: <url>' + self-text + article, then appends the discussion under the literal '\\n\\n## Discussion\\n\\n' (line 475)"}
+  ],
+  "constraints": [
+    {"tag": "RULE", "path": "docs/architecture/boundaries.md", "line": 56, "text": "Readability is judged by content shape with no length floor on its own; placeholder text is defined once in readability.py and imported by the writer."},
+    {"tag": "OBSERVED", "path": "cerebro:~/.local/share/prismis/prismis.db", "line": 1, "text": "Since the 2026-10-04 deploy: 7 items `model:not_substantive`, of which the Nobel physics announcement, llm-mistral 0.16 and datasette-atom 0.11a0 are real content; 50 Reddit link posts, 8 without an article (4 HTTP 403, 4 reddit-internal or galleries, one of them a relative crosspost url that raised ValueError)."},
+    {"tag": "OBSERVED", "path": "cerebro:~/.local/state/substantive_probe2.json", "line": 1, "text": "Probe 2026-10-06 over 108 labeled cerebro items. A presence wording ('whether the text contains the piece itself ... the article, post, announcement or release note the title refers to') called all 48 real items substantive, 3 of 9 code-passing junk not substantive. A length-avoiding wording called all 48 real items substantive but 0 of those 9 junk items not substantive. The deployed wording caught 9 of 9 and misfired 3 times live."},
+    {"tag": "OBSERVED", "path": "cerebro:~/.local/share/prismis/prismis.db", "line": 1, "text": "Replaying the two candidate rules over 45 days of currently-readable Reddit items: `link_without_article` matches 243 (most from before Reddit link posts got article fetching on 2026-09-30) and every sample is a link line followed only by comments; the markdown-link rule matches 3 (a removed-post notice, a markdown-link-only self-post, a link post whose body is one markdown link)."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --search \"reddit OR readable OR summarizer\" --limit 10", "issues": [
+    {"number": 18, "title": "prompt audit: summarizer + evaluator quality vs source-of-truth", "why": "shares the summarizer prompt; this change edits one paragraph with its own measurement"}
+  ]},
+  "reuse": [
+    {"path": "daemon/src/prismis_daemon/readability.py", "what": "`readability_failure` and `_word_count`, extended with one rule and one stripping step"},
+    {"path": "daemon/src/prismis_daemon/readability.py", "what": "`REDDIT_LINK_PREFIX` / `format_reddit_link_only`, joined by the discussion header constant"}
+  ],
+  "open": []
+}

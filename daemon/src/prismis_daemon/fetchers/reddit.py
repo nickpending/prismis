@@ -5,6 +5,7 @@ import re
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from urllib.parse import urlparse
 
 import praw
 
@@ -14,7 +15,11 @@ from ..http_deadline import DeadlineAdapter, deadline_session
 from ..praw_defaults import pin_praw_defaults
 from ..models import ContentItem
 from ..observability import log as obs_log
-from ..readability import format_reddit_link_only, is_readable
+from ..readability import (
+    REDDIT_DISCUSSION_HEADER,
+    format_reddit_link_only,
+    is_readable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +35,12 @@ class RedditNotConfiguredError(RuntimeError):
 
 def _is_reddit_domain(url: str) -> bool:
     """Whether `url` points back at reddit itself -- another thread, a crosspost,
-    or one of reddit's own short links -- so a link post to it behaves as it does
-    today (no article fetch) rather than trafilatura scraping a Reddit page."""
+    a relative path with no scheme and no host, or one of reddit's own short links --
+    so a link post to it behaves as it does today (no article fetch) rather than
+    trafilatura scraping a Reddit page."""
+    parsed = urlparse(url)
+    if not parsed.scheme and not parsed.netloc:
+        return True
     normalized = url.lower()
     return "reddit.com" in normalized or "redd.it" in normalized
 
@@ -472,7 +481,7 @@ class RedditFetcher:
         comments = [] if already_readable else self._fetch_comments(submission)
         if comments:
             # Format comments as markdown discussion section with author attribution
-            discussion = "\n\n## Discussion\n\n"
+            discussion = f"\n\n{REDDIT_DISCUSSION_HEADER}\n\n"
             formatted_comments = []
             for comment in comments:
                 # Format as: **u/author:**\n> comment body (blockquote for clarity)

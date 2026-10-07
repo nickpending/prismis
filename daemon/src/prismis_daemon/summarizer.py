@@ -330,7 +330,7 @@ OUTPUT FORMAT:
 }
 
 SUBSTANTIVE:
-"substantive" is a boolean. Set it to false when the content is not the piece itself: a JavaScript, cookie or bot-check notice, site navigation or footer text, an error or login page, a bare link, or a teaser with no body. Set it to true otherwise, including short genuine posts."""
+"substantive" says whether the text contains the piece itself (the article, post, announcement or release note the title refers to) rather than only material around it. Set it to true when the piece's own content is present, however short: a two-sentence release note or a one-paragraph announcement is substantive, and navigation around it does not change that. Set it to false when the piece itself is missing: only a link (with or without reader comments), a notice (JavaScript, cookies, bot check, login, error, paywall), navigation, interface labels or a site tagline, or a citation or listing without the work's content."""
 
     def _get_brief_system_prompt(self) -> str:
         """Get brief system prompt for short content (Reddit <300 words).

@@ -30,6 +30,10 @@ RSS_NO_CONTENT_FALLBACK = "No content available"
 # for every link post, before (or instead of) any extracted article text.
 REDDIT_LINK_PREFIX = "Link: "
 
+# The header fetchers/reddit.py's `_to_content_item` puts above a post's comments; the
+# link-without-article rule reads the text before it.
+REDDIT_DISCUSSION_HEADER = "## Discussion"
+
 # fetchers/youtube.py's `_handle_missing_transcript` writes content ending in this
 # sentence when yt-dlp found no transcript for a video.
 YOUTUBE_NO_TRANSCRIPT_SUFFIX = "No transcript available for this video."
@@ -50,6 +54,8 @@ _JS_WALL_MAX_VISIBLE_CHARS = 1200
 _MIN_PROSE_WORDS = 4
 
 _TAG_RE = re.compile(r"<[^>]+>")
+# A markdown link `[text](target)` is a link, not prose: removed whole before counting.
+_MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\([^)\s]*\)")
 _URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 # Kana and CJK ideographs: each counts as one word, since those scripts carry no spaces.
 _CJK_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿]")
@@ -87,14 +93,28 @@ def _is_reddit_link_only(normalized: str) -> bool:
     return bool(remainder) and " " not in remainder
 
 
+def _is_reddit_link_without_article(stripped: str) -> bool:
+    """`stripped` starts with the link line and nothing but whitespace stands between
+    that line and the discussion header (or the end): no self-text, no article."""
+    if not stripped.startswith(REDDIT_LINK_PREFIX):
+        return False
+    lines = stripped.splitlines()[1:]
+    for line in lines:
+        if line.strip() == REDDIT_DISCUSSION_HEADER:
+            return True
+        if line.strip():
+            return False
+    return True
+
+
 def _is_youtube_no_transcript(normalized: str) -> bool:
     return normalized.endswith(_normalize(YOUTUBE_NO_TRANSCRIPT_SUFFIX))
 
 
 def _word_count(line: str) -> int:
-    """Words on one line with tags and URLs removed; each CJK character is one word
+    """Words on one line with tags, markdown links and URLs removed; each CJK character is one word
     and a token with no letter or digit (a bullet, a slash, a lone glyph) is none."""
-    text = _URL_RE.sub(" ", _TAG_RE.sub(" ", line))
+    text = _URL_RE.sub(" ", _MARKDOWN_LINK_RE.sub(" ", _TAG_RE.sub(" ", line)))
     cjk = len(_CJK_RE.findall(text))
     rest = _CJK_RE.sub(" ", text)
     return cjk + sum(1 for token in rest.split() if any(c.isalnum() for c in token))
@@ -121,8 +141,8 @@ def readability_failure(content: str | None) -> str | None:
     """The reason `content` is not real content, or None when it is readable.
 
     Returns the first failing check's reason: `empty`, `placeholder:rss_no_content`,
-    `placeholder:reddit_link_only`, `placeholder:youtube_no_transcript`, `no_prose`
-    or `js_wall`.
+    `placeholder:reddit_link_only`, `placeholder:youtube_no_transcript`,
+    `link_without_article`, `no_prose` or `js_wall`.
 
     Genuine short text -- a one-sentence blurb, a two-line question -- is readable:
     the checks are about shape (a line of prose; a JavaScript-requirement notice in
@@ -148,6 +168,9 @@ def readability_failure(content: str | None) -> str | None:
 
     if _is_youtube_no_transcript(visible):
         return "placeholder:youtube_no_transcript"
+
+    if _is_reddit_link_without_article(stripped):
+        return "link_without_article"
 
     if not _has_prose(stripped):
         return "no_prose"

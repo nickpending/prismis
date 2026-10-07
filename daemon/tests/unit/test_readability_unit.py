@@ -16,6 +16,7 @@ Protects:
 import pytest
 
 from prismis_daemon.readability import (
+    REDDIT_DISCUSSION_HEADER,
     RSS_NO_CONTENT_FALLBACK,
     format_reddit_link_only,
     format_youtube_no_transcript,
@@ -271,3 +272,65 @@ def test_readability_failure_names_the_rule_that_fired(
 def test_readability_failure_is_none_for_readable_content(content: str) -> None:
     assert readability_failure(content) is None
     assert is_readable(content) is True
+
+
+# ---------------------------------------------------------------------------
+# title-only-misfires SC-2 / SC-3: structure the code can see
+# ---------------------------------------------------------------------------
+
+_LINK_LINE = format_reddit_link_only("https://example.com/a")
+_DISCUSSION = (
+    f"{REDDIT_DISCUSSION_HEADER}\n\n**u/someone:**\n> I read this yesterday and "
+    "found the second half more convincing than the first."
+)
+
+
+def test_reddit_link_post_with_only_a_discussion_is_link_without_article() -> None:
+    """
+    BREAKS: a link post holding only the link and its comments reads as prose
+    because the comments are prose, so a post with no article is summarized as
+    though it had one.
+    """
+    content = f"{_LINK_LINE}\n\n\n\n{_DISCUSSION}"
+
+    assert readability_failure(content) == "link_without_article"
+    assert is_readable(content) is False
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("My note about why this link matters to me.", id="self-text"),
+        pytest.param(_READABLE_ARTICLE, id="article"),
+    ],
+)
+def test_reddit_link_post_with_self_text_or_article_and_discussion_is_readable(
+    body: str,
+) -> None:
+    content = f"{_LINK_LINE}\n\n{body}\n\n{_DISCUSSION}"
+
+    assert readability_failure(content) is None
+
+
+def test_bare_reddit_link_line_keeps_its_placeholder_reason() -> None:
+    assert readability_failure(_LINK_LINE) == "placeholder:reddit_link_only"
+    assert readability_failure(f"{_LINK_LINE}\n\n") == "placeholder:reddit_link_only"
+
+
+def test_a_self_post_of_one_markdown_link_has_no_prose() -> None:
+    """
+    BREAKS: counting the words inside a markdown link's text makes a post that is
+    only a link read as prose.
+    """
+    content = "[On the Navier-Stokes Millennium Prize Problem | OpenAI](https://openai.com/x)"
+
+    assert readability_failure(content) == "no_prose"
+
+
+def test_prose_containing_a_markdown_link_is_readable() -> None:
+    content = (
+        "The release notes are posted [here](https://example.com/notes) and cover "
+        "every change since the last version."
+    )
+
+    assert readability_failure(content) is None

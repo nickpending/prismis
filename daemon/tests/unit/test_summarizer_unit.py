@@ -324,6 +324,46 @@ def test_every_summarize_prompt_asks_for_the_substantive_field() -> None:
         assert "substantive" in prompt, f"{mode} prompt does not ask for substantive"
 
 
+_SUBSTANTIVE_PARAGRAPH = (
+    '"substantive" says whether the text contains the piece itself (the article, '
+    "post, announcement or release note the title refers to) rather than only "
+    "material around it. Set it to true when the piece's own content is present, "
+    "however short: a two-sentence release note or a one-paragraph announcement is "
+    "substantive, and navigation around it does not change that. Set it to false "
+    "when the piece itself is missing: only a link (with or without reader "
+    "comments), a notice (JavaScript, cookies, bot check, login, error, paywall), "
+    "navigation, interface labels or a site tagline, or a citation or listing "
+    "without the work's content."
+)
+
+
+def test_standard_brief_and_detailed_prompts_carry_the_measured_substantive_paragraph() -> (
+    None
+):
+    """
+    BREAKS: the old wording ("a teaser with no body") called short genuine release
+    notes and announcements not substantive; any mode still carrying it, or missing
+    the measured paragraph, repeats that misfire.
+    """
+    summarizer = ContentSummarizer(SERVICE)
+    prompts = {
+        "standard": summarizer._get_system_prompt(),
+        "brief": summarizer._get_brief_system_prompt(),
+        "detailed": summarizer._get_detailed_system_prompt(),
+    }
+
+    for mode, prompt in prompts.items():
+        assert "a teaser with no body" not in prompt, mode
+        assert _SUBSTANTIVE_PARAGRAPH in prompt, mode
+
+
+def test_diff_prompt_keeps_its_own_substantive_wording() -> None:
+    prompt = ContentSummarizer(SERVICE)._get_diff_system_prompt()
+
+    assert "a teaser with no body" in prompt
+    assert _SUBSTANTIVE_PARAGRAPH not in prompt
+
+
 class _ReplyStub:
     """An OpenAI-shaped completion endpoint at the real HTTP boundary whose reply
     JSON is whatever `reply` holds when the request arrives."""

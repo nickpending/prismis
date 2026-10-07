@@ -11,6 +11,7 @@ from prismis_daemon.config import REDDIT_NOT_CONFIGURED
 from prismis_daemon.fetchers.reddit import RedditFetcher, RedditNotConfiguredError
 from prismis_daemon.http_deadline import DeadlineAdapter
 from prismis_daemon.models import ContentItem
+from prismis_daemon.readability import REDDIT_DISCUSSION_HEADER, readability_failure
 
 from conftest import make_config
 
@@ -552,6 +553,45 @@ def test_to_content_item_link_post_skips_fetch_for_reddit_internal_link() -> Non
     assert item.content == (
         "Link: https://www.reddit.com/r/other/comments/999/crosspost/\n\n"
     )
+
+
+def test_to_content_item_link_post_with_relative_crosspost_url_makes_no_request(
+    hit_counting_server: tuple[str, list[str]],
+) -> None:
+    """
+    SC-5: a relative url is reddit-internal. The fetcher resolves nothing against
+    the server, makes no extraction request and records no fetch outcome.
+    BREAKS: a relative url sent to the extractor raises `ValueError` and stores
+    `fetch_failed:ValueError` as the item's fetch outcome.
+    """
+    _base_url, hits = hit_counting_server
+    fetcher = RedditFetcher()
+    submission = _link_post_submission("/r/oscp/comments/1wz626q/x/")
+
+    item = fetcher._to_content_item(submission, "test-source-id")
+
+    assert hits == []
+    assert item.analysis is not None
+    assert "fetch_outcome" not in item.analysis
+    assert item.content == "Link: /r/oscp/comments/1wz626q/x/\n\n"
+
+
+def test_to_content_item_link_post_discussion_uses_the_shared_header() -> None:
+    """SC-4: the separator before the comments is built from the one constant."""
+    fetcher = RedditFetcher()
+    submission = _link_post_submission("https://www.reddit.com/r/o/comments/9/x/")
+    comment = Mock()
+    comment.parent_id = "t3_9"
+    comment.body = "b"
+    comment.author = "a"
+    submission.comments = Mock()
+    submission.comments.list.return_value = [comment]
+
+    item = fetcher._to_content_item(submission, "test-source-id")
+
+    assert item.content is not None
+    assert item.content.endswith(f"\n\n{REDDIT_DISCUSSION_HEADER}\n\n**u/a:**\n> b")
+    assert readability_failure(item.content) == "link_without_article"
 
 
 def test_to_content_item_link_post_skips_fetch_for_image_link() -> None:

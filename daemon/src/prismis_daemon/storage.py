@@ -1906,7 +1906,8 @@ class Storage:
             content_by_id = {row["id"]: row for row in rows}
 
             # Calculate weighted scores and re-rank
-            results = []
+            scored: list[tuple[float, dict[str, Any]]] = []
+            results: list[dict[str, Any]] = []
             for candidate in candidates:
                 content_id = candidate["content_id"]
                 if content_id not in content_by_id:
@@ -1937,11 +1938,15 @@ class Storage:
 
                 # Apply minimum score filter
                 if relevance_score >= min_score:
-                    content["relevance_score"] = round(relevance_score, 3)
-                    results.append(content)
+                    scored.append((relevance_score, content))
 
-            # Sort by final relevance score and limit
-            results.sort(key=itemgetter("relevance_score"), reverse=True)
+            # Rank on the raw score; the 3-decimal rounding is only what is
+            # reported, so two items it ties are still ordered by true relevance
+            # (gh #14).
+            scored.sort(key=itemgetter(0), reverse=True)
+            for relevance_score, content in scored:
+                content["relevance_score"] = round(relevance_score, 3)
+                results.append(content)
             return results[:limit]
 
         except sqlite3.Error as e:

@@ -1,0 +1,14 @@
+{
+  "what": "Bound the article text the summarizer, evaluator and deep extractor send to their LLM, so an article larger than the model's context window is analyzed on a recorded, bounded portion instead of failing on every fetch cycle its source still lists it.",
+  "why": "On cerebro's first cycle after the gh #58 deploy (2026-10-07 18:22 UTC), Hacker News' 'Animated ASCII Art for Web Pages' (https://ascii.rest/) failed analysis with a 400: 482,792 tokens requested against openai/gpt-5.4-nano's 400,000-token window. Its extracted text is 1,037,842 characters, 1,724,631 UTF-8 bytes, about half of it non-ASCII art characters, so it runs at roughly 2 characters per token where English runs at about 4. summarizer.py builds its prompt with the full content on purpose ('Use full content - no truncation'), and evaluator.py and deep_extractor.py interpolate full content too. The item is never stored, so it is fetched, sent and refused again on every cycle while HN lists it; any page over the window does the same. The kind classifier already bounds its request for exactly this reason (kind_classifier.py, the SC-2 caps).",
+  "decided": [
+    "The bound applies to every LLM call that interpolates the full article text: the summarizer's analysis prompt, the evaluator's prompt and the deep extractor's prompt; the kind classifier keeps its own existing caps.",
+    "An oversized article is analyzed on its leading portion rather than refused, because a summary of the first part keeps capability that a title-only refusal loses, and the kind classifier's caps are the existing precedent for bounding rather than refusing.",
+    "Only what is sent to the model is bounded; the stored content stays complete.",
+    "An item analyzed on a bounded portion records that in its analysis JSON (what was sent and the full size), so a summary of part of a page is distinguishable from a summary of the whole (constitution Principle II).",
+    "One helper decides the bound and is used by all three call sites, so the three prompts cannot drift apart."
+  ],
+  "open": [
+    "Is the bound sized to guarantee a fit (UTF-8 bytes, since a BPE token always covers at least one byte, set under the 400,000-token window, which also cuts the tails of the 12 stored book-length pages between 259k and 786k characters that fit today), or sized to ordinary prose (characters, about a million, which leaves those 12 whole but can still overflow on pages like ascii.rest)?"
+  ]
+}

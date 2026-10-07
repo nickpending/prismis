@@ -1,0 +1,14 @@
+{
+  "what": "Close gh #58: delete the blanket `\"**/*.py\" = [\"BLE001\"]` suppression in daemon/pyproject.toml and resolve all 67 blind `except Exception` handlers it hides (52 in daemon/src, 15 in daemon/tests), each one either narrowed to the failure it exists for or kept as a deliberate isolation boundary that records the full traceback.",
+  "why": "A blind `except Exception` handles a typo, a broken query or a wrong attribute the same way it handles the expected hiccup (a malformed date, a feed timeout): logged in one line, swallowed, and the unattended pipeline moves on, so real defects become log noise nobody reads. The suppression covers every file, so `ruff check .` passing says nothing about the class (daemon/pyproject.toml, the per-file-ignores comment). The issue was blocked on a green suite; that suite now also runs the live-resource tests from recordings (gh #60), so narrowing is a checked change rather than a hopeful one.",
+  "decided": [
+    "The `\"**/*.py\" = [\"BLE001\"]` per-file-ignore is deleted, so BLE001 gates every daemon file, src and tests, with no `noqa` escape for this rule.",
+    "Each handler is judged one at a time: where the failure it exists for is known (a date parse, a file read, a JSON parse, a diff), it catches that exception type and lets anything else propagate.",
+    "Where a handler is an isolation boundary, meaning one source, item, feed entry, video, API request, health check or CLI command must not take down the rest, it keeps catching broadly and records the full traceback with `logger.exception` or `exc_info=True`, which BLE001 accepts (checked on ruff 0.16.6: both forms pass, a plain `logger.warning(e)` is flagged).",
+    "The 15 test-side handlers are narrowed to the exception the test actually expects, or replaced with `pytest.raises` where the test is asserting a failure.",
+    "Every handler whose runtime behavior changes is proven by a test that drives the real failure through it and would fail if the change were reverted."
+  ],
+  "open": [
+    "Several handlers turn a failure into a value a genuine empty result also produces (a count of 0, an empty list, no priority, zeroed diff stats), which constitution Principle II forbids; how is each one's failure represented so its caller can tell failure from empty, and does any of them need a stored or API-visible change?"
+  ]
+}

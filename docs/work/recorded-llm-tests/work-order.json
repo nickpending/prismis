@@ -1,0 +1,65 @@
+{
+  "workOrder": "recorded-llm-tests",
+  "issues": [
+    60
+  ],
+  "what": "Give `local_pipeline_stub` a record mode and a strict replay mode for LLM calls, record the production model's real replies once, and run the audio, orchestrator-pipeline, context-suggestion and summarizer/evaluator integration tests in every gate run from those recordings; provider-behavior tests stay live and opt-in (gh #60).",
+  "why": "Design: docs/work/recorded-llm-tests/design.md. Four daemon test files skip unless a live LLM is configured, so CI and `.specify/verify.sh` never check prompt building, reply parsing or storage on those paths. The suite already stands in for the LLM with `local_pipeline_stub`; recordings make that stand-in answer with what the production model (openai/gpt-5.4-nano via OpenRouter) really said.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a test that opts into recordings, with its recording file present and matching",
+      "when": "it runs under the `no_network` fixture",
+      "then": "it fails if any request leaves for a provider or the reply served is not the recorded one; otherwise the stub serves the recorded replies in call order and the test passes"
+    },
+    {
+      "id": "SC-2",
+      "given": "a recording whose stored request differs from the live request in prompt text, and a test whose recording file is missing",
+      "when": "each runs in replay mode",
+      "then": "it fails if either passes, skips, or falls back to the canned reply; otherwise each fails with a message naming the recording file and the PRISMIS_RECORD_LLM command to re-record"
+    },
+    {
+      "id": "SC-3",
+      "given": "a recording whose request differs from the live request only in an ISO date, a 'Month D, YYYY' date or the model name",
+      "when": "it replays",
+      "then": "it fails if the replay is refused; otherwise the recorded reply is served"
+    },
+    {
+      "id": "SC-4",
+      "given": "PRISMIS_RECORD_LLM naming a service in the operator's real llm-core services.toml and PRISMIS_RECORD_MODEL",
+      "when": "a test runs in record mode",
+      "then": "it fails if nothing is written or the reply is not the provider's; otherwise the request goes to that service with that model and the request, the real reply and the model are written to the test's recording file in call order"
+    },
+    {
+      "id": "SC-5",
+      "given": "test_audio_api_integration.py `test_audio_generates_with_high_priority`, test_daemon_integration.py `test_daemon_orchestration_with_test_database`, the two live tests in test_context_api.py and the four in test_summarizer_evaluator_integration.py",
+      "when": "the daemon test suite runs with no LLM credential",
+      "then": "it fails if any of them is skipped or reaches the network; otherwise all run from committed recordings made with openai/gpt-5.4-nano, keep their existing assertions, and the pipeline test reads its feed from the stub's /feed.xml"
+    },
+    {
+      "id": "SC-6",
+      "given": "test_llm_client_live_integration.py and docs/architecture/boundaries.md",
+      "when": "the suite runs without PRISMIS_LIVE_LLM_TESTS and a reader looks up how LLM-backed tests run",
+      "then": "it fails if the live provider tests run without the opt-in or the doc omits the record command; otherwise they still skip without it and boundaries.md states that LLM-backed integration tests replay recorded real replies and how to re-record them"
+    },
+    {
+      "id": "SC-7",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "A prompt edit to one of these paths requires re-recording its tests, about a dozen light calls, before the gate passes.",
+    "Replays prove prismis handles one real reply per call, not that the model will keep answering the same way.",
+    "Recording needs a machine with real llm-core credentials; CI only replays."
+  ],
+  "stakes": [
+    "Every test that today skips for want of a live LLM, except the provider-behavior tests, runs in the gate.",
+    "Replays use replies the production model actually returned, recorded once and committed.",
+    "A replay makes no network call; a missing or outdated recording fails the test with the command to re-record, never skips or falls back.",
+    "Dates and the model name are the only request text a replay ignores.",
+    "No new dependency; the existing local stub does the recording and replaying.",
+    "Provider-behavior tests stay live and opt-in."
+  ]
+}

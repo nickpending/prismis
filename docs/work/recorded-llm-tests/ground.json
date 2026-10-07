@@ -1,0 +1,26 @@
+{
+  "impacted": [
+    {"path": "daemon/tests/conftest.py", "role": "`local_pipeline_stub` (line 289) serves /feed.xml and an OpenAI-shaped /v1/chat/completions with one canned reply that carries the summarizer, evaluator and deep-extraction fields; `configure_local_services` points the sealed config's light and deep services at it with key_required=false"},
+    {"path": "daemon/tests/integration/test_audio_api_integration.py", "role": "`test_audio_generates_with_high_priority` skips without PRISMIS_LIVE_LLM_TESTS"},
+    {"path": "daemon/tests/integration/test_daemon_integration.py", "role": "`test_daemon_orchestration_with_test_database` skips without PRISMIS_LIVE_LLM_TESTS and fetches https://simonwillison.net/atom/everything/"},
+    {"path": "daemon/tests/integration/test_context_api.py", "role": "two context-suggestion tests skip without PRISMIS_LIVE_LLM_TESTS"},
+    {"path": "daemon/tests/integration/test_summarizer_evaluator_integration.py", "role": "three tests skip without OPENAI_API_KEY and one without PRISMIS_LIVE_LLM_TESTS"},
+    {"path": "daemon/tests/integration/test_llm_client_live_integration.py", "role": "provider cost and parameter tests, skipped unless PRISMIS_LIVE_LLM_TESTS=1"},
+    {"path": "daemon/src/prismis_daemon/audio.py", "role": "builds one prompt from the report's items and `report.generated_at` formatted as a date (line 62) and calls `complete`"}
+  ],
+  "constraints": [
+    {"tag": "RULE", "path": "daemon/tests/conftest.py", "line": 300, "text": "The LLM is the one collaborator the constitution permits standing in for; nothing else in the pipeline is faked."},
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 1, "text": "Constitution 1 (as the lane brief states it): mock only the true external boundary, third-party or paid APIs you do not control."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/audio.py", "line": 62, "text": "The audio prompt embeds today's date, so the request differs on every day it runs."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/summarizer.py", "line": 117, "text": "summarizer, evaluator (evaluator.py:181) and context analyzer (context_analyzer.py:270) call the provider through `call_llm_with_circuit_breaker`, audio through `complete`; all go to the configured service's OpenAI-compatible /chat/completions."},
+    {"tag": "INFERENCE", "path": "daemon/tests/conftest.py", "line": 289, "text": "A recording keyed by the test and the order of its calls, holding the request it answered, can detect staleness by comparing that request with the live one once known volatile text (dates, the model name) is normalized."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --search \"test OR fixture OR gate\" --limit 8", "issues": []},
+  "reuse": [
+    {"path": "daemon/tests/conftest.py", "what": "`local_pipeline_stub` and `configure_local_services`, extended to record and replay"}
+  ],
+  "open": [
+    "What identifies a recording and detects that it has gone stale, given the audio briefing's prompt embeds the report date (audio.py) and the content each test seeds varies the user message?"
+  ]
+}

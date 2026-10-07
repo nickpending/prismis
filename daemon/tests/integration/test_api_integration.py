@@ -335,7 +335,9 @@ def test_validation_timeout(api_client: TestClient) -> None:
     # Should fail with validation error
     assert response.status_code == 422
 
-    # Should timeout within ~5 seconds (not hang forever)
+    # Waited out the ~5s validation timeout (not an instant unrelated failure), and
+    # did not hang past it.
+    assert elapsed >= 4, f"Validation returned in {elapsed:.2f}s, before any timeout"
     assert elapsed < 10, f"Validation took {elapsed}s, should timeout at 5s"
     data = response.json()
     assert data["success"] is False

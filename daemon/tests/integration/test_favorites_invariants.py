@@ -200,8 +200,10 @@ def test_database_lock_during_update(test_db: Path) -> None:
             # If it succeeded, it waited for lock
             assert elapsed < 6, "Should timeout within 5 seconds + overhead"
         except sqlite3.Error as e:
-            # Should be a database lock error, not a crash
-            assert "locked" in str(e).lower() or "database" in str(e).lower()
+            # A lock error raised after busy_timeout (5s) elapsed, not at once
+            elapsed = time.time() - start_time
+            assert "locked" in str(e).lower()
+            assert 4 <= elapsed < 6, f"lock error after {elapsed:.2f}s, not at busy_timeout"
     finally:
         # Release the lock
         lock_conn.execute("ROLLBACK")

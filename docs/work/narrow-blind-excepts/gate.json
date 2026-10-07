@@ -36,11 +36,6 @@
       "result": "held"
     },
     {
-      "test": "T7 consumers, enumerated with `grep -rn count_unprioritized` and `grep -rn PruneCount`: count_unprioritized is read by api.py's /api/prune (1446) and /api/prune/count (1495), both inside `except Exception: raise _server_error` (api.py:1475), and by Storage.delete_unprioritized (1676); the HTTP endpoint is read by the CLI's api_client (244), which raises on a non-2xx, and by the TUI twice: GetPruneCount handles the error, but ExecutePrune (tui/internal/ui/operations/prune.go:58) discards it with `count, _ :=`, and PruneResultMsg.Count is never read by model.go (only Deleted, 969-978). Result: ExecutePrune does exactly that; the call is dead (its result is never read), so the form is to delete it. Reopened as a question.",
-      "failureCase": "A consumer that silently turns the new 500 back into a 0.",
-      "result": "changed"
-    },
-    {
       "test": "T8 shape: the noqa ban is a unit test because ruff cannot forbid a per-rule noqa; the four forms are structural (lint-enforced catch shape), not a runtime guard.",
       "failureCase": "A knob or runtime check where the lint rule could hold it.",
       "result": "held"
@@ -54,11 +49,6 @@
       "test": "T10 reversibility: a revert of code and config; the only stored change is an additive analysis-JSON key, no migration.",
       "failureCase": "A one-way schema change resting on reasoning.",
       "result": "held"
-    },
-    {
-      "test": "T11 class, swept on every stack in the repo: daemon BLE001 67 (`ruff check . --select BLE001 --config 'lint.per-file-ignores = {}'`), daemon bare except 0 (E722), daemon `except BaseException` 2, both re-raise (database.py:141, article_extractor.py:99); CLI BLE001 5 (analyze.py 135, 244, 349; embeddings.py 157; remote.py 35) under an identical blanket suppression whose comment cites #58 (cli/pyproject.toml:52-58); Go, `grep -rnE` for discarded results: clipboard.go:56 kills a process on a path already returning an error (fine), prune.go:58 discards an error (the T7 finding); no JS or Rust units exist. Engines axis: not ember code, n/a. Result: the CLI's suppression is the same issue and was missed at ground. Reopened as a question.",
-      "failureCase": "The daemon's handlers fixed while the CLI keeps the same #58 suppression.",
-      "result": "changed"
     },
     {
       "test": "T12 new state: `comments_outcome` distinguishes a failed comment fetch from a post with no comments, which constitution line 126 requires in storage; nothing else records it.",
@@ -89,12 +79,21 @@
       "test": "T20 walk: a locked database during `prismis prune` from the TUI: count_unprioritized raises sqlite3.OperationalError, /api/prune returns a 500 via _server_error, and the TUI's ExecutePrune first calls PruneCount, discards its 500, then calls PruneUnprioritized, whose error it does report. Result: for the API path; the discarded count is the T7 finding.",
       "failureCase": "A step that shows a wrong number to the operator.",
       "result": "held"
+    },
+    {
+      "test": "T7 consumers, re-run for the revision with `grep -rn PruneResultMsg` and `grep -rn Count` in tui/internal/ui/operations/prune.go: PruneResultMsg is built at prune.go 37, 63, 68 and 107 and read only in model.go's PruneResultMsg case (Error, Deleted); Count is set only at 69 from the discarded call at 58; no _test.go constructs it with Count. The CLI's 5 handlers have no consumer outside their own commands except remote.py's loader, read by api_client.py's get_remote_url and get_remote_key.",
+      "failureCase": "Dropping Count breaks a reader the grep missed.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class, re-run over the CLI's 5 handlers read in full: analyze.py 244 and 349 and embeddings.py 157 are per-item loops (form 2), analyze.py 135 is the learned-preference fetch (form 1 or 2), and remote.py:35 (`_load_remote_config`) turns an unreadable or malformed config.toml into (None, None), the same value as no [remote] section, so get_remote_url silently falls back to http://localhost:8989 with no key: a failure-as-empty member the design's form-3 list does not name.",
+      "failureCase": "A CLI failure-as-empty case left in form 2 or narrowed to keep returning (None, None).",
+      "result": "changed"
     }
   ],
   "decisions": [],
   "verdict": "redesign",
   "carried": [
-    "cli/pyproject.toml carries the identical blanket BLE001 suppression, whose comment cites #58, over 5 handlers (cli/src/cli/analyze.py 135, 244, 349; embeddings.py 157; remote.py 35); does this work order resolve them under the same four forms?",
-    "The TUI's ExecutePrune (tui/internal/ui/operations/prune.go:58) discards PruneCount's error with `count, _ :=`, and PruneResultMsg.Count is never read by tui/internal/ui/model.go; once count_unprioritized raises into a 500, how does ExecutePrune treat that failure?"
+    "cli/src/cli/remote.py's _load_remote_config returns (None, None) when config.toml exists but cannot be read or parsed, the same value as having no [remote] section, so the CLI silently talks to http://localhost:8989 with no key; how is that failure represented?"
   ]
 }

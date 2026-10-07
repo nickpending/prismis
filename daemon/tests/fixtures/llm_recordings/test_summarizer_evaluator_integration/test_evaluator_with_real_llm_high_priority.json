@@ -1,0 +1,22 @@
+[
+  {
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert content analyst who evaluates articles for personalized relevance to a specific user.\n\nYour task is to evaluate how relevant and interesting this content is to the user based on their personal context.\n\nRespond with ONLY valid JSON in this exact format:\n\n{\n  \"priority\": \"high\" | \"medium\" | \"low\" | null,\n  \"matched_interests\": [\"specific user interest 1\", \"specific user interest 2\", ...],\n  \"reasoning\": \"One sentence describing content and which interest it relates to (10-15 words)\"\n}\n\nCRITICAL EVALUATION RULES:\n1. If matched_interests is empty (no matches found), you MUST return priority: null\n2. If content matches \"Not Interested\" topics, you MUST return priority: null\n3. Only assign a priority (high/medium/low) if content ACTUALLY matches something in the user's context\n\nPriority Assignment Logic:\n- high: ONLY if it matches topics in \"High Priority Topics\" section\n- medium: ONLY if it matches topics in \"Medium Priority Topics\" section\n- low: ONLY if it matches topics in \"Low Priority Topics\" section\n- null: If NO interests match OR if it matches \"Not Interested\" topics\n\nExamples:\n- Security tool that matches high priority → priority: \"high\", matched_interests: [\"LLM-driven security tools\"]\n- BJJ training video → priority: \"low\", matched_interests: [\"Brazilian Jiu-Jitsu training approaches\"]\n- Basic password management article → priority: null, matched_interests: [] (matches Not Interested)"
+        },
+        {
+          "role": "user",
+          "content": "User's Personal Context:\n\n    ## High Priority Topics\n    - AI/LLM breakthroughs, especially local models\n    - Quantization and model optimization\n    - Making AI accessible on consumer hardware\n    \n    ## Medium Priority Topics\n    - Web development frameworks\n    - Database optimization\n    \n    ## Low Priority Topics\n    - Gaming news\n    - Social media updates\n    \n    ## Not Interested\n    - Cryptocurrency\n    - Celebrity news\n    \n\nContent to Evaluate:\nTitle: Breakthrough in Local LLM Technology\nURL: https://example.com/local-llm\n\nContent Text:\n\n    Major breakthrough in local LLM technology: Researchers have developed \n    a new quantization technique that allows GPT-4 level models to run on \n    consumer hardware with just 8GB of RAM, while maintaining 95% of the \n    original model's performance.\n    \n\nEvaluate this content and respond with the JSON format specified."
+        }
+      ],
+      "model": "openai/gpt-5.4-nano",
+      "response_format": {
+        "type": "json_object"
+      }
+    },
+    "reply": "{\n  \"priority\": \"high\",\n  \"matched_interests\": [\"AI/LLM breakthroughs, especially local models\", \"Quantization and model optimization\", \"Making AI accessible on consumer hardware\"],\n  \"reasoning\": \"Local LLM quantization enables GPT-4-level models on 8GB RAM with strong performance retention.\"\n}",
+    "model": "openai/gpt-5.4-nano"
+  }
+]

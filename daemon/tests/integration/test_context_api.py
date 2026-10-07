@@ -6,22 +6,37 @@ INVARIANTS PROTECTED:
 3. No flagged items returns clear error - API validates input
 4. Malformed context.md handled gracefully - parser doesn't crash
 
-All tests use REAL LiteLLM API calls - no mocks.
-Tests require a live llm-core service; set PRISMIS_LIVE_LLM_TESTS=1 to run (gh #60).
+The LLM calls are the production model's REAL replies, recorded once and replayed by
+`local_pipeline_stub` under the `no_network` fixture (`recorded_llm` marker); nothing
+here mocks the LLM client. Re-record with PRISMIS_RECORD_LLM (see
+docs/architecture/boundaries.md).
 """
 
-import os
 from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import add_new_content
+from conftest import add_new_content, configure_local_services, load_config
 from prismis_daemon.api import app, get_config, get_storage
 from prismis_daemon.config import Config
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
+
+
+pytestmark = pytest.mark.usefixtures("no_network")
+
+
+@pytest.fixture
+def full_config(local_pipeline_stub: str, isolated_xdg_env: Path) -> Config:
+    """The sealed config with its LLM services pointed at `local_pipeline_stub`.
+
+    Shadows the shared `full_config` fixture, which loads the config before a test body
+    could point its services anywhere.
+    """
+    configure_local_services(isolated_xdg_env.parent, local_pipeline_stub)
+    return load_config()
 
 
 @pytest.fixture
@@ -66,7 +81,9 @@ def storage_with_flagged_items(test_db: Path) -> Storage:
     # Add items and flag them as interesting
     for item in test_items:
         content_id = add_new_content(storage, item)
-        storage.flag_interesting(content_id)  # Use UUID returned from add_content
+        # get_flagged_items reads user_feedback = 'up'; flag_interesting sets the older
+        # interesting_override column, which the endpoint no longer looks at.
+        assert storage.update_content_status(content_id, user_feedback="up")
 
     return storage
 
@@ -184,11 +201,7 @@ def create_api_client_with_config(
 
 
 # INVARIANT TEST 1: Real LLM call with existing topics
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
-    reason="Requires a live llm-core service (services.toml + provider key); "
-    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
-)
+@pytest.mark.recorded_llm
 def test_context_api_real_llm_with_existing_topics(
     storage_with_flagged_items: Storage,
     test_context_md: Path,
@@ -207,7 +220,7 @@ def test_context_api_real_llm_with_existing_topics(
         )
     )
 
-    # Make real API call (costs money, uses actual LLM)
+    # The LLM reply is the recorded real one
     response = api_client.post("/api/context")
 
     # Verify API succeeded
@@ -252,11 +265,6 @@ def test_context_api_real_llm_with_existing_topics(
 
 
 # INVARIANT TEST 2: No flagged items returns clear error
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
-    reason="Requires a live llm-core service (services.toml + provider key); "
-    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
-)
 def test_context_api_no_flagged_items(
     test_db: Path,
     test_context_md: Path,
@@ -288,11 +296,7 @@ def test_context_api_no_flagged_items(
 
 
 # INVARIANT TEST 3: Malformed context.md handled gracefully
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
-    reason="Requires a live llm-core service (services.toml + provider key); "
-    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
-)
+@pytest.mark.recorded_llm
 def test_context_api_malformed_context_md(
     storage_with_flagged_items: Storage,
     malformed_context_md: Path,
@@ -310,7 +314,7 @@ def test_context_api_malformed_context_md(
         )
     )
 
-    # Make real API call with malformed context.md
+    # The LLM reply is the recorded real one, for a malformed context.md
     response = api_client.post("/api/context")
 
     # Verify API doesn't crash
@@ -335,11 +339,7 @@ def test_context_api_malformed_context_md(
 
 
 # INVARIANT TEST 4: Real LLM suggestions have valid structure
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
-    reason="Requires a live llm-core service (services.toml + provider key); "
-    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
-)
+@pytest.mark.recorded_llm
 def test_context_api_suggestion_quality(
     storage_with_flagged_items: Storage,
     test_context_md: Path,

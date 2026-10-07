@@ -1,16 +1,17 @@
 """Integration tests for audio briefing API - protecting invariants."""
 
 import os
+import stat
 
 import pytest
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 from prismis_daemon import api
 from prismis_daemon.storage import Storage
 from prismis_daemon.models import ContentItem
-from conftest import TEST_API_KEY
+from conftest import TEST_API_KEY, configure_local_services
 
 app = api.app
 
@@ -60,18 +61,42 @@ def test_audio_fails_without_high_priority(
     assert "Add content sources" in data["message"] or "adjust" in data["message"]
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
-    reason="Requires a live llm-core service (services.toml + provider key); "
-    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
-)
+def _install_lspeak(bin_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stand-in `lspeak` first on PATH that writes some bytes to its -o file.
+
+    The briefing script comes from a recorded real LLM reply; only the TTS binary is
+    stood in for, so the test needs neither a TTS provider nor a machine with lspeak.
+    """
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    exe = bin_dir / "lspeak"
+    exe.write_text(
+        "#!/bin/sh\n"
+        'out=""\n'
+        'while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done\n'
+        'echo audio-bytes > "$out"\n'
+    )
+    exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+
+@pytest.mark.recorded_llm
 def test_audio_generates_with_high_priority(
-    api_client: TestClient, test_db: Path, full_config: dict
+    api_client: TestClient,
+    test_db: Path,
+    local_pipeline_stub: str,
+    isolated_xdg_env: Path,
+    no_network: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
     INVARIANT: Audio generation succeeds with HIGH priority content
     BREAKS: Feature unusable if broken
+
+    The script is the production model's recorded reply, replayed by the local stub.
     """
+    configure_local_services(isolated_xdg_env.parent, local_pipeline_stub)
+    _install_lspeak(tmp_path / "bin", monkeypatch)
     # Add HIGH priority content
     storage = Storage(test_db)
     source_id = storage.add_source("https://example.com/feed", "rss", "Rust Blog")
@@ -84,16 +109,18 @@ def test_audio_generates_with_high_priority(
         content="Rust 1.80 introduces significant performance improvements and new features for async programming.",
         summary="Rust 1.80 introduces significant performance improvements",
         priority="high",
-        published_at=datetime.now(),
+        # The prompt carries "N hours ago"; a fixed offset from now keeps it "2 hours
+        # ago" on any host, so the recorded request keeps matching.
+        published_at=datetime.now(timezone.utc) - timedelta(hours=2, minutes=30),
     )
     storage.add_content(item)
     storage.close()
 
-    # Call audio endpoint (uses real lspeak with system TTS)
+    # Call audio endpoint (stand-in lspeak writes the audio file)
     response = api_client.post(
         "/api/audio/briefings",
         headers={"X-API-Key": TEST_API_KEY},
-        timeout=90,  # Allow time for real TTS generation
+        timeout=90,
     )
 
     # Should succeed

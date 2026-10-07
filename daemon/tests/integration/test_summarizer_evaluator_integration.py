@@ -1,25 +1,41 @@
-"""Integration tests for ContentSummarizer and ContentEvaluator with real LLM API calls."""
+"""Integration tests for ContentSummarizer and ContentEvaluator against real LLM replies.
 
-import os
+Each test's LLM calls are the production model's real replies, recorded once and
+replayed by `local_pipeline_stub` under the `no_network` fixture (`recorded_llm`
+marker). Re-record with PRISMIS_RECORD_LLM (see docs/architecture/boundaries.md).
+"""
+
+from pathlib import Path
+
 import pytest
+from conftest import LOCAL_LIGHT_SERVICE, configure_local_services
 from prismis_daemon.summarizer import ContentSummarizer
 from prismis_daemon.evaluator import ContentEvaluator, PriorityLevel
 
+# What the recordings' provider reported as the model; the summarizer's metadata
+# carries it through unchanged.
+RECORDED_MODEL = "openai/gpt-5.4-nano"
 
-@pytest.mark.skipif(
-    not os.environ.get("OPENAI_API_KEY"),
-    reason="Requires OPENAI_API_KEY environment variable",
-)
-def test_summarizer_with_real_llm_extracts_all_fields() -> None:
+pytestmark = pytest.mark.usefixtures("no_network")
+
+
+@pytest.fixture
+def stub_service(local_pipeline_stub: str, isolated_xdg_env: Path) -> str:
+    """The light-service name, pointed at `local_pipeline_stub`."""
+    configure_local_services(isolated_xdg_env.parent, local_pipeline_stub)
+    return LOCAL_LIGHT_SERVICE
+
+
+@pytest.mark.recorded_llm
+def test_summarizer_with_real_llm_extracts_all_fields(stub_service: str) -> None:
     """Test ContentSummarizer with real LLM API extracts all analysis fields.
 
     This test:
-    - Initializes ContentSummarizer with real API key
-    - Makes actual LLM API call to gpt-4o-mini
+    - Initializes ContentSummarizer against the stub-served recording
+    - Gets the production model's recorded real reply for that call
     - Verifies all fields extracted (summary, reading_summary, alpha_insights, patterns)
     """
-    # Use real API key from environment
-    summarizer = ContentSummarizer("gpt-4o-mini")
+    summarizer = ContentSummarizer(stub_service)
 
     # Test content about AI that should generate rich analysis
     content = """
@@ -42,7 +58,7 @@ def test_summarizer_with_real_llm_extracts_all_fields() -> None:
     drug discovery and climate modeling efforts.
     """
 
-    # Make real LLM API call
+    # The recorded real LLM reply
     result = summarizer.summarize_with_analysis(
         content=content,
         title="OpenAI Announces GPT-5 with Breakthrough Reasoning",
@@ -71,25 +87,20 @@ def test_summarizer_with_real_llm_extracts_all_fields() -> None:
     assert all(isinstance(pattern, str) for pattern in result.patterns)
 
     # Check metadata
-    assert result.metadata["model"] == "gpt-4o-mini"
+    assert result.metadata["model"] == RECORDED_MODEL
     assert result.metadata["content_length"] == len(content)
 
 
-@pytest.mark.skipif(
-    not os.environ.get("OPENAI_API_KEY"),
-    reason="Requires OPENAI_API_KEY environment variable",
-)
-def test_evaluator_with_real_llm_high_priority() -> None:
+@pytest.mark.recorded_llm
+def test_evaluator_with_real_llm_high_priority(stub_service: str) -> None:
     """Test ContentEvaluator correctly identifies high priority content.
 
     This test:
-    - Initializes ContentEvaluator with real API key
-    - Makes actual LLM API call
+    - Initializes ContentEvaluator against the stub-served recording
     - Evaluates AI content against context with AI as high priority
     - Verifies HIGH priority assigned with matched interests
     """
-    # Use real API key from environment
-    evaluator = ContentEvaluator("gpt-4o-mini")
+    evaluator = ContentEvaluator(stub_service)
 
     # Content that should be high priority
     content = """
@@ -119,7 +130,7 @@ def test_evaluator_with_real_llm_high_priority() -> None:
     - Celebrity news
     """
 
-    # Make real LLM API call
+    # The recorded real LLM reply
     result = evaluator.evaluate_content(
         content=content,
         title="Breakthrough in Local LLM Technology",
@@ -142,19 +153,15 @@ def test_evaluator_with_real_llm_high_priority() -> None:
     assert len(result.reasoning) > 10
 
 
-@pytest.mark.skipif(
-    not os.environ.get("OPENAI_API_KEY"),
-    reason="Requires OPENAI_API_KEY environment variable",
-)
-def test_evaluator_with_real_llm_low_priority() -> None:
-    """Test ContentEvaluator correctly identifies low priority content.
+@pytest.mark.recorded_llm
+def test_evaluator_with_real_llm_low_priority(stub_service: str) -> None:
+    """Test ContentEvaluator leaves "Not Interested" content unprioritized.
 
     This test:
     - Uses content about topics in "Not Interested" section
-    - Verifies LOW priority assigned
+    - Verifies no priority is assigned (null, not LOW)
     """
-    # Use real API key from environment
-    evaluator = ContentEvaluator("gpt-4o-mini")
+    evaluator = ContentEvaluator(stub_service)
 
     # Content that should be low priority (crypto - in Not Interested)
     content = """
@@ -180,7 +187,7 @@ def test_evaluator_with_real_llm_low_priority() -> None:
     - Celebrity news
     """
 
-    # Make real LLM API call
+    # The recorded real LLM reply
     result = evaluator.evaluate_content(
         content=content,
         title="Bitcoin Reaches New High",
@@ -188,21 +195,16 @@ def test_evaluator_with_real_llm_low_priority() -> None:
         context=context,
     )
 
-    # Should identify as low priority (matches Not Interested)
-    assert result.priority == PriorityLevel.LOW
+    # Content matching "Not Interested" is left unprioritized: the evaluator prompt
+    # demands priority null for it (evaluator.py), never LOW.
+    assert result.priority is None
 
     # Should still have reasoning explaining why
     assert result.reasoning is not None
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
-    reason="Requires a live llm-core service (services.toml defining prismis-openai, plus a "
-    "provider key); set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60. "
-    "NOTE: this mark was ADDED by wo-green-the-suite, it is not one of the three "
-    "pre-existing OPENAI_API_KEY marks in this file.",
-)
-def test_complete_analysis_pipeline(llm_config, full_config) -> None:
+@pytest.mark.recorded_llm
+def test_complete_analysis_pipeline(stub_service: str, full_config) -> None:
     """Test complete pipeline: summarization followed by evaluation.
 
     This test:
@@ -211,8 +213,8 @@ def test_complete_analysis_pipeline(llm_config, full_config) -> None:
     - Simulates the actual daemon workflow
     """
     # Use config from fixture (loaded from actual config file)
-    summarizer = ContentSummarizer(llm_config)
-    evaluator = ContentEvaluator(llm_config)
+    summarizer = ContentSummarizer(stub_service)
+    evaluator = ContentEvaluator(stub_service)
 
     # Rust content (should be high priority based on typical context)
     content = """

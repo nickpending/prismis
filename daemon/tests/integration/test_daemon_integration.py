@@ -3,7 +3,7 @@
 import pytest
 import subprocess
 
-from conftest import strip_ansi
+from conftest import configure_local_services, strip_ansi
 import os
 import sys
 from pathlib import Path
@@ -13,19 +13,25 @@ from prismis_daemon.storage import Storage
 from prismis_daemon.defaults import ensure_config
 
 
-@pytest.mark.skipif(
-    not os.environ.get("PRISMIS_LIVE_LLM_TESTS"),
-    reason="Requires a live llm-core service (services.toml + provider key); "
-    "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
-)
-def test_daemon_orchestration_with_test_database(test_db) -> None:
+@pytest.mark.recorded_llm
+def test_daemon_orchestration_with_test_database(
+    test_db, local_pipeline_stub: str, isolated_xdg_env: Path
+) -> None:
     """Test daemon orchestration with real services and test database.
 
     This integration test:
     - Uses the test_db fixture for a clean database
     - Uses real Storage, Fetcher, Analyzer configured for testing
+    - Reads its feed from the local stub's /feed.xml and has the production model's
+      recorded replies served for the summarizer and evaluator calls
     - Runs the orchestration logic
     - Verifies it works end-to-end
+
+    Deliberately not under `no_network`: the real Embedder fetches its model files from
+    huggingface.co, and an item whose embedding fails is not stored, so the dead proxy
+    would fail the pipeline for a reason unrelated to the LLM. The LLM calls cannot
+    leave regardless: both services point at the stub, which in replay mode serves the
+    recording or refuses and never forwards.
     """
     from prismis_daemon.orchestrator import DaemonOrchestrator
     from prismis_daemon.fetchers.rss import RSSFetcher
@@ -39,8 +45,9 @@ def test_daemon_orchestration_with_test_database(test_db) -> None:
     from io import StringIO
     from rich.console import Console
 
-    # Ensure config exists
+    # Ensure config exists, then point its LLM services at the stub
     ensure_config()
+    configure_local_services(isolated_xdg_env.parent, local_pipeline_stub)
     config_obj = Config.from_file()
 
     # Create real services configured for testing
@@ -58,8 +65,8 @@ def test_daemon_orchestration_with_test_database(test_db) -> None:
     output = StringIO()
     test_console = Console(file=output)
 
-    # Add a real RSS source
-    storage.add_source("https://simonwillison.net/atom/everything/", "rss")
+    # Add the stub's RSS feed as the source
+    storage.add_source(f"{local_pipeline_stub}/feed.xml", "rss")
 
     # Create orchestrator with test dependencies
     orchestrator = DaemonOrchestrator(

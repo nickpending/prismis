@@ -1,0 +1,13 @@
+{
+  "what": "Close gh #56: move the CLI and daemon from Python 3.13 to 3.14 (the current stable release, 3.14.8) by refreshing both uv.lock files to versions that ship 3.14 wheels, setting both .python-version files and both mypy python_version settings to 3.14, making the Makefile read the version from .python-version instead of hardcoding it, and installing the deployed tools pinned to the lock so the gate tests exactly what cerebro runs.",
+  "why": "prismis is the only uv tool on these hosts still pinned to 3.13, so every host keeps a second full CPython for it; the pin is ours (Makefile, .python-version, mypy), not a dependency constraint, since both pyproject.toml files already say requires-python >=3.13. Measured 2026-10-07: the current locks cannot install on 3.14 (lxml 5.4.0, markupsafe 3.0.2, pydantic-core 2.33.2 and pyyaml 6.0.2 ship no 3.14 wheel, and pydantic-core 2.33.2 cannot compile for 3.14 because its PyO3 tops out at 3.13; trafilatura 2.0.0 holds lxml below 6). With both locks refreshed by `uv lock --upgrade`, the full daemon suite passes on 3.14.6 (980 passed, 7 skipped), the CLI's passes (126), and mypy and ruff are clean in both. The same measurement found that the deploy does not use the lock: `make install-daemon` runs `uv tool install .`, which resolves fresh, so cerebro runs pydantic 2.13.5 while the committed lock says 2.11.7. A prior decision (docs/architecture/decisions.md, 'Iteration-boundary git-dep pinning') recorded that uv tool install bypasses the lock and fixed it only for git sources.",
+  "decided": [
+    "Both units move to 3.14: cli/.python-version and daemon/.python-version become 3.14, and [tool.mypy] python_version becomes \"3.14\" in both pyproject.toml files.",
+    "requires-python stays >=3.13 in both units, because no 3.14-only feature is used and the floor keeps existing installs valid (the issue's own recommendation).",
+    "Both uv.lock files are refreshed with `uv lock --upgrade`; the refreshed daemon lock matches what cerebro already runs except fastapi 0.142.3 vs 0.142.2 and three platform-only packages (colorama, tzdata, httpx2-jsfetch).",
+    "The Makefile reads the Python version from each unit's .python-version instead of hardcoding 3.13 in its eight places, so the pin lives in one file per unit.",
+    "make install-daemon and make install-cli install with `--constraints` exported from the unit's uv.lock (`uv export --locked --no-dev --no-emit-project --no-hashes`), so the deployed tool runs the locked versions the gate tested.",
+    "The daemon switches on cerebro only after the full suite passes on 3.14 and a deployed fetch cycle completes there, per the issue's split verification."
+  ],
+  "open": []
+}

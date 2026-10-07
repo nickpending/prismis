@@ -1,0 +1,54 @@
+{
+  "scrutiny": [
+    {
+      "test": "T0 purpose: every live-resource path that today has no gate coverage (feed validation, RSS fetching, Reddit fetching, YouTube discovery and transcripts, content-aware summarizing) gets checked on every push against real third-party output.",
+      "failureCase": "Coverage were added where no regression could land.",
+      "result": "held"
+    },
+    {
+      "test": "B4 count, enumerated with `uv run pytest -q -rs` over the daemon suite: 38 skipped = youtube 8, validator 8, reddit fetcher 5, fetcher 5, llm_client_live 4, content-aware 3, startup validation 2, api 2, notifier 1. Un-gated here: 3 + 8 + 8 + 5 + 5 + 2 = 31; staying opt-in: 4 + 2 + 1 = 7. The design's '32' counts the notifier test; the work order states 31.",
+      "failureCase": "The set were assembled from memory rather than the suite's own skip report.",
+      "result": "changed"
+    },
+    {
+      "test": "T1 owners: conftest.py permits standing in only for third parties; vcrpy intercepts at the HTTP transport, yt-dlp is stood in at the subprocess boundary, the LLM at its configured service; fetchers, validator, Storage and API run for real.",
+      "failureCase": "An internal collaborator were faked.",
+      "result": "held"
+    },
+    {
+      "test": "Dependency adoption: vcrpy 3.0k stars, latest release v8.3.0 on 2026-07-04, pushed 2026-09-15, not archived (GitHub API); dev group only; the operator chose it on 2026-10-07.",
+      "failureCase": "A low-adoption or unmaintained library were added.",
+      "result": "held"
+    },
+    {
+      "test": "P1/P8 secrets: Reddit recording happens on cerebro, cassettes are scrubbed (filter_headers for Authorization/Cookie/Set-Cookie, before_record_response for access_token) and grepped on cerebro for the client id, secret and a real token before copying back; a mechanism test asserts a recorded cassette holds neither.",
+      "failureCase": "A credential or OAuth token reached a committed cassette.",
+      "result": "held"
+    },
+    {
+      "test": "T2 failure modes: replaying httpbin's delay cannot reproduce a timeout and a cassette cannot reproduce a DNS failure, so those tests use a local slow server, a local 429 server and the reserved .invalid TLD.",
+      "failureCase": "A failure-mode test passed against a replay that cannot fail the way the test claims.",
+      "result": "held"
+    },
+    {
+      "test": "T6 assumption to prove in the build: vcrpy's http.client patching covers `extract_article`'s guarded urllib opener (its connection classes subclass http.client's at call time); the mechanism tests run the RSS fetcher's article extraction under `no_network` to show it.",
+      "failureCase": "A client path bypassed the cassette and reached the network or the guard.",
+      "result": "held"
+    },
+    {
+      "test": "T10 undo: revert the commit; the skip marks return and vcrpy leaves the lock.",
+      "failureCase": "A one-way change.",
+      "result": "held"
+    }
+  ],
+  "decisions": [
+    {
+      "question": "For the 21 HTTP-backed tests, add vcrpy as a test-only dependency, build our own per-client replay, or leave them live?",
+      "answer": "Add vcrpy, and cover all live-resource-gated tests in this one work order (operator, 2026-10-07)."
+    }
+  ],
+  "verdict": "redesign",
+  "carried": [
+    "How many tests does this work order un-gate, given the suite's skip report shows 38 skipped of which the 4 llm_client_live, 2 startup-validation and 1 notifier tests stay opt-in?"
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "workOrder": "python-314",
+  "issues": [
+    56
+  ],
+  "what": "Close gh #56: move the CLI and daemon to Python 3.14 (both .python-version files, both mypy settings, both uv.lock files refreshed so every compiled package ships a 3.14 wheel), make the Makefile read the version from .python-version, and install the deployed tools with the lock as constraints so production runs the versions the gate tested.",
+  "why": "Design: docs/work/python-314/design.md. The 3.13 pin is ours, not a dependency's; the current locks cannot install on 3.14 (lxml, markupsafe, pydantic-core, pyyaml ship no 3.14 wheel), and the deploy resolves fresh instead of reading the lock, so cerebro already runs versions the gate never tested. Refreshed locks pass both full suites on 3.14.6 (measured 2026-10-07). After merge, cerebro's daemon is reinstalled and its first cycle read, and the Mac's CLI reinstalled, outside the lane.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "the repository after the change",
+      "when": "cli/.python-version, daemon/.python-version and the [tool.mypy] and [project] sections of both pyproject.toml files are read",
+      "then": "it fails if either .python-version is not 3.14, either mypy python_version is not \"3.14\", or either requires-python is not >=3.13; otherwise all six read as stated"
+    },
+    {
+      "id": "SC-2",
+      "given": "both units' uv.lock files",
+      "when": "`uv sync --locked --no-build` runs in each with Python 3.14",
+      "then": "it fails if any package must be built from source or the lock is out of date with its pyproject.toml; otherwise both environments install from wheels alone"
+    },
+    {
+      "id": "SC-3",
+      "given": "the Makefile after the change",
+      "when": "`grep -nE '3\\.1[0-9]' Makefile` runs and the new install-target test in daemon/tests/unit reads the install-daemon, install-cli and install-cli-local recipes",
+      "then": "it fails if any recipe names a Python version literally or installs without constraints exported from its unit's uv.lock; otherwise the grep finds nothing and the test passes, and the test is shown red against the pre-change Makefile"
+    },
+    {
+      "id": "SC-4",
+      "given": "a scratch UV_TOOL_DIR and UV_TOOL_BIN_DIR",
+      "when": "`make install-daemon` and then `make install-cli-local` run into them",
+      "then": "it fails if any package listed in the unit's lock is installed at a different version (compare `uv pip list` of each tool environment against `uv export --locked`), or if the tool's interpreter is not 3.14; otherwise every locked package matches and both tools run `--help`"
+    },
+    {
+      "id": "SC-5",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check or if a Python unit ran on an interpreter other than 3.14; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "Python 3.13 stays installed on each host until the operator removes it; this work order changes what prismis uses, not what else is on the host.",
+    "A deploy now fails when the lock cannot be satisfied on the host, instead of silently resolving different versions; a dependency bump reaches production only through a committed `uv lock --upgrade`."
+  ],
+  "stakes": [
+    "Both .python-version files read 3.14, both mypy python_version settings read \"3.14\", and requires-python stays >=3.13 in both units.",
+    "Both locks install on Python 3.14 with no package built from source, and `./.specify/verify.sh` passes with every unit running on 3.14.",
+    "The Makefile contains no hardcoded Python version; each install target takes it from its unit's .python-version.",
+    "make install-daemon, install-cli and install-cli-local install every locked dependency at its locked version: after an install into a scratch tool directory, each package the lock names reports the lock's version.",
+    "A unit test fails if a Makefile install target hardcodes a Python version or drops the lock constraints.",
+    "After deploy, cerebro's prismis-daemon runs on 3.14 with its locked versions, `prismis-daemon verify` passes, and its first fetch cycle completes; the Mac's prismis-cli reinstalls on 3.14."
+  ]
+}

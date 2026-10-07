@@ -896,13 +896,30 @@ def ytdlp_replay(
 # Record is operator-run: PRISMIS_RECORD_HTTP=1 sends the requests for real and writes a
 # fresh cassette. A credential never reaches a cassette: request Authorization and Cookie
 # headers are dropped, response Set-Cookie headers are dropped, and the value of any
-# `access_token` field in a response body is replaced (`scrub_response`).
+# `access_token` field, Reddit media `s=` signature or page clientToken in a response
+# body is replaced (`scrub_response`).
 HTTP_CASSETTES_DIR = Path(__file__).parent / "fixtures" / "http_cassettes"
 RECORD_HTTP_ENV = "PRISMIS_RECORD_HTTP"
 SCRUBBED_REQUEST_HEADERS = ("Authorization", "Cookie", "Set-Cookie")
 SCRUBBED_RESPONSE_HEADERS = ("set-cookie", "authorization", "cookie")
 ACCESS_TOKEN_PLACEHOLDER = "<scrubbed-access-token>"
 _ACCESS_TOKEN = re.compile(rb'("access_token"\s*:\s*")[^"]*(")')
+MEDIA_SIGNATURE_PLACEHOLDER = "scrubbed-media-signature"
+CLIENT_TOKEN_PLACEHOLDER = "scrubbed-client-token"
+# Public values shaped like credentials, which the secret scan flags: Reddit signs every
+# media URL (redd.it, redditmedia.com) with an `s=` hash, and analytics scripts on third-party pages embed a browser
+# clientToken. `&` is how a cassette re-escapes `&` once written.
+_MEDIA_SIGNATURE = re.compile(
+    rb"((?:redd\.it|redditmedia\.com)/[^\s\"'<>]*?(?:\?|&|\\u0026)(?:amp;)?s=)[\w-]+"
+)
+_CLIENT_TOKEN = re.compile(rb"(clientToken\\?[\"']?\s*[:=]\s*\\?[\"'])[^\"'\\]+")
+
+
+def scrub_body(body: bytes) -> bytes:
+    """Replace every credential-shaped value a recorded body may carry."""
+    body = _ACCESS_TOKEN.sub(rb"\1" + ACCESS_TOKEN_PLACEHOLDER.encode() + rb"\2", body)
+    body = _MEDIA_SIGNATURE.sub(rb"\1" + MEDIA_SIGNATURE_PLACEHOLDER.encode(), body)
+    return _CLIENT_TOKEN.sub(rb"\1" + CLIENT_TOKEN_PLACEHOLDER.encode(), body)
 
 
 def scrub_response(response: dict[str, Any]) -> dict[str, Any]:
@@ -913,9 +930,7 @@ def scrub_response(response: dict[str, Any]) -> dict[str, Any]:
             del headers[name]
     body = response.get("body", {}).get("string")
     if isinstance(body, bytes):
-        response["body"]["string"] = _ACCESS_TOKEN.sub(
-            rb"\1" + ACCESS_TOKEN_PLACEHOLDER.encode() + rb"\2", body
-        )
+        response["body"]["string"] = scrub_body(body)
     return response
 
 

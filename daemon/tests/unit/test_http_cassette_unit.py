@@ -23,10 +23,13 @@ import yaml
 
 from conftest import (
     ACCESS_TOKEN_PLACEHOLDER,
+    CLIENT_TOKEN_PLACEHOLDER,
     HTTP_CASSETTES_DIR,
+    MEDIA_SIGNATURE_PLACEHOLDER,
     HttpCassette,
     LocalHttpServer,
     make_vcr,
+    scrub_response,
 )
 from prismis_daemon.article_extractor import extract_article
 
@@ -247,12 +250,28 @@ def assert_cassette_holds_no_credential(cassette: dict[str, Any], text: str) -> 
             assert not names & forbidden, f"{side} headers carry {names & forbidden}"
     for value in _access_token_values(text):
         assert value == ACCESS_TOKEN_PLACEHOLDER, f"unscrubbed access_token: {value!r}"
+    for value in _media_signature_values(text):
+        assert value == MEDIA_SIGNATURE_PLACEHOLDER, f"unscrubbed media signature: {value!r}"
+    for value in _client_token_values(text):
+        assert value == CLIENT_TOKEN_PLACEHOLDER, f"unscrubbed clientToken: {value!r}"
 
 
 def _access_token_values(text: str) -> list[str]:
     import re
 
     return re.findall(r'access_token\\?"\s*:\s*\\?"([^"\\]*)', text)
+
+
+def _media_signature_values(text: str) -> list[str]:
+    import re
+
+    return re.findall(r"(?:redd\.it|redditmedia\.com)/[^\s\"'<>]*?(?:\?|&|\\u0026)(?:amp;)?s=([\w-]+)", text)
+
+
+def _client_token_values(text: str) -> list[str]:
+    import re
+
+    return re.findall(r"clientToken\\?[\"']?\s*[:=]\s*\\?[\"']([^\"'\\]+)", text)
 
 
 def test_every_committed_cassette_holds_no_credential() -> None:
@@ -279,3 +298,42 @@ def test_the_credential_check_fails_on_a_cassette_that_holds_one() -> None:
         assert_cassette_holds_no_credential(
             {"interactions": []}, '{"access_token": "abc123"}'
         )
+    with pytest.raises(AssertionError, match="unscrubbed media signature"):
+        assert_cassette_holds_no_credential(
+            {"interactions": []},
+            '"https://preview.redd.it/a.png?width=108\\u0026s=0123456789abcdef"',
+        )
+    with pytest.raises(AssertionError, match="unscrubbed clientToken"):
+        assert_cassette_holds_no_credential(
+            {"interactions": []}, "clientToken: 'fake-token'"
+        )
+
+
+# A Reddit listing and a third-party page as the recorder receives them: Reddit signs
+# every media URL with an `s=` hash, and analytics scripts embed a browser clientToken.
+# Both are public, but they are shaped like credentials and fail the secret scan.
+_SIGNED_BODY = (
+    b'{"url": "https://external-preview.redd.it/W0x.jpeg?auto=webp&s=e4e806e10618a41e86b3'
+    b'9b8f00e83095daaa5e14", "html": "<a href=\\"https://preview.redd.it/m2i.png?width=1920'
+    b'&amp;format=png&amp;s=87695aaf9302a08de5d0283ebeeb8f9a05b8f217\\">", '
+    b'"page": "DD_RUM.init({clientToken: \'fake-browser-token\', '
+    b'site: \'x\'})", "icon": "https://styles.redditmedia.com/t5/icon.png?width=256&s=5e99'
+    b'f497418f31f47439c0e8de10553ea9150a00", "kept": "https://example.com/?s=abc"}'
+)
+
+
+def test_the_record_hook_replaces_media_signatures_and_client_tokens() -> None:
+    response = scrub_response({"headers": {}, "body": {"string": _SIGNED_BODY}})
+
+    text = response["body"]["string"].decode()
+    for secret in (
+        "e4e806e10618a41e86b39b8f00e83095daaa5e14",
+        "87695aaf9302a08de5d0283ebeeb8f9a05b8f217",
+        "5e99f497418f31f47439c0e8de10553ea9150a00",
+        "fake-browser-token",
+    ):
+        assert secret not in text
+    assert text.count(MEDIA_SIGNATURE_PLACEHOLDER) == 3, "replaced, not dropped"
+    assert CLIENT_TOKEN_PLACEHOLDER in text
+    assert "https://example.com/?s=abc" in text, "only Reddit media URLs are touched"
+    assert_cassette_holds_no_credential({"interactions": []}, text)

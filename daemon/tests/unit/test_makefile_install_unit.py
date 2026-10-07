@@ -55,22 +55,46 @@ def _expanded(target: str) -> str:
     return result.stdout
 
 
+def _names_python_version(recipe: str) -> bool:
+    return bool(_PY_VERSION_RE.search(recipe))
+
+
+def _installs_under_lock_constraints(recipe: str) -> bool:
+    return "uv export --locked" in recipe and "--constraints" in recipe
+
+
+# The install-daemon recipe as it stood before python-314: a literal interpreter version
+# and no lock export. The checks above must reject it, so they are shown red here on every
+# run rather than once by hand.
+_PRE_CHANGE_RECIPE = """\
+\t@if ! uv python list 2>/dev/null | grep -q "cpython-3\\\\.13"; then \\\\
+\t\tuv python install 3.13; \\\\
+\tfi
+\tcd daemon && uv tool install . --python 3.13 --reinstall
+"""
+
+
+def test_checks_reject_the_pre_change_recipe() -> None:
+    assert _names_python_version(_PRE_CHANGE_RECIPE)
+    assert not _installs_under_lock_constraints(_PRE_CHANGE_RECIPE)
+
+
 @pytest.mark.parametrize(
     "target", ["install-daemon", "install-cli", "install-cli-local"]
 )
 def test_install_recipe_names_no_python_version(target: str) -> None:
     recipe = _recipe(target)
     assert recipe.strip(), f"no recipe found for {target}"
-    assert not _PY_VERSION_RE.search(recipe), (
+    assert not _names_python_version(recipe), (
         f"{target} names a Python version literally; read it from .python-version"
     )
 
 
 @pytest.mark.parametrize("target", sorted(_TARGET_UNIT))
 def test_install_recipe_installs_under_lock_constraints(target: str) -> None:
-    recipe = _recipe(target)
-    assert "uv export --locked" in recipe, f"{target} does not export the unit's lock"
-    assert "--constraints" in recipe, f"{target} installs without lock constraints"
+    assert _installs_under_lock_constraints(_recipe(target)), (
+        f"{target} installs without exporting the unit's lock as constraints"
+    )
 
 
 def test_install_cli_local_installs_through_install_cli() -> None:

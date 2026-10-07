@@ -14,6 +14,7 @@ Why this test:
 import os
 import pwd
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -63,18 +64,84 @@ def _locked_pins(unit: str, extra: list[str]) -> dict[str, str]:
     return pins
 
 
-@pytest.mark.parametrize("target,unit,tool,extra", _CASES)
-def test_make_install_matches_lock(
-    target: str, unit: str, tool: str, extra: list[str], tmp_path: Path
-) -> None:
+def _real_home_env(tmp_path: Path) -> dict[str, str]:
     # conftest seals HOME and XDG_* into a temp dir; uv would find neither its managed
     # Pythons nor its wheel cache there, so hand it the account's real home back.
-    env = {
+    return {
         **{k: v for k, v in os.environ.items() if not k.startswith("XDG_")},
         "HOME": pwd.getpwuid(os.getuid()).pw_dir,
         "UV_TOOL_DIR": str(tmp_path / "tools"),
         "UV_TOOL_BIN_DIR": str(tmp_path / "bin"),
     }
+
+
+def test_constraints_override_a_fresh_resolve(tmp_path: Path) -> None:
+    """The lock, not a fresh resolve, decides the installed version.
+
+    A scratch copy of the daemon unit has `six` locked one release behind what an
+    unconstrained resolve picks. Installing through the Makefile must land the locked
+    older version; without `--constraints` it lands the newest.
+    """
+    root = tmp_path / "repo"
+    ignore = shutil.ignore_patterns(
+        ".venv", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", "tests"
+    )
+    root.mkdir()
+    shutil.copy(_PROJECT_ROOT / "Makefile", root / "Makefile")
+    shutil.copytree(_PROJECT_ROOT / "daemon", root / "daemon", ignore=ignore)
+    (root / "cli").mkdir()
+    shutil.copy(_PROJECT_ROOT / "cli" / ".python-version", root / "cli")
+
+    env = _real_home_env(tmp_path)
+    older = "1.16.0"
+    locked = subprocess.run(
+        ["uv", "lock", "--upgrade-package", f"six=={older}"],
+        cwd=root / "daemon",
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert locked.returncode == 0, locked.stderr
+    assert f"six=={older}" in _export_text(root / "daemon", env)
+
+    made = subprocess.run(
+        ["make", "install-daemon"], cwd=root, env=env, capture_output=True, text=True
+    )
+    assert made.returncode == 0, made.stdout[-2000:] + made.stderr[-2000:]
+    listed = subprocess.run(
+        [
+            "uv",
+            "pip",
+            "list",
+            "--format",
+            "freeze",
+            "--python",
+            str(tmp_path / "tools" / "prismis-daemon" / "bin" / "python"),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    ).stdout
+    assert f"six=={older}" in listed.splitlines()
+
+
+def _export_text(unit_dir: Path, env: dict[str, str]) -> str:
+    return subprocess.run(
+        ["uv", "export", "--locked", "--no-emit-project", "--no-hashes", "--no-header"],
+        cwd=unit_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+@pytest.mark.parametrize("target,unit,tool,extra", _CASES)
+def test_make_install_matches_lock(
+    target: str, unit: str, tool: str, extra: list[str], tmp_path: Path
+) -> None:
+    env = _real_home_env(tmp_path)
     made = subprocess.run(
         ["make", target], cwd=_PROJECT_ROOT, env=env, capture_output=True, text=True
     )

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .circuit_breaker import get_circuit_breaker
+from .llm_call import bound_content
 from .llm_client import complete, extract_json
 from .observability import log as obs_log
 
@@ -198,12 +199,13 @@ Schema:
 quotables: 0-3 items. Must be EXACT text from the content, not paraphrase. Include only if the line stands on its own as quotable. If nothing meets that bar, return []."""
 
     def _user_prompt(self, content: str, title: str, url: str) -> str:
+        bounded = bound_content(content)
         header = f"# Title\n{title}"
         if url:
             header += f"\n\n# Source\n{url}"
         return f"""{header}
 
 # Content
-{content}
+{bounded.text}
 
 Produce the synthesis JSON. Lead with what's counterintuitive or buried. Only quote lines that genuinely stand on their own. Stay grounded in the source. Add **Pushback:** only when the source itself reveals weak claims — never use outside knowledge."""

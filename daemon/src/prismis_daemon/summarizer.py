@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from .llm_call import call_llm_with_circuit_breaker
+from .llm_call import bound_content, call_llm_with_circuit_breaker
 from .llm_client import extract_json
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,8 @@ class ContentSummarizer:
                 content, title, url, source_type, source_name, metadata or {}
             )
 
+            bounded_record = bound_content(content).record
+
             # Determine summarization mode based on content characteristics
             word_count = self._calculate_word_count(content)
             mode = self._get_mode_name(word_count, source_type)
@@ -167,6 +169,7 @@ class ContentSummarizer:
                     "content_length": len(content),
                     "word_count": word_count,
                     "summarization_mode": mode,
+                    **({"content_bounded": bounded_record} if bounded_record else {}),
                 },
             )
 
@@ -423,9 +426,10 @@ Return JSON with: summary, reading_summary, alpha_insights, patterns, quotes, to
         Returns:
             Formatted prompt string
         """
-        # Use full content - no truncation for comprehensive analysis
+        bounded = bound_content(content)
         logger.debug(
-            f"Sending full content to LLM for analysis: {len(content):,} characters"
+            f"Sending content to LLM for analysis: {bounded.sent_bytes:,} of "
+            f"{bounded.total_bytes:,} bytes"
         )
 
         # Build metadata string
@@ -451,4 +455,4 @@ IMPORTANT: Use the provided metadata above. Do NOT infer or guess author names, 
 CRITICAL FOR URL EXTRACTION: The source URL above ({url}) is where this content came from. DO NOT include it in your extracted URLs - only extract URLs that are referenced WITHIN the content itself.
 
 CONTENT:
-{content}"""
+{bounded.text}"""

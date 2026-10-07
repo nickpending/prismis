@@ -11,9 +11,55 @@ two. Per the work order's SC-8, this helper closes that gap deliberately: all th
 callers now refuse a call while their service's circuit is open, not just two of them.
 """
 
+from dataclasses import dataclass
+
 from .circuit_breaker import get_circuit_breaker
 from .llm_client import CompleteResult, complete
 from .observability import log as obs_log
+
+# The most UTF-8 bytes of article text any prompt carries. Sized for the 400,000-token
+# window of the model both production services run: a byte-level BPE token covers at
+# least one byte, so 350,000 bytes never exceed 350,000 tokens, leaving the rest of
+# the window for the system prompt, the user's context and the reply.
+MAX_CONTENT_BYTES = 350_000
+
+
+@dataclass(frozen=True)
+class BoundedContent:
+    """Article text as it goes into a prompt, with what the bound did to it."""
+
+    text: str
+    sent_bytes: int
+    total_bytes: int
+
+    @property
+    def record(self) -> dict[str, int] | None:
+        """The `content_bounded` analysis value, or None when nothing was cut."""
+        if self.sent_bytes >= self.total_bytes:
+            return None
+        return {"sent_bytes": self.sent_bytes, "total_bytes": self.total_bytes}
+
+
+def bound_content(content: str) -> BoundedContent:
+    """Bound article text to MAX_CONTENT_BYTES UTF-8 bytes for a prompt.
+
+    The one place the bound is decided for the summarizer, evaluator and deep
+    extractor. Content within the bound is returned unchanged. Longer content keeps
+    its leading bytes, cut on a character boundary, followed by one line telling the
+    model the text was cut and how much of it remains, so a part is not summarized
+    as the whole.
+    """
+    encoded = content.encode(errors="replace")
+    total = len(encoded)
+    if total <= MAX_CONTENT_BYTES:
+        return BoundedContent(content, total, total)
+    kept = encoded[:MAX_CONTENT_BYTES].decode(errors="ignore")
+    sent = len(kept.encode(errors="replace"))
+    note = (
+        f"\n\n[The article text above was cut: it shows the first {sent:,} of "
+        f"{total:,} UTF-8 bytes. Treat it as the opening part of a longer article.]"
+    )
+    return BoundedContent(kept + note, sent, total)
 
 
 def build_messages(system_prompt: str, user_prompt: str) -> list[dict[str, str]]:

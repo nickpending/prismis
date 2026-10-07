@@ -101,7 +101,7 @@ def build_llm_analysis(
         `title_only_reason` (None when readable and substantive).
     """
     reason = title_only_reason(content, fetch_outcome, summary_result.substantive)
-    return {
+    analysis: dict[str, Any] = {
         "reading_summary": summary_result.reading_summary,
         "alpha_insights": summary_result.alpha_insights,
         "patterns": summary_result.patterns,
@@ -115,3 +115,7 @@ def build_llm_analysis(
         "title_only": reason is not None,
         "title_only_reason": reason,
     }
+    bounded = summary_result.metadata.get("content_bounded")
+    if bounded:
+        analysis["content_bounded"] = bounded
+    return analysis

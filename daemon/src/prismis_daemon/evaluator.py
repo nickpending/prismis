@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from .llm_call import build_messages, call_llm_with_circuit_breaker
+from .llm_call import bound_content, build_messages, call_llm_with_circuit_breaker
 from .llm_client import extract_json
 
 logger = logging.getLogger(__name__)
@@ -141,6 +141,7 @@ LEARNED USER PREFERENCES (from recent feedback):
 Use these learned preferences to SUPPLEMENT (not override) the user's context above.
 If content matches topics the user has upvoted, consider boosting priority slightly.
 If content matches topics the user has downvoted, consider lowering priority."""
+        bounded = bound_content(content)
 
         user_prompt = f"""User's Personal Context:
 {context}
@@ -150,7 +151,7 @@ Title: {title}
 URL: {url}
 
 Content Text:
-{content}
+{bounded.text}
 
 Evaluate this content and respond with the JSON format specified."""
 

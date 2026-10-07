@@ -1,0 +1,77 @@
+{
+  "scrutiny": [
+    {
+      "test": "T0 purpose: prismis analyzes everything its sources publish (docs/IDEA.md); this turns a page that is refused every cycle into a stored, summarized item, and records when the summary covers part of it.",
+      "failureCase": "An oversized page still never stored.",
+      "result": "held"
+    },
+    {
+      "test": "T1 owners: the kind classifier already bounds its request (kind_classifier.py:59-63); llm_call.py is the shared LLM-call module summarizer and evaluator import; build_llm_analysis (analysis.py:78) is the one analysis assembler. The design extends each rather than adding a parallel path.",
+      "failureCase": "A second bounding scheme beside the kind classifier's, or a record written outside build_llm_analysis.",
+      "result": "held"
+    },
+    {
+      "test": "T2 same noun: the byte-over-token guarantee is about byte-level BPE, the tokenizer family OpenAI models (gpt-5.4-nano via OpenRouter) use; the measurement that motivated it is the provider's own refusal count for this exact page (482,792 tokens for 1,724,631 bytes).",
+      "failureCase": "A character ratio from English prose stood in for the pathological page.",
+      "result": "held"
+    },
+    {
+      "test": "T3 degrade: 8 of 39,022 stored items would be summarized from their first 350,000 bytes on re-analysis, recorded; stated as a sacrifice.",
+      "failureCase": "A cut that is silent or unrecorded.",
+      "result": "held"
+    },
+    {
+      "test": "T5 running system: the post-deploy commitment reads cerebro's next cycle for an article over the bound stored with content_bounded; the defect walk reproduces the refusal with a stub that enforces the window in bytes.",
+      "failureCase": "Only a fixture built to pass.",
+      "result": "held"
+    },
+    {
+      "test": "T6 assumptions: 50,000 tokens of headroom covers the system prompts, context.md (3,001 bytes on cerebro) and the reply; the tokenizer is byte-level BPE.",
+      "failureCase": "Headroom sized by guess.",
+      "result": "held"
+    },
+    {
+      "test": "T7 consumers, enumerated with grep for summarize_with_analysis, evaluate_content and .extract(: the orchestrator (orchestrator.py 142, 160, 239), the CLI's analyze repair (cli/src/cli/analyze.py 176, 191) and the API's on-demand extract; bounding inside the components covers all of them. content_bounded is a new additive key with no reader yet.",
+      "failureCase": "A caller that bypasses the bound.",
+      "result": "held"
+    },
+    {
+      "test": "T9 six months: MAX_CONTENT_BYTES is tied to the deployed model's window; a smaller-window model needs it lowered, accepted in the sacrifices, and its overflow fails at the existing per-item boundary rather than silently.",
+      "failureCase": "A drift that fails silently.",
+      "result": "held"
+    },
+    {
+      "test": "T10 reversibility: a revert; no schema change, an additive analysis key.",
+      "failureCase": "A migration resting on reasoning.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class, every LLM call site enumerated with grep for call_llm_with_circuit_breaker(, complete( and .classify(: summarizer, evaluator, deep extractor send article text (bounded here); kind classifier already caps; context_analyzer, context_auto_updater and audio send summaries or per-item snippets ([:200], top-5 lists), not article text. Python is the only stack that calls an LLM; engines axis n/a.",
+      "failureCase": "Another call site sending unbounded article text.",
+      "result": "held"
+    },
+    {
+      "test": "T12 new state: content_bounded distinguishes a summary of part of a page from one of the whole, which Principle II requires; nothing else records it.",
+      "failureCase": "A key nobody needs.",
+      "result": "held"
+    },
+    {
+      "test": "T13 two places: one helper computes the bound; the summarizer's word count reads full content for mode selection, a different fact.",
+      "failureCase": "The bound computed separately per call site.",
+      "result": "held"
+    },
+    {
+      "test": "T18 cause: the cause is the prompt carrying unbounded text; bounding it removes the refusal for every page, rather than special-casing ascii.rest or catching the 400.",
+      "failureCase": "Matching the provider's context-length message and retrying.",
+      "result": "held"
+    },
+    {
+      "test": "T20 walk: ascii.rest, 1,724,631 bytes, is cut at 350,000 bytes on a character boundary (about 98,000 tokens at its measured 3.57 bytes per token), the prompt notes the cut, the summary returns, the summarizer metadata carries content_bounded {350000-ish, 1724631}, build_llm_analysis copies it, and the item stores with its full content; the next cycle finds it stored and skips it.",
+      "failureCase": "A step that drops the record or the full content.",
+      "result": "held"
+    }
+  ],
+  "decisions": [],
+  "verdict": "accept",
+  "carried": []
+}

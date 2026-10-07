@@ -86,14 +86,12 @@
       "result": "held"
     },
     {
-      "test": "T11 class, re-run over the CLI's 5 handlers read in full: analyze.py 244 and 349 and embeddings.py 157 are per-item loops (form 2), analyze.py 135 is the learned-preference fetch (form 1 or 2), and remote.py:35 (`_load_remote_config`) turns an unreadable or malformed config.toml into (None, None), the same value as no [remote] section, so get_remote_url silently falls back to http://localhost:8989 with no key: a failure-as-empty member the design's form-3 list does not name.",
-      "failureCase": "A CLI failure-as-empty case left in form 2 or narrowed to keep returning (None, None).",
-      "result": "changed"
+      "test": "T11/T20 re-run for the third revision: the form-3 set now names every handler swept whose failure equals an empty result (count_unprioritized, _get_voted_articles, _parse_evaluation_response, run_archival_policy, backfill_embeddings, context.md read, _load_remote_config) plus the deleted catches over code with no expected failure; walked remote.py: config.toml absent returns (None, None) before the try (cli/src/cli/remote.py:27), present and malformed raises naming the file, so `prismis list` stops with that error instead of reading localhost. Config.from_file's other callers each already report a raised config error: the daemon start-up fatal exit, doctor's \u2717 config, verify_chain's \u2717 config, and the API validator loader, which passes None config onward by design (api.py's validator loader docstring).",
+      "failureCase": "A failure-as-empty member still unnamed, or a raised config error with a caller that crashes rather than reports.",
+      "result": "held"
     }
   ],
   "decisions": [],
-  "verdict": "redesign",
-  "carried": [
-    "cli/src/cli/remote.py's _load_remote_config returns (None, None) when config.toml exists but cannot be read or parsed, the same value as having no [remote] section, so the CLI silently talks to http://localhost:8989 with no key; how is that failure represented?"
-  ]
+  "verdict": "accept",
+  "carried": []
 }

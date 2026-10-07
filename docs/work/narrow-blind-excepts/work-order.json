@@ -1,0 +1,105 @@
+{
+  "workOrder": "narrow-blind-excepts",
+  "issues": [
+    58
+  ],
+  "what": "Close gh #58: delete the blanket BLE001 suppression in daemon/pyproject.toml and cli/pyproject.toml and resolve the 72 blind `except Exception` handlers it hides (67 daemon, 5 CLI), each narrowed to the failure it exists for, kept as an isolation boundary that records the traceback, raised to the boundary that already reports failure, or recorded on the item; and stop the TUI's prune from discarding the count endpoint's error.",
+  "why": "Design: docs/work/narrow-blind-excepts/design.md. A blind except handles a defect exactly like the expected hiccup it was written for, and several of these turn a failure into the same value a genuine empty result produces (a 0 count, an empty list, no priority, no remote), which constitution Principle II forbids; the blanket suppression keeps `ruff check .` from reporting any of it. The green suite #58 was blocked on now exists, including the live-resource tests from recordings (gh #60). After merge the daemon is deployed to cerebro and its first full fetch cycle is read from the journal (the design's last commitment), outside the lane.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "daemon/ and cli/ after the change",
+      "when": "`uv run ruff check .` runs in each, and `grep -n BLE001` runs over both pyproject.toml files",
+      "then": "it fails if either pyproject still lists BLE001 under per-file-ignores or ruff reports any BLE001 finding in either unit; otherwise both ruff runs pass with BLE001 active on every file, src and tests"
+    },
+    {
+      "id": "SC-2",
+      "given": "a `# noqa: BLE001` (or `# noqa: BLE`) comment planted in a file under daemon/ and, separately, under cli/",
+      "when": "each unit's test suite runs",
+      "then": "it fails if the planted comment does not turn that unit's noqa-ban test red; otherwise the ban test fails naming the file and line, and passes again once the comment is removed"
+    },
+    {
+      "id": "SC-3",
+      "given": "every handler the plan classifies as narrowed, each listed in the plan with the exception types it now catches and the test that drives its expected failure",
+      "when": "that test runs with the real expected failure (a malformed date string, a JSON-broken metadata line, a praw/prawcore/requests/httpx error from the called client, an unreachable LLM service)",
+      "then": "it fails if the expected failure escapes the handler, and it is shown red with the handler's catch removed; otherwise the handler produces the same outcome it produced before the change"
+    },
+    {
+      "id": "SC-4",
+      "given": "a fetch cycle over two sources where one source's fetch raises an unexpected RuntimeError and, in the other, one item's analysis raises an unexpected RuntimeError",
+      "when": "`run_once` runs",
+      "then": "it fails if the cycle stops, if the other source's or items' results are lost, or if either failure is logged without exc_info or below WARNING; otherwise both failures appear in stats['errors'] and the log carries both tracebacks"
+    },
+    {
+      "id": "SC-5",
+      "given": "a Storage whose count query raises sqlite3.Error",
+      "when": "`GET /api/prune/count` and `POST /api/prune` are called",
+      "then": "it fails if either answers 200 or reports 0 or \"No unprioritized items to prune\"; otherwise both answer 500 through `_server_error`"
+    },
+    {
+      "id": "SC-6",
+      "given": "a context auto-updater whose storage raises on `get_content_by_feedback`",
+      "when": "`update_context` runs",
+      "then": "it fails if it returns (False, \"No voted articles found\"); otherwise it returns (False, \"Error: ...\") and logs the traceback"
+    },
+    {
+      "id": "SC-7",
+      "given": "an evaluator whose LLM reply is valid JSON that `_parse_evaluation_response` cannot parse (a JSON array, or `matched_interests` that is not a list)",
+      "when": "the item is analyzed in a fetch cycle",
+      "then": "it fails if the item is stored with priority null; otherwise `evaluate_content` raises, the per-item boundary records the failure in stats['errors'] and the item is not stored"
+    },
+    {
+      "id": "SC-8",
+      "given": "storage that raises on `archive_old_content`, and separately on `get_content_without_embeddings`",
+      "when": "`run_archival_policy` and `backfill_embeddings` run",
+      "then": "it fails if either returns a zero-count dict; otherwise each raises, while a single item's embedding failure inside `backfill_embeddings` still counts as failed and the loop continues"
+    },
+    {
+      "id": "SC-9",
+      "given": "a config directory whose context.md exists but cannot be read (no read permission, or bytes that are not UTF-8), and separately one with no context.md",
+      "when": "`Config.from_file` runs",
+      "then": "it fails if the unreadable case loads DEFAULT_CONTEXT_MD; otherwise the unreadable case raises an error naming context.md and the missing case loads DEFAULT_CONTEXT_MD"
+    },
+    {
+      "id": "SC-10",
+      "given": "an XDG config directory whose prismis/config.toml is malformed TOML, and separately one with no config.toml",
+      "when": "a CLI command resolves its daemon URL",
+      "then": "it fails if the malformed case resolves http://localhost:8989; otherwise the malformed case fails naming config.toml and the cause, and the missing case resolves http://localhost:8989"
+    },
+    {
+      "id": "SC-11",
+      "given": "a Reddit link post whose comment fetch raises the client's request error, and a post whose comment fetch succeeds with zero comments",
+      "when": "`RedditFetcher` builds each item",
+      "then": "it fails if the two items' analysis cannot be told apart; otherwise the first carries `comments_outcome` {\"outcome\": \"fetch_failed\", \"detail\": <exception type>} and the second carries no `comments_outcome`, and the key survives `_merge_analysis` into storage"
+    },
+    {
+      "id": "SC-12",
+      "given": "the TUI's ExecutePrune run against a local test server that counts requests per path",
+      "when": "the prune executes",
+      "then": "it fails if any request reaches /api/prune/count or if PruneResultMsg still declares a Count field; otherwise exactly one POST /api/prune is made and its result reaches PruneResultMsg"
+    },
+    {
+      "id": "SC-13",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "An unreadable context.md now stops daemon start-up with the read error instead of silently evaluating against the default context.",
+    "A scheduled archival or backfill failure now shows only as APScheduler's job-exception log line with traceback, not as a zero count in the daemon's own console line.",
+    "A malformed evaluation reply now fails the item for this cycle (it is not stored this cycle, and is analyzed again on a later fetch while its source still lists it) instead of storing it with no priority.",
+    "A broken config.toml now stops every CLI command until it is fixed, where it used to fall back to the local daemon."
+  ],
+  "stakes": [
+    "The BLE001 per-file-ignore is gone from both daemon/pyproject.toml and cli/pyproject.toml, and `uv run ruff check .` passes in both with BLE001 active on every file, src and tests.",
+    "No `noqa` for BLE001 or BLE exists under daemon/ or cli/, enforced by a unit test in each unit that fails when one appears.",
+    "Every narrowed handler still handles the failure it exists for, proven by a test that drives that real failure through it, or by an existing test named in the plan that already does.",
+    "Every isolation boundary records the traceback at warning level or above.",
+    "count_unprioritized, _get_voted_articles, _parse_evaluation_response, run_archival_policy, backfill_embeddings and an unreadable context.md each surface their failure where their caller reports failure, each proven by a test that injects the real failure and asserts the distinguishable outcome: the 500, the (False, \"Error\") return, the per-item stats error, the raised job, the raised config error.",
+    "An existing but unreadable or malformed config.toml makes a CLI command fail naming the file, while a missing config.toml still means localhost, proven by a test for each.",
+    "A Reddit item whose comment fetch failed stores `comments_outcome` with outcome fetch_failed; one with no comments and no failure stores no such key.",
+    "The TUI's ExecutePrune makes no PruneCount call and PruneResultMsg has no Count field.",
+    "After deploy, the daemon's first full fetch cycle on cerebro completes, and every traceback its journal shows for that cycle names a real failure, not an expected one a narrowed handler missed."
+  ]
+}

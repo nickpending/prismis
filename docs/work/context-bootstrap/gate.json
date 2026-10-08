@@ -1,0 +1,44 @@
+{
+  "scrutiny": [
+    {
+      "test": "T0 purpose: prismis prioritizes against the reader's own context (docs/IDEA.md); a personal context.md on day one is what makes the first fetch useful.",
+      "failureCase": "A newcomer still scored against the sample.",
+      "result": "held"
+    },
+    {
+      "test": "T1 owners: the required sections are owned by _validate_context_md (context_auto_updater.py:285); the design lifts them to a named constant rather than copying them into the CLI.",
+      "failureCase": "A second list of sections that can drift.",
+      "result": "held"
+    },
+    {
+      "test": "T5 running system: run `prismis-cli context bootstrap`, paste into a chatbot, save the result, then the daemon must read it; the design claimed verify or the validator would catch a malformed paste.",
+      "failureCase": "The only proof is the prompt's own text.",
+      "result": "held"
+    },
+    {
+      "test": "T6 assumption checked: grep shows verify in __main__.py never reads context.md, and _validate_context_md runs only on contexts the auto-updater generates (line 408), so the design's risk line is false: a fenced or section-less paste would be accepted silently and skew every priority.",
+      "failureCase": "A guard the design relies on that does not exist.",
+      "result": "changed"
+    },
+    {
+      "test": "T7 consumers: context.md is read raw by the evaluator prompt and by the auto-updater; the CLI command is new and has no consumer.",
+      "failureCase": "A reader broken by the new file shape.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class, where a user-written context.md enters: the first-run sample, a hand edit, `:context edit`, and now a pasted chatbot answer; none of them is checked today.",
+      "failureCase": "Fixing only the bootstrap path.",
+      "result": "changed"
+    },
+    {
+      "test": "T20 walk: user runs the command, pastes into Claude, answers 8 questions, gets context.md inside a ```markdown fence plus four source add lines, saves the whole reply; prismis reads the fence and the sections, and nothing tells the user the file is malformed.",
+      "failureCase": "A walk that ends in a silently wrong file.",
+      "result": "changed"
+    }
+  ],
+  "decisions": [],
+  "verdict": "redesign",
+  "carried": [
+    "Nothing checks a user-saved context.md: verify does not read it and _validate_context_md runs only on auto-generated contexts, so a pasted chatbot answer with code fences or a missing section is accepted silently; what checks a context.md the user saved?"
+  ]
+}

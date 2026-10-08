@@ -1,0 +1,9 @@
+{
+  "question": "In the floor model, what does 0 show: everything down to and including unprioritized items (the floor below LOW, so a and 3 cover prioritized-only), or keep today's unprioritized-only view for reviewing what the evaluator left out?",
+  "answer": "0 keeps today's unprioritized-only view as its own bucket in the same key row, because the operator uses it to rescue items the evaluator left out (6 of 24 upvotes are on unprioritized items) and a floor below LOW would be 76% unscored items (21,095 of 27,763 unread).",
+  "by": "evidence",
+  "evidence": {
+    "path": "tui/internal/ui/model.go",
+    "line": 658
+  }
+}

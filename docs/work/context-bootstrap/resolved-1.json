@@ -1,0 +1,9 @@
+{
+  "question": "Nothing checks a user-saved context.md: verify does not read it and _validate_context_md runs only on auto-generated contexts, so a pasted chatbot answer with code fences or a missing section is accepted silently; what checks a context.md the user saved?",
+  "answer": "`prismis-daemon verify`, the Quick Start's own setup check, gains a context.md check using the same REQUIRED_CONTEXT_SECTIONS the auto-updater validates against, failing with the missing section named, and failing on a code-fence line, so a malformed paste is reported where the user already looks.",
+  "by": "evidence",
+  "evidence": {
+    "path": "README.md",
+    "line": 57
+  }
+}

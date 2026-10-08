@@ -1,0 +1,67 @@
+{
+  "scrutiny": [
+    {
+      "test": "T0 purpose: prismis is read through the TUI (docs/IDEA.md: 'a sexy TUI for daily consumption'); a floor filter and a remembered view remove the key presses every reading session starts with.",
+      "failureCase": "A change no reading session benefits from.",
+      "result": "held"
+    },
+    {
+      "test": "T1 owners: applyFiltersClientSide (tui/internal/ui/model.go:1454) is the one filter both modes use; getDefaultDBPath (tui/internal/db/queries.go:318) is the TUI's XDG pattern; the XDG Base Directory spec places restorable view state in XDG_STATE_HOME.",
+      "failureCase": "A second filter path or a state file in the data directory.",
+      "result": "held"
+    },
+    {
+      "test": "T2 same noun: the 0-key decision rests on the production database (21,095 unread unprioritized vs 6,668 prioritized, 6 of 24 upvotes on unprioritized items), not on the issue's May-era description of a toggle that no longer exists.",
+      "failureCase": "Deciding #52 from the issue text.",
+      "result": "held"
+    },
+    {
+      "test": "T3 degrade: MEDIUM-only and LOW-only views go away, which gh #36 asks for, and stated as a sacrifice; the unprioritized-only view is kept because it is in use.",
+      "failureCase": "Removing the rescue view.",
+      "result": "held"
+    },
+    {
+      "test": "T4 reuse: the existing filter function, header builder, help row and XDG resolution pattern are extended; the persistence is one small reader/writer.",
+      "failureCase": "A preferences framework.",
+      "result": "held"
+    },
+    {
+      "test": "T5 running system: after install, launch the TUI against cerebro, set 2 + oldest + a source type, quit and relaunch: the header shows the same view and the list matches.",
+      "failureCase": "Only unit tests of the filter.",
+      "result": "held"
+    },
+    {
+      "test": "T7 consumers, enumerated with grep for the 'all' priority value: model.go lines 28, 139, 707, 720, 1474 and the feed_test.go / model_test.go cases that construct it; all are inside the TUI and move together. The CLI's --priority (cli/src/cli/list.py) is an exact-match API filter used by scripts and the web view (static/index.html) has no selectable priority filter, so neither consumes this state.",
+      "failureCase": "A reader of the removed 'all' value left behind.",
+      "result": "held"
+    },
+    {
+      "test": "T9 six months: a new view field must be added to the persisted set; the save compares the whole view struct, so a field added to the struct is saved without a second list to update.",
+      "failureCase": "A hand-maintained field list that drifts.",
+      "result": "held"
+    },
+    {
+      "test": "T10 reversibility: revert the commit and delete one state file; no data or API change.",
+      "failureCase": "A migration.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class, priority filtering across surfaces: TUI (changed here), CLI --priority (exact match by design, for scripts), web (no selectable filter); Go is the only stack touched, Python untouched; engines axis n/a.",
+      "failureCase": "The same reading-floor need left on another reading surface.",
+      "result": "held"
+    },
+    {
+      "test": "T13 two places: the visible set is computed once (applyFiltersClientSide) and the view is saved from one place in Update.",
+      "failureCase": "Save calls scattered across key handlers.",
+      "result": "held"
+    },
+    {
+      "test": "T20 walk: the operator presses 2 then s then sets RSS, quits; tui-view.json holds priority medium, sort oldest, filter rss; next launch newModel reads it, the header reads 'Priority: MEDIUM+ | Sort: OLDEST | Filter: RSS'; pressing R writes the defaults; a corrupted file next launch shows the defaults and a status message naming the file.",
+      "failureCase": "A step where the restored view and the header disagree.",
+      "result": "held"
+    }
+  ],
+  "decisions": [],
+  "verdict": "accept",
+  "carried": []
+}

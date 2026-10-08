@@ -1,0 +1,138 @@
+{
+  "impacted": [
+    {
+      "path": "daemon/src/prismis_daemon/llm_client.py",
+      "role": "_config_dir (line 85) finds llm-core's directory, resolve_service (line 108) reads [services.<name>] from services.toml, load_api_key (line 134) fetches the key through apiconf; every LLM call and the kind classifier's Decisions call go through these two"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/config.py",
+      "role": "loads config.toml, expands env:NAME for Reddit only, reads [llm] light/deep/kind service names"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/defaults.py",
+      "role": "the default config.toml a first run writes ([llm] light_service = \"prismis-openai\", comments pointing at services.toml) and the next-steps text"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/__main__.py",
+      "role": "loads ~/.config/prismis/.env at startup (lines 364-366); migrate_config (line 529) handles the pre-llm-core [llm] provider format by writing services.toml and copying the key value into apiconf's config file (line 625 onward); verify's check messages"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/kind_classifier.py",
+      "role": "resolves the kind service and its key through resolve_service/load_api_key for OpenRouter's Decisions endpoint"
+    },
+    {
+      "path": "daemon/pyproject.toml",
+      "role": "declares apiconf as a git dependency (line 42, source at line 103)"
+    },
+    {
+      "path": "daemon/tests/conftest.py",
+      "role": "configure_local_services writes a services.toml with key_required = false for the local LLM stub"
+    },
+    {
+      "path": "cli/src/cli/analyze.py",
+      "role": "an error hint naming ~/.config/llm-core/services.toml (line 307)"
+    },
+    {
+      "path": "Makefile",
+      "role": "install-config writes the .env template naming OPENAI_API_KEY and next-steps text"
+    },
+    {
+      "path": "README.md",
+      "role": "Quick Start's .env key step and the LLM services section describing services.toml and apiconf"
+    }
+  ],
+  "constraints": [
+    {
+      "tag": "RULE",
+      "path": ".specify/memory/constitution.md",
+      "line": 99,
+      "text": "Security: secrets stay in env or config and are never inlined, logged or returned; the current migrate_config copies a key value into apiconf's file, which the env-only design removes."
+    },
+    {
+      "tag": "RULE",
+      "path": ".specify/memory/constitution.md",
+      "line": 84,
+      "text": "Principle VIII: config changes additively with a migration in the same change; existing installs move through migrate-config."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/__main__.py",
+      "line": 364,
+      "text": "prismis already loads ~/.config/prismis/.env with python-dotenv, and cerebro's systemd unit also sets EnvironmentFile=/home/rudy/.config/prismis/.env, so environment-only keys need no new loading mechanism."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/llm_client.py",
+      "line": 108,
+      "text": "Probed 2026-10-07: a first run on an empty config home leaves verify failing on the missing services.toml, and migrate-config reports 'Nothing to do'."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/llm_client.py",
+      "line": 1,
+      "text": "llm_client.py's docstring: services.toml is shared with eight other apps that still use llm-core, so it must stay readable and unwritten by prismis."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/config.py",
+      "line": 250,
+      "text": "config.toml already resolves `env:NAME` values (expand_env_var) for Reddit credentials, the form the API keys will use."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/tests/conftest.py",
+      "line": 1143,
+      "text": "Keyless local servers are already supported (key_required = false), so a service with no api_key must keep working."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "README.md",
+      "line": 354,
+      "text": "The README already documents the `api_key = \"env:VARIABLE_NAME\"` pattern for prismis config."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/pyproject.toml",
+      "line": 103,
+      "text": "apiconf's provider mapping names the variables `apiconf env` exports: openai -> OPENAI_API_KEY, otherwise PROVIDER_API_KEY (openrouter -> OPENROUTER_API_KEY); the apiconf CLI is not installed on the Mac or cerebro, and cerebro has cargo."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/defaults.py",
+      "line": 19,
+      "text": "Production (cerebro) runs prismis-light and prismis-deep on OpenRouter with openai/gpt-5.4-nano and prismis-kind on OpenRouter's Decisions endpoint; every LLM test recording uses openai/gpt-5.4-nano."
+    }
+  ],
+  "adrs": {
+    "scanned": 0,
+    "binding": []
+  },
+  "related": {
+    "query": "gh issue list --state open --search \"install OR config OR key\"",
+    "issues": [
+      {
+        "number": 48,
+        "why": "The Mac installer shares the onboarding path: an installer only helps once the first run reaches an LLM, so it builds on this work and stays its own issue."
+      },
+      {
+        "number": 54,
+        "why": "The context.md bootstrap prompt is the next onboarding step after a working LLM config; independent change, own issue."
+      }
+    ]
+  },
+  "reuse": [
+    {
+      "path": "daemon/src/prismis_daemon/config.py",
+      "what": "the existing env:NAME expansion"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/__main__.py",
+      "what": "the existing .env loading and the migrate-config entry point"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/llm_client.py",
+      "what": "ServiceConfig and the resolve/complete/health_check surface, re-pointed at prismis's config"
+    }
+  ],
+  "open": []
+}

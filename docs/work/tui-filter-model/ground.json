@@ -1,0 +1,25 @@
+{
+  "impacted": [
+    {"path": "tui/internal/ui/model.go", "role": "applyFiltersClientSide (line 1454) filters both local and remote mode with priority equality; the 0/1/2/3/a/R key handlers (lines 658-723) set m.priority; newModel (line 130) sets the defaults every launch"},
+    {"path": "tui/internal/ui/feed.go", "role": "buildViewStateString (line 14) renders 'Priority: MEDIUM' etc. and 'Hidden: N'"},
+    {"path": "tui/internal/ui/help_modal.go", "role": "line 170 documents '1/2/3/4 Priority/Favorites' and '0/i Unprioritized/Interesting'"},
+    {"path": "tui/internal/db/queries.go", "role": "getDefaultDBPath (line 318) is the existing XDG path pattern (env var, else the default under the home directory)"}
+  ],
+  "constraints": [
+    {"tag": "OBSERVED", "path": "tui/internal/ui/model.go", "line": 1454, "text": "Local mode fetches all content and filters client-side too (the local branch of fetchItemsWithState says 'unified with remote mode'), so one function decides the visible set in both modes."},
+    {"tag": "OBSERVED", "path": "tui/internal/ui/model.go", "line": 658, "text": "0 sets priority 'unprioritized' and shows only items with no priority; 'a' sets priority 'all' and hides unprioritized items with a 'Hidden: N' count; no other key toggles unprioritized visibility, so #52's standalone toggle no longer exists."},
+    {"tag": "OBSERVED", "path": "tui/internal/ui/model.go", "line": 658, "text": "Measured on cerebro 2026-10-07: 21,095 unread unprioritized items against 6,668 unread prioritized ones, and 6 of the operator's 24 upvotes are on unprioritized items (latest 2026-09-29), so the unprioritized-only view is in use for rescuing items the evaluator left out, and a floor below LOW would be 76% unscored items."},
+    {"tag": "OBSERVED", "path": "tui/internal/db/queries.go", "line": 318, "text": "The TUI resolves XDG directories by reading the env var and falling back to the default under the home directory; it has no XDG_STATE_HOME use yet."},
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 47, "text": "Principle II: a view file that could not be read must be distinguishable from a first launch with no file."},
+    {"tag": "INFERENCE", "path": "tui/internal/ui/model.go", "line": 718, "text": "Under the floor model, 'a' (all prioritized) and 3 (LOW and above) select the same items, so one state can back both keys."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --label tui", "issues": []},
+  "reuse": [
+    {"path": "tui/internal/ui/model.go", "what": "applyFiltersClientSide, the one filter both modes use"},
+    {"path": "tui/internal/db/queries.go", "what": "getDefaultDBPath's XDG resolution pattern, for the state directory"}
+  ],
+  "open": [
+    "In the floor model, what does 0 show: everything down to and including unprioritized items (the floor below LOW, so a and 3 cover prioritized-only), or keep today's unprioritized-only view for reviewing what the evaluator left out?"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "what": "One coherent priority filter in the TUI and a view that survives a restart: the 1/2/3 keys select a priority floor (this priority and higher, gh #36), unprioritized items sit in that same key group under one model (gh #52), and the view state (priority filter, unread/all, archived, upvoted, sort, source type, kind) persists between sessions (gh #33).",
+  "why": "Reading cascades from HIGH down, but 2 shows MEDIUM only and 3 shows LOW only (applyFiltersClientSide in tui/internal/ui/model.go compares priority for equality), so reading the queue at a floor takes several key presses. The header shows 'Priority: MEDIUM' with no sign of what is excluded. Every launch resets sort, filters and view to defaults (newModel in tui/internal/ui/model.go), and nothing under tui/internal/ persists them, so a curated view is rebuilt by hand each session. #52 was filed against a standalone unprioritized toggle; today the 0 key already sits in the 1/2/3/4 group (help: '1/2/3/4 Priority/Favorites', '0/i Unprioritized/Interesting') and shows only unprioritized items, while 'a' shows all prioritized items with a 'Hidden: N' count, so what remains of #52 is where unprioritized items sit in the new floor model.",
+  "decided": [
+    "1 shows HIGH, 2 shows MEDIUM and HIGH, 3 shows LOW, MEDIUM and HIGH; the header names the floor with a plus (HIGH, MEDIUM+, LOW+).",
+    "The filter lives in one place for both local and remote mode, applyFiltersClientSide in tui/internal/ui/model.go, so the change is made there once.",
+    "4/* (favorites), i (upvoted), u (unread/all), v (archived), source type and kind filters keep their meaning.",
+    "The persisted view is priority filter, unread/all, archived, upvoted, sort order, source type and kind; it is written whenever one of them changes and read at startup, and R (reset) resets and persists the defaults.",
+    "The view file lives at $XDG_STATE_HOME/prismis/tui-view.json (default ~/.local/state/prismis/tui-view.json), because the XDG spec puts restorable application state (view, layout) in XDG_STATE_HOME, not the data directory the issue suggested.",
+    "A view file that cannot be read or parsed leaves the defaults in place and says so in the status line, rather than failing the launch or silently resetting.",
+    "A persisted kind or source-type value the data no longer contains falls back to 'all'."
+  ],
+  "open": [
+    "In the floor model, what does 0 show: everything down to and including unprioritized items (the floor below LOW, so a and 3 cover prioritized-only), or keep today's unprioritized-only view for reviewing what the evaluator left out?"
+  ]
+}

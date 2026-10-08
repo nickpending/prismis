@@ -326,18 +326,29 @@ def test_record_mode_forwards_to_the_service_and_writes_the_recording(
     assert written[1]["request"]["messages"] == live_request("second prompt")["messages"]
 
 
-def test_record_target_comes_from_the_services_toml_named(tmp_path: Path) -> None:
-    (tmp_path / "services.toml").write_text(
-        '[services.real]\nadapter = "openai"\nbase_url = "http://provider.example/v1/"\n'
-        'key_required = false\ndefault_model = "svc/default"\napp_title = "bench"\n'
+def test_record_target_comes_from_the_config_toml_service_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[services.real]\nbase_url = "http://provider.example/v1/"\n'
+        'model = "svc/default"\napp_title = "bench"\n'
+        '[services.keyed]\nbase_url = "http://provider.example/v1"\n'
+        'model = "svc/keyed"\napi_key = "env:RECORD_TARGET_TEST_KEY"\n'
     )
-    target = resolve_record_target("real", None, tmp_path)
+    target = resolve_record_target("real", None, config_path)
     assert target == RecordTarget(
         base_url="http://provider.example/v1",
         api_key=None,
         model="svc/default",
         headers={"X-OpenRouter-Title": "bench"},
     )
-    assert resolve_record_target("real", "chosen/model", tmp_path).model == "chosen/model"
+    assert (
+        resolve_record_target("real", "chosen/model", config_path).model
+        == "chosen/model"
+    )
     with pytest.raises(ConfigError, match="Unknown service"):
-        resolve_record_target("missing", None, tmp_path)
+        resolve_record_target("missing", None, config_path)
+
+    monkeypatch.setenv("RECORD_TARGET_TEST_KEY", "sk-from-env")
+    assert resolve_record_target("keyed", None, config_path).api_key == "sk-from-env"

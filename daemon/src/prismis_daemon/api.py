@@ -1691,7 +1691,7 @@ async def analyze_context(
         # Load current context.md content
         context_text = config.context
 
-        # Initialize context analyzer with llm-core service name
+        # Initialize context analyzer with the config.toml service name
         analyzer = ContextAnalyzer(config.llm_light_service)
 
         # Analyze and get suggestions

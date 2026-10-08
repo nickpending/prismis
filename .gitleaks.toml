@@ -30,9 +30,6 @@ regexes = [
   # Old-config-format fixture exercising rejection of a legacy [llm] api_key field —
   # daemon/tests/unit/test_llm_startup_validation_unit.py.
   '''^sk-test-key-1234567890$''',
-  # apiconf's pinned git commit SHA, not a credential — daemon/tests/unit/test_dep_pin_unit.py's
-  # _APICONF_VALIDATED_SHA, checked against pyproject.toml and uv.lock (INV-DEP-1).
-  '''^6fd244a5041ac714cb21c48e41cf46b8b4fbba76$''',
 ]
 
 [[rules]]

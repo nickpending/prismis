@@ -51,14 +51,17 @@ Think of it as having a research assistant who reads everything and only interru
 # Install everything (macOS/Linux)
 make install
 
+# Set your LLM key (the default config uses OpenRouter)
+edit ~/.config/prismis/.env  # Set OPENROUTER_API_KEY
+
+# First run: writes ~/.config/prismis/config.toml, then exits
+prismis-daemon
+
 # Upgrading from an older install? Bring config to current shape:
 prismis-daemon migrate-config
 
 # Smoke-check that everything is wired up (config + LLM services + sources)
 prismis-daemon verify
-
-# Set your API keys
-edit ~/.config/prismis/.env  # Add your OPENAI_API_KEY
 
 # Tell Prismis what you care about
 cat > ~/.config/prismis/context.md << 'EOF'
@@ -326,7 +329,7 @@ Internet Sources          Python Daemon           Go TUI
 - **macOS or Linux**
 - **Go 1.21+** for the TUI
 - **Python 3.14+** for the daemon
-- **LLM API key** - OpenAI, Anthropic, Groq, or local Ollama
+- **LLM API key** - OpenRouter by default; OpenAI or any OpenAI-compatible endpoint, or a local server, by editing `[services.*]` in `config.toml`
 - **Fabric** (optional) - AI content analysis patterns with tab completion
 - **lspeak** (optional) - Text-to-speech for audio briefings (`uv tool install git+https://github.com/nickpending/lspeak.git`)
 
@@ -337,9 +340,9 @@ git clone https://github.com/nickpending/prismis.git
 cd prismis
 make install
 
-# Edit the .env file with your API keys
+# Edit the .env file with your LLM key (the default config uses OpenRouter)
 edit ~/.config/prismis/.env
-# Change: OPENAI_API_KEY=sk-your-key-here
+# Change: OPENROUTER_API_KEY=sk-your-key-here
 ```
 
 `make install` installs the CLI with its local-mode commands (`analyze`, `embeddings`), which import the daemon and only work on the machine running it. On a machine that only talks to a remote daemon, `make install-cli` installs the client-only CLI; on the daemon host, reinstall the CLI after each update with `make install-cli-local`.
@@ -357,55 +360,55 @@ Prismis follows XDG standards:
 
 ### LLM Configuration (Dual-Service)
 
-Prismis routes LLM calls through two services so routine work and deep synthesis can use different models. The daemon talks to every service through the openai Python SDK directly (`daemon/src/prismis_daemon/llm_client.py`) — one client for both `api.openai.com` and `openrouter.ai`, since both speak the same chat-completions wire format. Service routing is resolved from `~/.config/llm-core/services.toml`; the daemon only references service names.
+Prismis routes LLM calls through two services so routine work and deep synthesis can use different models. The daemon talks to every service through the openai Python SDK directly (`daemon/src/prismis_daemon/llm_client.py`) — one client for both `api.openai.com` and `openrouter.ai`, since both speak the same chat-completions wire format. Services are resolved from the `[services.*]` tables of `~/.config/prismis/config.toml`; the daemon only references service names.
 
 ```toml
 # ~/.config/prismis/config.toml
 [llm]
-light_service = "prismis-openai"        # required — used for priority/summary/context analysis
-deep_service  = "prismis-openai-deep"   # optional — second-tier synthesis on HIGH items
-kind_service  = "prismis-kind"          # optional — content kind classification
+light_service = "openrouter"            # required — used for priority/summary/context analysis
+deep_service  = "deep"                  # optional — second-tier synthesis on HIGH items
+kind_service  = "kind"                  # optional — content kind classification
 auto_extract  = "high"                  # "high" | "medium" | "none" — gate for auto deep extraction
 ```
 
 The light service handles every routine call (fetch-cycle priority, summarization, context analyzer). The deep service runs the second-tier synthesis prompt that produces the Counterintuitive / Buried lede / So what / Pushback sections plus quotables. When `deep_service` is unset, the daemon runs in light-only mode (graceful degradation — deep extraction failures never block storage). The kind service classifies each newly analysed item into one of the ten content kinds; an item it isn't confident about (below 0.7) stays unclassified, and when `kind_service` is unset no kind call is made.
 
-Service definitions live in `~/.config/llm-core/services.toml` — shared with other apps on this machine and unchanged in path or schema by this migration (see decisions.md). Map service names to an adapter, base URL, default model, and API key. Examples:
+Services are defined in the same `config.toml`, one `[services.<name>]` table each, with a `base_url`, a `model` and an `api_key`. The default config ships one, `openrouter`, and `light_service` names it:
 
 ```toml
-# ~/.config/llm-core/services.toml
-[services.prismis-openai]
-adapter       = "openai"
-base_url      = "https://api.openai.com/v1"
-default_model = "gpt-4.1-mini"
-key           = "openai"
-
-[services.prismis-openai-deep]
-adapter       = "openai"
-base_url      = "https://api.openai.com/v1"
-default_model = "gpt-5-mini"        # reasoning-class model recommended for deep synthesis
-key           = "openai"
-
-[services.prismis-openrouter]
-adapter       = "openai"
-base_url      = "https://openrouter.ai/api/v1"
-default_model = "anthropic/claude-3-haiku"
-key           = "openrouter"
-
-[services.prismis-kind]
-adapter       = "decisions"             # OpenRouter's Decisions endpoint, not chat completions
-base_url      = "https://openrouter.ai/api/alpha/decisions"   # the full endpoint URL
-default_model = "typesafe/jev-1.13"
-key           = "openrouter"
-
-[services.prismis-local]
-adapter       = "openai"
-base_url      = "http://localhost:8080/v1"   # any OpenAI-compatible local server
-key_required  = false
-default_model = "llama2"
+# ~/.config/prismis/config.toml
+[services.openrouter]
+base_url = "https://openrouter.ai/api/v1"
+model    = "openai/gpt-5.4-nano"
+api_key  = "env:OPENROUTER_API_KEY"
 ```
 
-Every prismis service except the kind service must speak the OpenAI chat-completions wire format (`adapter = "openai"`) — the daemon's client talks to `base_url` directly, with no per-provider translation. API keys are resolved by `apiconf` from `~/.config/apiconf/config.toml`; `key = "openai"` references the entry named `openai` there. `key_required = false` skips apiconf entirely, for a server that takes no key. Run `prismis-daemon migrate-config` once after upgrading from a pre-iter-12 install — it idempotently rewrites the config to dual-service shape and adds the `[services.prismis-openai-deep]` stub.
+**Keys come from the environment, never from config.toml.** `api_key` is always `env:NAME`: the daemon reads the variable `NAME` from its environment when it makes a call. Put it in `~/.config/prismis/.env` (loaded at startup; a variable already in the environment wins) or export it. A literal key in `api_key`, or a missing variable, fails with an error naming the service and the variable. A service with no `api_key` line takes no key — use that for a local server.
+
+**Using OpenAI directly** instead of OpenRouter: edit `[services.openrouter]` — set `base_url = "https://api.openai.com/v1"`, a `model` such as `gpt-5-mini`, and `api_key = "env:OPENAI_API_KEY"` — then put `OPENAI_API_KEY` in `.env`.
+
+More services, for the deep and kind roles and for a local server:
+
+```toml
+[services.deep]
+base_url = "https://openrouter.ai/api/v1"
+model    = "anthropic/claude-sonnet-4.5"   # reasoning-class model recommended for deep synthesis
+api_key  = "env:OPENROUTER_API_KEY"
+
+[services.kind]
+adapter  = "decisions"             # OpenRouter's Decisions endpoint, not chat completions
+base_url = "https://openrouter.ai/api/alpha/decisions"   # the full endpoint URL
+model    = "typesafe/jev-1.13"
+api_key  = "env:OPENROUTER_API_KEY"
+
+[services.local]
+base_url = "http://localhost:8080/v1"   # any OpenAI-compatible local server
+model    = "llama2"                     # no api_key: keyless
+```
+
+Optional `app_title` and `app_url` fields set the attribution headers OpenRouter shows. Every service except the kind service must speak the OpenAI chat-completions wire format — the daemon's client talks to `base_url` directly, with no per-provider translation.
+
+**Upgrading** from an install whose services lived in a shared `services.toml`: run `prismis-daemon migrate-config` once. It appends the services your `[llm]` section names to `config.toml` as `[services.*]` tables (keeping your comments, after saving a timestamped backup), points each `api_key` at an environment variable such as `env:OPENROUTER_API_KEY`, and never copies a key value. Export that variable where the daemon runs. Running it again changes nothing.
 
 **Reddit API** (optional - improves reliability):
 ```bash

@@ -15,8 +15,8 @@ Prismis is a personal content intelligence system that continuously fetches arti
 ## Principles
 
 - **Single-turn LLM only** — All LLM calls are stateless completions via the daemon's own `llm_client` module, a thin direct wrapper around the openai SDK; no chat sessions or memory.
-- **Service-based LLM routing** — Consumers reference a service name (e.g., "prismis-openai"), resolved at call time via services.toml. No hardcoded providers.
-- **XDG configuration** — All config under ~/.config/prismis/, ~/.config/llm-core/, ~/.config/apiconf/. No dotfiles in home root.
+- **Service-based LLM routing** — Consumers reference a service name (e.g., "openrouter"), resolved at call time from the `[services.<name>]` tables of config.toml. No hardcoded providers. Provider keys are environment variables named by `api_key = "env:NAME"`, never stored in a file.
+- **XDG configuration** — All config under ~/.config/prismis/ (config.toml, context.md, .env). No dotfiles in home root.
 - **SQLite as single source of truth** — All content state in one database file. No distributed state.
 - **Daemon runs continuously** — APScheduler drives fetch cycles; single-shot mode (--once) for testing.
 
@@ -27,8 +27,7 @@ Prismis is a personal content intelligence system that continuously fetches arti
 | Daemon | Content fetching, LLM processing, storage, API server | [components/daemon.md](components/daemon.md) |
 | TUI | Terminal UI for reading and triaging content | [components/tui.md](components/tui.md) |
 | CLI | Admin commands (install, migrate-config) | |
-| openai (Python SDK) | Chat-completions client for every LLM call, wrapped by the daemon's own `llm_client.py` (complete(), health_check(), services.toml resolution) | External dep (PyPI); see [boundaries.md](boundaries.md) |
-| apiconf | API key management | External dep |
+| openai (Python SDK) | Chat-completions client for every LLM call, wrapped by the daemon's own `llm_client.py` (complete(), health_check(), config.toml service resolution) | External dep (PyPI); see [boundaries.md](boundaries.md) |
 
 ## Key Decisions
 

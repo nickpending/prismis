@@ -16,7 +16,7 @@ extraction gate:
     ever called, not by reading source.
 
 Real collaborators throughout: the real Summarizer and Evaluator drive the real
-llm-core `complete()` against a local HTTP stub standing in for the LLM (the one
+`complete()` against a local HTTP stub standing in for the LLM (the one
 collaborator the constitution permits faking), real Storage over the sealed test
 database, and a real DaemonOrchestrator. Only submit_decision -- kind_classifier's own
 provider-boundary call -- is patched, and only to prove it is never reached.
@@ -89,8 +89,8 @@ def test_config_kind_service_loads_when_present(isolated_xdg_env: Path) -> None:
     config_path = isolated_xdg_env / "config.toml"
     text = DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY)
     text = text.replace(
-        'light_service = "prismis-openai"\n',
-        'light_service = "prismis-openai"\n'
+        'light_service = "openrouter"\n',
+        'light_service = "openrouter"\n'
         'kind_service = "prismis-openrouter-kind"\n',
     )
     config_path.write_text(text)

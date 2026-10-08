@@ -4,6 +4,7 @@ import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .defaults import DEFAULT_CONTEXT_MD
 
@@ -12,6 +13,74 @@ from .defaults import DEFAULT_CONTEXT_MD
 REDDIT_NOT_CONFIGURED = (
     "Reddit credentials not configured - set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET"
 )
+
+
+@dataclass
+class ServiceConfig:
+    """One [services.<name>] table from config.toml.
+
+    `api_key` is the raw `env:NAME` reference as written, never a resolved secret; the
+    client reads the variable at call time. None means the service is keyless.
+    """
+
+    name: str
+    adapter: str
+    base_url: str
+    api_key: str | None
+    model: str | None
+    app_title: str | None
+    app_url: str | None
+
+
+def default_config_path() -> Path:
+    """Where config.toml lives: $XDG_CONFIG_HOME/prismis, else ~/.config/prismis."""
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+    return Path(xdg_config_home) / "prismis" / "config.toml"
+
+
+def parse_services(config_dict: dict[str, Any]) -> dict[str, ServiceConfig]:
+    """Parse the [services.*] tables of a loaded config.toml.
+
+    Raises ValueError for a table that is not a table, lacks a string base_url, or
+    carries a non-string field. Whether api_key is an `env:NAME` reference is checked
+    when a call resolves the key, not here, so an unrelated config check never fails
+    on a service it does not use.
+    """
+    raw = config_dict.get("services", {})
+    if not isinstance(raw, dict):
+        raise ValueError("[services] must hold [services.<name>] tables")
+    services: dict[str, ServiceConfig] = {}
+    for name, entry in raw.items():
+        if not isinstance(entry, dict) or not isinstance(entry.get("base_url"), str):
+            raise ValueError(f'service "{name}" missing "base_url" field')
+        for key in ("adapter", "api_key", "model", "app_title", "app_url"):
+            if key in entry and not isinstance(entry[key], str):
+                raise ValueError(f'service "{name}" field "{key}" must be a string')
+        services[name] = ServiceConfig(
+            name=name,
+            adapter=entry.get("adapter", "openai"),
+            base_url=entry["base_url"],
+            api_key=entry.get("api_key"),
+            model=entry.get("model"),
+            app_title=entry.get("app_title"),
+            app_url=entry.get("app_url"),
+        )
+    return services
+
+
+def load_services(config_path: Path | None = None) -> dict[str, ServiceConfig]:
+    """Read config.toml and return its parsed [services.*] tables.
+
+    Raises FileNotFoundError / ValueError the way `Config.from_file` does.
+    """
+    path = config_path or default_config_path()
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    try:
+        with open(path, "rb") as f:
+            return parse_services(tomllib.load(f))
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError(f"Failed to parse config file {path}: {e}") from e
 
 
 @dataclass
@@ -31,7 +100,7 @@ class Config:
     max_days_lookback: int
 
     # LLM settings
-    llm_light_service: str  # Service name from ~/.config/llm-core/services.toml
+    llm_light_service: str  # Name of a [services.<name>] table in config.toml
 
     # Reddit settings
     reddit_client_id: str
@@ -77,13 +146,17 @@ class Config:
     )  # source types to skip for deep extraction (e.g. ["reddit"])
 
     # Kind classification (gh #77): optional decisions-endpoint service naming an
-    # entry in services.toml. None = disabled -- no request is ever made and items
+    # [services.<name>] table. None = disabled -- no request is ever made and items
     # are stored without a kind, the same as an install that predates this feature.
     llm_kind_service: str | None = None
 
     # Hostnames `extract_article` may connect to although they resolve to a
     # non-public address. Empty = every article fetch is public-only.
     fetch_allow_private_hosts: list[str] = field(default_factory=list)
+
+    # The [services.*] tables, parsed once at load. Resolution for a call reads them
+    # through `load_services`, so a hand-built Config need not carry them.
+    services: dict[str, ServiceConfig] = field(default_factory=dict)
 
     @property
     def has_reddit_credentials(self) -> bool:
@@ -204,16 +277,13 @@ class Config:
         """
         if config_path is None:
             # XDG Base Directory support
-            xdg_config_home = os.environ.get(
-                "XDG_CONFIG_HOME", str(Path.home() / ".config")
-            )
-            config_path = Path(xdg_config_home) / "prismis" / "config.toml"
+            config_path = default_config_path()
 
         # Load TOML config - required to exist
         if not config_path.exists():
             raise FileNotFoundError(
                 f"Config file not found: {config_path}\n"
-                f"Run 'make install-config' to create default configuration, or create config.toml manually."
+                f"Run 'prismis-daemon' once to write the default configuration, or create config.toml manually."
             )
 
         try:
@@ -259,6 +329,8 @@ class Config:
                 "Config [llm] section outdated — run 'prismis-daemon migrate-config' to upgrade."
             )
 
+        services = parse_services(config_dict)
+
         # Handle environment variable expansion
         reddit_client_id = expand_env_var(
             reddit.get("client_id", "env:REDDIT_CLIENT_ID")
@@ -282,6 +354,7 @@ class Config:
                 auto_extract=llm.get("auto_extract", "none"),
                 deep_extract_exclude=llm.get("deep_extract_exclude", []),
                 llm_kind_service=llm.get("kind_service"),
+                services=services,
                 reddit_client_id=reddit_client_id,
                 reddit_client_secret=reddit_client_secret,
                 reddit_user_agent=reddit["user_agent"],

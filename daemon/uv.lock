@@ -3,8 +3,8 @@ revision = 3
 requires-python = ">=3.13"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'linux'",
-    "python_full_version < '3.15' and sys_platform == 'linux'",
     "python_full_version >= '3.15' and sys_platform != 'linux'",
+    "python_full_version < '3.15' and sys_platform == 'linux'",
     "python_full_version < '3.15' and sys_platform != 'linux'",
 ]
 
@@ -38,11 +38,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/a9/d2/f4d173e22df740bc3
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b8/4bd346e22b28902df4d651910f5242c28d84e4a5c2435ca5c3f797ed7e2e/anyio-4.15.1-py3-none-any.whl", hash = "sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101", size = 132079, upload-time = "2026-09-05T10:42:37.923Z" },
 ]
-
-[[package]]
-name = "apiconf"
-version = "0.2.0"
-source = { git = "https://github.com/nickpending/apiconf?subdirectory=python&rev=6fd244a#6fd244a5041ac714cb21c48e41cf46b8b4fbba76" }
 
 [[package]]
 name = "apscheduler"
@@ -1347,7 +1342,6 @@ name = "prismis-daemon"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
-    { name = "apiconf" },
     { name = "apscheduler" },
     { name = "cryptography" },
     { name = "fastapi" },
@@ -1382,7 +1376,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "apiconf", git = "https://github.com/nickpending/apiconf?subdirectory=python&rev=6fd244a" },
     { name = "apscheduler" },
     { name = "cryptography" },
     { name = "fastapi", specifier = ">=0.116.1" },

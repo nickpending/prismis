@@ -1,7 +1,7 @@
 """Live, credential-gated integration test for llm_client -- SC-3.
 
-Runs one real completion against the operator's actual ~/.config/llm-core/services.toml
-and apiconf key store -- the one place in the suite allowed to leave the sealed test
+Runs one real completion against the operator's actual ~/.config/prismis/config.toml
+services and the provider key in the environment -- the one place in the suite allowed to leave the sealed test
 environment and hit a real, billed provider. Skipped unless PRISMIS_LIVE_LLM_TESTS=1;
 never runs in CI (gh #60), same convention test_daemon_integration.py and
 test_context_api.py already use for their own live paths.
@@ -33,7 +33,7 @@ _REAL_HOME = Path(os.path.expanduser("~"))
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("PRISMIS_LIVE_LLM_TESTS") != "1",
-    reason="Requires a live LLM service (services.toml + provider key); "
+    reason="Requires a live LLM service (config.toml service + provider key env var); "
     "set PRISMIS_LIVE_LLM_TESTS=1 to run. Tracked: gh #60",
 )
 
@@ -44,9 +44,8 @@ def _real_config_env(isolated_xdg_env: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     Depends on isolated_xdg_env so it runs after it (pytest resolves a fixture's own
     dependencies before the fixture itself), then points HOME back at the operator's
-    real home and drops the XDG_CONFIG_HOME override so llm_client._config_dir() and
-    apiconf's Path.home()-based lookup both land on the real
-    ~/.config/llm-core/services.toml and ~/.config/apiconf/config.toml.
+    real home and drops the XDG_CONFIG_HOME override so service resolution lands on the
+    real ~/.config/prismis/config.toml. The provider key comes from the environment.
     """
     monkeypatch.setenv("HOME", str(_REAL_HOME))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
@@ -95,7 +94,7 @@ def test_openai_service_rejects_extra_body_usage_include() -> None:
 
     with pytest.raises(openai.BadRequestError):
         client.chat.completions.create(
-            model=svc.default_model or "gpt-4.1-mini",
+            model=svc.model or "gpt-4.1-mini",
             messages=[{"role": "user", "content": "Reply with exactly the word: ok"}],
             max_tokens=5,
             extra_body={"usage": {"include": True}},

@@ -340,6 +340,9 @@ _STUB_FEED = (
 # rather than a stand-in extractor sleeping in Python instead of on the wire.
 DEEP_EXTRACT_STUB_SYNTHESIS = "A stubbed deep synthesis for the local pipeline stub."
 DEEP_EXTRACT_STUB_MODEL = "stub-model"
+# Model ids the stub's /v1/models lists: its own, and the model the first-run default
+# config names, so that config reaches a passing health check with only base_url changed.
+STUB_MODEL_IDS = (DEEP_EXTRACT_STUB_MODEL, "openai/gpt-5.4-nano")
 DEEP_EXTRACT_DELAY_PREFIX = "STUB_DELAY_SECONDS="
 _REQUEST_DELAY_PATTERN = re.compile(
     re.escape(DEEP_EXTRACT_DELAY_PREFIX) + r"(\d+(?:\.\d+)?)"
@@ -359,10 +362,11 @@ _REQUEST_DELAY_PATTERN = re.compile(
 # model name are ignored when comparing requests (`_normalize_request`).
 #
 # Record is operator-run: PRISMIS_RECORD_LLM names a service in the operator's real
-# llm-core services.toml and the stub forwards each request there, with the model
-# replaced by PRISMIS_RECORD_MODEL (or the service's default_model), and writes what
-# came back. The real services.toml and apiconf key are resolved at import, because the
-# autouse `isolated_xdg_env` fixture re-points HOME and XDG_CONFIG_HOME for every test.
+# prismis config.toml and the stub forwards each request there, with the model
+# replaced by PRISMIS_RECORD_MODEL (or the service's model), and writes what came back.
+# The real config.toml and its service's key (an environment variable) are resolved at
+# import, because the autouse `isolated_xdg_env` fixture re-points HOME and
+# XDG_CONFIG_HOME for every test.
 RECORDINGS_DIR = Path(__file__).parent / "fixtures" / "llm_recordings"
 RECORD_LLM_ENV = "PRISMIS_RECORD_LLM"
 RECORD_MODEL_ENV = "PRISMIS_RECORD_MODEL"
@@ -387,40 +391,25 @@ class RecordTarget:
     headers: dict[str, str]
 
 
-def _real_llm_core_dir() -> Path:
-    """The operator's real llm-core directory, by llm_client's own resolution order."""
-    override = os.environ.get("LLM_CORE_CONFIG_DIR")
-    if override:
-        return Path(override)
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    if xdg:
-        return Path(xdg) / "llm-core"
-    return Path.home() / ".config" / "llm-core"
+def _real_prismis_config() -> Path:
+    """The operator's real config.toml, resolved before any test re-points XDG."""
+    return config.default_config_path()
 
 
 def resolve_record_target(
-    service: str, model: str | None, llm_core_dir: Path
+    service: str, model: str | None, config_path: Path
 ) -> RecordTarget:
-    """Resolve `service` in `llm_core_dir`'s services.toml into a forwarding target.
+    """Resolve `service` in `config_path`'s [services.*] tables into a forwarding target.
 
     Runs `llm_client.resolve_service` and `llm_client.load_api_key`, so recording uses
-    exactly the service definition and key lookup production uses. `llm_core_dir` is
-    passed through LLM_CORE_CONFIG_DIR for the duration of the call.
+    exactly the service definition and key lookup production uses.
     """
-    saved = os.environ.get("LLM_CORE_CONFIG_DIR")
-    os.environ["LLM_CORE_CONFIG_DIR"] = str(llm_core_dir)
-    try:
-        svc = llm_client.resolve_service(service)
-        key = llm_client.load_api_key(svc)
-    finally:
-        if saved is None:
-            os.environ.pop("LLM_CORE_CONFIG_DIR", None)
-        else:
-            os.environ["LLM_CORE_CONFIG_DIR"] = saved
-    chosen = model or svc.default_model
+    svc = llm_client.resolve_service(service, config_path)
+    key = llm_client.load_api_key(svc)
+    chosen = model or svc.model
     if not chosen:
         raise llm_client.ConfigError(
-            f'Service "{service}" has no default_model; set {RECORD_MODEL_ENV}.'
+            f'Service "{service}" has no model; set {RECORD_MODEL_ENV}.'
         )
     headers: dict[str, str] = {}
     if svc.app_title is not None:
@@ -438,7 +427,7 @@ def _resolve_import_time_record_target() -> RecordTarget | Exception | None:
         return None
     try:
         return resolve_record_target(
-            service, os.environ.get(RECORD_MODEL_ENV), _real_llm_core_dir()
+            service, os.environ.get(RECORD_MODEL_ENV), _real_prismis_config()
         )
     except llm_client.ConfigError as e:  # reported when a recorded test first needs the target
         return e
@@ -680,8 +669,8 @@ def llm_recorder(
 def local_pipeline_stub(llm_recorder: LlmRecorder | None) -> Iterator[str]:
     """A local HTTP server standing in for both third parties the chain touches.
 
-    Yields the base URL. Serves `/feed.xml` (link 1) and an OpenAI-shaped
-    `/v1/chat/completions` (links 3 and 4).
+    Yields the base URL. Serves `/feed.xml` (link 1), an OpenAI-shaped
+    `/v1/chat/completions` (links 3 and 4) and `/v1/models` (health checks).
 
     The chain's whole point is driving the real orchestrator through real
     collaborators, which left it runnable only where a full config with real
@@ -690,9 +679,9 @@ def local_pipeline_stub(llm_recorder: LlmRecorder | None) -> Iterator[str]:
     run found (deep extraction billing while the report said skipped-by-flag) was
     wiring, which a local run would have caught for free.
 
-    llm-core resolves services.toml from XDG_CONFIG_HOME before Path.home()
-    (llm_core/services.py), and a service may set key_required = false, so a test can
-    point a service at this port and need no credential. The LLM is the one collaborator
+    config.toml's [services.*] tables are read from XDG_CONFIG_HOME, and a service with
+    no api_key is keyless, so a test can point a service at this port and need no
+    credential. The LLM is the one collaborator
     the constitution permits standing in for; nothing else here is faked — real
     fetchers, real Storage, real Embedder, real orchestrator.
 
@@ -724,7 +713,22 @@ def local_pipeline_stub(llm_recorder: LlmRecorder | None) -> Iterator[str]:
             self.wfile.write(body)
 
         def do_GET(self) -> None:
-            if self.path in ("/a", "/b"):
+            if self.path == "/v1/models":
+                # What llm_client.health_check lists: it checks the service's model is
+                # among these, so the first-run default model must be present.
+                self._send(
+                    _json.dumps(
+                        {
+                            "object": "list",
+                            "data": [
+                                {"id": model_id, "object": "model"}
+                                for model_id in STUB_MODEL_IDS
+                            ],
+                        }
+                    ).encode(),
+                    "application/json",
+                )
+            elif self.path in ("/a", "/b"):
                 article = _STUB_ARTICLE_A if self.path == "/a" else _STUB_ARTICLE_B
                 self._send(
                     f"<html><body><p>{article}</p></body></html>".encode(), "text/html"
@@ -1149,23 +1153,16 @@ def configure_local_services(cfg_home: Path, base_url: str) -> None:
     could not manifest. Verified: with deep_service off, reverting the gate leaves the
     local end-to-end test green.
     """
-    llm_core = cfg_home / "llm-core"
-    llm_core.mkdir(parents=True, exist_ok=True)
-    services = f'default_service = "{LOCAL_LIGHT_SERVICE}"\n'
-    for name in (LOCAL_LIGHT_SERVICE, LOCAL_DEEP_SERVICE):
-        # key_required=false means no secret.
-        services += (
-            f"[services.{name}]\n"
-            'adapter = "openai"\n'
-            f'base_url = "{base_url}/v1"\n'
-            "key_required = false\n"
-            'default_model = "stub-model"\n'
-        )
-    (llm_core / "services.toml").write_text(services)
-
     path = cfg_home / "prismis" / "config.toml"
+    # Callable again with a new base_url (some tests restart the stub): drop the tables
+    # an earlier call appended before appending the current ones.
+    text = re.sub(
+        rf"\n\[services\.(?:{LOCAL_LIGHT_SERVICE}|{LOCAL_DEEP_SERVICE})\]\n(?:[^\[\n][^\n]*\n)*",
+        "",
+        path.read_text(),
+    )
     out = []
-    for line in path.read_text().splitlines():
+    for line in text.splitlines():
         if line.startswith("light_service"):
             out.append(f'light_service = "{LOCAL_LIGHT_SERVICE}"')
         elif line.startswith(("deep_service", "# deep_service")):
@@ -1174,4 +1171,11 @@ def configure_local_services(cfg_home: Path, base_url: str) -> None:
             out.append('auto_extract = "high"')
         else:
             out.append(line)
+    # No api_key means keyless: no secret is needed.
+    for name in (LOCAL_LIGHT_SERVICE, LOCAL_DEEP_SERVICE):
+        out.append(
+            f"\n[services.{name}]\n"
+            f'base_url = "{base_url}/v1"\n'
+            'model = "stub-model"'
+        )
     path.write_text("\n".join(out) + "\n")

@@ -82,11 +82,12 @@ install: check-deps build install-binaries install-config ## Install everything 
 	@echo "Config files in: $(CONFIG_DIR)"
 	@echo ""
 	@echo "Next steps:"
-	@echo "1. Edit ~/.config/prismis/.env and add your API keys"
-	@echo "2. Customize ~/.config/prismis/context.md with your interests"
-	@echo "3. Start daemon: prismis-daemon &"
-	@echo "4. Add sources: prismis-cli source add https://example.com/feed"
-	@echo "5. Launch TUI: prismis"
+	@echo "1. Edit ~/.config/prismis/.env and set OPENROUTER_API_KEY"
+	@echo "2. Run prismis-daemon once to write ~/.config/prismis/config.toml, then prismis-daemon verify"
+	@echo "3. Customize ~/.config/prismis/context.md with your interests"
+	@echo "4. Start daemon: prismis-daemon &"
+	@echo "5. Add sources: prismis-cli source add https://example.com/feed"
+	@echo "6. Launch TUI: prismis"
 	@echo "========================================="
 
 .PHONY: install-binaries
@@ -180,11 +181,11 @@ install-config: ## Create .env template (config.toml created by daemon on first 
 		echo '# Prismis Environment Variables' > $(CONFIG_DIR)/.env; \
 		echo '# Edit this file and fill in your actual API keys' >> $(CONFIG_DIR)/.env; \
 		echo '' >> $(CONFIG_DIR)/.env; \
-		echo '# Required: OpenAI API key (or your chosen LLM provider)' >> $(CONFIG_DIR)/.env; \
-		echo 'OPENAI_API_KEY=sk-your-key-here' >> $(CONFIG_DIR)/.env; \
+		echo '# Required: OpenRouter API key (the default [services.openrouter] in config.toml reads it)' >> $(CONFIG_DIR)/.env; \
+		echo 'OPENROUTER_API_KEY=sk-your-key-here' >> $(CONFIG_DIR)/.env; \
 		echo '' >> $(CONFIG_DIR)/.env; \
-		echo '# Optional: For local models (LM Studio, Ollama), no key needed' >> $(CONFIG_DIR)/.env; \
-		echo '# Edit config.toml [llm] section instead' >> $(CONFIG_DIR)/.env; \
+		echo '# Using OpenAI or another provider: edit [services.openrouter] in config.toml (base_url, model,' >> $(CONFIG_DIR)/.env; \
+		echo '# api_key = "env:YOUR_VARIABLE") and set YOUR_VARIABLE here. Local models need no key.' >> $(CONFIG_DIR)/.env; \
 		echo '' >> $(CONFIG_DIR)/.env; \
 		echo '# Optional: Reddit API credentials (only needed for reddit:// sources)' >> $(CONFIG_DIR)/.env; \
 		echo 'REDDIT_CLIENT_ID=your-reddit-client-id' >> $(CONFIG_DIR)/.env; \

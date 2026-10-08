@@ -58,7 +58,7 @@ class ContentSummarizer:
         """Initialize the summarizer with the LLM service.
 
         Args:
-            service_name: Service name from ~/.config/llm-core/services.toml
+            service_name: Name of a [services.<name>] table in config.toml
         """
         self.service_name = service_name
 

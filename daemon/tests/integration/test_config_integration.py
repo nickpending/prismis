@@ -43,7 +43,7 @@ def test_ensure_config_produces_a_loadable_config(monkeypatch) -> None:
         assert config_obj.fetch_interval == 30
         assert config_obj.max_items_rss == 25
         assert config_obj.max_days_lookback == 30
-        assert config_obj.llm_light_service == "prismis-openai"
+        assert config_obj.llm_light_service == "openrouter"
         assert config_obj.high_priority_only is True
         assert config_obj.notification_command == "terminal-notifier"
 

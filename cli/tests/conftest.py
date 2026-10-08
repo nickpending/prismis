@@ -189,7 +189,9 @@ def _wait_until_started(server: uvicorn.Server, timeout: float = 5.0) -> None:
 
 
 def _run_live_daemon(
-    cfg_dir: Path, deep_service_name: str | None
+    cfg_dir: Path,
+    deep_service_name: str | None,
+    deep_service_base_url: str | None = None,
 ) -> Iterator[LiveDaemon]:
     """Run the real `prismis_daemon.api.app` on a real loopback socket.
 
@@ -216,7 +218,15 @@ def _run_live_daemon(
                 out.append(f'deep_service = "{deep_service_name}"')
             else:
                 out.append(line)
-        cfg_dir.joinpath("config.toml").write_text("\n".join(out) + "\n")
+        text = "\n".join(out) + "\n"
+        if deep_service_base_url:
+            # No api_key line: the service is keyless, so it needs no secret.
+            text += (
+                f"\n[services.{deep_service_name}]\n"
+                f'base_url = "{deep_service_base_url}"\n'
+                'model = "stub-deep-model"\n'
+            )
+        cfg_dir.joinpath("config.toml").write_text(text)
 
     from prismis_daemon.api import app
 
@@ -329,19 +339,12 @@ def live_daemon_deep(isolated_xdg_env: Path) -> Iterator[LiveDaemon]:
     llm_thread = threading.Thread(target=llm_server.serve_forever, daemon=True)
     llm_thread.start()
 
-    llm_core_dir = isolated_xdg_env.parent / "llm-core"
-    llm_core_dir.mkdir(parents=True, exist_ok=True)
-    llm_core_dir.joinpath("services.toml").write_text(
-        f'default_service = "{service_name}"\n'
-        f'[services.{service_name}]\n'
-        'adapter = "openai"\n'
-        f'base_url = "http://{llm_host}:{llm_port}/v1"\n'
-        "key_required = false\n"
-        'default_model = "stub-deep-model"\n'
-    )
-
     try:
-        yield from _run_live_daemon(isolated_xdg_env, deep_service_name=service_name)
+        yield from _run_live_daemon(
+            isolated_xdg_env,
+            deep_service_name=service_name,
+            deep_service_base_url=f"http://{llm_host}:{llm_port}/v1",
+        )
     finally:
         llm_server.shutdown()
         llm_server.server_close()

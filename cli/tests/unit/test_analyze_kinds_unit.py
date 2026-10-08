@@ -106,8 +106,8 @@ def _write_config(cfg_dir: Path, *, kind_service: str | None, remote_url: str | 
     text = DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY)
     if kind_service:
         text = text.replace(
-            'light_service = "prismis-openai"\n',
-            f'light_service = "prismis-openai"\nkind_service = "{kind_service}"\n',
+            'light_service = "openrouter"\n',
+            f'light_service = "openrouter"\nkind_service = "{kind_service}"\n',
         )
     if remote_url:
         text = text.replace(

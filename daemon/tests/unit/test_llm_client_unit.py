@@ -1,10 +1,9 @@
 """Unit tests for llm_client -- the openai-SDK module owning complete(),
-health_check(), services.toml resolution and JSON extraction (replacing llm-core).
+health_check(), config.toml service resolution and JSON extraction.
 
 Real collaborators throughout, per the constitution: a local HTTP server standing in
-for the provider (the one boundary permitted to fake) plays every role llm-core's own
-provider used to. services.toml is written by each test under the sealed
-XDG_CONFIG_HOME (conftest.isolated_xdg_env, autouse) -- no mock of prismis_daemon
+for the provider (the one boundary permitted to fake) plays the provider. Each test
+writes its services into config.toml under the sealed XDG_CONFIG_HOME (conftest.isolated_xdg_env, autouse) -- no mock of prismis_daemon
 internals anywhere in this file.
 """
 
@@ -34,7 +33,7 @@ from prismis_daemon.llm_client import CompleteResult
 from prismis_daemon.summarizer import ContentSummarizer
 
 # ---------------------------------------------------------------------------
-# services.toml plumbing -- every test points its own named service at its own
+# config.toml service plumbing -- every test points its own named service at its own
 # local stub server, under the sealed XDG_CONFIG_HOME conftest.isolated_xdg_env
 # (autouse) already provides.
 # ---------------------------------------------------------------------------
@@ -44,30 +43,22 @@ def _write_service(
     name: str,
     base_url: str,
     *,
-    default_model: str = "stub-model",
-    key_required: bool = False,
+    model: str = "stub-model",
+    api_key: str | None = None,
 ) -> None:
-    """Append a [services.<name>] block to the sealed services.toml.
+    """Append a [services.<name>] table to the sealed config.toml.
 
-    llm_client.resolve_service() always receives an explicit service name (no call
-    site relies on services.toml's own default_service), so this writer never needs
-    one either -- appending keeps each test's service resolvable without disturbing
-    any other test's block already written to the same sealed file.
+    llm_client.resolve_service() always receives an explicit service name, and
+    appending keeps each test's service resolvable without disturbing any other
+    test's table already written to the same sealed file. `api_key=None` writes no
+    api_key line: the service is keyless.
     """
     cfg_home = Path(os.environ["XDG_CONFIG_HOME"])
-    llm_core_dir = cfg_home / "llm-core"
-    llm_core_dir.mkdir(parents=True, exist_ok=True)
-    services_path = llm_core_dir / "services.toml"
-
-    existing = services_path.read_text() if services_path.exists() else ""
-    block = (
-        f"[services.{name}]\n"
-        'adapter = "openai"\n'
-        f'base_url = "{base_url}/v1"\n'
-        f"key_required = {'true' if key_required else 'false'}\n"
-        f'default_model = "{default_model}"\n\n'
-    )
-    services_path.write_text(existing + block)
+    config_path = cfg_home / "prismis" / "config.toml"
+    block = f"\n[services.{name}]\nbase_url = \"{base_url}/v1\"\nmodel = \"{model}\"\n"
+    if api_key is not None:
+        block += f'api_key = "{api_key}"\n'
+    config_path.write_text(config_path.read_text() + block)
 
 
 @pytest.fixture(autouse=True)
@@ -137,7 +128,7 @@ def _content_handler(
 
 
 # ---------------------------------------------------------------------------
-# SC-1: complete() returns the llm-core result shape
+# SC-1: complete() returns the result shape call sites read
 # ---------------------------------------------------------------------------
 
 
@@ -189,8 +180,8 @@ def test_complete_maps_length_finish_reason_to_max_tokens() -> None:
 # _is_openrouter() matches the literal substring "openrouter.ai" in base_url, which is
 # also the actual network destination httpx2 would connect to -- a local stub bound to
 # 127.0.0.1 can never satisfy it, so this test drives complete() against a real
-# openrouter.ai-shaped base_url (identical in shape to the real services.toml's
-# prismis-pt-luna entry) and fakes only the wire: httpx2.Client.send, the openai SDK's
+# openrouter.ai-shaped base_url (identical in shape to a real
+# OpenRouter service) and fakes only the wire: httpx2.Client.send, the openai SDK's
 # own vendored httpx, not any prismis_daemon code. resolve_service(), _is_openrouter()
 # and the extra_body branch in complete() all run for real; only the TCP connection is
 # stood in for. This also proves openai's CompletionUsage pydantic model preserves an
@@ -240,7 +231,7 @@ def test_complete_extracts_real_cost_for_an_openrouter_shaped_base_url() -> None
     (gate, extra_body, response parsing) without a live network call."""
     service = "openrouter-shaped-svc"
     _write_service(
-        service, "https://openrouter.ai/api", default_model="openai/gpt-5.6-luna"
+        service, "https://openrouter.ai/api", model="openai/gpt-5.6-luna"
     )
 
     sent_requests: list[httpx2.Request] = []
@@ -267,7 +258,7 @@ def test_complete_does_not_send_extra_body_to_a_non_openrouter_base_url() -> Non
     """Control for the test above: an api.openai.com-shaped base_url gets no
     usage.include extension in the request at all -- not merely an ignored one."""
     service = "openai-shaped-svc"
-    _write_service(service, "https://api.openai.com", default_model="gpt-4.1-mini")
+    _write_service(service, "https://api.openai.com", model="gpt-4.1-mini")
 
     sent_requests: list[httpx2.Request] = []
 
@@ -421,7 +412,7 @@ def test_complete_sends_response_format_json_object_when_json_true() -> None:
     """F-1-4: json=True reaches the real request as
     response_format={"type": "json_object"}."""
     service = "json-true-wire-svc"
-    _write_service(service, "https://wire-check.invalid", default_model="stub-model")
+    _write_service(service, "https://wire-check.invalid", model="stub-model")
 
     sent_requests: list[httpx2.Request] = []
 
@@ -450,7 +441,7 @@ def test_complete_omits_response_format_when_json_false() -> None:
     """Control for the test above: the default json=False sends no response_format
     key at all -- not merely one the provider happens to ignore."""
     service = "json-false-wire-svc"
-    _write_service(service, "https://wire-check.invalid", default_model="stub-model")
+    _write_service(service, "https://wire-check.invalid", model="stub-model")
 
     sent_requests: list[httpx2.Request] = []
 
@@ -642,7 +633,7 @@ def test_health_check_missing_model_fails_naming_service_and_model() -> None:
     """SC-7: a reachable service whose configured model is absent fails, naming both."""
     service = "missing-model-svc"
     with _running(_models_handler(["some-other-model"])) as base_url:
-        _write_service(service, base_url, default_model="the-configured-model")
+        _write_service(service, base_url, model="the-configured-model")
 
         with pytest.raises(llm_client.ConfigError) as exc_info:
             llm_client.health_check(service=service)
@@ -656,6 +647,6 @@ def test_health_check_passes_when_model_is_listed() -> None:
     """Control for the test above: health_check() is silent when the model exists."""
     service = "present-model-svc"
     with _running(_models_handler(["present-model", "another-model"])) as base_url:
-        _write_service(service, base_url, default_model="present-model")
+        _write_service(service, base_url, model="present-model")
 
         llm_client.health_check(service=service)  # must not raise

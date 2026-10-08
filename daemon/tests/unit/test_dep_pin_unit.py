@@ -3,12 +3,11 @@
 Covers:
 - INV-DEP-1: Every [tool.uv.sources] git source MUST carry a rev= field
 - INV-DEP-1 (format): rev= must be a commit hash, not a branch or tag name
-- INV-DEP-1 (lockfile): uv.lock must contain the pinned rev in its apiconf stanza
-- SC-10 (openai-sdk-migration): with llm-core gone, this file's assertions state the
-  openai and apiconf pins explicitly instead of checking nothing -- apiconf's git
-  source carries the validated rev "6fd244a", openai is pinned to a floor version on
-  PyPI (not a git source, so INV-DEP-1 does not apply to it), and uv.lock reflects
-  both.
+- SC-10 (openai-sdk-migration): openai is pinned to a floor version on PyPI (not a
+  git source, so INV-DEP-1 does not apply to it).
+- SC-3 (self-contained-llm-config): the daemon declares no git-only key library and
+  uv.lock carries none. With no git source left, the two INV-DEP-1 checks hold for
+  any that is added later.
 
 Why these tests:
   A missing or wrong rev= in [tool.uv.sources] causes `uv tool install --reinstall`
@@ -28,12 +27,6 @@ _DAEMON_DIR = Path(__file__).parent.parent.parent
 _PROJECT_ROOT = _DAEMON_DIR.parent
 _PYPROJECT = _DAEMON_DIR / "pyproject.toml"
 _LOCKFILE = _DAEMON_DIR / "uv.lock"
-
-# apiconf's validated rev (daemon/pyproject.toml's [tool.uv.sources] entry, carried
-# over unchanged by the openai-sdk-migration work order -- only llm-core's own git
-# source was removed).
-_APICONF_VALIDATED_REV = "6fd244a"
-_APICONF_VALIDATED_SHA = "6fd244a5041ac714cb21c48e41cf46b8b4fbba76"
 
 # Minimal commit-hash pattern: 7-40 lowercase hex chars (git short or full SHA)
 _COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{7,40}$")
@@ -74,14 +67,13 @@ def test_INVARIANT_every_git_source_has_rev_field() -> None:
         data = tomllib.load(f)
 
     sources = data.get("tool", {}).get("uv", {}).get("sources", {})
-    assert sources, "No [tool.uv.sources] section found — section expected"
+    assert sources, "No [tool.uv.sources] section found — the torch index route is expected"
 
     git_sources = {
         name: entry
         for name, entry in sources.items()
         if isinstance(entry, dict) and "git" in entry
     }
-    assert git_sources, "No git sources found in [tool.uv.sources] — apiconf expected"
 
     missing_rev = [name for name, entry in git_sources.items() if "rev" not in entry]
 
@@ -117,32 +109,6 @@ def test_INVARIANT_git_rev_is_commit_hash_not_branch() -> None:
     )
 
 
-def test_SC10_apiconf_source_pin_matches_validated_rev() -> None:
-    """
-    SC-10: apiconf source entry must carry rev= "6fd244a" (validated commit) -- stated
-    explicitly now that llm-core's own pin no longer occupies this file.
-    BREAKS: A different rev would replace the validated apiconf build with an unknown
-    version that has not been verified.
-    """
-    assert _PYPROJECT.exists(), f"pyproject.toml not found: {_PYPROJECT}"
-
-    with open(_PYPROJECT, "rb") as f:
-        data = tomllib.load(f)
-
-    sources = data.get("tool", {}).get("uv", {}).get("sources", {})
-    assert "apiconf" in sources, "apiconf not found in [tool.uv.sources]"
-
-    entry = sources["apiconf"]
-    assert isinstance(entry, dict), f"Unexpected apiconf source shape: {entry!r}"
-    assert "rev" in entry, "SC-10 FAILED — apiconf source entry has no rev= field"
-
-    rev = entry["rev"]
-    assert _APICONF_VALIDATED_SHA.startswith(rev) or rev == _APICONF_VALIDATED_SHA, (
-        f"SC-10 FAILED — apiconf rev= {rev!r} does not match validated commit "
-        f"{_APICONF_VALIDATED_REV!r} (full SHA: {_APICONF_VALIDATED_SHA})"
-    )
-
-
 def test_SC10_openai_dependency_carries_an_explicit_floor_version() -> None:
     """
     SC-10: openai must be pinned to an explicit floor version in [project.dependencies]
@@ -168,26 +134,23 @@ def test_SC10_openai_dependency_carries_an_explicit_floor_version() -> None:
     )
 
 
-def test_SC10_lockfile_contains_apiconf_pinned_rev() -> None:
+def test_SC3_key_library_is_gone_from_pyproject_and_lockfile() -> None:
     """
-    SC-10: daemon/uv.lock must contain the pinned rev in the apiconf stanza.
-    BREAKS: If lockfile drifts from pyproject.toml, `uv lock --check` exits non-zero
-    and deploy tooling may re-resolve from a stale or HEAD ref.
+    SC-3: the retired git-only key library is neither a dependency, a uv source, nor a
+    package stanza in uv.lock.
+    BREAKS: a leftover declaration keeps a git dependency installable (and resolvable
+    from a host with no network path to it) that no code imports.
     """
-    assert _LOCKFILE.exists(), f"uv.lock not found: {_LOCKFILE}"
+    retired = "apiconf"
+    with open(_PYPROJECT, "rb") as f:
+        data = tomllib.load(f)
+    sources = data.get("tool", {}).get("uv", {}).get("sources", {})
+    assert retired not in sources, f"{retired} still in [tool.uv.sources]"
+    dependencies = data.get("project", {}).get("dependencies", [])
+    assert not any(dep.split(">=")[0].strip() == retired for dep in dependencies)
 
-    content = _LOCKFILE.read_text()
-
-    # uv expands the short rev to full SHA in the lockfile URL.
-    # Both the short rev (in the ?rev= query param) and the full SHA
-    # (in the fragment #SHA) must be present in the apiconf stanza.
-    assert _APICONF_VALIDATED_REV in content, (
-        f"SC-10 FAILED — pinned rev {_APICONF_VALIDATED_REV!r} not found in uv.lock. "
-        "Run `uv lock` from daemon/ to regenerate the lockfile."
-    )
-    assert _APICONF_VALIDATED_SHA in content, (
-        f"SC-10 FAILED — full SHA {_APICONF_VALIDATED_SHA!r} not found in uv.lock. "
-        "Lockfile may have been regenerated against a different rev."
+    assert f'name = "{retired}"' not in _LOCKFILE.read_text(), (
+        f"uv.lock still has a {retired} stanza; run `uv lock` from daemon/"
     )
 
 

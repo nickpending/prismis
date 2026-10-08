@@ -14,7 +14,7 @@ def validate_llm_config(service_name: str) -> None:
     """Validate LLM service configuration can connect to provider.
 
     Args:
-        service_name: Service name from services.toml
+        service_name: Name of a [services.<name>] table in config.toml
 
     Raises:
         Exception: If health check fails

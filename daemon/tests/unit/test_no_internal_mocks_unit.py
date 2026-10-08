@@ -279,7 +279,7 @@ def test_guard_detects_nothing_in_an_allowlisted_llm_patch(tmp_path: Path) -> No
         "def t(monkeypatch):\n"
         '    with patch("prismis_daemon.summarizer.complete"):\n'
         "        pass\n"
-        '    with patch("prismis_daemon.llm_validator.llm_core.health_check"):\n'
+        '    with patch("prismis_daemon.llm_validator.llm_client.health_check"):\n'
         "        pass\n"
         '    monkeypatch.setattr(api, "SOURCE_VALIDATION_TIMEOUT", 0.05)\n'
     )

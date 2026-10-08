@@ -1,6 +1,6 @@
-"""Tests for task 3.2: litellm-to-llm-core consumer migration invariants.
+"""Tests for task 3.2: litellm consumer migration invariants.
 
-llm-core itself is gone now (work-order openai-sdk-migration); the invariants this
+The invariants this
 file guards -- no litellm, and complete() reached through a service_name constructor
 -- outlived the library that originally motivated them, so the file stays under its
 original name with its original litellm-focused scope.
@@ -10,15 +10,10 @@ Covers:
 - SC-11: Summarizer uses llm_client.complete() via service_name constructor
 - SC-12: Evaluator uses llm_client.complete() via service_name constructor
 - SC-13: Zero litellm references in daemon/src/ and pyproject.toml
-- SC-15: migrate_config creates services.toml and apiconf, and updates config
-  (pricing.toml is deliberately no longer part of this contract -- see the
-  disposition note on test_SC15_migrate_config_creates_services_and_updates_config)
 - SC-16: __main__.py passes config.llm_service to consumer constructors
 """
 
-import shutil
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch  # claudex-guard: allow-mock
 
@@ -36,7 +31,7 @@ from prismis_daemon.summarizer import ContentSummarizer
 def _clean_circuit_registry():
     """Reset the real circuit breaker registry before and after each test.
 
-    llm_core.complete is the one collaborator the constitution permits standing in
+    llm_client.complete is the one collaborator the constitution permits standing in
     for; the circuit breaker in front of it is prismis's own and stays real -- a
     fresh, closed breaker lets check_can_proceed() return True without patching
     get_circuit_breaker.
@@ -81,7 +76,7 @@ def test_INVARIANT_zero_litellm_in_pyproject() -> None:
     assert "litellm" not in content, "SC-13 FAILED - litellm found in pyproject.toml"
 
 
-# --- SC-11: Summarizer uses llm_core ---
+# --- SC-11: Summarizer uses llm_client ---
 
 
 def test_SC11_summarizer_constructor_takes_service_name() -> None:
@@ -102,8 +97,8 @@ def test_SC11_summarizer_constructor_takes_service_name() -> None:
 
 def test_SC11_summarizer_calls_llm_core_complete() -> None:
     """
-    SC-11: summarize_with_analysis() must call llm_core.complete() with service param
-    BREAKS: Summarizer bypasses llm-core, uses wrong provider or no auth
+    SC-11: summarize_with_analysis() must call complete() with service param
+    BREAKS: Summarizer bypasses llm_client, uses wrong provider or no auth
     """
     summarizer = ContentSummarizer("prismis-openai")
 
@@ -134,7 +129,7 @@ def test_SC11_summarizer_calls_llm_core_complete() -> None:
         )
 
         # Verify complete() was called with service= kwarg
-        assert mock_complete.called, "llm_core.complete() was not called"
+        assert mock_complete.called, "complete() was not called"
         call_kwargs = mock_complete.call_args.kwargs
         assert call_kwargs.get("service") == "prismis-openai", (
             f"complete() called with wrong service: {call_kwargs.get('service')}"
@@ -144,7 +139,7 @@ def test_SC11_summarizer_calls_llm_core_complete() -> None:
         assert result.summary == "Test summary"
 
 
-# --- SC-12: Evaluator uses llm_core ---
+# --- SC-12: Evaluator uses llm_client ---
 
 
 def test_SC12_evaluator_constructor_takes_service_name() -> None:
@@ -164,8 +159,8 @@ def test_SC12_evaluator_constructor_takes_service_name() -> None:
 
 def test_SC12_evaluator_calls_llm_core_complete() -> None:
     """
-    SC-12: evaluate_content() must call llm_core.complete() with service param
-    BREAKS: Evaluator bypasses llm-core, uses wrong provider, content never prioritized
+    SC-12: evaluate_content() must call complete() with service param
+    BREAKS: Evaluator bypasses llm_client, uses wrong provider, content never prioritized
     """
     evaluator = ContentEvaluator("prismis-openai")
 
@@ -194,7 +189,7 @@ def test_SC12_evaluator_calls_llm_core_complete() -> None:
             context="High Priority: AI, machine learning",
         )
 
-        assert mock_complete.called, "llm_core.complete() was not called"
+        assert mock_complete.called, "complete() was not called"
         call_kwargs = mock_complete.call_args.kwargs
         assert call_kwargs.get("service") == "prismis-openai", (
             f"complete() called with wrong service: {call_kwargs.get('service')}"
@@ -204,342 +199,7 @@ def test_SC12_evaluator_calls_llm_core_complete() -> None:
         assert result.priority is not None
 
 
-# --- SC-15: migrate_config command ---
-
-_OLD_FORMAT_CONFIG_TOML = """\
-[daemon]
-fetch_interval = 30
-max_items_rss = 25
-max_items_reddit = 50
-max_items_youtube = 10
-max_items_file = 5
-max_days_lookback = 30
-
-[llm]
-provider = "openai"
-model = "gpt-4.1-mini"
-api_key = "sk-test-key-1234"
-
-[reddit]
-client_id = "env:REDDIT_CLIENT_ID"
-client_secret = "env:REDDIT_CLIENT_SECRET"
-user_agent = "test"
-max_comments = 100
-
-[notifications]
-high_priority_only = true
-command = "echo"
-
-[api]
-key = "test-api-key"
-
-[archival]
-enabled = false
-
-[archival.windows]
-high_read = 30
-medium_unread = 14
-medium_read = 30
-low_unread = 7
-low_read = 30
-
-[context]
-auto_update_enabled = false
-auto_update_interval_days = 7
-auto_update_min_votes = 5
-backup_count = 3
-"""
-
-# Post-llm-core install: has 'service' but hasn't been renamed to 'light_service' yet.
-# Drives the "service -> light_service rename" branch of migrate_config (cluster 10b's
-# other call site for the [services.prismis-openai-deep] append), which
-# test_SC15_migrate_config_creates_services_and_updates_config and
-# test_SC15_migrate_config_is_idempotent never reach -- both only drive the
-# pre-llm-core ('provider' field) branch.
-_SERVICE_RENAME_CONFIG_TOML = """\
-[daemon]
-fetch_interval = 30
-max_items_rss = 25
-max_items_reddit = 50
-max_items_youtube = 10
-max_items_file = 5
-max_days_lookback = 30
-
-[llm]
-service = "prismis-openai"
-
-[reddit]
-client_id = "env:REDDIT_CLIENT_ID"
-client_secret = "env:REDDIT_CLIENT_SECRET"
-user_agent = "test"
-max_comments = 100
-
-[notifications]
-high_priority_only = true
-command = "echo"
-
-[api]
-key = "test-api-key"
-
-[archival]
-enabled = false
-
-[archival.windows]
-high_read = 30
-medium_unread = 14
-medium_read = 30
-low_unread = 7
-low_read = 30
-
-[context]
-auto_update_enabled = false
-auto_update_interval_days = 7
-auto_update_min_votes = 5
-backup_count = 3
-"""
-
-_EXISTING_SERVICES_TOML = (
-    'default_service = "prismis-openai"\n\n'
-    "[services.prismis-openai]\n"
-    'adapter = "openai"\n'
-    'key = "openai"\n'
-    'base_url = "https://api.openai.com/v1"\n'
-    'default_model = "gpt-4.1-mini"\n'
-)
-
-
-def test_SC15_migrate_config_creates_services_and_updates_config() -> None:
-    """
-    SC-15: migrate_config must create services.toml and apiconf, and update config.
-
-    Disposition (openai-SDK migration, work-order openai-sdk-migration SC-10): this
-    test's original pricing.toml assertion is removed here, deliberately, not softened
-    or skipped. migrate_config() no longer writes pricing.toml -- llm_core.update_pricing
-    populated a static local cost table, and llm_client.complete() now reads the real
-    billed cost straight off the provider's response instead (llm_client.py's complete()),
-    so prismis has nothing left to populate that file for.
-    BREAKS: Cost tracking and LLM routing silently broken after migration
-    """
-    temp_dir = tempfile.mkdtemp()
-
-    try:
-        prismis_dir = Path(temp_dir) / "prismis"
-        prismis_dir.mkdir(parents=True)
-        config_toml = prismis_dir / "config.toml"
-        config_toml.write_text(_OLD_FORMAT_CONFIG_TOML)
-
-        with patch.dict(
-            "os.environ", {"XDG_CONFIG_HOME": temp_dir}
-        ):  # claudex-guard: allow-mock
-            from prismis_daemon.__main__ import migrate_config
-
-            migrate_config()
-
-        # Verify services.toml was created with correct content
-        services_path = Path(temp_dir) / "llm-core" / "services.toml"
-        assert services_path.exists(), "services.toml was not created"
-        services_content = services_path.read_text()
-        assert "prismis-openai" in services_content
-        assert 'adapter = "openai"' in services_content
-        assert 'default_model = "gpt-4.1-mini"' in services_content
-
-        # Verify apiconf was created with the resolved API key
-        apiconf_path = Path(temp_dir) / "apiconf" / "config.toml"
-        assert apiconf_path.exists(), "apiconf/config.toml was not created"
-        apiconf_content = apiconf_path.read_text()
-        assert "[keys.openai]" in apiconf_content
-        assert "sk-test-key-1234" in apiconf_content
-
-        # migrate_config() no longer writes pricing.toml (see the docstring above) --
-        # assert its absence so a reintroduced llm_core.update_pricing() call would
-        # turn this test red again rather than passing silently.
-        pricing_path = Path(temp_dir) / "llm-core" / "pricing.toml"
-        assert not pricing_path.exists(), (
-            "pricing.toml was created -- migrate_config() should no longer populate a "
-            "local cost table now that cost comes from the provider's own response"
-        )
-
-        # Verify config.toml [llm] section was updated to light_service= format (Fix 3:
-        # pre-llm-core path now converges to dual-service shape in a single run)
-        updated_config = config_toml.read_text()
-        assert 'light_service = "prismis-openai"' in updated_config, (
-            "Config [llm] section was not updated to light_service= format"
-        )
-        assert "provider" not in updated_config, (
-            "Old 'provider' key still in config after migration"
-        )
-
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def test_SC15_migrate_config_is_idempotent() -> None:
-    """
-    SC-15: Running migrate_config must not overwrite pre-existing files
-    BREAKS: User-customized services.toml or pricing.toml silently overwritten
-    """
-    temp_dir = tempfile.mkdtemp()
-
-    try:
-        prismis_dir = Path(temp_dir) / "prismis"
-        prismis_dir.mkdir(parents=True)
-        config_toml = prismis_dir / "config.toml"
-        config_toml.write_text(_OLD_FORMAT_CONFIG_TOML)
-
-        # Create pre-existing services.toml with custom content
-        llm_core_dir = Path(temp_dir) / "llm-core"
-        llm_core_dir.mkdir(parents=True)
-        services_path = llm_core_dir / "services.toml"
-        custom_services = 'default_service = "my-custom-service"\n'
-        services_path.write_text(custom_services)
-
-        with patch.dict(
-            "os.environ", {"XDG_CONFIG_HOME": temp_dir}
-        ):  # claudex-guard: allow-mock
-            from prismis_daemon.__main__ import migrate_config
-
-            migrate_config()
-
-        # Pre-existing services.toml content must be preserved (not overwritten).
-        # Fix 3 appends [services.prismis-openai-deep] if absent — this is correct
-        # behaviour, not an idempotency violation. Verify original content intact.
-        result_services = services_path.read_text()
-        assert custom_services.strip() in result_services, (
-            "Existing services.toml content was overwritten (idempotency violated)"
-        )
-
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def test_SC15_migrate_config_rename_branch_appends_deep_service_block() -> None:
-    """
-    SC-7: the "service -> light_service" rename branch of migrate_config must append
-    [services.prismis-openai-deep] to services.toml -- the call site the other SC-15
-    tests never reach, since both only drive the pre-llm-core ('provider' field)
-    branch. Cluster 10a/10b consolidates this branch's append into the same helper
-    the pre-llm-core branch uses; this proves that call site independently.
-    BREAKS: extracting a shared append helper silently drops the rename branch's call
-    to it, leaving deep extraction unconfigured after a rename-only migration.
-    """
-    temp_dir = tempfile.mkdtemp()
-
-    try:
-        prismis_dir = Path(temp_dir) / "prismis"
-        prismis_dir.mkdir(parents=True)
-        config_toml = prismis_dir / "config.toml"
-        config_toml.write_text(_SERVICE_RENAME_CONFIG_TOML)
-
-        # services.toml already exists (as it would after an earlier, pre-llm-core
-        # migration), but without the deep-service block yet.
-        llm_core_dir = Path(temp_dir) / "llm-core"
-        llm_core_dir.mkdir(parents=True)
-        services_path = llm_core_dir / "services.toml"
-        services_path.write_text(_EXISTING_SERVICES_TOML)
-
-        with patch.dict(
-            "os.environ", {"XDG_CONFIG_HOME": temp_dir}
-        ):  # claudex-guard: allow-mock
-            from prismis_daemon.__main__ import migrate_config
-
-            migrate_config()
-
-        services_content = services_path.read_text()
-        assert services_content.count("[services.prismis-openai-deep]") == 1, (
-            "rename branch did not append the deep service block exactly once"
-        )
-        assert 'default_model = "gpt-5-mini"' in services_content
-
-        updated_config = config_toml.read_text()
-        assert 'light_service = "prismis-openai"' in updated_config, (
-            "Config [llm] section was not renamed to light_service= format"
-        )
-
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-@pytest.mark.parametrize(
-    ("config_toml_text", "seed_services"),
-    [(_OLD_FORMAT_CONFIG_TOML, False), (_SERVICE_RENAME_CONFIG_TOML, True)],
-    ids=["pre_llm_core_branch", "rename_branch"],
-)
-def test_migrate_config_reports_the_deep_service_block_it_added(
-    config_toml_text: str, seed_services: bool, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """
-    Both migrate_config branches print which block they appended. The pre-llm-core
-    branch used to print an unescaped "[services.prismis-openai-deep]", which rich
-    parses as a style tag and drops, so the operator saw "Added  to <path>".
-    BREAKS: the success line silently loses the name of the block it added.
-    """
-    temp_dir = tempfile.mkdtemp()
-
-    try:
-        prismis_dir = Path(temp_dir) / "prismis"
-        prismis_dir.mkdir(parents=True)
-        (prismis_dir / "config.toml").write_text(config_toml_text)
-        if seed_services:
-            llm_core_dir = Path(temp_dir) / "llm-core"
-            llm_core_dir.mkdir(parents=True)
-            (llm_core_dir / "services.toml").write_text(_EXISTING_SERVICES_TOML)
-
-        with patch.dict(
-            "os.environ", {"XDG_CONFIG_HOME": temp_dir}
-        ):  # claudex-guard: allow-mock
-            from prismis_daemon.__main__ import migrate_config
-
-            migrate_config()
-
-        output = " ".join(capsys.readouterr().out.split())
-        assert "Added [services.prismis-openai-deep] to" in output, output
-
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def test_SC15_migrate_config_rename_branch_is_idempotent_for_deep_service() -> None:
-    """
-    SC-7: the rename branch's idempotency check (skip the append when the block is
-    already present) must be reached and honoured through the shared helper.
-    BREAKS: consolidating the two append call sites drops the idempotency check for
-    this one, duplicating [services.prismis-openai-deep] on a repeat run.
-    """
-    temp_dir = tempfile.mkdtemp()
-
-    try:
-        prismis_dir = Path(temp_dir) / "prismis"
-        prismis_dir.mkdir(parents=True)
-        config_toml = prismis_dir / "config.toml"
-        config_toml.write_text(_SERVICE_RENAME_CONFIG_TOML)
-
-        llm_core_dir = Path(temp_dir) / "llm-core"
-        llm_core_dir.mkdir(parents=True)
-        services_path = llm_core_dir / "services.toml"
-        # Deep service block already present (e.g. an earlier migrate_config run).
-        services_path.write_text(
-            _EXISTING_SERVICES_TOML + "\n[services.prismis-openai-deep]\n"
-            'adapter = "openai"\n'
-            'key = "sable-openai"\n'
-            'base_url = "https://api.openai.com/v1"\n'
-            'default_model = "gpt-5-mini"\n'
-        )
-
-        with patch.dict(
-            "os.environ", {"XDG_CONFIG_HOME": temp_dir}
-        ):  # claudex-guard: allow-mock
-            from prismis_daemon.__main__ import migrate_config
-
-            migrate_config()
-
-        services_content = services_path.read_text()
-        assert services_content.count("[services.prismis-openai-deep]") == 1, (
-            "rename branch duplicated the deep service block instead of skipping it"
-        )
-
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
+# migrate-config is covered by test_migrate_config_unit.py.
 
 # --- SC-16: __main__.py passes config.llm_light_service to consumers ---
 

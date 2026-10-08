@@ -17,14 +17,31 @@ max_days_lookback = 30  # ignore content older than this
 # fetch_allow_private_hosts = ["nas.lan"]
 
 [llm]
-# Service name for light summarization (from ~/.config/llm-core/services.toml)
-light_service = "prismis-openai"
+# Services are the [services.<name>] tables below. light_service names the one used for routine summarization.
+light_service = "openrouter"
 # Optional: Deep extraction service for HIGH priority content. Leave unset to disable.
-# deep_service = "prismis-openai-deep"
+# deep_service = "openrouter-deep"
+# Optional: Kind classification service (decisions endpoint, adapter = "decisions"). Leave unset to disable.
+# kind_service = "kind"
 # Auto-extract threshold: "none" | "high" | "all"
 auto_extract = "none"
 # Source types to skip for deep extraction (low signal-to-noise)
 deep_extract_exclude = ["reddit"]
+
+[services.openrouter]
+# Every service speaks the OpenAI chat-completions API. api_key is always env:NAME -- the key
+# is read from that environment variable (or ~/.config/prismis/.env), never stored here.
+# Omit api_key for a keyless local server. For OpenAI itself, set
+# base_url = "https://api.openai.com/v1", a model such as "gpt-5-mini", and api_key = "env:OPENAI_API_KEY".
+base_url = "https://openrouter.ai/api/v1"
+model = "openai/gpt-5.4-nano"
+api_key = "env:OPENROUTER_API_KEY"
+
+# Example deep-extraction service (uncomment, and uncomment deep_service above):
+# [services.openrouter-deep]
+# base_url = "https://openrouter.ai/api/v1"
+# model = "openai/gpt-5.4"
+# api_key = "env:OPENROUTER_API_KEY"
 
 [reddit]
 client_id = "env:REDDIT_CLIENT_ID"  # Reddit API client ID
@@ -141,11 +158,12 @@ def ensure_config() -> bool:
 Created default configuration at {config_dir}/
 
 Next steps:
-  1. Edit .env with your API keys (OPENAI_API_KEY, etc.)
-  2. Configure your LLM service in ~/.config/llm-core/services.toml, or run 'prismis-daemon migrate-config'
+  1. Set OPENROUTER_API_KEY in ~/.config/prismis/.env (OPENROUTER_API_KEY=your-key)
+  2. Optionally point the [services.openrouter] table in config.toml at another provider
   3. Optionally customize context.md with your interests
 
-Then run: prismis-daemon
+Then check the setup with: prismis-daemon verify
+and start the daemon with: prismis-daemon
 """)
         return False
 

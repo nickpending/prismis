@@ -123,10 +123,10 @@ def submit_decision(
     """
     svc = resolve_service(service)
     api_key = load_api_key(svc)
-    resolved_model = model or svc.default_model
+    resolved_model = model or svc.model
     if not resolved_model:
         raise ValueError(
-            "Model name required: pass model= or set default_model in services.toml"
+            "Model name required: pass model= or set model in [services.<name>] of config.toml"
         )
 
     headers = {"Content-Type": "application/json"}
@@ -258,7 +258,7 @@ class KindClassifier:
         """Initialize the classifier with the decisions-endpoint LLM service.
 
         Args:
-            service_name: Service name from ~/.config/llm-core/services.toml
+            service_name: Service name from [services.<name>] in config.toml
         """
         self.service_name = service_name
 

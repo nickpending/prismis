@@ -84,13 +84,13 @@ def _create_config_dir(config_toml: str = VALID_CONFIG_TOML) -> tuple:
 
 
 def _has_prismis_openai_service() -> bool:
-    """Check if prismis-openai service is configured in services.toml."""
+    """Check if prismis-openai service is defined in config.toml's services tables."""
     try:
         config_home = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
-        services_path = Path(config_home) / "llm-core" / "services.toml"
-        if not services_path.exists():
+        config_path = Path(config_home) / "prismis" / "config.toml"
+        if not config_path.exists():
             return False
-        with open(services_path, "rb") as f:
+        with open(config_path, "rb") as f:
             data = tomllib.load(f)
         return "prismis-openai" in data.get("services", {})
     except (OSError, tomllib.TOMLDecodeError):
@@ -107,14 +107,14 @@ def test_INVARIANT_health_check_accuracy_with_real_api() -> None:
     if not api_key:
         pytest.skip("OPENAI_API_KEY environment variable not set")
     if not _has_prismis_openai_service():
-        pytest.skip("prismis-openai service not configured in services.toml")
+        pytest.skip("prismis-openai service not defined in config.toml")
 
     temp_dir, config_path = _create_config_dir()
 
     try:
         config = Config.from_file(config_path)
 
-        # Real validation with actual health check via llm_core
+        # Real validation with actual health check via llm_client
         try:
             validate_llm_config(config)
         except SystemExit:
@@ -207,7 +207,7 @@ def test_CONFIDENCE_health_check_accuracy_threshold() -> None:
     if not api_key:
         pytest.skip("OPENAI_API_KEY environment variable not set")
     if not _has_prismis_openai_service():
-        pytest.skip("prismis-openai service not configured in services.toml")
+        pytest.skip("prismis-openai service not defined in config.toml")
 
     temp_dir, config_path = _create_config_dir()
 

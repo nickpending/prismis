@@ -6,7 +6,7 @@ observability events like the other LLM-backed links, and reports it as not
 configured when [llm] kind_service is unset.
 
 Real collaborators throughout: the real RSSFetcher over HTTP against
-`local_pipeline_stub`, the real Summarizer/Evaluator driving llm-core's `complete()`
+`local_pipeline_stub`, the real Summarizer/Evaluator driving `complete()`
 against that same stub, real Storage, real Embedder, the real DaemonOrchestrator built
 by the chain's own `build_orchestrator`. Only `submit_decision` -- kind_classifier's
 own provider boundary, since the decisions endpoint isn't chat-completions shaped and
@@ -53,7 +53,7 @@ def _configure_kind_service(cfg_home: Path, service_name: str) -> None:
 
     submit_decision -- kind_classifier's own provider boundary -- is patched in every
     test below that needs a configured service, so this name need never resolve in
-    services.toml; it only has to be non-empty for Config.llm_kind_service to be
+    config.toml's services tables; it only has to be non-empty for Config.llm_kind_service to be
     truthy and for build_orchestrator to wire a KindClassifier.
     """
     path = cfg_home / "prismis" / "config.toml"

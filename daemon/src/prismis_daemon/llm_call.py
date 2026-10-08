@@ -80,7 +80,7 @@ def call_llm_with_circuit_breaker(
     """Call the LLM behind service_name's circuit breaker, recording the outcome.
 
     Args:
-        service_name: llm-core service name to resolve and to key the circuit breaker
+        service_name: [services.<name>] service name to resolve and to key the circuit breaker
         system_prompt: system prompt to send
         user_prompt: user prompt to send
         action: the obs_log "action" field (e.g. "evaluate", "summarize",

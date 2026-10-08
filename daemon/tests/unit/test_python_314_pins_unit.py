@@ -6,8 +6,8 @@ Covers:
 - SC-2: both uv.lock files are current with their pyproject.toml, and every registry
   package in them installs from a wheel on 3.14 -- a package that ships interpreter-
   specific wheels must ship a cp314 (or abi3) one, so no PyPI package falls back to a
-  source build. The project itself and the apiconf git source build from source by
-  nature and are not registry packages.
+  source build. The project itself builds from source by
+  nature and is not a registry package.
 
 Why these tests:
   The old locks pinned lxml, markupsafe, pydantic-core and pyyaml at versions with no

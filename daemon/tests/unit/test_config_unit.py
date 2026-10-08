@@ -46,7 +46,7 @@ def test_config_loading_with_all_files_present() -> None:
         # Verify config sections loaded correctly
         assert config.fetch_interval == 45
         assert config.max_items_rss == 15
-        assert config.llm_light_service == "prismis-openai"
+        assert config.llm_light_service == "openrouter"
         assert config.high_priority_only is True
         assert config.api_key == TEST_API_KEY
 
@@ -238,7 +238,7 @@ def test_config_default_values() -> None:
     assert config.max_days_lookback == 30
 
     # Verify LLM defaults
-    assert config.llm_light_service == "prismis-openai"
+    assert config.llm_light_service == "openrouter"
     assert config.llm_deep_service is None
     assert config.auto_extract == "none"
 

@@ -332,7 +332,7 @@ backup_count = 3
 
 def test_INVARIANT_startup_validation_calls_health_check_with_light_service() -> None:
     """
-    INVARIANT: Startup validation MUST call llm_core.health_check with the light service name.
+    INVARIANT: Startup validation MUST call llm_client.health_check with the light service name.
     BREAKS: Health check called with wrong arguments, silently passing with incorrect config.
     """
     temp_dir, config_path = _create_config_dir()

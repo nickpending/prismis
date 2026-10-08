@@ -303,8 +303,8 @@ def kinds(
         console.print(
             "[yellow]'analyze kinds' requires a kind_service configured under "
             "[llm] in config.toml.[/yellow]\n"
-            "[dim]Set kind_service to a service name from "
-            "~/.config/llm-core/services.toml.[/dim]"
+            "[dim]Set kind_service to a service defined in the services tables of "
+            "config.toml.[/dim]"
         )
         raise typer.Exit(1)
 

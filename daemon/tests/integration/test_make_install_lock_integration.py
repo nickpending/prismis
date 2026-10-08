@@ -7,8 +7,7 @@ the tool's interpreter must be the unit's .python-version, and the entry point m
 Why this test:
   `uv tool install` ignores uv.lock, so an install that drops the lock constraints still
   succeeds -- it just resolves fresh. Only comparing the installed environment to the lock
-  shows production runs the versions the gate tested. Needs the network for the apiconf
-  git source, which uv fetches even when every wheel is cached.
+  shows production runs the versions the gate tested.
 """
 
 import os

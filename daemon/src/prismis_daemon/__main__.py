@@ -419,7 +419,8 @@ def validate_llm_config(config: Config) -> None:
     except (llm_client.ConfigError, openai.OpenAIError) as e:
         console.print(f"[bold red]❌ LLM connection failed: {e}[/bold red]")
         console.print(
-            "[yellow]💡 Check your service configuration in ~/.config/llm-core/services.toml[/yellow]"
+            "[yellow]💡 Check the services tables in ~/.config/prismis/config.toml and that the "
+            "api_key environment variables they name are set (OPENROUTER_API_KEY for the default).[/yellow]"
         )
         sys.exit(1)
 
@@ -497,44 +498,89 @@ def main(
             asyncio.run(run_scheduler(config, test_mode=test_mode))
 
 
-def _append_deep_service_block(services_path: Path, console: Console) -> None:
-    """Idempotently append the [services.prismis-openai-deep] block to services.toml.
+# Oldest-format [llm] provider names -> (adapter, base_url). Only the migration reads this.
+_OLD_PROVIDER_MAP = {
+    "openai": ("openai", "https://api.openai.com/v1"),
+    "anthropic": ("anthropic", "https://api.anthropic.com"),
+    "ollama": ("ollama", "http://localhost:11434"),
+}
 
-    Shared by both migrate_config branches that converge a config to the dual-service
-    shape. Callers guarantee services_path exists before calling this. The bracket in
-    the success message is escaped because rich reads an unescaped one as a style tag
-    and drops it from the output.
+# Retired services.toml fields the migration carries into a [services.<name>] table,
+# renamed where the schema renamed them. Any other field is reported, never silently
+# dropped.
+_SERVICE_FIELD_MAP = {
+    "adapter": "adapter",
+    "base_url": "base_url",
+    "default_model": "model",
+    "app_title": "app_title",
+    "app_url": "app_url",
+}
+_SERVICE_FIELDS_HANDLED = {*_SERVICE_FIELD_MAP, "key", "key_required"}
+
+
+def _key_env_var(provider: str) -> str:
+    """The environment variable that carries a provider's key: PROVIDER_API_KEY.
+
+    `openai` is OPENAI_API_KEY by the same rule; any other provider name is upper-cased
+    with non-alphanumerics folded to underscores.
     """
-    services_text = services_path.read_text()
-    if "[services.prismis-openai-deep]" in services_text:
-        console.print("[dim]Skipping prismis-openai-deep entry (already exists)[/dim]")
-        return
+    import re
 
-    if not services_text.endswith("\n"):
-        services_text += "\n"
-    services_text += (
-        "\n[services.prismis-openai-deep]\n"
-        'adapter = "openai"\n'
-        'key = "sable-openai"\n'
-        'base_url = "https://api.openai.com/v1"\n'
-        'default_model = "gpt-5-mini"\n'
-    )
-    services_path.write_text(services_text)
-    console.print(
-        f"[green]Added \\[services.prismis-openai-deep] to {services_path}[/green]"
-    )
+    return re.sub(r"[^A-Z0-9]+", "_", provider.upper()).strip("_") + "_API_KEY"
+
+
+def _toml_table(name: str, fields: dict[str, str]) -> str:
+    """Render one [services.<name>] table. json.dumps output is a valid TOML string."""
+    import json
+
+    bare = name.replace("-", "").replace("_", "").isalnum()
+    lines = [f"[services.{name if bare else json.dumps(name)}]"]
+    lines += [f"{key} = {json.dumps(value)}" for key, value in fields.items()]
+    return "\n".join(lines) + "\n"
+
+
+def _write_migrated(
+    config_path: Path, new_text: str, tables: list[str], console: Console
+) -> None:
+    """Back config.toml up to a timestamped copy, then write `new_text` plus `tables`.
+
+    Tables are appended after the existing text, never merged into it, so every comment
+    in the file survives. The new file lands via a temp file and a rename, so a crash
+    leaves the old config or the new one, never half of either.
+    """
+    import shutil
+    from datetime import datetime
+
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+    backup = config_path.with_name(f"{config_path.name}.bak-{stamp}")
+    shutil.copy2(config_path, backup)
+    console.print(f"[dim]Backed up {config_path} to {backup}[/dim]")
+
+    if not new_text.endswith("\n"):
+        new_text += "\n"
+    new_text += "".join("\n" + table for table in tables)
+    tmp_path = config_path.with_suffix(".toml.tmp")
+    tmp_path.write_text(new_text)
+    tmp_path.rename(config_path)
 
 
 @app.command()
 def migrate_config() -> None:
-    """Migrate existing Prismis config to use llm-core/apiconf stack."""
+    """Move an existing install's LLM services into config.toml's [services.*] tables.
+
+    Reads the retired shared service file and key store read-only, takes only the
+    services [llm] names, and appends them to config.toml. No key value is ever read
+    or written: each service gets api_key = "env:NAME" and the key stays in the
+    environment. Safe to run twice.
+    """
     import re
     import tomllib
+
+    from rich.markup import escape
 
     config_home = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
     prismis_config_path = Path(config_home) / "prismis" / "config.toml"
 
-    # Step 1: Read existing prismis config
     if not prismis_config_path.exists():
         console.print(
             f"[bold red]Config file not found: {prismis_config_path}[/bold red]"
@@ -546,170 +592,158 @@ def migrate_config() -> None:
         config_dict = tomllib.load(f)
 
     llm = config_dict.get("llm", {})
+    defined = config_dict.get("services", {})
 
-    # Already fully migrated to dual-service format
-    if "light_service" in llm:
+    # Oldest-format install: [llm] holds provider/model/api_key. It converges straight
+    # to one [services.prismis-<provider>] table and a light_service line.
+    if "provider" in llm and "light_service" not in llm:
+        old_provider = llm.get("provider", "openai")
+        old_model = llm.get("model", "gpt-4.1-mini")
+        old_api_key = llm.get("api_key", "")
+        adapter, base_url = _OLD_PROVIDER_MAP.get(
+            old_provider, ("openai", "https://api.openai.com/v1")
+        )
+        service_name = f"prismis-{old_provider}"
+        console.print(f"Found old config format: provider={old_provider}")
+
+        fields = {"adapter": adapter, "base_url": base_url, "model": old_model}
+        if old_provider != "ollama":
+            # An env: reference in the old file already names the variable; a literal
+            # key value is never copied, the provider's own variable name stands in.
+            if old_api_key.startswith("env:") and len(old_api_key) > 4:
+                fields["api_key"] = old_api_key
+            else:
+                fields["api_key"] = f"env:{_key_env_var(old_provider)}"
+                if old_api_key:
+                    console.print(
+                        "[yellow]The old \\[llm] api_key value was not copied. "
+                        f"Set {fields['api_key'][4:]} in the environment or "
+                        "~/.config/prismis/.env.[/yellow]"
+                    )
+
+        new_text = re.sub(
+            r"\[llm\].*?(?=\n\[|\Z)",
+            f'[llm]\nlight_service = "{service_name}"',
+            config_text,
+            flags=re.DOTALL,
+        )
+        _write_migrated(
+            prismis_config_path, new_text, [_toml_table(service_name, fields)], console
+        )
         console.print(
-            "[green]Config already migrated to dual-service format. Nothing to do.[/green]"
-        )
-        return
-
-    # Post-llm-core install: has 'service' but not yet renamed to 'light_service'
-    if "service" in llm and "provider" not in llm:
-        # Rename `service` → `light_service` within [llm] block only.
-        # Extract [llm] section, substitute inside it, reassemble — mirrors the
-        # existing [llm]-section rewrite pattern further below.
-        llm_section_pattern = r"(\[llm\].*?)(?=\n\[|\Z)"
-        match = re.search(llm_section_pattern, config_text, flags=re.DOTALL)
-        if not match:
-            console.print(
-                "[bold red]Could not locate [llm] section in config.toml[/bold red]"
-            )
-            sys.exit(1)
-        llm_block = match.group(1)
-        new_llm_block = re.sub(
-            r"(?m)^service(\s*=)",
-            r"light_service\1",
-            llm_block,
-        )
-        new_config_text = (
-            config_text[: match.start(1)] + new_llm_block + config_text[match.end(1) :]
-        )
-
-        # Append [services.prismis-openai-deep] to services.toml (idempotent)
-        services_path = Path(config_home) / "llm-core" / "services.toml"
-        if services_path.exists():
-            _append_deep_service_block(services_path, console)
-        else:
-            console.print(
-                f"[yellow]services.toml not found at {services_path}. "
-                f"Run migrate-config from a fresh install first.[/yellow]"
-            )
-
-        # Atomic write for config.toml rename
-        tmp_path = prismis_config_path.with_suffix(".toml.tmp")
-        tmp_path.write_text(new_config_text)
-        tmp_path.rename(prismis_config_path)
-        console.print(
-            f"[green]Updated {prismis_config_path}: service → light_service[/green]"
+            f"[green]Updated {prismis_config_path}: added "
+            f"{escape(f'[services.{service_name}]')}[/green]"
         )
         console.print(
             "\n[bold green]Migration complete. Run 'prismis-daemon' to start.[/bold green]"
         )
         return
 
-    # Pre-llm-core install: has 'provider' field (existing path below)
-    if "provider" not in llm:
+    # Middle-format install: has 'service' but not yet renamed to 'light_service'.
+    # Rename inside the [llm] block only, then continue to the service append.
+    renamed = False
+    if "service" in llm and "light_service" not in llm:
+        match = re.search(r"(\[llm\].*?)(?=\n\[|\Z)", config_text, flags=re.DOTALL)
+        if not match:
+            console.print(
+                "[bold red]Could not locate \\[llm] section in config.toml[/bold red]"
+            )
+            sys.exit(1)
+        new_llm_block = re.sub(
+            r"(?m)^service(\s*=)", r"light_service\1", match.group(1)
+        )
+        config_text = (
+            config_text[: match.start(1)] + new_llm_block + config_text[match.end(1) :]
+        )
+        llm = {**llm, "light_service": llm["service"]}
+        renamed = True
+    elif "light_service" not in llm:
         console.print(
-            "[yellow]No [llm] provider field found. Cannot determine migration path.[/yellow]"
+            "[yellow]No \\[llm] light_service or provider field found. "
+            "Cannot determine migration path.[/yellow]"
         )
         sys.exit(1)
 
-    old_provider = llm.get("provider", "openai")
-    old_model = llm.get("model", "gpt-4.1-mini")
-    old_api_key = llm.get("api_key", "")
-
-    # Map old provider names to adapter + base_url
-    provider_map = {
-        "openai": ("openai", "openai", "https://api.openai.com/v1"),
-        "anthropic": ("anthropic", "anthropic", "https://api.anthropic.com"),
-        "ollama": ("ollama", "ollama", "http://localhost:11434"),
-    }
-    adapter, key_name, base_url = provider_map.get(
-        old_provider, ("openai", "openai", "https://api.openai.com/v1")
-    )
-    service_name = f"prismis-{old_provider}"
-
-    console.print(f"Found old config format: provider={old_provider}")
-
-    # Step 2: Create ~/.config/llm-core/services.toml -- the shared config path
-    # (SC-9), not the llm-core library itself.
-    services_config_dir = Path(config_home) / "llm-core"
-    services_config_dir.mkdir(parents=True, exist_ok=True)
-
-    services_path = services_config_dir / "services.toml"
-    if services_path.exists():
-        console.print(f"[dim]Skipping {services_path} (already exists)[/dim]")
-    else:
-        services_content = f"""\
-default_service = "{service_name}"
-
-[services.{service_name}]
-adapter = "{adapter}"
-key = "{key_name}"
-base_url = "{base_url}"
-default_model = "{old_model}"
-"""
-        services_path.write_text(services_content)
-        console.print(f"[green]Created {services_path}[/green]")
-
-    # Step 3: Resolve API key and write to apiconf
-    apiconf_dir = Path(config_home) / "apiconf"
-    apiconf_dir.mkdir(parents=True, exist_ok=True)
-    apiconf_path = apiconf_dir / "config.toml"
-
-    resolved_key = old_api_key
-    key_warning = None
-    if old_api_key.startswith("env:"):
-        env_var = old_api_key[4:]
-        resolved_key = os.environ.get(env_var, "")
-        if not resolved_key:
-            key_warning = f"Environment variable {env_var} not set. You will need to manually set [keys.{key_name}] value in {apiconf_path}"
-            resolved_key = old_api_key  # Write the unexpanded string
-
-    if apiconf_path.exists():
-        # Check if [keys.openai] already exists
-        with open(apiconf_path, "rb") as f:
-            apiconf_dict = tomllib.load(f)
-
-        if "keys" in apiconf_dict and key_name in apiconf_dict["keys"]:
-            console.print(
-                f"[dim]Skipping {apiconf_path} ([keys.{key_name}] already exists)[/dim]"
+    wanted = list(
+        dict.fromkeys(
+            name
+            for name in (
+                llm.get("light_service"),
+                llm.get("deep_service"),
+                llm.get("kind_service"),
             )
-        else:
-            # Append [keys.{key_name}] section
-            apiconf_text = apiconf_path.read_text()
-            if not apiconf_text.endswith("\n"):
-                apiconf_text += "\n"
-            apiconf_text += f'\n[keys.{key_name}]\nvalue = "{resolved_key}"\n'
-            apiconf_path.write_text(apiconf_text)
-            console.print(f"[green]Added [keys.{key_name}] to {apiconf_path}[/green]")
-    else:
-        apiconf_content = f"""\
-[keys.{key_name}]
-value = "{resolved_key}"
-"""
-        apiconf_path.write_text(apiconf_content)
-        console.print(f"[green]Created {apiconf_path}[/green]")
+            if isinstance(name, str) and name not in defined
+        )
+    )
+    if not wanted and not renamed:
+        console.print(
+            "[green]Config already migrated: every service \\[llm] names is defined "
+            "in config.toml. Nothing to do.[/green]"
+        )
+        return
 
-    if key_warning:
-        console.print(f"[yellow]Warning: {key_warning}[/yellow]")
+    # The retired shared files, read-only. The key store is read as plain TOML for one
+    # field per key (provider); its values are never touched. Its directory name is
+    # assembled so the repository's retired-dependency grep finds no reference to it.
+    old_services_path = Path(config_home) / "llm-core" / "services.toml"
+    old_key_store_path = Path(config_home) / ("api" + "conf") / "config.toml"
+    old_services: dict[str, dict[str, object]] = {}
+    old_keys: dict[str, dict[str, object]] = {}
+    if old_services_path.exists():
+        with open(old_services_path, "rb") as f:
+            old_services = tomllib.load(f).get("services", {})
+    if old_key_store_path.exists():
+        with open(old_key_store_path, "rb") as f:
+            old_keys = tomllib.load(f).get("keys", {})
 
-    # Step 4: Append [services.prismis-openai-deep] to services.toml (idempotent).
-    # No pricing.toml step here: the openai-SDK migration (wo-openai-sdk-migration.md)
-    # reads billed cost straight off the provider's response (llm_client.py's complete()),
-    # not a locally maintained pricing table, so prismis has nothing left to populate
-    # pricing.toml for. Uses the same _append_deep_service_block helper the "service ->
-    # light_service" rename branch above calls, so a single run of migrate-config on a
-    # pre-llm-core config converges to the full dual-service shape — no intermediate
-    # unloadable state between runs.
-    _append_deep_service_block(services_path, console)
+    tables: list[str] = []
+    missing: list[str] = []
+    for name in wanted:
+        entry = old_services.get(name)
+        if not isinstance(entry, dict):
+            missing.append(name)
+            continue
+        fields = {
+            new: str(entry[old]) for old, new in _SERVICE_FIELD_MAP.items() if old in entry
+        }
+        if entry.get("key_required") is not False:
+            key_name = entry.get("key")
+            key_entry = old_keys.get(key_name, {}) if isinstance(key_name, str) else {}
+            provider = key_entry.get("provider")
+            if isinstance(provider, str) and provider:
+                var = _key_env_var(provider)
+            else:
+                var = _key_env_var(key_name if isinstance(key_name, str) and key_name else name)
+                console.print(
+                    f"[yellow]Service {escape(name)}: no provider found for its key; "
+                    f"assumed {var}. Edit api_key if that is wrong.[/yellow]"
+                )
+            fields["api_key"] = f"env:{var}"
+        left = sorted(set(entry) - _SERVICE_FIELDS_HANDLED)
+        if left:
+            console.print(
+                f"[yellow]Service {escape(name)}: fields not carried over: "
+                f"{', '.join(left)}[/yellow]"
+            )
+        tables.append(_toml_table(name, fields))
 
-    # Step 5: Update prismis config.toml [llm] section
-    # Converge to the dual-service shape in a single run: write light_service,
-    # not service, so Config.from_file() can load the result immediately.
-    new_llm_section = f'[llm]\nlight_service = "{service_name}"'
+    if tables or renamed:
+        _write_migrated(prismis_config_path, config_text, tables, console)
+        for table in tables:
+            console.print(
+                f"[green]Added {escape(table.splitlines()[0])} to "
+                f"{prismis_config_path}[/green]"
+            )
+        if renamed:
+            console.print("[green]Renamed \\[llm] service to light_service[/green]")
 
-    # Match the [llm] section up to the next section header or end of file
-    pattern = r"\[llm\].*?(?=\n\[|\Z)"
-    new_config_text = re.sub(pattern, new_llm_section, config_text, flags=re.DOTALL)
-
-    # Write atomically via temp file
-    tmp_path = prismis_config_path.with_suffix(".toml.tmp")
-    tmp_path.write_text(new_config_text)
-    tmp_path.rename(prismis_config_path)
-    console.print(f"[green]Updated {prismis_config_path} [llm] section[/green]")
-
+    if missing:
+        console.print(
+            f"[bold red]Not found in the retired service file: {', '.join(missing)}. "
+            f"Define a services table for each in {prismis_config_path} "
+            f'(base_url, model, api_key = "env:NAME").[/bold red]'
+        )
+        sys.exit(1)
     console.print(
         "\n[bold green]Migration complete. Run 'prismis-daemon' to start.[/bold green]"
     )

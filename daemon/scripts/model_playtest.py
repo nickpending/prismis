@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare candidate llm-core services against the stored baseline analysis.
+"""Compare candidate config.toml services against the stored baseline analysis.
 
 Runs prismis's real summarize + evaluate call path over a stratified sample of
 already-analyzed content and reports structured-output compliance, priority
@@ -138,7 +138,7 @@ def run_service(service: str, items: list[dict], context: str) -> list[dict]:
 def openrouter_prices() -> dict[str, tuple[float, float]]:
     """Live $/1M in-out rates keyed by OpenRouter model id.
 
-    llm-core prices from litellm's table, which carries none of the OpenRouter
+    A static price table (litellm's) carries none of the OpenRouter
     model ids, so it reports cost_usd=None and the run would score $0 for every
     candidate. Price from the source of truth instead.
     """
@@ -300,7 +300,7 @@ def main() -> int:
     parser.add_argument(
         "--services",
         default="prismis-pt-qwen,prismis-pt-deepseek,prismis-pt-luna,prismis-pt-ling",
-        help="Comma-separated llm-core service names to test",
+        help="Comma-separated config.toml service names to test",
     )
     parser.add_argument(
         "--limit", type=int, default=5, help="Items per priority stratum"

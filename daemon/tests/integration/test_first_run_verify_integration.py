@@ -44,7 +44,7 @@ def _plant_retired_locations(*roots: Path) -> list[Path]:
     for root in roots:
         for directory, name in (
             ("llm-core", "services.toml"),
-            ("api" + "conf", "config.toml"),
+            ("apiconf", "config.toml"),
         ):
             path = root / directory / name
             path.parent.mkdir(parents=True, exist_ok=True)

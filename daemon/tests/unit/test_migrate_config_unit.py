@@ -151,8 +151,8 @@ def _seed(
         (home / "llm-core").mkdir()
         (home / "llm-core" / "services.toml").write_text(services)
     if keys is not None:
-        (home / ("api" + "conf")).mkdir()
-        (home / ("api" + "conf") / "config.toml").write_text(keys)
+        (home / "apiconf").mkdir()
+        (home / "apiconf" / "config.toml").write_text(keys)
     return config_path
 
 
@@ -188,7 +188,7 @@ def test_cerebro_shaped_home_gains_the_three_services_and_a_second_run_changes_n
     """
     config_path = _seed(home, CEREBRO_CONFIG, SERVICES_TOML, KEY_STORE_TOML)
     services_before = (home / "llm-core" / "services.toml").read_bytes()
-    keys_before = (home / ("api" + "conf") / "config.toml").read_bytes()
+    keys_before = (home / "apiconf" / "config.toml").read_bytes()
 
     migrate_config()
 
@@ -221,7 +221,7 @@ def test_cerebro_shaped_home_gains_the_three_services_and_a_second_run_changes_n
                     f"{secret} leaked into {path.name}"
                 )
     assert (home / "llm-core" / "services.toml").read_bytes() == services_before
-    assert (home / ("api" + "conf") / "config.toml").read_bytes() == keys_before
+    assert (home / "apiconf" / "config.toml").read_bytes() == keys_before
 
     cfg = Config.from_file(config_path)
     assert cfg.llm_kind_service == "prismis-kind"
@@ -345,7 +345,7 @@ def test_pre_llm_core_format_migrates_without_touching_the_retired_files_or_copy
     assert not (home / "llm-core").exists(), (
         "the retired service file must not be created"
     )
-    assert not (home / ("api" + "conf")).exists(), "the key store must not be created"
+    assert not (home / "apiconf").exists(), "the key store must not be created"
     text = config_path.read_text()
     parsed = tomllib.loads(text)
     assert parsed["llm"] == {"light_service": "prismis-openai"}

@@ -15,6 +15,7 @@ server standing in for the provider (the one boundary permitted to fake).
 import http.server
 import json
 import os
+import re
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -26,8 +27,8 @@ from prismis_daemon import llm_client
 from prismis_daemon.llm_client import ConfigError
 
 _REPO = Path(__file__).parent.parent.parent.parent
-_RETIRED_LIBRARY = "api" + "conf"
-_RETIRED_SHARED_DIR = "llm" + "-core"
+_RETIRED_LIBRARY = "apiconf"
+_RETIRED_SHARED_DIR = "llm-core"
 
 
 def _add_service(name: str, base_url: str, api_key: str | None) -> None:
@@ -183,27 +184,42 @@ def test_unknown_service_names_it_and_where_to_define_it() -> None:
     assert _RETIRED_SHARED_DIR not in str(err.value)
 
 
-def test_retired_key_library_appears_nowhere_in_shipped_source_or_locks() -> None:
+def _migrate_config_span(text: str) -> tuple[int, int]:
+    start = text.index("def migrate_config(")
+    return start, text.index("\n@app.command()", start)
+
+
+def test_retired_key_library_is_never_imported_and_named_only_by_migrate_config() -> None:
     """
-    SC-3: the retired key library's name is absent from daemon/src, cli/src,
-    daemon/pyproject.toml and daemon/uv.lock.
-    BREAKS: an import, a comment or a lock stanza keeps the dependency alive.
+    SC-3: the retired key library is not a dependency (absent from daemon/pyproject.toml
+    and daemon/uv.lock), is imported nowhere in daemon/src or cli/src, and its name
+    appears in shipped source only inside migrate_config, which reads the old store's
+    path to migrate it.
+    BREAKS: an import, a lock stanza or a second reader keeps the dependency alive.
     """
-    roots = [_REPO / "daemon" / "src", _REPO / "cli" / "src"]
-    files = [_REPO / "daemon" / "pyproject.toml", _REPO / "daemon" / "uv.lock"]
-    for root in roots:
+    main_py = _REPO / "daemon" / "src" / "prismis_daemon" / "__main__.py"
+    files: list[Path] = []
+    for root in (_REPO / "daemon" / "src", _REPO / "cli" / "src"):
         files += [
             p for p in root.rglob("*") if p.is_file() and p.suffix in (".py", ".toml")
         ]
     assert len(files) > 10, "the scan found almost nothing; the roots are wrong"
 
-    hits = [
-        f"{f.relative_to(_REPO)}:{n}"
+    imports = re.compile(rf"^\s*(import|from)\s+{_RETIRED_LIBRARY}\b", re.MULTILINE)
+    assert [str(f.relative_to(_REPO)) for f in files if imports.search(f.read_text())] == []
+
+    for manifest in (_REPO / "daemon" / "pyproject.toml", _REPO / "daemon" / "uv.lock"):
+        assert _RETIRED_LIBRARY not in manifest.read_text(), manifest.name
+
+    text = main_py.read_text()
+    start, end = _migrate_config_span(text)
+    assert _RETIRED_LIBRARY in text[start:end], "migrate-config no longer reads the old store"
+    assert _RETIRED_LIBRARY not in text[:start] + text[end:], "outside migrate_config"
+    assert [
+        str(f.relative_to(_REPO))
         for f in files
-        for n, line in enumerate(f.read_text().splitlines(), 1)
-        if _RETIRED_LIBRARY in line
-    ]
-    assert hits == []
+        if f != main_py and _RETIRED_LIBRARY in f.read_text()
+    ] == []
 
 
 def test_retired_shared_service_path_appears_only_in_migrate_config() -> None:

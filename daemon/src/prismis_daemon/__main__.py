@@ -683,10 +683,9 @@ def migrate_config() -> None:
         return
 
     # The retired shared files, read-only. The key store is read as plain TOML for one
-    # field per key (provider); its values are never touched. Its directory name is
-    # assembled so the repository's retired-dependency grep finds no reference to it.
+    # field per key (provider); its values are never touched.
     old_services_path = Path(config_home) / "llm-core" / "services.toml"
-    old_key_store_path = Path(config_home) / ("api" + "conf") / "config.toml"
+    old_key_store_path = Path(config_home) / "apiconf" / "config.toml"
     old_services: dict[str, dict[str, object]] = {}
     old_keys: dict[str, dict[str, object]] = {}
     if old_services_path.exists():

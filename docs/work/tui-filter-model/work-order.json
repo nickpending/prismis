@@ -1,0 +1,60 @@
+{
+  "workOrder": "tui-filter-model",
+  "issues": [
+    36,
+    52,
+    33
+  ],
+  "what": "In the TUI, make 1/2/3 select a priority floor (HIGH, MEDIUM+, LOW+) with 'a' equal to 3, keep 0 as the unprioritized-only view in one priority key row, and persist the view (priority, unread/all, archived, upvoted, sort, source type, kind) to $XDG_STATE_HOME/prismis/tui-view.json across launches.",
+  "why": "Design: docs/work/tui-filter-model/design.md. Reading cascades from HIGH down but 2 and 3 show one priority only, and every launch resets the view the operator built (gh #36, #33); #52's remaining question, what 0 means, is settled by usage on cerebro (6 of 24 upvotes are rescues from the unprioritized view).",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "items of priority high, medium, low and none",
+      "when": "applyFiltersClientSide runs with the priority state set by each of the keys 1, 2, 3, a and 0",
+      "then": "it fails if any key shows an item below its floor, hides one at or above it, or if 0 shows anything but the unprioritized items; otherwise 1 shows high, 2 high and medium, 3 and a high, medium and low, and 0 only the none items, and the test is shown red against equality comparison"
+    },
+    {
+      "id": "SC-2",
+      "given": "each priority state",
+      "when": "buildViewStateString renders the header",
+      "then": "it fails if the floors read anything but 'Priority: HIGH', 'Priority: MEDIUM+' and 'Priority: LOW+', or 0 anything but 'Priority: UNPRIORITIZED'; otherwise they do, and the help modal lists 0, 1, 2, 3 and 4 in one priority row"
+    },
+    {
+      "id": "SC-3",
+      "given": "a model whose seven view fields are each changed from their defaults",
+      "when": "a key handled by Update changes the view and a new model is then built from the same XDG_STATE_HOME",
+      "then": "it fails if any of the seven fields differs between the two models or tui-view.json was not written; otherwise the new model starts with the saved view, and after R the saved file holds the defaults"
+    },
+    {
+      "id": "SC-4",
+      "given": "an XDG_STATE_HOME with no tui-view.json, one whose file is not valid JSON, and one whose file holds an unknown priority value and a kind absent from the data",
+      "when": "a model is built in each and its kinds load",
+      "then": "it fails if the missing file produces a status message, if the corrupt file is not named in a status message, or if the unknown values are kept; otherwise all three start with defaults for the bad or missing fields and only the corrupt one reports"
+    },
+    {
+      "id": "SC-5",
+      "given": "a save in progress",
+      "when": "the view file is written",
+      "then": "it fails if tui-view.json is ever opened for writing in place; otherwise it is written through a temporary file in the same directory and renamed over"
+    },
+    {
+      "id": "SC-6",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "MEDIUM-only and LOW-only views go away: 2 and 3 now include everything above them, as gh #36 asks.",
+    "'a' and 3 become the same view."
+  ],
+  "stakes": [
+    "Under 1, 2 and 3, the visible items are exactly those at or above the floor, for items of every priority including none, in local and remote mode alike.",
+    "The header reads HIGH, MEDIUM+ or LOW+ for the three floors, and 'a' selects the same items as 3.",
+    "0 still shows only unprioritized items, and the help modal shows 0, 1, 2, 3 and 4 as one priority row.",
+    "Changing any of the seven view fields and relaunching restores them; R restores and persists the defaults.",
+    "A missing view file gives the defaults with no message; an unreadable or corrupt one gives the defaults and a status message naming it; an unknown field value falls back per field; a vanished kind falls back to all.",
+    "The view file is written only through a temporary file and rename, at $XDG_STATE_HOME/prismis/tui-view.json or its default."
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "impacted": [
+    {"path": "cli/src/cli/__main__.py", "role": "registers the Typer sub-apps (source.app at line 68); a context sub-app joins them"},
+    {"path": "cli/src/cli/source.py", "role": "`source add` (line 81) accepts RSS URLs, reddit:// and youtube:// (and reddit.com / youtube.com URLs, lines 31-33), the forms the prompt's source lines must use"},
+    {"path": "daemon/src/prismis_daemon/context_auto_updater.py", "role": "_validate_context_md (line 285) requires the High, Medium and Low Priority Topics sections"},
+    {"path": "daemon/src/prismis_daemon/evaluator.py", "role": "the evaluator prompt maps 'Not Interested' topics to no priority (line 120)"},
+    {"path": "daemon/src/prismis_daemon/defaults.py", "role": "DEFAULT_CONTEXT_MD (line 90), the sample a first run writes, and the next-steps text (line 160)"},
+    {"path": "README.md", "role": "Quick Start's hand-written context.md heredoc (line 67) and the Context Assistant section"}
+  ],
+  "constraints": [
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/context_auto_updater.py", "line": 285, "text": "The required sections are a local list inside _validate_context_md, so a test that checks the prompt against them needs them reachable as a named constant rather than a second copy."},
+    {"tag": "OBSERVED", "path": "cli/src/cli/source.py", "line": 31, "text": "Source type is inferred from the URL form, so a prompt that emits rss feed URLs, reddit://<sub> and youtube://<channel id or handle URL> produces commands `source add` accepts as written."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/defaults.py", "line": 90, "text": "The first run writes a generic sample context with fixed interests; nothing personalizes it before the first fetch."},
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 65, "text": "Principle V: the CLI's client-only install has no daemon package, so the bootstrap command must not import prismis_daemon."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --search \"context\"", "issues": [{"number": 46, "why": "Multi-context profiles would need one bootstrap per profile; independent, own issue, and this prompt's single context.md is what it would generalize."}]},
+  "reuse": [
+    {"path": "cli/src/cli/__main__.py", "what": "the Typer sub-app registration pattern"},
+    {"path": "daemon/src/prismis_daemon/context_auto_updater.py", "what": "the required-section list, lifted to a module constant the test compares against"}
+  ],
+  "open": []
+}

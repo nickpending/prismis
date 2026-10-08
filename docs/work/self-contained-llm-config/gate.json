@@ -36,9 +36,9 @@
       "result": "held"
     },
     {
-      "test": "T11 class, other credentials in prismis: Reddit and ElevenLabs already come from env:NAME / environment; prismis's own REST key ([api] key, [remote] key in config.toml, read by the TUI's GetRemoteKey) is a generated literal, which the design's 'every API key' and 'no key value ever lives in a config file' wording would wrongly cover.",
+      "test": "T11 class, other credentials in prismis, re-run on the revised design: Reddit and ElevenLabs keys already come from env:NAME / environment; prismis's own REST key ([api] key, [remote] key) is a generated literal the design now explicitly leaves in place, and the promise is scoped to LLM provider keys in [services.*] api_key. Swept with grep for api_key, key = and env: in daemon/src, cli/src and tui/internal/config.",
       "failureCase": "A promise the code does not keep.",
-      "result": "changed"
+      "result": "held"
     },
     {
       "test": "T13 two places: services parsed once in config.py; no services.toml read outside migrate-config.",
@@ -52,8 +52,6 @@
     }
   ],
   "decisions": [],
-  "verdict": "redesign",
-  "carried": [
-    "The design says every API key comes from an environment variable and no key value lives in a config file, but prismis's own REST key ([api] key and [remote] key in config.toml) is a generated literal read by the daemon and the TUI; what does this work order promise about keys?"
-  ]
+  "verdict": "accept",
+  "carried": []
 }

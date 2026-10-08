@@ -1,0 +1,9 @@
+{
+  "question": "The design says every API key comes from an environment variable and no key value lives in a config file, but prismis's own REST key ([api] key and [remote] key in config.toml) is a generated literal read by the daemon and the TUI; what does this work order promise about keys?",
+  "answer": "The promise covers LLM provider keys only: every [services.*] api_key is an env:NAME reference and none is ever written to a config file; prismis's own generated REST key ([api] key, [remote] key) stays in config.toml unchanged, since prismis issues it per install and the TUI and CLI read it from there.",
+  "by": "evidence",
+  "evidence": {
+    "path": "daemon/src/prismis_daemon/defaults.py",
+    "line": 40
+  }
+}

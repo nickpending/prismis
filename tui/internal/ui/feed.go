@@ -19,9 +19,9 @@ func buildViewStateString(m Model) string {
 	case "high":
 		states = append(states, "Priority: HIGH")
 	case "medium":
-		states = append(states, "Priority: MEDIUM")
+		states = append(states, "Priority: MEDIUM+")
 	case "low":
-		states = append(states, "Priority: LOW")
+		states = append(states, "Priority: LOW+")
 	case "unprioritized":
 		states = append(states, "Priority: UNPRIORITIZED")
 	case "favorites":

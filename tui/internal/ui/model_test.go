@@ -117,8 +117,8 @@ func TestBuildRefreshCmd_CursorOutOfBounds(t *testing.T) {
 func TestNewModel(t *testing.T) {
 	m := NewModel()
 
-	if m.priority != "all" {
-		t.Errorf("Expected initial priority to be 'all', got '%s'", m.priority)
+	if m.priority != "low" {
+		t.Errorf("Expected initial priority to be 'low', got '%s'", m.priority)
 	}
 
 	if m.view != "list" {
@@ -249,7 +249,7 @@ func TestModelUpdate(t *testing.T) {
 		{
 			name: "Switch to high priority",
 			initialModel: Model{
-				priority: "all",
+				priority: "low",
 				loading:  false,
 			},
 			msg:              tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}},
@@ -260,7 +260,7 @@ func TestModelUpdate(t *testing.T) {
 		{
 			name: "Switch to medium priority",
 			initialModel: Model{
-				priority: "all",
+				priority: "low",
 				loading:  false,
 			},
 			msg:              tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}},
@@ -286,7 +286,7 @@ func TestModelUpdate(t *testing.T) {
 				loading:  false,
 			},
 			msg:              tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}},
-			expectedPriority: "all",
+			expectedPriority: "low",
 			expectedLoading:  true,
 			expectedCursor:   0,
 		},
@@ -380,7 +380,7 @@ func TestApplyFiltersClientSide_KindFilter(t *testing.T) {
 		{ID: "3", Title: "Unclassified Item", Priority: "high", Analysis: `{"kind":null}`},
 	}
 
-	base := Model{priority: "all", showAll: true, showUnprioritized: true, filterType: "all"}
+	base := Model{priority: "low", showAll: true, showUnprioritized: true, filterType: "all"}
 
 	all := base
 	all.kindFilter = "all"
@@ -516,7 +516,7 @@ func TestModelView(t *testing.T) {
 			name: "Items with cursor",
 			model: Model{
 				loading:  false,
-				priority: "all",
+				priority: "low",
 				cursor:   1,
 				items: []db.ContentItem{
 					{Title: "First Item", Priority: "high"},

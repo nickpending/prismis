@@ -25,7 +25,7 @@ type Model struct {
 	items             []db.ContentItem
 	sources           []db.Source // All sources with counts
 	cursor            int
-	priority          string // "high", "medium", "low", "all"
+	priority          string // "high", "medium", "low" (floors: that priority and above), "unprioritized", "favorites"
 	view              string // "list", "reader"
 	loading           bool
 	err               error
@@ -70,6 +70,10 @@ type Model struct {
 	// merged from a slim list response (remote mode only). An ID present here is
 	// hydrated; a later sync that re-merges the item drops it from the map.
 	hydrated map[string]hydratedFields
+	// Persisted view: viewPath is empty for a model not built by newModel, which never saves
+	viewPath      string
+	lastSavedView viewState
+	kindsChecked  bool // The saved kind has been checked against the loaded data
 }
 
 // hydratedFields is what GET /api/entries/{id}?include=content adds over a list item.
@@ -136,7 +140,7 @@ func newModel(remoteURL string) Model {
 	m := Model{
 		items:             []db.ContentItem{},
 		cursor:            0,
-		priority:          "all",
+		priority:          defaultViewState().Priority,
 		view:              "list",
 		loading:           true,
 		viewport:          viewport.New(80, 20), // Initialize viewport with default size
@@ -165,6 +169,9 @@ func newModel(remoteURL string) Model {
 		m.sourceModal.SetRemoteURL(remoteURL)
 	}
 
+	// Restore the view the operator left, if any
+	m.loadInitialView()
+
 	return m
 }
 
@@ -183,6 +190,11 @@ func (m Model) Init() tea.Cmd {
 		fetchSources(m.remoteURL),
 	}
 
+	// A message left by restoring the saved view clears like any other
+	if m.statusMessage != "" {
+		cmds = append(cmds, clearStatusAfterDelay(5*time.Second))
+	}
+
 	// Load config and send refresh interval as message
 	if cfg, err := config.LoadConfig(); err == nil {
 		interval := cfg.GetRefreshInterval()
@@ -198,8 +210,18 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// Update handles messages and updates the model state
+// Update handles messages and updates the model state, then saves the view if the
+// message changed it
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	if nm, ok := next.(Model); ok {
+		nm.saveViewIfChanged()
+		next = nm
+	}
+	return next, cmd
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
@@ -668,6 +690,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "1":
 			if m.view == "list" {
 				m.priority = "high"
+				m.showUnprioritized = false
 				m.cursor = 0
 				m.loading = true
 				return m, fetchItemsWithState(m, false)
@@ -675,6 +698,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "2":
 			if m.view == "list" {
 				m.priority = "medium"
+				m.showUnprioritized = false
 				m.cursor = 0
 				m.loading = true
 				return m, fetchItemsWithState(m, false)
@@ -682,6 +706,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "3":
 			if m.view == "list" {
 				m.priority = "low"
+				m.showUnprioritized = false
 				m.cursor = 0
 				m.loading = true
 				return m, fetchItemsWithState(m, false)
@@ -704,22 +729,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "R":
 			// Reset all filters to defaults
 			if m.view == "list" {
-				m.priority = "all"
-				m.showAll = false
-				m.showArchived = false
-				m.showUnprioritized = false
-				m.filterType = "all"
-				m.kindFilter = "all"
-				m.sortNewest = true
+				m.applyViewState(defaultViewState())
 				m.cursor = 0
 				m.loading = true
 				return m, fetchItemsWithState(m, false)
 			}
 		case "a":
+			// Same view as 3: every prioritized item
 			if m.view == "list" {
-				m.priority = "all"
+				m.priority = "low"
 				m.cursor = 0
-				// Note: showUnprioritized is false for 'all' to show only prioritized items
 				m.showUnprioritized = false
 				m.loading = true
 				return m, fetchItemsWithState(m, false)
@@ -833,6 +852,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case itemsLoadedMsg:
+		reloadForKind := false
 		m.loading = false
 		m.err = msg.err
 		if msg.err == nil {
@@ -850,6 +870,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.items = msg.items
 			m.hiddenCount = msg.hiddenCount
 			m.availableKinds = msg.availableKinds
+
+			// The saved kind is judged once, against the first data that loads: a kind the
+			// data no longer holds falls back to all, and the list reloads under it.
+			if !m.kindsChecked {
+				m.kindsChecked = true
+				if m.kindFilter != "" && m.kindFilter != "all" && !containsString(msg.availableKinds, m.kindFilter) {
+					m.kindFilter = "all"
+					reloadForKind = true
+				}
+			}
 
 			// Update cache and lastSync for remote mode
 			if msg.updateCache && m.remoteURL != "" {
@@ -924,6 +954,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusMessage = fmt.Sprintf("✗ Refresh failed: %v", msg.err)
 				cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
 			}
+		}
+		if reloadForKind {
+			m.loading = true
+			cmds = append(cmds, fetchItemsWithState(m, false))
 		}
 	case clearStatusMsg:
 		m.statusMessage = ""
@@ -1455,14 +1489,9 @@ func applyFiltersClientSide(items []db.ContentItem, m Model) []db.ContentItem {
 	filtered := make([]db.ContentItem, 0, len(items))
 
 	for _, item := range items {
-		// Filter by priority
-		if m.priority == "high" && item.Priority != "high" {
-			continue
-		}
-		if m.priority == "medium" && item.Priority != "medium" {
-			continue
-		}
-		if m.priority == "low" && item.Priority != "low" {
+		// Filter by priority: 1, 2 and 3 are floors, so an item shows when it ranks at or
+		// above the chosen priority. An unprioritized item ranks below every floor.
+		if floor := priorityRank(m.priority); floor > 0 && priorityRank(item.Priority) < floor {
 			continue
 		}
 		if m.priority == "favorites" && !item.Favorited {
@@ -1471,7 +1500,6 @@ func applyFiltersClientSide(items []db.ContentItem, m Model) []db.ContentItem {
 		if m.priority == "unprioritized" && item.Priority != "" {
 			continue
 		}
-		// "all" shows all priorities
 
 		// Filter unprioritized items unless explicitly showing them (but not when showing interesting items)
 		if !m.showUnprioritized && !m.showInteresting && m.priority != "unprioritized" && item.Priority == "" {

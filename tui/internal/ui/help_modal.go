@@ -167,9 +167,9 @@ func (m HelpModal) View(theme StyleTheme) string {
 	// FILTERS & SORTING section
 	content.WriteString(sectionHeader("FILTERS & SORTING"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("1/2/3/4", "Priority/Favorites", "0/i", "Unprioritized/Interesting"))
+	content.WriteString(format2Col("0/1/2/3/4", "Unprio/High/Med+/Low+/Favs", "a", "Same as 3"))
 	content.WriteString("\n")
-	content.WriteString(format2Col("a/u/v", "All/Unread/Archived", "d/s", "Date sort/Sources"))
+	content.WriteString(format2Col("u/v/i", "Unread-All/Archived/Upvoted", "d/s", "Date sort/Sources"))
 	content.WriteString("\n")
 	content.WriteString(format2Col("K", "Cycle kind filter", ":kind <kind>", "Filter by kind"))
 	content.WriteString("\n\n")

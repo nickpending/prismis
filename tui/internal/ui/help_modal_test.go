@@ -26,3 +26,17 @@ func TestHelpModal_ListsKindControls(t *testing.T) {
 		t.Errorf("Expected help modal to mention the ':kind' command. Got: %s", output)
 	}
 }
+
+// TestHelpModal_PriorityRow verifies 0, 1, 2, 3 and 4 share one key row, so the
+// unprioritized view is discoverable beside the floors it complements.
+func TestHelpModal_PriorityRow(t *testing.T) {
+	modal := NewHelpModal()
+	modal.Show()
+	modal.SetSize(120, 40)
+
+	output := modal.View(CleanCyberTheme)
+
+	if !strings.Contains(output, "0/1/2/3/4") {
+		t.Errorf("Expected help modal to list 0/1/2/3/4 in one row. Got: %s", output)
+	}
+}

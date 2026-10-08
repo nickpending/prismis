@@ -21,6 +21,8 @@ BOOTSTRAP_PROMPT, a module-level string in the same file, is the one copy of the
 
 The daemon's required sections move from a local list in _validate_context_md (daemon/src/prismis_daemon/context_auto_updater.py:285) to a module constant, REQUIRED_CONTEXT_SECTIONS, which the validator uses unchanged; a CLI test (in the dev environment, where the daemon package is importable) checks that every required section, and '## Not Interested', appears in BOOTSTRAP_PROMPT's output spec, so the two cannot drift. defaults.py's first-run next steps (line 160) and the README Quick Start replace the hand-written sample step with `prismis-cli context bootstrap`, and the README says the sample context.md the first run writes is a placeholder until the user replaces it.
 
+`prismis-daemon verify`, the setup check the Quick Start already runs, gains one more check: it reads context.md and fails, naming what is wrong, if a section in REQUIRED_CONTEXT_SECTIONS is missing or a line opens or closes a code fence (```), the shape a pasted chatbot answer takes when the user saves the reply instead of the block; a passing file prints its four section counts.
+
 ## Commitments
 
 - `prismis-cli context bootstrap` prints the prompt and exits 0 with no daemon installed, no network and no LLM call.
@@ -28,6 +30,7 @@ The daemon's required sections move from a local list in _validate_context_md (d
 - The prompt's output spec names exactly '## High Priority Topics', '## Medium Priority Topics', '## Low Priority Topics' and '## Not Interested', and a test fails if it omits a section the daemon requires.
 - The output spec asks for one `prismis-cli source add` line per named feed in a form source add accepts.
 - The first-run next steps and the README Quick Start point at `prismis-cli context bootstrap`.
+- `prismis-daemon verify` fails on a context.md missing a required section or containing a code-fence line, naming the problem, and passes on the bootstrap prompt's output shape.
 
 ## Sacrifices
 
@@ -35,7 +38,7 @@ The daemon's required sections move from a local list in _validate_context_md (d
 
 ## Risk
 
-A chatbot may wrap the output in prose or code fences; the prompt asks for one plain block and the user saves only that, and a malformed file shows up when the context validator or verify reads it.
+A chatbot may wrap the output in prose or code fences; the prompt asks for one plain block, and verify now reports a missing section or a fence line if the user saves the wrong part.
 
 ## Licensed by
 

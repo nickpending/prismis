@@ -88,6 +88,42 @@ def test_first_run_next_steps_name_the_variable_and_file(
     assert "services.toml" not in text
 
 
+_BOOTSTRAP_COMMAND = "prismis-cli context bootstrap"
+_CONTEXT_FILE = "~/.config/prismis/context.md"
+
+
+def test_first_run_next_steps_point_at_context_bootstrap(
+    isolated_xdg_env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """
+    SC-5 (context-bootstrap): the first-run text names the bootstrap command and where
+    to save its result, and no longer says to hand-customize the sample.
+    BREAKS: a new user is told to hand-write a context.md instead of generating one.
+    """
+    for child in isolated_xdg_env.iterdir():
+        child.unlink()
+
+    assert ensure_config() is False
+
+    text = capsys.readouterr().out
+    assert _BOOTSTRAP_COMMAND in text
+    assert _CONTEXT_FILE in text
+    assert "Optionally customize context.md" not in text
+
+
+def test_readme_quick_start_points_at_context_bootstrap() -> None:
+    """
+    SC-5 (context-bootstrap): the Quick Start runs the bootstrap command, names the
+    save path, and no longer carries a hand-written context.md heredoc.
+    BREAKS: the README sends a new user back to writing the sample by hand.
+    """
+    readme = (_REPO / "README.md").read_text()
+
+    assert _BOOTSTRAP_COMMAND in readme
+    assert _CONTEXT_FILE in readme
+    assert "cat > ~/.config/prismis/context.md" not in readme
+
+
 def test_the_daemon_loads_the_named_variable_from_the_named_file(
     isolated_xdg_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

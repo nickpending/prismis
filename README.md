@@ -63,26 +63,14 @@ prismis-daemon migrate-config
 # Smoke-check that everything is wired up (config + LLM services + sources)
 prismis-daemon verify
 
-# Tell Prismis what you care about
-cat > ~/.config/prismis/context.md << 'EOF'
-## High Priority Topics
-- AI/LLM breakthroughs, especially local models
-- Rust systems programming innovations
-- SQLite and database innovations
+# Tell Prismis what you care about: print an interview prompt, paste it into any
+# chatbot, answer its questions, then save the context.md it returns to
+# ~/.config/prismis/context.md. It also gives you `prismis-cli source add` lines to run.
+# (The sample context.md written on first run is a placeholder until you replace it.)
+prismis-cli context bootstrap
 
-## Medium Priority Topics
-- React/Next.js updates
-- Developer tool releases
-
-## Low Priority Topics
-- General programming tutorials
-- Conference announcements
-
-## Not Interested
-- Crypto, blockchain, web3
-- Gaming news
-- Politics
-EOF
+# Check the saved context.md (and everything else) again
+prismis-daemon verify
 
 # Add your favorite sources
 prismis-cli source add https://simonwillison.net/atom/everything/
@@ -302,7 +290,7 @@ prismis-daemon migrate-config
 
 **Note**: You can run the daemon however you prefer - in a tmux session, as a background process, or with any process manager you're comfortable with. It's just a regular Python program.
 
-`prismis-daemon verify` is read-only and safe to run against a production daemon. It checks four things and exits 0 on all-pass / 1 on any failure: config validity, light LLM service reachable, deep LLM service reachable (or "not configured"), at least one active source.
+`prismis-daemon verify` is read-only and safe to run against a production daemon. It checks config validity, light LLM service reachable, deep LLM service reachable (or "not configured"), kind service reachable (or "not configured"), at least one active source, and that your saved `context.md` has every required section and no code-fence lines. It exits 0 on all-pass / 1 on any failure.
 
 ## 🏗️ Architecture
 

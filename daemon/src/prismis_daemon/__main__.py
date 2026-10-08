@@ -20,8 +20,8 @@ from dotenv import load_dotenv
 from rich.console import Console
 
 from . import kind_classifier, llm_client
-from .config import Config
-from .context_auto_updater import run_context_update
+from .config import Config, default_config_path
+from .context_auto_updater import check_context_md, run_context_update
 from .database import init_db
 from .defaults import ensure_config
 from .evaluator import ContentEvaluator
@@ -770,7 +770,7 @@ def verify(
         typer.Option("--full", help="Also deep-extract and notify (--chain only)"),
     ] = False,
 ) -> None:
-    """Run post-deployment smoke check: config, services, sources.
+    """Run post-deployment smoke check: config, services, sources, context.md.
 
     Read-only checks. Safe to run against a production daemon.
     Exits 0 on all pass, 1 on any failure. Deep and kind service 'not configured' is
@@ -858,6 +858,32 @@ def verify(
     except (sqlite3.Error, OSError) as e:
         console.print(f"[red]✗ sources check failed: {e}[/red]")
         failures += 1
+
+    # 6. Saved context.md. Read the file directly: Config.from_file falls back to the
+    # sample context when it is absent, which would make a missing file look valid.
+    context_path = default_config_path().parent / "context.md"
+    try:
+        context_text = context_path.read_text()
+    except FileNotFoundError:
+        console.print(
+            f"[red]✗ context.md not found at {context_path} "
+            "(create it with 'prismis-cli context bootstrap')[/red]"
+        )
+        failures += 1
+    except (OSError, UnicodeDecodeError) as e:
+        console.print(f"[red]✗ context.md unreadable at {context_path}: {e}[/red]")
+        failures += 1
+    else:
+        problems, counts = check_context_md(context_text)
+        if problems:
+            for problem in problems:
+                console.print(f"[red]✗ context.md: {problem}[/red]")
+            failures += 1
+        else:
+            summary = ", ".join(
+                f"{heading.removeprefix('## ')}: {n}" for heading, n in counts.items()
+            )
+            console.print(f"[green]✓ context.md valid ({summary})[/green]")
 
     # Roll-up
     if failures == 0:

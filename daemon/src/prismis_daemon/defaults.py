@@ -160,7 +160,9 @@ Created default configuration at {config_dir}/
 Next steps:
   1. Set OPENROUTER_API_KEY in ~/.config/prismis/.env (OPENROUTER_API_KEY=your-key)
   2. Optionally point the [services.openrouter] table in config.toml at another provider
-  3. Optionally customize context.md with your interests
+  3. Write your own context.md: run `prismis-cli context bootstrap`, paste its output
+     into a chatbot, and save the context it returns to ~/.config/prismis/context.md
+     (the sample written here is a placeholder)
 
 Then check the setup with: prismis-daemon verify
 and start the daemon with: prismis-daemon

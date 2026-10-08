@@ -16,6 +16,49 @@ from .storage import Storage
 
 logger = logging.getLogger(__name__)
 
+# Sections the daemon requires in a context.md. The auto-updater's validator, the
+# `verify` context check and the CLI's bootstrap prompt all answer to this one list.
+REQUIRED_CONTEXT_SECTIONS: tuple[str, ...] = (
+    "## High Priority Topics",
+    "## Medium Priority Topics",
+    "## Low Priority Topics",
+)
+
+# The four headings a context.md carries, in the order the bootstrap prompt asks for them.
+CONTEXT_COUNTED_SECTIONS: tuple[str, ...] = (
+    *REQUIRED_CONTEXT_SECTIONS,
+    "## Not Interested",
+)
+
+
+def check_context_md(content: str) -> tuple[list[str], dict[str, int]]:
+    """Check a saved context.md and name what is wrong with it.
+
+    Args:
+        content: The text of the file
+
+    Returns:
+        (problems, counts). Each problem is one named string: a missing required
+        section, or a line that opens or closes a code fence. counts maps each of the
+        four context headings to the number of bullets under it.
+    """
+    problems = [
+        f"missing required section: {section}"
+        for section in REQUIRED_CONTEXT_SECTIONS
+        if section not in content
+    ]
+    counts = dict.fromkeys(CONTEXT_COUNTED_SECTIONS, 0)
+    current: str | None = None
+    for number, line in enumerate(content.splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            problems.append(f"code fence on line {number}: {stripped}")
+        elif stripped.startswith("#"):
+            current = stripped if stripped in counts else None
+        elif current is not None and stripped.startswith(("- ", "* ")):
+            counts[current] += 1
+    return problems, counts
+
 
 class ContextAutoUpdater:
     """Auto-updates context.md based on user feedback votes."""
@@ -291,13 +334,7 @@ Generate the complete updated context.md."""
         Returns:
             Tuple of (is_valid, error_message)
         """
-        required_sections = [
-            "## High Priority Topics",
-            "## Medium Priority Topics",
-            "## Low Priority Topics",
-        ]
-
-        for section in required_sections:
+        for section in REQUIRED_CONTEXT_SECTIONS:
             if section not in content:
                 return False, f"Missing required section: {section}"
 

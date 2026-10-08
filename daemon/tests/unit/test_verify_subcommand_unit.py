@@ -170,6 +170,20 @@ auto_update_min_votes = 5
 backup_count = 3
 """
 
+_VALID_CONTEXT = """\
+## High Priority Topics
+- Local LLM inference
+
+## Medium Priority Topics
+- Developer tool releases
+
+## Low Priority Topics
+- Conference announcements
+
+## Not Interested
+- Politics
+"""
+
 # --- Helpers ------------------------------------------------------------------
 
 
@@ -180,7 +194,7 @@ def _make_config_dir(config_text: str) -> tuple[Path, Path]:
     prismis_dir.mkdir(parents=True)
     config_path = prismis_dir / "config.toml"
     config_path.write_text(config_text)
-    (prismis_dir / "context.md").write_text("# Test context")
+    (prismis_dir / "context.md").write_text(_VALID_CONTEXT)
     return temp_dir, config_path
 
 
@@ -602,3 +616,74 @@ def test_verify_kind_service_check_calls_submit_decision_exactly_once(
         import shutil
 
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# --- Saved context.md check (gh #54) -----------------------------------------------
+
+
+def _run_verify_with_context(
+    monkeypatch, test_db, capsys, context_text: str | None
+) -> tuple[int, str]:
+    """Run verify() against a healthy install whose context.md is `context_text`.
+
+    None removes the file. Returns (exit code, captured output).
+    """
+    tmpdir, _ = _make_config_dir(_LIGHT_ONLY_CONFIG)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmpdir))
+    _seed_source(test_db)
+    context_path = tmpdir / "prismis" / "context.md"
+    if context_text is None:
+        context_path.unlink()
+    else:
+        context_path.write_text(context_text)
+    try:
+        with patch(_HEALTH_CHECK_MOCK, return_value=None):
+            with pytest.raises(SystemExit) as exc_info:
+                verify()
+        return int(exc_info.value.code or 0), capsys.readouterr().out
+    finally:
+        import shutil
+
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_verify_passes_and_prints_section_counts_for_a_valid_context(
+    monkeypatch, test_db, capsys
+) -> None:
+    code, out = _run_verify_with_context(monkeypatch, test_db, capsys, _VALID_CONTEXT)
+
+    assert code == 0
+    assert "context.md valid" in out
+    assert "High Priority Topics: 1" in out
+    assert "Not Interested: 1" in out
+
+
+def test_verify_fails_naming_a_missing_context_section(
+    monkeypatch, test_db, capsys
+) -> None:
+    code, out = _run_verify_with_context(
+        monkeypatch,
+        test_db,
+        capsys,
+        _VALID_CONTEXT.replace("## Medium Priority Topics", ""),
+    )
+
+    assert code == 1
+    assert "missing required section: ## Medium Priority Topics" in out
+
+
+def test_verify_fails_naming_a_context_fence_line(monkeypatch, test_db, capsys) -> None:
+    code, out = _run_verify_with_context(
+        monkeypatch, test_db, capsys, "```markdown\n" + _VALID_CONTEXT + "```\n"
+    )
+
+    assert code == 1
+    assert "code fence on line 1" in out
+
+
+def test_verify_fails_when_context_file_is_absent(monkeypatch, test_db, capsys) -> None:
+    """Absent is not valid: Config.from_file would quietly use the sample instead."""
+    code, out = _run_verify_with_context(monkeypatch, test_db, capsys, None)
+
+    assert code == 1
+    assert "context.md not found" in out

@@ -15,6 +15,7 @@ sys.path.insert(0, str(daemon_src))
 from cli import (  # noqa: E402 - must follow the sys.path setup above
     analyze,
     archive,
+    context,
     embeddings,
     export,
     extract,
@@ -72,6 +73,7 @@ app.add_typer(archive.app, name="archive", help="Archive management")
 app.add_typer(
     embeddings.app, name="embeddings", help="Semantic search index management"
 )
+app.add_typer(context.app, name="context", help="Bootstrap your context.md")
 app.add_typer(analyze.app, name="analyze", help="Content analysis and repair")
 
 # Add single-command modules as direct commands

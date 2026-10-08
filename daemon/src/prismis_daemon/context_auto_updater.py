@@ -54,7 +54,9 @@ def check_context_md(content: str) -> tuple[list[str], dict[str, int]]:
         if stripped.startswith("```"):
             problems.append(f"code fence on line {number}: {stripped}")
         elif stripped.startswith("#"):
-            current = stripped if stripped in counts else None
+            # A ### group belongs to the section above it; only # or ## starts a new one.
+            if len(stripped) - len(stripped.lstrip("#")) <= 2:
+                current = stripped if stripped in counts else None
         elif current is not None and stripped.startswith(("- ", "* ")):
             counts[current] += 1
     return problems, counts

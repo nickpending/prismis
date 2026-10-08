@@ -151,3 +151,55 @@ def test_check_counts_only_bullets_under_each_heading() -> None:
     assert counts["## High Priority Topics"] == 2
     assert counts["## Medium Priority Topics"] == 1
     assert counts["## Not Interested"] == 2
+
+
+# The shape the operator's own context.md has: each section split into ### groups, with
+# the bullets under the groups. A subheading belongs to its section; only a level-2
+# heading starts a new one.
+_GROUPED = """# Personal Context
+
+## High Priority Topics
+
+### AI-Powered Security
+- LLM-driven vulnerability discovery
+- Prompt injection research
+
+### OSINT
+- Recon automation
+
+## Medium Priority Topics
+
+### Security Engineering
+- Threat modeling frameworks
+
+## Low Priority Topics
+
+### Industry Trends
+- Compliance news
+
+## Not Interested
+
+### Basic Security
+- Password tips
+"""
+
+
+def test_check_counts_bullets_under_subheadings_in_their_section() -> None:
+    problems, counts = check_context_md(_GROUPED)
+
+    assert problems == []
+    assert counts == {
+        "## High Priority Topics": 3,
+        "## Medium Priority Topics": 1,
+        "## Low Priority Topics": 1,
+        "## Not Interested": 1,
+    }
+
+
+def test_a_new_level_two_heading_ends_the_section() -> None:
+    _, counts = check_context_md(
+        "## High Priority Topics\n- one\n## Unrelated Notes\n- not a topic\n"
+        "## Medium Priority Topics\n## Low Priority Topics\n## Not Interested\n"
+    )
+
+    assert counts["## High Priority Topics"] == 1

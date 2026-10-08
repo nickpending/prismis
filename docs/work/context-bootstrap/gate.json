@@ -16,9 +16,9 @@
       "result": "held"
     },
     {
-      "test": "T6 assumption checked: grep shows verify in __main__.py never reads context.md, and _validate_context_md runs only on contexts the auto-updater generates (line 408), so the design's risk line is false: a fenced or section-less paste would be accepted silently and skew every priority.",
+      "test": "T6 assumption checked: grep shows verify in __main__.py never reads context.md, and _validate_context_md runs only on contexts the auto-updater generates (line 408), so the design's risk line is false: a fenced or section-less paste would be accepted silently and skew every priority. Re-run on the revised design: verify now checks a user-saved context.md (required sections from the one REQUIRED_CONTEXT_SECTIONS constant, and no code-fence lines), so the paste in the walk fails verify with the fence named; all four ways a context.md enters are covered by the same check.",
       "failureCase": "A guard the design relies on that does not exist.",
-      "result": "changed"
+      "result": "held"
     },
     {
       "test": "T7 consumers: context.md is read raw by the evaluator prompt and by the auto-updater; the CLI command is new and has no consumer.",
@@ -26,19 +26,22 @@
       "result": "held"
     },
     {
-      "test": "T11 class, where a user-written context.md enters: the first-run sample, a hand edit, `:context edit`, and now a pasted chatbot answer; none of them is checked today.",
+      "test": "T11 class, where a user-written context.md enters: the first-run sample, a hand edit, `:context edit`, and now a pasted chatbot answer; none of them is checked today. Re-run on the revised design: verify now checks a user-saved context.md (required sections from the one REQUIRED_CONTEXT_SECTIONS constant, and no code-fence lines), so the paste in the walk fails verify with the fence named; all four ways a context.md enters are covered by the same check.",
       "failureCase": "Fixing only the bootstrap path.",
-      "result": "changed"
+      "result": "held"
     },
     {
-      "test": "T20 walk: user runs the command, pastes into Claude, answers 8 questions, gets context.md inside a ```markdown fence plus four source add lines, saves the whole reply; prismis reads the fence and the sections, and nothing tells the user the file is malformed.",
+      "test": "T20 walk: user runs the command, pastes into Claude, answers 8 questions, gets context.md inside a ```markdown fence plus four source add lines, saves the whole reply; prismis reads the fence and the sections, and nothing tells the user the file is malformed. Re-run on the revised design: verify now checks a user-saved context.md (required sections from the one REQUIRED_CONTEXT_SECTIONS constant, and no code-fence lines), so the paste in the walk fails verify with the fence named; all four ways a context.md enters are covered by the same check.",
       "failureCase": "A walk that ends in a silently wrong file.",
-      "result": "changed"
+      "result": "held"
+    },
+    {
+      "test": "Citation check: the resolution's evidence cites README.md:57 from an earlier read; the Quick Start's `prismis-daemon verify` line is at README.md:64 after the self-contained-llm-config README rewrite. The fact cited (verify is the Quick Start's setup check) holds.",
+      "failureCase": "A citation that sends the reader to the wrong line.",
+      "result": "held"
     }
   ],
   "decisions": [],
-  "verdict": "redesign",
-  "carried": [
-    "Nothing checks a user-saved context.md: verify does not read it and _validate_context_md runs only on auto-generated contexts, so a pasted chatbot answer with code fences or a missing section is accepted silently; what checks a context.md the user saved?"
-  ]
+  "verdict": "accept",
+  "carried": []
 }

@@ -1,0 +1,57 @@
+{
+  "workOrder": "context-bootstrap",
+  "issues": [
+    54
+  ],
+  "what": "Add `prismis-cli context bootstrap`, which prints a portable interview prompt that makes any chatbot produce a context.md in prismis's sections plus `prismis-cli source add` lines for the user's feeds; lift the required context sections to one constant; make `prismis-daemon verify` check a saved context.md; point the first-run text and README at the command.",
+  "why": "Design: docs/work/context-bootstrap/design.md. A first run writes a sample context with someone else's interests, nothing helps a new user write their own, and nothing checks a context.md the user saves (gh #54).",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a client-only CLI environment where prismis_daemon cannot be imported and network access is blocked",
+      "when": "`prismis-cli context bootstrap` runs",
+      "then": "it fails if it exits non-zero, imports prismis_daemon, makes a network call, or prints anything but the prompt; otherwise it exits 0 and stdout is exactly BOOTSTRAP_PROMPT"
+    },
+    {
+      "id": "SC-2",
+      "given": "BOOTSTRAP_PROMPT and the daemon's REQUIRED_CONTEXT_SECTIONS",
+      "when": "the prompt's output spec is read",
+      "then": "it fails if any required section or '## Not Interested' is missing from it, or if it asks for fewer than 6 or more than 10 questions; otherwise every section appears and the question count is in range, and the test is shown red with one section removed from the prompt"
+    },
+    {
+      "id": "SC-3",
+      "given": "a context.md missing '## Medium Priority Topics', one containing a ``` fence line, and one in the prompt's output shape",
+      "when": "`prismis-daemon verify`'s context check runs on each",
+      "then": "it fails if either bad file passes or the good one fails; otherwise the first reports the missing section by name, the second reports the fence line, and the third passes with its section counts"
+    },
+    {
+      "id": "SC-4",
+      "given": "the context auto-updater after the change",
+      "when": "_validate_context_md checks a generated context",
+      "then": "it fails if it validates against anything but REQUIRED_CONTEXT_SECTIONS; otherwise its result is unchanged for every existing validator test"
+    },
+    {
+      "id": "SC-5",
+      "given": "the first-run next-steps text in defaults.py and the README Quick Start",
+      "when": "they are read",
+      "then": "it fails if either still tells the user to hand-write the sample context instead of running `prismis-cli context bootstrap`; otherwise both name the command and where to save its result"
+    },
+    {
+      "id": "SC-6",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "The quality of the generated context.md depends on the chatbot the user pastes into; prismis does not run or check that conversation."
+  ],
+  "stakes": [
+    "`prismis-cli context bootstrap` prints the prompt and exits 0 with no daemon installed, no network and no LLM call.",
+    "The prompt asks 6 to 10 interview questions covering priority topics, casual topics, unwanted topics and sources already read.",
+    "The prompt's output spec names exactly '## High Priority Topics', '## Medium Priority Topics', '## Low Priority Topics' and '## Not Interested', and a test fails if it omits a section the daemon requires.",
+    "The output spec asks for one `prismis-cli source add` line per named feed in a form source add accepts.",
+    "The first-run next steps and the README Quick Start point at `prismis-cli context bootstrap`.",
+    "`prismis-daemon verify` fails on a context.md missing a required section or containing a code-fence line, naming the problem, and passes on the bootstrap prompt's output shape."
+  ]
+}

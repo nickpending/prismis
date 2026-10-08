@@ -71,3 +71,9 @@ e2ffa94fd3c04ecd1b01d8492c34fc725138bb95:daemon/tests/integration/test_analyzer_
 2615b8e14f7006a41d80a3abfc37f7ba31d9cd7e:daemon/tests/fixtures/http_cassettes/test_reddit_fetcher_integration/test_fetch_reddit_filters_image_posts.yaml:sourcegraph-access-token:16450
 2615b8e14f7006a41d80a3abfc37f7ba31d9cd7e:daemon/tests/fixtures/http_cassettes/test_reddit_fetcher_integration/test_fetch_reddit_filters_image_posts.yaml:sourcegraph-access-token:16451
 2615b8e14f7006a41d80a3abfc37f7ba31d9cd7e:daemon/tests/fixtures/http_cassettes/test_reddit_fetcher_integration/test_fetch_reddit_filters_image_posts.yaml:sourcegraph-access-token:16452
+
+# apiconf's pinned git commit SHA (a commit hash, not a credential) in
+# daemon/tests/unit/test_dep_pin_unit.py's _APICONF_VALIDATED_SHA, added at 5dc7101 and
+# removed with the apiconf dependency by self-contained-llm-config (f49f928), whose
+# .gitleaks.toml value allowlist went with it; the line now exists only in history.
+5dc71014085f970b364ef204bac045b50f0e3e47:daemon/tests/unit/test_dep_pin_unit.py:generic-api-key:36

@@ -1,0 +1,18 @@
+{
+  "purpose": "The TUI's priority keys read the queue the way it is read, from HIGH down to a chosen floor, every priority view sits in one key row, and the view the operator built is still there at the next launch.",
+  "form": "Three changes to the TUI, no daemon or API change.\n\n1. Floor filter (gh #36). applyFiltersClientSide (tui/internal/ui/model.go:1454), the one filter both local and remote mode use, compares priority by rank (high 3, medium 2, low 1) instead of equality: 1 keeps HIGH, 2 keeps MEDIUM and HIGH, 3 keeps LOW, MEDIUM and HIGH. 'a' (all prioritized) selects exactly what 3 selects, so both keys set the same 'low' state and the separate 'all' value goes; the default view is that state, the same items the default shows today. buildViewStateString (tui/internal/ui/feed.go:14) names the floor: 'Priority: HIGH', 'MEDIUM+', 'LOW+', and keeps 'Hidden: N' for the unprioritized items a floor view leaves out.\n\n2. One priority row (gh #52). 0 keeps today's unprioritized-only view (tui/internal/ui/model.go:658), resolved by evidence: the operator rescues items from it (6 of 24 upvotes) and a floor below LOW would be 76% unscored items. It joins 1/2/3 and 4/* as one key row in the help modal (tui/internal/ui/help_modal.go:170), with i (upvoted) moved beside u and v, the view toggles it belongs with.\n\n3. Persisted view (gh #33). The view is priority, unread/all, archived, upvoted, sort order, source type and kind. It is read once in newModel (tui/internal/ui/model.go:130) from $XDG_STATE_HOME/prismis/tui-view.json (default ~/.local/state/prismis/tui-view.json, resolved like getDefaultDBPath in tui/internal/db/queries.go:318), and written from one place: after Update handles a key, if the view differs from the last one written, it is saved by writing a temporary file and renaming it over the old one, so a crash mid-write never leaves a torn file. A missing file is a first launch and gives the defaults silently; a file that cannot be read or parsed gives the defaults and a status-line message naming the file; a field with an unknown value falls back to that field's default; a kind the data no longer contains falls back to all once the kinds load. A failed save shows a status-line message and never interrupts the session. R resets every field and the reset is saved like any other change.",
+  "commitments": [
+    "Under 1, 2 and 3, the visible items are exactly those at or above the floor, for items of every priority including none, in local and remote mode alike.",
+    "The header reads HIGH, MEDIUM+ or LOW+ for the three floors, and 'a' selects the same items as 3.",
+    "0 still shows only unprioritized items, and the help modal shows 0, 1, 2, 3 and 4 as one priority row.",
+    "Changing any of the seven view fields and relaunching restores them; R restores and persists the defaults.",
+    "A missing view file gives the defaults with no message; an unreadable or corrupt one gives the defaults and a status message naming it; an unknown field value falls back per field; a vanished kind falls back to all.",
+    "The view file is written only through a temporary file and rename, at $XDG_STATE_HOME/prismis/tui-view.json or its default."
+  ],
+  "sacrifices": [
+    "MEDIUM-only and LOW-only views go away: 2 and 3 now include everything above them, as gh #36 asks.",
+    "'a' and 3 become the same view."
+  ],
+  "risk": "A persisted view that hides most items (archived on, a narrow kind) greets the next launch with a near-empty list; the header shows every active filter and R resets them, so the state is visible and one key from default.",
+  "licensedBy": {"path": "tui/internal/ui/model.go", "line": 1454}
+}

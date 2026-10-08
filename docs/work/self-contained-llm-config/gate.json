@@ -1,0 +1,59 @@
+{
+  "scrutiny": [
+    {
+      "test": "T0 purpose: prismis is a local-first tool meant to run on a person's own machines (docs/IDEA.md); today a new install cannot reach an LLM, so this is the step between installing and using it at all.",
+      "failureCase": "A change that leaves the README path failing.",
+      "result": "held"
+    },
+    {
+      "test": "T1 owners: config.py's env:NAME expansion (line 250) and the .env load (__main__.py:364) already own secret handling; the design extends them, and llm_client.py stays the one module that talks to the SDK.",
+      "failureCase": "A second key-loading mechanism.",
+      "result": "held"
+    },
+    {
+      "test": "T2 same noun: the failure was observed on a real empty config home on cerebro, not inferred from code; cerebro's actual service entries (prismis-light, -deep, -kind, including the decisions adapter) were read to design the migration.",
+      "failureCase": "Migration designed against an imagined services.toml.",
+      "result": "held"
+    },
+    {
+      "test": "T3 degrade: prismis stops following services.toml edits and needs the apiconf CLI as a launch bridge on the operator's hosts; both stated as sacrifices.",
+      "failureCase": "A silent loss.",
+      "result": "held"
+    },
+    {
+      "test": "T6 assumptions: apiconf's provider mapping (openai OPENAI_API_KEY, else PROVIDER_API_KEY) read from apiconf/python/src/apiconf/providers.py; cerebro has cargo to build the CLI.",
+      "failureCase": "A variable name that `apiconf env` does not export.",
+      "result": "held"
+    },
+    {
+      "test": "T7 consumers, enumerated with grep for resolve_service, load_api_key, default_model, key_required: llm_client.py, kind_classifier.py, __main__.py (migrate-config, verify), llm_validator.py, cli/src/cli/analyze.py's hint, daemon/tests/conftest.py's configure_local_services and 24 test files that touch the service config.",
+      "failureCase": "A reader left on services.toml.",
+      "result": "held"
+    },
+    {
+      "test": "T10 reversibility: migrate-config backs config.toml up before appending; services.toml and apiconf's file are left untouched, so reverting the commit and restoring the backup returns to today.",
+      "failureCase": "A one-way rewrite of shared files.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class, other credentials in prismis: Reddit and ElevenLabs already come from env:NAME / environment; prismis's own REST key ([api] key, [remote] key in config.toml, read by the TUI's GetRemoteKey) is a generated literal, which the design's 'every API key' and 'no key value ever lives in a config file' wording would wrongly cover.",
+      "failureCase": "A promise the code does not keep.",
+      "result": "changed"
+    },
+    {
+      "test": "T13 two places: services parsed once in config.py; no services.toml read outside migrate-config.",
+      "failureCase": "Two parsers of the service table.",
+      "result": "held"
+    },
+    {
+      "test": "T20 walk: newcomer runs `make install`, starts the daemon once, puts OPENROUTER_API_KEY in ~/.config/prismis/.env, runs verify: config.toml names [services.openrouter], the key resolves from the environment, the health check lists the model, verify passes; cerebro runs migrate-config, gets three [services.*] tables and a backup, apiconf env supplies the key, restart, verify passes.",
+      "failureCase": "A step that only works with a pre-existing services.toml.",
+      "result": "held"
+    }
+  ],
+  "decisions": [],
+  "verdict": "redesign",
+  "carried": [
+    "The design says every API key comes from an environment variable and no key value lives in a config file, but prismis's own REST key ([api] key and [remote] key in config.toml) is a generated literal read by the daemon and the TUI; what does this work order promise about keys?"
+  ]
+}

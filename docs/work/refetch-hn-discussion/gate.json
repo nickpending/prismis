@@ -1,0 +1,44 @@
+{
+  "scrutiny": [
+    {
+      "test": "T0 purpose: 39 HN stories on cerebro sit title-only only because refetch predates hn-discussion; the live fetch already recovers the same kind of story, so this closes a gap rather than adding a behaviour.",
+      "failureCase": "Refetch and the live fetch giving different results for the same story.",
+      "result": "held"
+    },
+    {
+      "test": "T1 owners: the RssFetcher's discussion method owns fetching and appending the discussion, and analysis.py's content_basis (called from orchestrator.analyze_and_store_item on item.content) owns the discussion marker; refetch calls both and re-derives neither.",
+      "failureCase": "A second discussion path or a second basis computation in refetch.py.",
+      "result": "held"
+    },
+    {
+      "test": "T2 same noun: the 47/39/8 counts and the presence of item?id= in all 39 unreadable rows were read from cerebro's live database with sqlite3 on 2026-10-10, not estimated.",
+      "failureCase": "A recovery claim about rows that cannot yield an id.",
+      "result": "held"
+    },
+    {
+      "test": "T6 assumption checked: analyze_and_store_item keeps fetcher-specific analysis keys such as comments_outcome (orchestrator.py, the merge that skips only metrics and content_basis), so an outcome set by refetch survives storage.",
+      "failureCase": "comments_outcome dropped on a recovered item.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class, every source type refetch serves: youtube and reddit have their own single-item paths (reddit's refetch_one already includes comments); rss is the only branch that drops a discussion the live fetch adds.",
+      "failureCase": "Another source type whose refetch loses enrichment the live fetch applies.",
+      "result": "held"
+    },
+    {
+      "test": "T13 two places: the discussion method is made public and called by both the live loop and refetch; the id search shares story_id's pattern.",
+      "failureCase": "Two HN-link patterns that disagree.",
+      "result": "held"
+    },
+    {
+      "test": "T20 walk: a 403-blocked story's row holds only the comments link; refetch finds its id, extraction fails again with empty text, the discussion method leads with the article link line and appends the comments, is_readable passes, analyze_and_store_item summarizes it with content_basis = discussion and the item leaves title-only.",
+      "failureCase": "A step where the blocked story stays title-only though it has comments.",
+      "result": "held"
+    }
+  ],
+  "decisions": [],
+  "verdict": "accept",
+  "carried": [
+    "Running the backfill on cerebro waits on the operator, with the affected items and cost stated first."
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "impacted": [
+    {"path": "Makefile", "role": "install-tui, install-cli (client-only), install-cli-local and install-daemon, the per-component split the formulas mirror; install-daemon and install-cli already pass the lock as constraints"},
+    {"path": "tui/go.mod", "role": "Go 1.26 module using github.com/mattn/go-sqlite3, a cgo driver"},
+    {"path": "cli/pyproject.toml", "role": "runtime dependencies httpx, python-dotenv, rich, typer; the [local] extra pulls in the daemon"},
+    {"path": "daemon/src/prismis_daemon/__main__.py", "role": "loads ~/.config/prismis/.env at startup, so a launchd-run daemon gets its keys without a wrapper"},
+    {"path": "README.md", "role": "the Installation section (git clone + make install) that brew instructions join"}
+  ],
+  "constraints": [
+    {"tag": "OBSERVED", "path": "Makefile", "line": 1, "text": "Homebrew 7.0.7's std_pip_args (Library/Homebrew/formula.rb) installs every Python resource with --no-binary=:all:, allowing only py3-none-any wheel resources, so a formula can carry pure-Python dependencies but not torch, tokenizers, pydantic-core or scipy."},
+    {"tag": "OBSERVED", "path": "Makefile", "line": 1, "text": "Homebrew's formula.rb sets DEFAULT_NETWORK_ACCESS_ALLOWED = true for build, test and postinstall, and the build sandbox denies network only when a formula opts out, so a build may download Go modules or uv wheels."},
+    {"tag": "OBSERVED", "path": "Makefile", "line": 1, "text": "Homebrew's tap.rb: `brew install user/repo/formula` resolves the tap to the GitHub repository user/homebrew-repo; a tap in any other repository needs an explicit `brew tap user/name <url>` first."},
+    {"tag": "OBSERVED", "path": "tui/go.mod", "line": 11, "text": "mattn/go-sqlite3 needs cgo, which builds natively with the Xcode command-line tools brew already requires; cross-compiling it in CI would need a C toolchain per target."},
+    {"tag": "OBSERVED", "path": "README.md", "line": 1, "text": "The repository is public with 13 stars; the latest release, v0.2.0 (2026-04-08), predates the llm-core removal, the self-contained config and Python 3.14."},
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 59, "text": "Principle IV: what installs must be what the gate tested; the daemon formula installs with daemon/uv.lock as constraints like make install-daemon."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --search \"install OR release OR brew\"", "issues": []},
+  "reuse": [
+    {"path": "Makefile", "what": "the per-component install split and the lock-constraint export the daemon and cli installs already use"}
+  ],
+  "open": [
+    "Where do the formulas live: a separate public nickpending/homebrew-prismis tap repo (the standard one-line `brew install nickpending/prismis/prismis-tui`), or a Formula/ directory inside the prismis repo itself (no second repo, but users run `brew tap nickpending/prismis https://github.com/nickpending/prismis` once before installing)?"
+  ]
+}

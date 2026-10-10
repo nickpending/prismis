@@ -1,0 +1,27 @@
+{
+  "impacted": [
+    {"path": "daemon/src/prismis_daemon/fetchers/rss.py", "role": "builds each RSS item; _extract_full_content (line 255) fetches the linked article and falls back to the feed entry, which for HN is only the Comments link"},
+    {"path": "daemon/src/prismis_daemon/fetchers/reddit.py", "role": "_fetch_comments (line 352) and the discussion block under REDDIT_DISCUSSION_HEADER (line 506), with comments_outcome on failure: the pattern HN mirrors"},
+    {"path": "daemon/src/prismis_daemon/readability.py", "role": "REDDIT_DISCUSSION_HEADER (line 35); _is_reddit_link_without_article (line 96) makes a link line followed only by discussion title-only (readability_failure, line 172)"},
+    {"path": "daemon/src/prismis_daemon/analysis.py", "role": "title_only_reason (line 52), the one producer of title_only and its reason, and build_llm_analysis (line 78), where content_basis would be recorded"},
+    {"path": "daemon/src/prismis_daemon/summarizer.py", "role": "the SUBSTANTIVE paragraph (line 336) that judges 'only a link (with or without reader comments)' not substantive"},
+    {"path": "daemon/src/prismis_daemon/config.py", "role": "reddit_max_comments (line 109) and its validation, the setting HN mirrors"},
+    {"path": "tui/internal/ui/reader.go", "role": "parses title_only from the analysis JSON (line 82) for the reader view"},
+    {"path": "cli/src/cli/get.py", "role": "shows title-only and its reason for an item (line 71)"}
+  ],
+  "constraints": [
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/fetchers/rss.py", "line": 255, "text": "Hacker News is configured as an rss source with url https://news.ycombinator.com/rss (cerebro, 2026-10-10); a title-only HN item's stored content is the feed's Comments anchor."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/fetchers/rss.py", "line": 255, "text": "Measured 2026-10-10: Firebase item 50034081 lists kids in HN's ranked order; Algolia's items endpoint lists the same story's children in ascending id order."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/readability.py", "line": 96, "text": "The link-without-article rule is decided in docs/work/title-only-misfires/design.json ('A Reddit link post with no article and no self-text is title-only by code ... whatever its comments'); the operator reversed that on 2026-10-10 for discussion that has prose."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/summarizer.py", "line": 336, "text": "The substantive verdict feeds title_only_reason's model:not_substantive; left unchanged, it would mark every discussion-basis item title-only."},
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 47, "text": "Principle II: a summary of a discussion must be distinguishable from a summary of the article, in storage and where the reader sees it."},
+    {"tag": "RULE", "path": "daemon/tests/conftest.py", "line": 1, "text": "Third-party HTTP in tests is replayed from vcrpy cassettes with no network (recorded-youtube-tests)."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --search \"reddit OR comments OR refetch\"", "issues": [{"number": 51, "why": "Refetching sources that update would re-read growing comment threads; independent, and this work's discussion block is what a refetch would refresh."}]},
+  "reuse": [
+    {"path": "daemon/src/prismis_daemon/fetchers/reddit.py", "what": "the discussion header, comment formatting and comments_outcome record"},
+    {"path": "daemon/src/prismis_daemon/analysis.py", "what": "title_only_reason and build_llm_analysis as the one place basis and title-only are decided"}
+  ],
+  "open": []
+}

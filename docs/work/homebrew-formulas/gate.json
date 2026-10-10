@@ -1,0 +1,57 @@
+{
+  "scrutiny": [
+    {
+      "test": "T0 purpose: prismis is meant to run on a person's own machines (docs/IDEA.md); a one-line install per component is what lets someone other than the author adopt it.",
+      "failureCase": "An install that still needs the repo and toolchains.",
+      "result": "held"
+    },
+    {
+      "test": "T1 owners: the per-component split and lock-constraint installs are owned by the Makefile (install-tui, install-cli, install-daemon); the formulas mirror them, and Homebrew's tap.rb owns the tap naming that decided the repo layout.",
+      "failureCase": "A second, different split of the components.",
+      "result": "held"
+    },
+    {
+      "test": "T2 same noun: brew's behavior was read in the installed Homebrew 7.0.7 source (std_pip_args --no-binary=:all:, DEFAULT_NETWORK_ACCESS_ALLOWED, tap.rb naming), not from memory.",
+      "failureCase": "Design built on remembered brew behavior.",
+      "result": "held"
+    },
+    {
+      "test": "T3 degrade: daemon installs download wheels and the TUI builds from source; both stated as sacrifices, and Linux stays on make.",
+      "failureCase": "A silent capability loss.",
+      "result": "held"
+    },
+    {
+      "test": "T6 assumption checked: every client-only CLI dependency in cli/uv.lock (16 packages) has a pure-Python wheel and an sdist, so brew's source-only pip path can install them; colorama is Windows-only, so the render script must evaluate markers for macOS and leave it out.",
+      "failureCase": "A compiled CLI dependency brew cannot build.",
+      "result": "held"
+    },
+    {
+      "test": "T7 consumers: the formulas consume the tagged tarball's tui/, cli/ and daemon/ and the two locks; nothing in the repo consumes the formulas; the README is the only doc that names the install path.",
+      "failureCase": "A consumer broken by the move.",
+      "result": "held"
+    },
+    {
+      "test": "T9 six months: CLI resources are generated from the lock and a test fails on drift; the daemon formula reads its constraints from the tarball's lock, so neither carries a hand-maintained version list.",
+      "failureCase": "A resource list that drifts from the lock.",
+      "result": "held"
+    },
+    {
+      "test": "T10 reversibility: removing the tap repo or a formula undoes it; the repo change is packaging files, one [build-system] block and README text.",
+      "failureCase": "A one-way change.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class, every install path for prismis: make (development, Linux, cerebro), the three formulas (macOS); both pin to the locks.",
+      "failureCase": "An install path left unpinned.",
+      "result": "held"
+    },
+    {
+      "test": "T20 walk: a reader on a Mac runs `brew install nickpending/prismis/prismis-tui nickpending/prismis/prismis-cli`, edits [remote] in config.toml per the caveats, runs `prismis-cli list --limit 1`, then `prismis`; a host owner runs `brew install nickpending/prismis/prismis-daemon`, follows its caveats, and `brew services start prismis-daemon`.",
+      "failureCase": "A step the caveats do not cover.",
+      "result": "held"
+    }
+  ],
+  "decisions": [],
+  "verdict": "accept",
+  "carried": []
+}

@@ -1,0 +1,25 @@
+== prismis-tui
+PASS: SC-1 prismis-tui installs with --HEAD
+PASS: SC-1 prismis-tui brew test passes
+PASS: SC-1 prismis-tui provides bin/prismis
+PASS: SC-1 prismis-tui installed alone: ['prismis-tui']
+PASS: prismis-tui uninstalled cleanly
+== prismis-cli
+PASS: SC-1 prismis-cli installs with --HEAD
+PASS: SC-1 prismis-cli brew test passes
+PASS: SC-1 prismis-cli provides bin/prismis-cli
+PASS: SC-1 prismis-cli installed alone: ['prismis-cli']
+PASS: prismis-cli uninstalled cleanly
+== prismis-daemon
+PASS: SC-1 prismis-daemon installs with --HEAD
+PASS: SC-1 prismis-daemon brew test passes
+PASS: SC-1 prismis-daemon provides bin/prismis-daemon
+PASS: SC-1 prismis-daemon installed alone: ['prismis-daemon']
+PASS: SC-3 85 locked packages installed at locked versions 
+PASS: SC-4 plist runs ['/opt/homebrew/opt/prismis-daemon/bin/prismis-daemon']
+PASS: SC-4 plist KeepAlive
+PASS: SC-4 plist logs under the brew prefix: /opt/homebrew/var/log/prismis-daemon.log
+PASS: SC-4 control: without .env the daemon reports OPENROUTER_API_KEY as not set
+PASS: SC-4 with .env the daemon sees OPENROUTER_API_KEY and starts
+PASS: prismis-daemon uninstalled cleanly
+proof: PASS

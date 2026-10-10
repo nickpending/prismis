@@ -7,6 +7,7 @@ made on copies in tmp_path.
 import hashlib
 import re
 import shutil
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -196,3 +197,53 @@ def test_readme_installation_leads_with_the_three_brew_commands() -> None:
     positions = [section.find(c) for c in cmds]
     assert all(p >= 0 for p in positions), "a brew command is missing from Installation"
     assert section.find("make install") > max(positions), "make install must follow the brew commands"
+
+
+# ------------------------------------------------------------ SC-1, SC-3, SC-4 (standing parts)
+# The install, `brew test`, libexec-versus-lock and launchd/.env proofs need Homebrew and the
+# network; brew_proof.py runs them and its last recorded run is
+# docs/work/homebrew-formulas/proof-brew.txt. These tests pin what is checkable without brew:
+# the pin filter the daemon install runs, the service block, and install-alone.
+
+
+def test_daemon_pin_filter_drops_no_requirement_line() -> None:
+    text = (HERE / "prismis-daemon.rb").read_text()
+    m = re.search(r"lines\.grep\(/(?P<rx>.+)/\)", text)
+    assert m, "the daemon formula no longer filters the export with lines.grep"
+    rx = re.compile(m["rx"].replace(r"\A", "^"))
+    export = subprocess.run(
+        ["uv", "export", "--frozen", "--no-dev", "--no-emit-project", "--no-hashes", "--no-header",
+         "--project", str(REPO / "daemon")],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    lines = [ln for ln in export.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    dropped = [ln for ln in lines if not rx.match(ln)]
+    assert lines
+    assert not dropped, f"export lines the pin filter would silently drop: {dropped}"
+
+
+def test_daemon_installs_pins_as_constraints_from_the_lock() -> None:
+    text = (HERE / "prismis-daemon.rb").read_text()
+    for needle in ('"--frozen"', '"--no-dev"', '"--no-emit-project"', '"--project", "daemon"',
+                   '"--constraints"'):
+        assert needle in text, f"daemon install lost {needle}"
+
+
+def test_daemon_service_block_runs_daemon_with_keepalive_and_brew_prefix_log() -> None:
+    text = (HERE / "prismis-daemon.rb").read_text()
+    m = re.search(r"  service do\n(.*?)\n  end\n", text, re.S)
+    assert m, "no service block"
+    block = m.group(1)
+    assert 'run [opt_bin/"prismis-daemon"]' in block
+    assert "keep_alive true" in block
+    assert 'log_path var/"log/' in block
+    assert 'error_log_path var/"log/' in block
+
+
+@pytest.mark.parametrize("name", FORMULAS)
+def test_formula_installs_alone(name: str) -> None:
+    text = (HERE / f"{name}.rb").read_text()
+    deps = re.findall(r'^  depends_on "([^"]+)"', text, re.M)
+    assert deps
+    assert not [d for d in deps if "prismis" in d], f"{name} pulls in another prismis formula"
+    assert re.search(r'^  head "https://github.com/nickpending/prismis.git", branch: "main"$', text, re.M)

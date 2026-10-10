@@ -1,0 +1,9 @@
+{
+  "question": "Where do the formulas live: a separate public nickpending/homebrew-prismis tap repo (the standard one-line `brew install nickpending/prismis/prismis-tui`), or a Formula/ directory inside the prismis repo itself (no second repo, but users run `brew tap nickpending/prismis https://github.com/nickpending/prismis` once before installing)?",
+  "answer": "A separate public nickpending/homebrew-prismis tap repo, Homebrew's standard layout: its tap resolution maps `brew install nickpending/prismis/<formula>` to github.com/nickpending/homebrew-prismis, which is the only layout that gives the one-line install; the operator asked for the standard way.",
+  "by": "evidence",
+  "evidence": {
+    "path": "docs/work/homebrew-formulas/ground.json",
+    "line": 1
+  }
+}

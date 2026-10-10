@@ -1,0 +1,63 @@
+{
+  "workOrder": "hn-discussion",
+  "issues": [],
+  "what": "Fetch Hacker News stories' top comments from HN's Firebase API into a shared discussion block, and let a story with a blocked article but a substantive discussion be stored readable with content_basis = discussion, summarized as discussion and shown that way in the TUI and CLI, for HN and Reddit.",
+  "why": "Design: docs/work/hn-discussion/design.md. HN arrives as plain RSS with no comments read, blocked articles leave only a Comments link, and the link-without-article rule plus the substantive check make discussion-only stories title-only; the operator decided on 2026-10-10 to summarize the discussion instead.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a recorded HN feed entry whose comments link is news.ycombinator.com/item?id=<id> and recorded Firebase responses for that story with a deleted and a dead kid among its first kids",
+      "when": "the RSS fetcher builds the item",
+      "then": "it fails if the discussion block is missing, out of HN's kids order, longer than max_comments, contains a deleted or dead comment or raw HTML; otherwise it carries the first max_comments live comments in kids order as plain text under the shared discussion header"
+    },
+    {
+      "id": "SC-2",
+      "given": "a recorded Ask HN entry whose link is the HN item itself",
+      "when": "the item is built",
+      "then": "it fails if its body is not the item's own text; otherwise it is, followed by the discussion block"
+    },
+    {
+      "id": "SC-3",
+      "given": "content of a link line plus a discussion block with prose, and separately a link line plus an empty discussion block",
+      "when": "readability_failure and title_only_reason run, and build_llm_analysis records the result",
+      "then": "it fails if the first is title-only or lacks content_basis = discussion, or the second is readable; otherwise the first is readable with content_basis = discussion and the second is title-only as content:link_without_article, for both an HN and a Reddit item, and the test is shown red against the current rule"
+    },
+    {
+      "id": "SC-4",
+      "given": "a discussion-basis item analyzed through the recorded LLM stub",
+      "when": "the summarizer runs",
+      "then": "it fails if the request does not tell the model the article is unavailable and the text is discussion, or if a substantive thread's item ends model:not_substantive; otherwise the request carries the discussion note and discussion-based substantive wording, and a one-line joke thread's item still ends model:not_substantive"
+    },
+    {
+      "id": "SC-5",
+      "given": "an HN story whose Firebase calls fail",
+      "when": "the RSS fetcher builds the item",
+      "then": "it fails if the fetch cycle errors or the failure goes unrecorded; otherwise the item is built as it would have been and its analysis carries comments_outcome with outcome fetch_failed"
+    },
+    {
+      "id": "SC-6",
+      "given": "an item whose analysis has content_basis = discussion",
+      "when": "the TUI reader renders it and the CLI's item view prints it",
+      "then": "it fails if either omits 'from the discussion \u2014 article unavailable'; otherwise both show it, and an item without the key shows nothing new"
+    },
+    {
+      "id": "SC-7",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "Each HN story costs up to 1 + max_comments extra API calls per fetch cycle.",
+    "Summaries of discussion-basis items describe what commenters said, which can be wrong about the article; the basis marker is the reader's warning."
+  ],
+  "stakes": [
+    "An HN RSS item carries its top max_comments comments, in HN's ranked order, under the shared discussion header, with deleted and dead comments skipped and HTML converted to text.",
+    "An Ask or Show HN self post's body is the item's own text.",
+    "A story whose article fetch failed but whose discussion has prose is stored readable with content_basis = discussion and summarized as discussion, for HN and Reddit; one with no discussion prose stays title-only as content:link_without_article.",
+    "For a discussion-basis item, the model's substantive verdict is about the discussion, so a substantive thread is not marked model:not_substantive and an empty one still is.",
+    "A failed HN comment fetch records comments_outcome and leaves the item as it would otherwise be.",
+    "The TUI reader and the CLI item view show 'from the discussion \u2014 article unavailable' for a discussion-basis item.",
+    "HN API behavior is tested from recorded cassettes with no network."
+  ]
+}

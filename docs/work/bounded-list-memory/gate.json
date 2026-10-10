@@ -1,0 +1,57 @@
+{
+  "scrutiny": [
+    {
+      "test": "T0 purpose: prismis runs unattended on a small host (constitution: local-first, zero-ops); a client request that can OOM the daemon is the #55 outage class, and this closes it for every client, not only updated ones.",
+      "failureCase": "A fix that still depends on every client being current.",
+      "result": "held"
+    },
+    {
+      "test": "T1 owners: get_content_list owns the bounded read (storage.py:944) and the per-item helpers own the mirrored fields; the stream reuses both rather than re-deriving them.",
+      "failureCase": "A second list query or a second field computation.",
+      "result": "held"
+    },
+    {
+      "test": "T2 same noun: the 2,954 / 642 / 2,176 MB figures were measured through the real app on a copy of cerebro's real database, and the trigger request was read from cerebro's observability log for the window with the 2.9 GB peak.",
+      "failureCase": "A memory claim from estimation.",
+      "result": "held"
+    },
+    {
+      "test": "T3 degrade: a mid-stream database error truncates the body instead of returning a 500, and responses lose Content-Length; both stated.",
+      "failureCase": "A silent capability loss.",
+      "result": "held"
+    },
+    {
+      "test": "T6 assumption checked: FastAPI 0.142.3 keeps request-scoped yield dependencies open until the response is sent (fastapi/routing.py request_response), so get_storage's connection outlives the stream.",
+      "failureCase": "A stream reading from a closed connection.",
+      "result": "held"
+    },
+    {
+      "test": "T7 consumers: /api/entries is read by the TUI (limit=10000, view=list), the web UI (limit 100), the CLI's list (<=100) and export (<=1000), and old TUIs (limit=10000, full); the body shape stays identical for all, proven by an equality test.",
+      "failureCase": "A client that parses a changed body.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class, every GET endpoint in api.py: /api/entries (unbounded up to 10,000, streamed here), /api/search (le=50), /api/entries/{id} and /raw (one item), kinds, prune count, archive status, statistics, health (small); the middleware's body buffering is removed for all of them.",
+      "failureCase": "Another unbounded body left in memory.",
+      "result": "held"
+    },
+    {
+      "test": "T13 two places: get_content_list becomes list(iter_content_list(...)) so the SQL lives once.",
+      "failureCase": "Two copies of the list query.",
+      "result": "held"
+    },
+    {
+      "test": "T20 walk: bishop's old TUI sends limit=10000 with no view; the handler validates, opens the stream, writes items one at a time from the cursor, logs item_count from request.state when done; RSS stays near the slim request's; the old TUI parses the same envelope it always did.",
+      "failureCase": "A step where the full list is materialized.",
+      "result": "held"
+    }
+  ],
+  "decisions": [
+    {
+      "question": "Harden the daemon against old full-list clients, or rely on updating every TUI?",
+      "answer": "Update bishop and harden the daemon (operator, 2026-10-10)."
+    }
+  ],
+  "verdict": "accept",
+  "carried": []
+}

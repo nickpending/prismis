@@ -17,7 +17,7 @@ from conftest import make_config
 
 from prismis_daemon.config import Config
 from prismis_daemon.fetchers.rss import RSSFetcher
-from prismis_daemon.hackernews import html_to_text, is_item_link, story_id
+from prismis_daemon.hackernews import find_story_id, html_to_text, is_item_link, story_id
 from prismis_daemon.models import ContentItem
 from prismis_daemon.readability import (
     DISCUSSION_HEADER,
@@ -224,6 +224,19 @@ def test_story_id_recognizes_only_an_hn_item_comments_link() -> None:
     assert is_item_link("https://news.ycombinator.com/item?id=5", "5")
     assert not is_item_link("https://news.ycombinator.com/item?id=5", "6")
     assert not is_item_link("https://example.com/post", "5")
+
+
+def test_find_story_id_finds_the_first_item_link_inside_text() -> None:
+    anchor = '<a href="https://news.ycombinator.com/item?id=50033678">Comments</a>'
+    assert find_story_id(anchor) == "50033678"
+    assert find_story_id(f"see {anchor} and http://news.ycombinator.com/item?id=9") == "50033678"
+    assert find_story_id("https://example.com/item?id=12") is None
+    assert find_story_id("no link here") is None
+    assert find_story_id(None) is None
+    # The two finders cannot disagree on what a bare link is.
+    assert find_story_id("https://news.ycombinator.com/item?id=5") == story_id(
+        "https://news.ycombinator.com/item?id=5"
+    )
 
 
 @pytest.mark.parametrize(

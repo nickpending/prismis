@@ -146,7 +146,7 @@ class RSSFetcher:
                     # API -- skipped, like the article, for an entry already stored
                     # readably.
                     if hn_id and external_id not in known_readable_ids:
-                        content, comments_outcome = self._add_hn_discussion(
+                        content, comments_outcome = self.add_hn_discussion(
                             hn_id, url, content
                         )
 
@@ -309,7 +309,7 @@ class RSSFetcher:
         logger.debug(f"No readable extraction for {url}, using fallback")
         return self._fallback_content(entry), result.as_fetch_outcome()
 
-    def _add_hn_discussion(
+    def add_hn_discussion(
         self, hn_id: str, url: str, content: str
     ) -> tuple[str, dict[str, str] | None]:
         """Add Hacker News story `hn_id`'s API discussion to `content`.

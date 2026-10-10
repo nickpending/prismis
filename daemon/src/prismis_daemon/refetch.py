@@ -9,7 +9,9 @@ written, which `get_readable_external_ids`'s title_only lookup cannot find.
 Each selected item is re-extracted through its own fetcher's single-item path:
 `YouTubeFetcher.refetch_transcript` for a stored video URL, the shared
 `article_extractor.extract_article` for an RSS item's URL, and
-`RedditFetcher.refetch_one` rebuilding the item from its permalink via PRAW.
+`RedditFetcher.refetch_one` rebuilding the item from its permalink via PRAW. An RSS
+row whose stored content holds a Hacker News item link also gets the story's discussion
+through `RSSFetcher.add_hn_discussion`, the one method the live fetch uses.
 Content that comes back readable is routed through
 `DaemonOrchestrator.analyze_and_store_item` -- the one analysis path (SC-1) --
 in place, same row, no duplicate. Content that's still not readable leaves the
@@ -36,6 +38,7 @@ from typing import Any
 
 from .analysis import get_learned_preferences, title_only_reason
 from .article_extractor import extract_article
+from .hackernews import find_story_id, is_item_link
 from .models import ContentItem
 from .observability import get_logger as get_obs_logger
 from .observability import log as obs_log
@@ -185,18 +188,32 @@ def _reextract_item(
     than a still-unreadable one.
     """
     source_type = row["source_type"]
+    comments_outcome: dict[str, str] | None = None
 
     if source_type == "youtube":
         result = orchestrator.youtube_fetcher.refetch_transcript(row["url"])
         content = result.text or ""
         fetch_outcome: dict[str, str] | None = result.as_fetch_outcome()
     elif source_type == "rss":
-        result = extract_article(
-            row["url"],
-            allowed_private_hosts=orchestrator.config.fetch_allow_private_hosts,
-        )
-        content = result.text or ""
-        fetch_outcome = result.as_fetch_outcome()
+        # A Hacker News story stored title-only holds the feed's comments link, which
+        # names its item; the discussion is added the way the live fetch adds it.
+        hn_id = find_story_id(row.get("content"))
+        if hn_id and is_item_link(row["url"], hn_id):
+            # An Ask/Show HN self post: its url is its own HN page, so there is no
+            # article to extract; the stored content is the starting body.
+            content = row.get("content") or ""
+            fetch_outcome = None
+        else:
+            result = extract_article(
+                row["url"],
+                allowed_private_hosts=orchestrator.config.fetch_allow_private_hosts,
+            )
+            content = result.text or ""
+            fetch_outcome = result.as_fetch_outcome()
+        if hn_id:
+            content, comments_outcome = orchestrator.rss_fetcher.add_hn_discussion(
+                hn_id, row["url"], content
+            )
     elif source_type == "reddit":
         return orchestrator.reddit_fetcher.refetch_one(
             row["external_id"], row["source_id"]
@@ -213,6 +230,7 @@ def _reextract_item(
         analysis={
             **(row.get("analysis") or {}),
             **({"fetch_outcome": fetch_outcome} if fetch_outcome else {}),
+            **({"comments_outcome": comments_outcome} if comments_outcome else {}),
         },
     )
 
@@ -251,6 +269,12 @@ def _refetch_one(
         analysis["title_only_reason"] = reason
         if fetch_outcome:
             analysis["fetch_outcome"] = fetch_outcome
+        comments_outcome = (item.analysis or {}).get("comments_outcome")
+        if comments_outcome:
+            analysis["comments_outcome"] = comments_outcome
+        elif row["source_type"] == "rss":
+            # This read of the discussion completed: an earlier failed one is not current.
+            analysis.pop("comments_outcome", None)
         orchestrator.storage.update_analysis(row["id"], analysis)
         return RefetchOutcome(external_id, title, "still_title_only")
 

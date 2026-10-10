@@ -8,7 +8,8 @@ Show HN self post carries its own body in the story item's `text`. Both are HTML
 the API; this module hands back plain text.
 
 fetchers/rss.py calls `fetch_discussion` for an entry `story_id` recognizes and
-writes the result with `readability.format_discussion`.
+writes the result with `readability.format_discussion`; refetch.py finds a stored row's
+story with `find_story_id` and calls the same fetcher method.
 """
 
 from __future__ import annotations
@@ -32,10 +33,12 @@ HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/{id}.json"
 # cannot hold the fetch cycle.
 HN_FETCH_BUDGET = 30.0
 
-# A story's comments link, as it appears in every HN feed entry.
-_COMMENTS_LINK_RE = re.compile(
-    r"^https?://news\.ycombinator\.com/item\?id=(\d+)$", re.IGNORECASE
-)
+# An HN item link, the one pattern for what a link to a story is. A feed entry's
+# comments link is exactly one (`story_id`); stored content may hold one among other
+# text (`find_story_id`).
+_ITEM_LINK = r"https?://news\.ycombinator\.com/item\?id=(\d+)"
+_COMMENTS_LINK_RE = re.compile(rf"^{_ITEM_LINK}$", re.IGNORECASE)
+_ITEM_LINK_IN_TEXT_RE = re.compile(_ITEM_LINK, re.IGNORECASE)
 
 # What a call to the API raises when it did not complete or answered with something
 # that is not the JSON item the code reads. Anything outside them is a defect.
@@ -58,6 +61,16 @@ class HNDiscussion:
 def story_id(comments_link: str | None) -> str | None:
     """The HN item id in a feed entry's comments link, or None when it is not one."""
     match = _COMMENTS_LINK_RE.match((comments_link or "").strip())
+    return match.group(1) if match else None
+
+
+def find_story_id(text: str | None) -> str | None:
+    """The HN item id of the first item link inside `text`, or None when it holds none.
+
+    Refetch reads it from a stored row's content, where the feed's comments link sits
+    inside the entry's HTML.
+    """
+    match = _ITEM_LINK_IN_TEXT_RE.search(text or "")
     return match.group(1) if match else None
 
 

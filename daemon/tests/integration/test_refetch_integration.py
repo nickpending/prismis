@@ -27,6 +27,7 @@ import pytest
 from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.config import Config
 from prismis_daemon.evaluator import ContentEvaluator
+from prismis_daemon.fetchers.rss import RSSFetcher
 from prismis_daemon.fetchers.youtube import YouTubeFetcher
 from prismis_daemon.llm_client import CompleteResult, TokenUsage
 from prismis_daemon.models import ContentItem
@@ -127,11 +128,11 @@ def _real_config(base_url: str) -> Config:
 
 
 def _build_orchestrator(
-    config: Config, storage: Storage, youtube_fetcher=None
+    config: Config, storage: Storage, youtube_fetcher=None, rss_fetcher=None
 ) -> DaemonOrchestrator:
     return DaemonOrchestrator(
         storage=storage,
-        rss_fetcher=_NullFetcher(),
+        rss_fetcher=rss_fetcher or _NullFetcher(),
         reddit_fetcher=_NullFetcher(),
         youtube_fetcher=youtube_fetcher or _NullFetcher(),
         file_fetcher=_NullFetcher(),
@@ -480,3 +481,197 @@ def test_refetch_sources_learned_preferences_like_run_once_does(
     recovered = storage.get_content_by_id(recovered_row["id"])
     assert recovered is not None
     assert recovered["analysis"]["preference_influenced"] is True
+
+
+# ---------------------------------------------------------------------------
+# refetch-hn-discussion: a Hacker News story stored title-only is recovered the way
+# the live fetch would have built it. Every HTTP exchange (the article, HN's API) is
+# replayed from a cassette (`http_cassette`, conftest.py); the cassettes are
+# hand-written in the API's shape, so a re-record would replace them. The LLM is the
+# one faked collaborator, at complete() as above (a loopback stub is not reachable
+# while a cassette is active).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def embedder_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Loading the embedding model asks huggingface.co whether it is current, a request
+    no cassette holds; the cached model needs no answer. huggingface_hub reads the flag
+    from its constants at each call."""
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_OFFLINE", True)
+
+
+def _comments_link(item_id: int) -> str:
+    return f'<a href="https://news.ycombinator.com/item?id={item_id}">Comments</a>'
+
+
+def _hn_orchestrator(storage: Storage) -> DaemonOrchestrator:
+    config = Config.from_file()
+    return _build_orchestrator(config, storage, rss_fetcher=RSSFetcher(config=config))
+
+
+def _seed_hn_story(storage: Storage, source_id: str, item_id: int, url: str) -> str:
+    """A title-only HN story as stored before hn-discussion shipped: the feed's
+    comments link as its content."""
+    storage.add_content(
+        ContentItem(
+            source_id=source_id,
+            external_id=f"hn-{item_id}",
+            title=f"Story {item_id}",
+            url=url,
+            content=_comments_link(item_id),
+        )
+    )
+    row = storage.conn.execute(
+        "SELECT id FROM content WHERE external_id = ?", (f"hn-{item_id}",)
+    ).fetchone()
+    return str(row["id"])
+
+
+def _stored(storage: Storage, content_id: str) -> dict:
+    stored = storage.get_content_by_id(content_id)
+    assert stored is not None
+    return stored
+
+
+def _run_hn_refetch(orchestrator: DaemonOrchestrator):
+    with patch(_PATCH_COMPLETE, return_value=_fake_complete_result(0.0)):
+        return run_refetch(orchestrator, "rss", limit=10)
+
+
+@pytest.mark.usefixtures("http_cassette", "embedder_offline")
+def test_a_blocked_story_is_recovered_from_its_discussion(
+    test_db: Path, isolated_xdg_env: Path
+) -> None:
+    """
+    SC-1: a title-only HN story whose article answers 403 and whose discussion has
+    two comments is stored readable with content_basis "discussion", the comments in
+    its content, and counted recovered.
+    BREAKS: a refetch that never reads the discussion leaves the row title-only and
+    counts it still_title_only; one that stores the comments without the basis
+    summarizes them as if they were the article.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://news.ycombinator.com/rss", "rss", "HN")
+    story = _seed_hn_story(storage, source_id, 60000001, "https://wsj.com/tech/ai/blocked-story")
+
+    report = _run_hn_refetch(_hn_orchestrator(storage))
+
+    assert (report.selected, report.recovered, report.still_title_only, report.failed) == (1, 1, 0, 0)
+    stored = _stored(storage, story)
+    assert "First comment on the blocked story." in stored["content"]
+    assert "**bix6:**" in stored["content"]
+    assert stored["analysis"]["content_basis"] == "discussion"
+    assert stored["analysis"]["title_only"] is False
+    assert stored["summary"]
+
+
+@pytest.mark.usefixtures("http_cassette", "embedder_offline")
+def test_a_story_whose_article_now_loads_is_recovered_from_article_and_discussion(
+    test_db: Path, isolated_xdg_env: Path
+) -> None:
+    """
+    SC-2: the same story whose article now loads holds the article and the
+    discussion, and its analysis carries no content_basis.
+    BREAKS: a refetch that drops the discussion after a good article, or one that
+    marks an article-backed item as discussion-only, fails here.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://news.ycombinator.com/rss", "rss", "HN")
+    story = _seed_hn_story(storage, source_id, 60000011, "https://blog.example.org/now-readable")
+
+    report = _run_hn_refetch(_hn_orchestrator(storage))
+
+    assert report.recovered == 1
+    stored = _stored(storage, story)
+    assert "genuine article body" in stored["content"]
+    assert "A comment on the readable story." in stored["content"]
+    assert "content_basis" not in stored["analysis"]
+
+
+@pytest.mark.usefixtures("http_cassette", "embedder_offline")
+def test_a_quiet_story_and_a_failed_read_both_stay_title_only(
+    test_db: Path, isolated_xdg_env: Path
+) -> None:
+    """
+    SC-3: a story with no comments and one whose HN read answers 500 both stay
+    title-only and are counted so; only the failed read records comments_outcome.
+    BREAKS: storing either readable, counting either recovered, or letting the quiet
+    story carry a failure fails one assertion each.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://news.ycombinator.com/rss", "rss", "HN")
+    quiet = _seed_hn_story(storage, source_id, 60000021, "https://wsj.com/tech/ai/quiet-story")
+    failing = _seed_hn_story(storage, source_id, 60000031, "https://wsj.com/tech/ai/failing-story")
+
+    report = _run_hn_refetch(_hn_orchestrator(storage))
+
+    assert (report.selected, report.recovered, report.still_title_only, report.failed) == (2, 0, 2, 0)
+    for content_id, item_id in ((quiet, 60000021), (failing, 60000031)):
+        stored = _stored(storage, content_id)
+        assert stored["content"] == _comments_link(item_id)
+        assert stored["analysis"]["title_only"] is True
+        assert stored["summary"] is None
+    assert "comments_outcome" not in _stored(storage, quiet)["analysis"]
+    assert _stored(storage, failing)["analysis"]["comments_outcome"] == {
+        "outcome": "fetch_failed",
+        "detail": "HTTPError",
+    }
+
+
+@pytest.mark.usefixtures("http_cassette", "embedder_offline")
+def test_a_self_post_keeps_its_own_text_as_the_body(
+    test_db: Path, isolated_xdg_env: Path
+) -> None:
+    """
+    SC-4: an Ask HN row whose url is its own HN page is not sent to article
+    extraction (the cassette holds no request for that page, so one would be refused
+    and fail this test); the body is the item's own text from the API, then its
+    comments.
+    BREAKS: extracting the HN page, or leaving the stored comments link as the body.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://news.ycombinator.com/rss", "rss", "HN")
+    story = _seed_hn_story(
+        storage, source_id, 60000041, "https://news.ycombinator.com/item?id=60000041"
+    )
+
+    report = _run_hn_refetch(_hn_orchestrator(storage))
+
+    assert report.recovered == 1
+    content = _stored(storage, story)["content"]
+    assert content.startswith("The self post's own question body.")
+    assert content.index("An answer to the question.") > len("The self post's own question body.")
+    assert "content_basis" not in _stored(storage, story)["analysis"]
+
+
+@pytest.mark.usefixtures("http_cassette", "embedder_offline")
+def test_a_row_without_an_hn_link_is_refetched_article_only(
+    test_db: Path, isolated_xdg_env: Path
+) -> None:
+    """
+    SC-5: an rss row whose content holds no HN item link is refetched from its
+    article alone; the cassette holds no HN API request, so one would be refused and
+    fail this test.
+    BREAKS: asking HN for any row, or appending a discussion to it.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
+    storage.add_content(
+        ContentItem(
+            source_id=source_id,
+            external_id="plain-rss",
+            title="Plain",
+            url="https://blog.example.org/plain-article",
+            content=RSS_NO_CONTENT_FALLBACK,
+        )
+    )
+
+    report = _run_hn_refetch(_hn_orchestrator(storage))
+
+    assert report.recovered == 1
+    row = storage.conn.execute("SELECT id FROM content WHERE external_id = 'plain-rss'").fetchone()
+    stored = _stored(storage, row["id"])
+    assert "genuine article body" in stored["content"]
+    assert "Discussion" not in stored["content"]
+    assert "comments_outcome" not in stored["analysis"]

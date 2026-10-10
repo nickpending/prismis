@@ -1,0 +1,18 @@
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://blog.example.org/plain-article
+  response:
+    body:
+      string: <!doctype html><html><body><article><h1>A Real Article</h1><p>This is a genuine article
+        body, long enough for trafilatura's extraction heuristics to treat it as the main content rather
+        than boilerplate chrome around it, with a second sentence for good measure.</p></article></body></html>
+    headers:
+      Content-Type:
+      - text/html
+    status:
+      code: 200
+      message: OK
+version: 1

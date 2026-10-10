@@ -6,16 +6,22 @@ import logging
 import os
 import re
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterable
 from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from rich.console import Console
 
@@ -95,21 +101,6 @@ def _server_error(message: str, exc: Exception) -> ServerError:
     return ServerError(f"{message}. Check the daemon log for detail.")
 
 
-def _item_count(body: bytes) -> int | None:
-    """The number of items in a list endpoint's JSON envelope, or None if it has none.
-
-    None means the body is not that envelope (not JSON, not an object, no `items`),
-    which only costs the count in the request log line.
-    """
-    try:
-        data = json.loads(body)
-        if data.get("success") and "data" in data and "items" in data["data"]:
-            return len(data["data"]["items"])
-    except (ValueError, AttributeError, TypeError) as e:
-        console.print(f"[dim red]Failed to parse response for item count: {e}[/dim red]")
-    return None
-
-
 @app.middleware("http")
 async def log_requests(request: Request, call_next) -> Response:
     """Log API requests in same style as daemon output."""
@@ -125,32 +116,10 @@ async def log_requests(request: Request, call_next) -> Response:
 
         client_ip = request.client.host if request.client else "unknown"
 
-        # For list endpoints, try to extract item count from response
-        count_info = ""
-        item_count = None
-        if (
-            request.url.path in ["/api/entries", "/api/search"]
-            and response.status_code == 200
-        ):
-            body = b""
-            async for chunk in response.body_iterator:
-                body += chunk
-
-            # A body that is not the expected JSON envelope only costs the count in
-            # the log line.
-            item_count = _item_count(body)
-            if item_count is not None:
-                count_info = f" [{item_count} items]"
-
-            # Rebuild response with same body
-            from fastapi.responses import Response as FastAPIResponse
-
-            response = FastAPIResponse(
-                content=body,
-                status_code=response.status_code,
-                headers=dict(response.headers),
-                media_type=response.media_type,
-            )
+        # List handlers put the number of items they send on request state; the
+        # middleware never reads the response body. Absent means no count.
+        item_count: int | None = getattr(request.state, "item_count", None)
+        count_info = f" [{item_count} items]" if item_count is not None else ""
 
         # Include query parameters for debugging
         query_str = f"?{request.url.query}" if request.url.query else ""
@@ -876,8 +845,97 @@ async def resume_source(
         raise _server_error("Failed to resume source", e) from e
 
 
+class _ContentListFilters(TypedDict):
+    """The storage filters /api/entries passes to every list read it makes."""
+
+    since: datetime | None
+    include_archived: bool
+    source_filter: str | None
+    kind_filter: list[str] | None
+    priorities: list[str] | None
+    unread_only: bool
+    interesting: bool
+
+
+# Fields a compact entry keeps.
+_ENTRIES_COMPACT_FIELDS = frozenset(
+    {
+        "id",
+        "title",
+        "url",
+        "priority",
+        "kind",
+        "title_only",
+        "title_only_reason",
+        "published_at",
+        "source_name",
+        "summary",
+        "duplicate_count",
+        "duplicate_sources",
+    }
+)
+
+
+def _json_text(value: dict[str, Any]) -> str:
+    """JSON text encoded the way a FastAPI dict response is (starlette JSONResponse)."""
+    return json.dumps(
+        value, ensure_ascii=False, allow_nan=False, indent=None, separators=(",", ":")
+    )
+
+
+def _mirror_entry_fields(item: dict) -> None:
+    """Put kind, title_only and title_only_reason on the entry's top level.
+
+    kind has no column of its own (unlike priority), so every read path stores it only
+    inside the analysis JSON.
+    """
+    item["kind"] = _item_kind(item)
+    item["title_only"] = _item_title_only(item)
+    item["title_only_reason"] = _item_title_only_reason(item)
+
+
+async def _stream_entries(
+    head: str,
+    tail: str,
+    items: Iterable[dict],
+    *,
+    view: str,
+    compact: bool,
+    mirror: bool,
+) -> AsyncGenerator[str, None]:
+    """Write the entries envelope around `items`, serializing one item at a time.
+
+    `items` may be a database cursor's iterator: each item is mapped, written and
+    dropped before the next is read, so memory does not grow with the item count.
+    `mirror` says the items still need `_mirror_entry_fields` (the dedup path has
+    already done it).
+    """
+    exclude = {"content"} if view == "list" else None
+    try:
+        yield head
+        first = True
+        for item in items:
+            if mirror:
+                _mirror_entry_fields(item)
+            if compact:
+                item = {k: v for k, v in item.items() if k in _ENTRIES_COMPACT_FIELDS}
+            # INV-API-TS-4: route through Pydantic model so @field_serializer fires
+            # on every datetime field.
+            text = _json_text(
+                ContentItemModel(**item).model_dump(mode="json", exclude=exclude)
+            )
+            yield text if first else "," + text
+            first = False
+        yield tail
+    finally:
+        close = getattr(items, "close", None)
+        if close is not None:
+            close()
+
+
 @app.get("/api/entries", dependencies=[Depends(verify_api_key)])
 async def get_content(
+    request: Request,
     priority: str | None = Query(
         None,
         description="Filter by priority level(s). Single: 'high' or comma-separated: 'high,medium,low'",
@@ -918,7 +976,7 @@ async def get_content(
         ),
     ),
     storage: Storage = Depends(get_storage),
-) -> dict:
+) -> StreamingResponse:
     """Get content items with optional filtering.
 
     Args:
@@ -940,9 +998,12 @@ async def get_content(
         view: 'full' (default, today's fields) or 'list' (no content, analysis cut to
               the list keys, plus has_deep_extraction)
         storage: Storage instance injected by FastAPI
+        request: Carries the item count to the request-logging middleware
 
     Returns:
-        JSON response with filtered content items
+        The same JSON envelope a dict return would send, written item by item as rows
+        come off the database cursor. Parameter errors raise before the stream starts,
+        so they still get the JSON error envelope.
     """
     # Parse and validate priority parameter (supports comma-separated values)
     priorities: list[str] = []
@@ -975,95 +1036,86 @@ async def get_content(
                     f"Invalid ISO8601 timestamp: {since}. Expected format: 2025-11-05T12:00:00Z"
                 ) from e
 
-        # One bounded SQL read: filter, sort and LIMIT all run in SQLite, so at most
-        # `limit` rows (the dedup window when dedup is on) are ever loaded -- never
-        # the corpus. The kind filter is part of that WHERE clause, applied before
-        # the LIMIT (search-kind-filter SC-2/SC-5).
-        read_limit = limit if skip_dedup else max(limit, DEDUP_WINDOW)
-        content_items = storage.get_content_list(
-            read_limit,
-            view=view,
-            sort_by=effective_sort,
-            since=since_dt,
-            include_archived=include_archived,
-            source_filter=source,
-            kind_filter=kind_filter,
-            priorities=priorities or None,
-            unread_only=unread_only,
-            interesting=interesting_override is True,
+        # One bounded SQL read: filter, sort and LIMIT all run in SQLite. The kind
+        # filter is part of that WHERE clause, applied before the LIMIT
+        # (search-kind-filter SC-2/SC-5).
+        filters: _ContentListFilters = {
+            "since": since_dt,
+            "include_archived": include_archived,
+            "source_filter": source,
+            "kind_filter": kind_filter,
+            "priorities": priorities or None,
+            "unread_only": unread_only,
+            "interesting": interesting_override is True,
+        }
+        items: Iterable[dict]
+        if skip_dedup:
+            # Streamed: rows come off one cursor and are written as they arrive, so
+            # the response never holds `limit` items. The count has to be known
+            # before the first byte (the message names it), so it is its own narrow
+            # query. The storage connection stays open until the stream ends:
+            # FastAPI runs the get_storage exit after the response is sent.
+            count = storage.count_content_list(limit, **filters)
+            items = storage.iter_content_list(
+                limit, view=view, sort_by=effective_sort, **filters
+            )
+            mirror = True
+        else:
+            # Dedup is O(n^2), so it only ever sees the first DEDUP_WINDOW rows of the
+            # requested sort (200 items @ O(n^2) = 40,000 comparisons, ~2-3 seconds);
+            # that window is small enough to hold. Groups similar items, keeps the
+            # highest priority as primary. LIMIT applies AFTER deduplication so
+            # duplicates are properly grouped.
+            window = storage.get_content_list(
+                DEDUP_WINDOW, view=view, sort_by=effective_sort, **filters
+            )
+            for item in window:
+                _mirror_entry_fields(item)
+            items = deduplicate_content(window)[:limit]
+            count = len(items)
+            mirror = False
+        request.state.item_count = count
+
+        # The envelope with no items: the stream writes the items between its head
+        # and its tail.
+        envelope = _json_text(
+            ContentResponse(
+                success=True,
+                message=f"Retrieved {count} content items",
+                data=ContentResponseData(
+                    items=[],
+                    total=count,
+                    filters_applied={
+                        "priority": priority,
+                        "kind": kind,
+                        "unread_only": unread_only,
+                        "include_archived": include_archived,
+                        "interesting_override": interesting_override,
+                        "limit": limit,
+                        "since": since,
+                        "since_hours": since_hours,
+                        "sort_by": effective_sort,
+                        "source": source,
+                        "compact": compact,
+                    },
+                ),
+            ).model_dump(mode="json")
+        )
+        head, _, tail = envelope.partition('"items":[]')
+        return StreamingResponse(
+            _stream_entries(
+                head + '"items":[',
+                "]" + tail,
+                items,
+                view=view,
+                compact=compact,
+                mirror=mirror,
+            ),
+            media_type="application/json",
         )
 
-        # kind has no column of its own (unlike priority), so every read path stores
-        # it only inside the analysis JSON; mirror it onto the top level here.
-        for item in content_items:
-            item["kind"] = _item_kind(item)
-            item["title_only"] = _item_title_only(item)
-            item["title_only_reason"] = _item_title_only_reason(item)
-
-        # Deduplicate by fuzzy title matching (80% similarity) if enabled
-        # Groups similar items, keeps highest priority as primary
-        # Default: skip_dedup=True for fast responses; set to False to enable deduplication
-        if not skip_dedup:
-            # Cap items for deduplication to avoid O(n²) timeout on large datasets
-            # 200 items @ O(n²) = 40,000 comparisons, runs in ~2-3 seconds
-            dedup_cap = min(len(content_items), DEDUP_WINDOW)
-            content_items = deduplicate_content(content_items[:dedup_cap])
-
-        # Apply limit AFTER deduplication to ensure duplicates are properly grouped
-        content_items = content_items[:limit]
-
-        # Filter to compact fields if requested
-        if compact:
-            compact_fields = {
-                "id",
-                "title",
-                "url",
-                "priority",
-                "kind",
-                "title_only",
-                "title_only_reason",
-                "published_at",
-                "source_name",
-                "summary",
-                "duplicate_count",
-                "duplicate_sources",
-            }
-            content_items = [
-                {k: v for k, v in item.items() if k in compact_fields}
-                for item in content_items
-            ]
-
-        # INV-API-TS-4: route through Pydantic model so @field_serializer fires
-        # on every datetime field. mode="json" produces a dict whose datetime
-        # fields are already RFC3339 strings — FastAPI then JSON-encodes the dict
-        # without re-touching the serialized values.
-        return ContentResponse(
-            success=True,
-            message=f"Retrieved {len(content_items)} content items",
-            data=ContentResponseData(
-                items=[ContentItemModel(**item) for item in content_items],
-                total=len(content_items),
-                filters_applied={
-                    "priority": priority,
-                    "kind": kind,
-                    "unread_only": unread_only,
-                    "include_archived": include_archived,
-                    "interesting_override": interesting_override,
-                    "limit": limit,
-                    "since": since,
-                    "since_hours": since_hours,
-                    "sort_by": effective_sort,
-                    "source": source,
-                    "compact": compact,
-                },
-            ),
-        ).model_dump(
-            mode="json",
-            exclude=(
-                {"data": {"items": {"__all__": {"content"}}}} if view == "list" else None
-            ),
-        )
-
+    except APIError:
+        raise  # a validation error stays its own 4xx, not a generic 500
     except Exception as e:
         raise _server_error("Failed to get content", e) from e
 
@@ -1110,6 +1162,7 @@ async def get_kinds(
 
 @app.get("/api/search", dependencies=[Depends(verify_api_key)])
 async def semantic_search(
+    request: Request,
     q: str = Query(..., min_length=1, description="Search query"),
     limit: int = Query(20, le=50, ge=1, description="Maximum results to return"),
     min_score: float = Query(
@@ -1196,6 +1249,8 @@ async def semantic_search(
                 {k: v for k, v in item.items() if k in compact_fields}
                 for item in results
             ]
+
+        request.state.item_count = len(results)
 
         # INV-API-TS-4: same Pydantic-routed path as /api/entries.
         return ContentResponse(

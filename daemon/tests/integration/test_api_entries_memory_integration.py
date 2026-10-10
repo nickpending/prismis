@@ -12,11 +12,13 @@ internals stubbed. tracemalloc measures the peak Python allocation of each reque
 the old path, which materialises the whole corpus, allocates well past the bound.
 """
 
+import asyncio
 import json
 import tracemalloc
 from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -95,4 +97,65 @@ def test_list_view_over_the_whole_table_stays_under_the_bound(
 ) -> None:
     peak, items = _peak_of_request(big_client, "/api/entries?limit=10000&view=list")
     assert len(items) == ROW_COUNT
+    assert peak < PEAK_BOUND_BYTES, f"peak {peak / 1e6:.1f} MB"
+
+
+def _peak_of_discarded_request(path: str, query: bytes) -> tuple[int, int]:
+    """Peak allocation of one request whose body the caller throws away as it arrives.
+
+    TestClient keeps the whole body, which is the client's memory and not the server's;
+    here `send` counts the bytes and drops them, so the peak is the app's.
+    """
+    sent = 0
+
+    async def send(message: dict[str, Any]) -> None:
+        nonlocal sent
+        if message["type"] == "http.response.body":
+            sent += len(message.get("body", b""))
+
+    requested = False
+
+    async def receive() -> dict[str, Any]:
+        nonlocal requested
+        if not requested:
+            requested = True
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await asyncio.Event().wait()  # a connected client sends nothing more
+        raise AssertionError("unreachable")
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "root_path": "",
+        "query_string": query,
+        "headers": [(b"x-api-key", TEST_API_KEY.encode())],
+        "client": ("testclient", 1234),
+        "server": ("testserver", 80),
+    }
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        asyncio.run(app(scope, receive, send))  # type: ignore[arg-type]
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return peak, sent
+
+
+def test_full_view_over_the_whole_table_stays_under_the_bound(
+    big_client: TestClient,
+) -> None:
+    """
+    INVARIANT: a full-content 10,000-item request costs the app a few items, not the table
+    BREAKS: the response is built or buffered whole -- about 200 MB of content and
+            analysis.full_text here -- before the first byte goes out
+    """
+    query = b"limit=10000" + chr(38).encode() + b"view=full"
+    peak, sent = _peak_of_discarded_request("/api/entries", query)
+    assert sent > ROW_COUNT * 2 * len(BLOB)  # every row's content and full_text went out
     assert peak < PEAK_BOUND_BYTES, f"peak {peak / 1e6:.1f} MB"

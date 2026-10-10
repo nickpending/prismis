@@ -4,6 +4,7 @@ import json
 import sqlite3
 import time
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from operator import itemgetter
 from pathlib import Path
@@ -931,6 +932,10 @@ class Storage:
         "preference_influenced",
     )
 
+    # Rows pulled off the list cursor per fetch: few round trips, yet a full view of
+    # 50 KB rows holds a few MB at a time.
+    _LIST_FETCH_BATCH = 50
+
     # ORDER BY per sort; priority orders high, medium, low, then NULL.
     _LIST_ORDER_BY: ClassVar[dict[str, str]] = {
         "priority": (
@@ -955,8 +960,118 @@ class Storage:
         unread_only: bool = False,
         interesting: bool = False,
     ) -> list[dict[str, Any]]:
+        """One bounded SQL read behind GET /api/entries, collected into a list.
+
+        The same query `iter_content_list` streams; see it for the arguments, the two
+        views and what is raised.
+        """
+        return list(
+            self.iter_content_list(
+                limit,
+                view=view,
+                sort_by=sort_by,
+                since=since,
+                include_archived=include_archived,
+                source_filter=source_filter,
+                kind_filter=kind_filter,
+                priorities=priorities,
+                unread_only=unread_only,
+                interesting=interesting,
+            )
+        )
+
+    @staticmethod
+    def _content_list_where(
+        *,
+        since: datetime | None,
+        include_archived: bool,
+        source_filter: str | None,
+        kind_filter: list[str] | None,
+        priorities: list[str] | None,
+        unread_only: bool,
+        interesting: bool,
+    ) -> tuple[str, list[Any]]:
+        """The WHERE clause and params shared by the list read and its count."""
+        where = " WHERE 1=1"
+        params: list[Any] = []
+        if since is not None:
+            where += " AND datetime(c.fetched_at) > datetime(?)"
+            params.append(since.isoformat())
+        if not include_archived:
+            where += " AND c.archived_at IS NULL"
+        if source_filter:
+            where += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
+            params.append(source_filter)
+        where += Storage._kind_filter_sql(kind_filter, params)
+        if priorities:
+            where += f" AND c.priority IN ({','.join(['?'] * len(priorities))})"
+            params.extend(priorities)
+        if unread_only:
+            where += " AND c.read = 0"
+        if interesting:
+            where += " AND c.user_feedback = 'up'"
+        return where, params
+
+    def count_content_list(
+        self,
+        limit: int,
+        *,
+        since: datetime | None = None,
+        include_archived: bool = False,
+        source_filter: str | None = None,
+        kind_filter: list[str] | None = None,
+        priorities: list[str] | None = None,
+        unread_only: bool = False,
+        interesting: bool = False,
+    ) -> int:
+        """How many rows `iter_content_list` yields for the same filters and `limit`.
+
+        Reads no content or analysis, so a caller that must state the count before it
+        streams the rows pays one narrow scan, not the rows.
+
+        Raises:
+            sqlite3.Error: if the query fails.
+        """
+        where, params = self._content_list_where(
+            since=since,
+            include_archived=include_archived,
+            source_filter=source_filter,
+            kind_filter=kind_filter,
+            priorities=priorities,
+            unread_only=unread_only,
+            interesting=interesting,
+        )
+        try:
+            row = self.conn.execute(
+                "SELECT COUNT(*) FROM (SELECT 1 FROM content c"
+                " JOIN sources s ON c.source_id = s.id"
+                f"{where} LIMIT ?)",
+                (*params, limit),
+            ).fetchone()
+            return int(row[0])
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to count content list: {e}") from e
+
+    def iter_content_list(
+        self,
+        limit: int = 50,
+        *,
+        view: str = "full",
+        sort_by: str = "priority",
+        since: datetime | None = None,
+        include_archived: bool = False,
+        source_filter: str | None = None,
+        kind_filter: list[str] | None = None,
+        priorities: list[str] | None = None,
+        unread_only: bool = False,
+        interesting: bool = False,
+    ) -> Iterator[dict[str, Any]]:
         """One bounded SQL read behind GET /api/entries: filter, sort and LIMIT all
-        run in SQLite, so at most `limit` rows are ever read into Python.
+        run in SQLite, and rows come off one cursor in small batches, so a caller
+        that serializes each item as it arrives holds a batch, not `limit` items.
+
+        The query runs when this is called, so a bad query raises here and not on the
+        first item. The connection must stay open until the iterator is exhausted.
 
         Args:
             limit: Maximum rows returned.
@@ -979,7 +1094,7 @@ class Storage:
 
         Raises:
             ValueError: unknown `view`.
-            sqlite3.Error: if the query fails.
+            sqlite3.Error: if the query fails, here or while iterating.
         """
         if view not in ("full", "list"):
             raise ValueError(f"Unknown content view: {view!r}")
@@ -1005,47 +1120,48 @@ class Storage:
                 )
             else:
                 columns = "c.*"
+            where, params = self._content_list_where(
+                since=since,
+                include_archived=include_archived,
+                source_filter=source_filter,
+                kind_filter=kind_filter,
+                priorities=priorities,
+                unread_only=unread_only,
+                interesting=interesting,
+            )
             query = (
                 f"SELECT {columns}, s.name as source_name, s.type as source_type"
-                " FROM content c JOIN sources s ON c.source_id = s.id WHERE 1=1"
+                " FROM content c JOIN sources s ON c.source_id = s.id"
+                f"{where} ORDER BY {order_by} LIMIT ?"
             )
-            params: list[Any] = []
-
-            if since is not None:
-                query += " AND datetime(c.fetched_at) > datetime(?)"
-                params.append(since.isoformat())
-            if not include_archived:
-                query += " AND c.archived_at IS NULL"
-            if source_filter:
-                query += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
-                params.append(source_filter)
-            query += self._kind_filter_sql(kind_filter, params)
-            if priorities:
-                query += f" AND c.priority IN ({','.join(['?'] * len(priorities))})"
-                params.extend(priorities)
-            if unread_only:
-                query += " AND c.read = 0"
-            if interesting:
-                query += " AND c.user_feedback = 'up'"
-
-            query += f" ORDER BY {order_by} LIMIT ?"
             params.append(limit)
+            cursor = self.conn.execute(query, tuple(params))
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get content list: {e}") from e
+        return self._iter_content_list_rows(cursor, view)
 
-            rows = self.conn.execute(query, tuple(params)).fetchall()
-            omit = ("created_at", "updated_at")
-            if view == "full":
-                items = self._map_content_rows(rows, omit=omit)
-                for item in items:
+    def _iter_content_list_rows(
+        self, cursor: sqlite3.Cursor, view: str
+    ) -> Iterator[dict[str, Any]]:
+        """Map the rows of a `iter_content_list` cursor one batch at a time."""
+        omit = ("created_at", "updated_at")
+        try:
+            while batch := cursor.fetchmany(self._LIST_FETCH_BATCH):
+                for row in batch:
+                    if view == "list":
+                        yield self._list_row_to_dict(row)
+                        continue
+                    item = self._content_row_to_dict(row, omit=omit)
                     analysis = item.get("analysis")
                     item["has_deep_extraction"] = (
                         isinstance(analysis, dict)
                         and analysis.get("deep_extraction") is not None
                     )
-                return items
-            return [self._list_row_to_dict(row) for row in rows]
-
+                    yield item
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get content list: {e}") from e
+        finally:
+            cursor.close()
 
     @staticmethod
     def _list_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:

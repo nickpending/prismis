@@ -37,8 +37,6 @@ in this file; the rest are existing tests, under daemon/tests/ (cli/tests/ for t
   api.py get_validator              ValueError, OSError
       integration/test_api_integration.py
       test_validator_dependency_degrades_when_config_will_not_load
-  api.py _item_count                ValueError, AttributeError, TypeError
-      test_the_request_log_counts_items_only_in_the_list_envelope
   config.py context.md read         OSError, UnicodeDecodeError (re-raised as ValueError)
       unit/test_config_unit.py
       test_config_loading_with_unreadable_context_raises_naming_context_md,
@@ -86,7 +84,6 @@ import requests
 from rich.console import Console
 
 from prismis_daemon.__main__ import verify
-from prismis_daemon.api import _item_count
 from prismis_daemon.fetchers.reddit import RedditFetcher
 from prismis_daemon.fetchers.rss import RSSFetcher
 from prismis_daemon.fetchers.youtube import YouTubeFetcher
@@ -96,30 +93,6 @@ from prismis_daemon.verify_chain import execute_chain
 
 from conftest import make_config
 from fixtures.reddit_mocks import create_link_post_mock
-
-
-# --- api.py -----------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("body", "expected"),
-    [
-        (b'{"success": true, "data": {"items": [1, 2, 3]}}', 3),
-        (b"<html>not json</html>", None),
-        (b"[1, 2, 3]", None),
-        (b'{"success": true, "data": 7}', None),
-        (b'{"success": true}', None),
-    ],
-    ids=["envelope", "not-json", "array", "data-not-object", "no-data"],
-)
-def test_the_request_log_counts_items_only_in_the_list_envelope(
-    body: bytes, expected: int | None
-) -> None:
-    """
-    INVARIANT: a list endpoint body that is not the JSON envelope costs the count only
-    BREAKS: the parse error escapes the request-logging middleware and the request fails
-    """
-    assert _item_count(body) == expected
 
 
 # --- fetchers/youtube.py ----------------------------------------------------------------

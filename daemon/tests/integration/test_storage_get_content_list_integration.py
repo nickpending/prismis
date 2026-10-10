@@ -252,3 +252,64 @@ def test_one_sql_statement_per_call(storage: Storage) -> None:
     storage.conn.set_trace_callback(None)
     selects = [s for s in statements if s.lstrip().upper().startswith("SELECT")]
     assert len(selects) == 1
+
+
+# --- iter_content_list / count_content_list (bounded-list-memory, SC-1) ---------------
+
+FILTERS: list[dict[str, Any]] = [
+    {},
+    {"priorities": ["high", "low"]},
+    {"unread_only": True},
+    {"interesting": True},
+    {"kind_filter": ["news"]},
+    {"source_filter": "beta"},
+    {"include_archived": True},
+    {"since": NOW - timedelta(days=5)},
+]
+
+
+@pytest.mark.parametrize("view", ["full", "list"])
+@pytest.mark.parametrize("filters", FILTERS, ids=[str(f) for f in FILTERS])
+def test_iterating_across_fetch_batches_yields_what_the_list_read_returns(
+    storage: Storage,
+    monkeypatch: pytest.MonkeyPatch,
+    view: str,
+    filters: dict[str, Any],
+) -> None:
+    """
+    INVARIANT: the iterator yields exactly get_content_list's rows, in order
+    BREAKS: a row is dropped or repeated where one fetch batch ends and the next begins
+    """
+    monkeypatch.setattr(Storage, "_LIST_FETCH_BATCH", 2)
+    streamed = list(storage.iter_content_list(100, view=view, **filters))
+    assert streamed == storage.get_content_list(limit=100, view=view, **filters)
+    assert len(streamed) >= 1
+
+
+@pytest.mark.parametrize("filters", FILTERS, ids=[str(f) for f in FILTERS])
+@pytest.mark.parametrize("limit", [1, 3, 100])
+def test_count_is_the_number_of_rows_the_iterator_yields(
+    storage: Storage, filters: dict[str, Any], limit: int
+) -> None:
+    """
+    INVARIANT: count_content_list announces exactly the rows iter_content_list sends
+    BREAKS: the message and total of a streamed response disagree with its items
+    """
+    expected = len(list(storage.iter_content_list(limit, **filters)))
+    assert storage.count_content_list(limit, **filters) == expected
+
+
+def test_an_unknown_view_raises_when_called_not_on_the_first_row(
+    storage: Storage,
+) -> None:
+    with pytest.raises(ValueError, match="Unknown content view"):
+        storage.iter_content_list(5, view="bogus")
+
+
+def test_the_connection_is_usable_after_the_iterator_is_abandoned(
+    storage: Storage,
+) -> None:
+    rows = storage.iter_content_list(100)
+    next(rows)
+    rows.close()  # type: ignore[attr-defined]
+    assert len(storage.get_content_list(limit=100)) == 7

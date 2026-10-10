@@ -1,0 +1,62 @@
+{
+  "workOrder": "refetch-hn-discussion",
+  "issues": [],
+  "what": "Make `prismis-daemon refetch` add a Hacker News story's discussion the way the live RSS fetch does, through the one shared discussion method, so HN stories stored title-only before hn-discussion shipped can be recovered.",
+  "why": "Design: docs/work/refetch-hn-discussion/design.md. On cerebro on 2026-10-10, 39 non-archived HN stories hold only the feed's comments link and stay title-only on refetch, because refetch's rss branch re-extracts the article alone and never reads the discussion.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a real test database holding a title-only HN story whose stored content is the feed's comments link, an article URL that returns 403, and recorded HN API responses with comments",
+      "when": "run_refetch runs for source type rss",
+      "then": "it fails if the item is not stored readable with content_basis = \"discussion\", the discussion's comments in its content and the report counting it recovered; otherwise all three hold, and the test is shown red with the discussion step removed from refetch"
+    },
+    {
+      "id": "SC-2",
+      "given": "the same story whose article URL now returns a readable article",
+      "when": "run_refetch runs",
+      "then": "it fails if the content lacks the article or the discussion, or the analysis carries a content_basis key; otherwise it holds both and no content_basis"
+    },
+    {
+      "id": "SC-3",
+      "given": "an HN story whose discussion has no comments, and one whose HN API read fails (recorded 500)",
+      "when": "run_refetch runs",
+      "then": "it fails if either is stored readable or counted recovered, or the failed read leaves no comments_outcome on the item; otherwise both stay title-only, both are counted still title-only, and the failed one records comments_outcome {outcome: fetch_failed}"
+    },
+    {
+      "id": "SC-4",
+      "given": "an Ask/Show HN self post whose url is its own news.ycombinator.com/item?id=<id> page",
+      "when": "run_refetch runs",
+      "then": "it fails if article extraction is attempted against the HN page or the item's own text from the API is not the body; otherwise the body is the item text followed by its comments"
+    },
+    {
+      "id": "SC-5",
+      "given": "an rss row whose stored content holds no HN item link",
+      "when": "run_refetch runs",
+      "then": "it fails if any HN API request is made for it or its result differs from refetch before this change; otherwise none is made and it is refetched article-only"
+    },
+    {
+      "id": "SC-6",
+      "given": "the source tree after the change",
+      "when": "refetch.py and fetchers/rss.py are read",
+      "then": "it fails if refetch.py fetches or formats HN comments itself instead of calling the RSS fetcher's discussion method, or if the HN item-link pattern is defined twice; otherwise both callers share one method and one pattern"
+    },
+    {
+      "id": "SC-7",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "The story id is recovered from the stored content; a row whose content no longer holds the item link refetches article-only (none on cerebro on 2026-10-10: all 39 unreadable HN rows hold it).",
+    "Items already readable but judged not substantive (8 HN items on cerebro) are not refetched, as refetch selects only unreadable content.",
+    "Running the backfill on cerebro waits on the operator, with the affected items and cost stated first."
+  ],
+  "stakes": [
+    "Refetching a stored title-only HN story whose article still fails and whose discussion has comments stores it readable, with content_basis = \"discussion\" and a summary of the discussion, proven through run_refetch against a real test database with the article and HN API responses recorded.",
+    "A story whose article now loads is recovered from the article plus its discussion, with no content_basis key, the same result a live fetch gives.",
+    "A story with no comments, or whose discussion read fails, stays title-only; the failure is recorded on the item as comments_outcome, and the refetch report counts it as still title-only, not recovered.",
+    "An rss row whose stored content holds no HN item link is refetched exactly as before this change.",
+    "The discussion is fetched and appended by one method that both the live RSS fetch and refetch call; no copy of that logic exists in refetch.py."
+  ]
+}

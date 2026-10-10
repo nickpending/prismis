@@ -1,0 +1,49 @@
+{
+  "workOrder": "bounded-list-memory",
+  "issues": [],
+  "what": "Stop the api.request logging middleware from buffering and re-parsing response bodies, and stream /api/entries item by item from a database cursor, so a full-content 10,000-item request costs about what a slim one does.",
+  "why": "Design: docs/work/bounded-list-memory/design.md. Found on real use 2026-10-10: an old TUI on bishop requested the full 10,000-item list and cerebro peaked at 2.9 GB of 3.9 GB; measured locally on a copy of cerebro's database, that request peaks at 2,954 MB against 642 MB for the slim view.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a test database with items of every priority, some with long content and analysis",
+      "when": "/api/entries is requested with view=full and view=list, with and without filters, sort options, since and skip_dedup=false",
+      "then": "it fails if any response body differs from the body the previous dict construction produced for the same request; otherwise every body is identical, and the test is shown red with one per-item field dropped from the stream"
+    },
+    {
+      "id": "SC-2",
+      "given": "a request that fails validation (an invalid priority, an invalid since)",
+      "when": "/api/entries handles it",
+      "then": "it fails if the response is not the same 4xx JSON envelope as before; otherwise it is"
+    },
+    {
+      "id": "SC-3",
+      "given": "the api.request middleware",
+      "when": "/api/entries and /api/search return 200",
+      "then": "it fails if the middleware reads the response body or the logged item_count is missing or wrong; otherwise item_count matches the number of items sent, read from request state"
+    },
+    {
+      "id": "SC-4",
+      "given": "the committed memory probe and a copy of cerebro's database",
+      "when": "the probe runs the full and the slim 10,000-item requests through the app in separate processes",
+      "then": "it fails if the full request's peak RSS exceeds the slim request's by more than 100 MB; otherwise it is within 100 MB, with the before and after figures recorded beside the work order"
+    },
+    {
+      "id": "SC-5",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "An error after the stream has started (a database failure mid-cursor) can only end the stream early, not change the status code; such a response is truncated JSON the client fails to parse rather than a clean 500.",
+    "Responses are sent chunked without a Content-Length."
+  ],
+  "stakes": [
+    "A full-content GET /api/entries?limit=10000 on a copy of cerebro's database peaks within 100 MB of the view=list request, down from 2,954 MB.",
+    "The JSON a client receives from /api/entries is unchanged for view=full and view=list: same envelope, same items in the same order, same fields and values, proven by a test that compares against the previous construction.",
+    "The logging middleware reads no response body, and api.request events keep item_count for /api/entries and /api/search.",
+    "Deduplication, filters, sorting, limits and errors behave as before: a validation error still returns the same 4xx envelope, not a broken stream.",
+    "After deploy, cerebro's memory peak stays under 1.5 GB through a full-list request from an old client."
+  ]
+}

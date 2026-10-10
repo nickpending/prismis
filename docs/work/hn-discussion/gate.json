@@ -1,0 +1,62 @@
+{
+  "scrutiny": [
+    {
+      "test": "T0 purpose: prismis prioritizes what the operator's sources publish (docs/IDEA.md); HN's discussion is often the substance of a story, and blocked articles are 14 of 234 HN items a week.",
+      "failureCase": "A change that leaves blocked stories unreadable.",
+      "result": "held"
+    },
+    {
+      "test": "T1 owners: the discussion format is owned by the Reddit fetcher and readability.py; title-only and its reason by analysis.title_only_reason; the design extends each in place and reverses the title-only-misfires rule only for discussion with prose, per the operator's 2026-10-10 decision.",
+      "failureCase": "A second discussion format or a second title-only producer.",
+      "result": "held"
+    },
+    {
+      "test": "T2 same noun: comment order was measured on a live item from both APIs, and the HN source's real feed URL and stored content were read on cerebro.",
+      "failureCase": "An API choice from memory.",
+      "result": "held"
+    },
+    {
+      "test": "T3 degrade: extra API calls per story and summaries that report commenters' views; both stated, and the basis marker carries the second.",
+      "failureCase": "A discussion summary that reads as the article.",
+      "result": "held"
+    },
+    {
+      "test": "T6 assumption: the summarizer needs the basis before it runs; the fetcher knows whether the article was readable, so the basis is decidable from the item's content and fetch_outcome before the summary call.",
+      "failureCase": "A basis known only after summarizing.",
+      "result": "held"
+    },
+    {
+      "test": "T7 consumers, by grep for REDDIT_DISCUSSION_HEADER: readability.py, fetchers/reddit.py and two test files; content_basis is a new additive analysis key read by the TUI reader and the CLI item view.",
+      "failureCase": "A reader of the header name left behind.",
+      "result": "held"
+    },
+    {
+      "test": "T9 six months: the header and comment format live in one helper both fetchers call, so HN and Reddit cannot drift.",
+      "failureCase": "Two copies of the format.",
+      "result": "held"
+    },
+    {
+      "test": "T10 reversibility: a revert; stored items keep their analysis JSON, and content_basis is additive.",
+      "failureCase": "A migration.",
+      "result": "held"
+    },
+    {
+      "test": "T11 class, sources with comment threads, from cerebro's active sources (29 rss, 6 reddit, 9 youtube, 2 file): Reddit (covered), Hacker News (this work), no Lobsters, Tildes or other comment-bearing feed; YouTube comments are not fetched and are out of this scope. Detection is by the HN comments link, so hnrss feeds are covered too. Existing title-only items are not rewritten; the existing `prismis-daemon refetch` can re-analyze them if the operator chooses to spend on it.",
+      "failureCase": "A comment-bearing source left out.",
+      "result": "held"
+    },
+    {
+      "test": "T20 walk: HN lists a Reuters story; the article fetch returns 401; the fetcher appends 5 ranked comments; readability finds discussion prose, so the item is readable with basis discussion; the summarizer, told the article is unavailable, summarizes the thread and judges it substantive; the TUI shows the summary under 'from the discussion \u2014 article unavailable'.",
+      "failureCase": "A step where the basis is lost.",
+      "result": "held"
+    }
+  ],
+  "decisions": [
+    {
+      "question": "When a story's article can't be fetched but it has a comment thread, what should prismis do with it, for both HN and Reddit?",
+      "answer": "Summarize the discussion, marked as from the discussion with the article unavailable (operator, 2026-10-10)."
+    }
+  ],
+  "verdict": "accept",
+  "carried": []
+}

@@ -1,0 +1,64 @@
+{
+  "workOrder": "homebrew-formulas",
+  "issues": [],
+  "what": "Author prismis-tui, prismis-cli and prismis-daemon Homebrew formulas under packaging/homebrew/ with a render script that fills url, sha256 and version for a release tag and generates prismis-cli's resources from cli/uv.lock; give cli/pyproject.toml an explicit hatchling [build-system]; lead the README Installation section with the brew commands.",
+  "why": "Design: docs/work/homebrew-formulas/design.md. gh #48 stays open until the formulas are published to nickpending/homebrew-prismis for a tagged release and installed from the tap, an outward-facing release step run with the operator's go after this merges; this work order builds and proves the formulas from the tree.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a throwaway local tap made with `brew tap-new` holding the three formulas from packaging/homebrew/",
+      "when": "`brew install --HEAD` and then `brew test` run for each formula, one at a time, each into a clean state",
+      "then": "it fails if any install or test fails or if installing one pulls in another prismis formula; otherwise prismis provides bin/prismis, prismis-cli provides bin/prismis-cli and prismis-daemon provides bin/prismis-daemon, and each test passes"
+    },
+    {
+      "id": "SC-2",
+      "given": "cli/uv.lock and the committed prismis-cli.rb",
+      "when": "the render script generates prismis-cli's resources for macOS",
+      "then": "it fails if a resource differs from the lock's sdist url and hash, a client-only dependency is missing, a [local]-only package or a Windows-only package (colorama) is included, or the committed formula's resources differ from the render; otherwise they match, and the test is shown red with one locked version changed"
+    },
+    {
+      "id": "SC-3",
+      "given": "prismis-daemon installed from the local tap",
+      "when": "`uv pip list` of its libexec environment is compared with `uv export --frozen --no-dev --no-emit-project` of daemon/uv.lock for macOS",
+      "then": "it fails if any locked package is installed at a different version; otherwise every locked package matches"
+    },
+    {
+      "id": "SC-4",
+      "given": "prismis-daemon installed from the local tap",
+      "when": "its service definition is rendered (the launchd plist brew writes for the service block)",
+      "then": "it fails if the plist does not run prismis-daemon with keep-alive and a log path under the brew prefix; otherwise it does, and a daemon started from that command with a ~/.config/prismis/.env holding OPENROUTER_API_KEY sees the variable"
+    },
+    {
+      "id": "SC-5",
+      "given": "a tag name and that tag's source tarball",
+      "when": "the render script fills the three formulas",
+      "then": "it fails if url, sha256 or version is wrong in any formula, or if anything else in the formulas changes; otherwise only those three fields change"
+    },
+    {
+      "id": "SC-6",
+      "given": "the three formulas' caveats and README.md",
+      "when": "they are read",
+      "then": "it fails if the client formulas' caveats omit the [remote] url and key step and the check command, the daemon's omit the OPENROUTER_API_KEY, context bootstrap, verify and brew services steps, or the README Installation section does not lead with the three brew commands; otherwise all are present"
+    },
+    {
+      "id": "SC-7",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "prismis-daemon downloads its wheels from PyPI at install time instead of shipping a bottle, so an install needs network access and takes as long as the torch download.",
+    "prismis-tui builds from source on each user's Mac, so installing it pulls Go as a build dependency.",
+    "Publishing to the tap is a release step run with the operator's go, not automatic on every merge.",
+    "Linux hosts such as cerebro keep make install; the formulas target macOS."
+  ],
+  "stakes": [
+    "Each of prismis-tui, prismis-cli and prismis-daemon installs alone with `brew install --HEAD` from a local tap built from this tree, and its `brew test` passes.",
+    "prismis-cli's resources are generated from cli/uv.lock, and a test fails if the committed formula's resources differ from what the lock renders.",
+    "prismis-daemon installs the exact daemon/uv.lock versions: after install, every locked package in its libexec environment has its locked version.",
+    "prismis-daemon's service block produces a launchd plist that runs prismis-daemon, and the daemon started that way reads keys from ~/.config/prismis/.env.",
+    "The render script, given a tag and its tarball, writes url, sha256 and version into all three formulas and nothing else changes.",
+    "Each formula's caveats name its setup step, and the README leads with the brew commands."
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "impacted": [
+    {
+      "path": "daemon/src/prismis_daemon/refetch.py",
+      "role": "the _reextract_item helper (line 174) re-extracts an rss row with extract_article only; _refetch_one (line 220) analyses a recovered row through orchestrator.analyze_and_store_item or rewrites title_only on a still-unreadable one"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/fetchers/rss.py",
+      "role": "the RssFetcher's _add_hn_discussion method (line 312), the one place a story's discussion is fetched and appended; the live loop (line 135) derives the HN id from the feed entry's comments link and records comments_outcome on the item (line 171)"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/hackernews.py",
+      "role": "story_id (line 58) reads the id from a whole comments-link string through _COMMENTS_LINK_RE (line 36), which is anchored at both ends, so it does not find the link inside stored HTML content"
+    }
+  ],
+  "constraints": [
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/refetch.py",
+      "line": 193,
+      "text": "The rss branch of _reextract_item calls extract_article(row['url'], ...) and nothing else, so a refetched HN story never gets its discussion."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/fetchers/rss.py",
+      "line": 135,
+      "text": "The HN id comes from entry.get('comments') at fetch time and is not persisted; external_id is a hash (cerebro rows such as 9c825ff1c4901a4c)."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/refetch.py",
+      "line": 174,
+      "text": "On cerebro on 2026-10-10: 47 non-archived title-only items from https://news.ycombinator.com/rss; 39 have unreadable content and every one of those contains news.ycombinator.com/item?id=<id>; the other 8 are model:not_substantive with readable content, which get_unreadable_content does not select."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/orchestrator.py",
+      "line": 65,
+      "text": "The orchestrator holds the RSS fetcher as self.rss_fetcher, which refetch already reaches through the orchestrator it is given."
+    },
+    {
+      "tag": "RULE",
+      "path": ".specify/memory/constitution.md",
+      "line": 28,
+      "text": "Principle I: third-party HTTP (HN's Firebase API) is the only thing faked in tests, through recorded vcrpy cassettes; internal code runs for real."
+    }
+  ],
+  "adrs": {
+    "scanned": 0,
+    "binding": []
+  },
+  "related": {
+    "query": "gh issue list --state open --search \"refetch OR hacker\"",
+    "issues": [
+      {
+        "number": 51,
+        "why": "a refetch policy for sources that update after fetch (Reddit threads, edited posts); this work does not re-read readable items, so #51 stays open and unaffected"
+      }
+    ]
+  },
+  "reuse": [
+    {
+      "path": "daemon/src/prismis_daemon/fetchers/rss.py",
+      "what": "the RssFetcher's _add_hn_discussion method, called from refetch rather than copied"
+    },
+    {
+      "path": "daemon/src/prismis_daemon/hackernews.py",
+      "what": "the HN item-link pattern, shared by an unanchored search for the id inside stored content"
+    }
+  ],
+  "open": []
+}

@@ -1,0 +1,21 @@
+{
+  "impacted": [
+    {"path": "daemon/src/prismis_daemon/api.py", "role": "_item_count (line 98) json.loads a whole body; the api.request logging middleware (line 113) buffers list responses with body += chunk and rebuilds them; get_content, the /api/entries handler (line 879), builds every item dict and returns the whole envelope"},
+    {"path": "daemon/src/prismis_daemon/storage.py", "role": "get_content_list (line 944), the one bounded SQL read the handler uses, returns a list"},
+    {"path": "daemon/src/prismis_daemon/api.py", "role": "get_storage (line 221), the yield dependency that opens and closes the Storage for a request"}
+  ],
+  "constraints": [
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/api.py", "line": 879, "text": "Measured 2026-10-10 on a copy of cerebro's database through the app with TestClient: full 10,000-item request 2,954 MB peak RSS for a 265.7 MB body; view=list 642 MB for 15.1 MB; full with the logging middleware removed 2,176 MB."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/api.py", "line": 113, "text": "cerebro's observability log shows GET /api/entries?limit=10000 (no view) from 172.30.100.27, the UniFi gateway address every routed client appears as, at 2026-10-10T18:26:30Z, during the run whose systemd memory peak was 2.9 GB."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/api.py", "line": 221, "text": "FastAPI 0.142.3's request_response wraps 'await response(scope, receive, send)' inside the request-scope AsyncExitStack (fastapi/routing.py), so a request-scoped yield dependency like get_storage stays open while a StreamingResponse is sent."},
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 84, "text": "Principle VIII: the API changes additively; the streamed body must keep the envelope and every field old and new clients read."},
+    {"tag": "INFERENCE", "path": "daemon/src/prismis_daemon/api.py", "line": 879, "text": "Streaming bounds memory only if rows come from a cursor rather than a pre-built list, so storage needs an iterating read beside get_content_list sharing its SQL."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --search \"memory OR OOM OR stream\"", "issues": []},
+  "reuse": [
+    {"path": "daemon/src/prismis_daemon/storage.py", "what": "get_content_list's SQL, shared by an iterating variant"},
+    {"path": "daemon/src/prismis_daemon/api.py", "what": "the per-item helpers (_item_kind, _item_title_only, _item_title_only_reason) applied per row"}
+  ],
+  "open": []
+}

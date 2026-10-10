@@ -10,7 +10,7 @@ from collections.abc import AsyncGenerator, Iterable
 from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -51,7 +51,7 @@ from .embeddings import Embedder
 from .kind_classifier import KINDS
 from .observability import log as obs_log
 from .reports import ReportGenerator
-from .storage import Storage
+from .storage import ContentListFilters, Storage
 from .validator import SourceValidator
 
 console = Console()
@@ -845,18 +845,6 @@ async def resume_source(
         raise _server_error("Failed to resume source", e) from e
 
 
-class _ContentListFilters(TypedDict):
-    """The storage filters /api/entries passes to every list read it makes."""
-
-    since: datetime | None
-    include_archived: bool
-    source_filter: str | None
-    kind_filter: list[str] | None
-    priorities: list[str] | None
-    unread_only: bool
-    interesting: bool
-
-
 # Fields a compact entry keeps.
 _ENTRIES_COMPACT_FIELDS = frozenset(
     {
@@ -1039,7 +1027,7 @@ async def get_content(
         # One bounded SQL read: filter, sort and LIMIT all run in SQLite. The kind
         # filter is part of that WHERE clause, applied before the LIMIT
         # (search-kind-filter SC-2/SC-5).
-        filters: _ContentListFilters = {
+        filters: ContentListFilters = {
             "since": since_dt,
             "include_archived": include_archived,
             "source_filter": source,

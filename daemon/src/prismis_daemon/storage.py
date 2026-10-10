@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypedDict, Unpack
 
 from .database import get_db_connection
 from .models import ContentItem
@@ -23,6 +23,25 @@ def utc_now_iso() -> str:
     (INV-STORAGE-TS-1).
     """
     return datetime.now(UTC).isoformat()
+
+
+class ContentListFilters(TypedDict, total=False):
+    """The row filters of a content list read; an absent key means no filter."""
+
+    since: datetime | None
+    include_archived: bool
+    source_filter: str | None
+    kind_filter: list[str] | None
+    priorities: list[str] | None
+    unread_only: bool
+    interesting: bool
+
+
+class ContentListArgs(ContentListFilters, total=False):
+    """Every option of a content list read: the filters, the view and the sort."""
+
+    view: str
+    sort_by: str
 
 
 class Storage:
@@ -949,55 +968,30 @@ class Storage:
     def get_content_list(
         self,
         limit: int = 50,
-        *,
-        view: str = "full",
-        sort_by: str = "priority",
-        since: datetime | None = None,
-        include_archived: bool = False,
-        source_filter: str | None = None,
-        kind_filter: list[str] | None = None,
-        priorities: list[str] | None = None,
-        unread_only: bool = False,
-        interesting: bool = False,
+        **options: Unpack[ContentListArgs],
     ) -> list[dict[str, Any]]:
         """One bounded SQL read behind GET /api/entries, collected into a list.
 
         The same query `iter_content_list` streams; see it for the arguments, the two
         views and what is raised.
         """
-        return list(
-            self.iter_content_list(
-                limit,
-                view=view,
-                sort_by=sort_by,
-                since=since,
-                include_archived=include_archived,
-                source_filter=source_filter,
-                kind_filter=kind_filter,
-                priorities=priorities,
-                unread_only=unread_only,
-                interesting=interesting,
-            )
-        )
+        return list(self.iter_content_list(limit, **options))
 
     @staticmethod
     def _content_list_where(
-        *,
-        since: datetime | None,
-        include_archived: bool,
-        source_filter: str | None,
-        kind_filter: list[str] | None,
-        priorities: list[str] | None,
-        unread_only: bool,
-        interesting: bool,
+        **filters: Unpack[ContentListArgs],
     ) -> tuple[str, list[Any]]:
         """The WHERE clause and params shared by the list read and its count."""
+        since = filters.get("since")
+        source_filter = filters.get("source_filter")
+        kind_filter = filters.get("kind_filter")
+        priorities = filters.get("priorities")
         where = " WHERE 1=1"
         params: list[Any] = []
         if since is not None:
             where += " AND datetime(c.fetched_at) > datetime(?)"
             params.append(since.isoformat())
-        if not include_archived:
+        if not filters.get("include_archived", False):
             where += " AND c.archived_at IS NULL"
         if source_filter:
             where += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
@@ -1006,23 +1000,16 @@ class Storage:
         if priorities:
             where += f" AND c.priority IN ({','.join(['?'] * len(priorities))})"
             params.extend(priorities)
-        if unread_only:
+        if filters.get("unread_only", False):
             where += " AND c.read = 0"
-        if interesting:
+        if filters.get("interesting", False):
             where += " AND c.user_feedback = 'up'"
         return where, params
 
     def count_content_list(
         self,
         limit: int,
-        *,
-        since: datetime | None = None,
-        include_archived: bool = False,
-        source_filter: str | None = None,
-        kind_filter: list[str] | None = None,
-        priorities: list[str] | None = None,
-        unread_only: bool = False,
-        interesting: bool = False,
+        **filters: Unpack[ContentListFilters],
     ) -> int:
         """How many rows `iter_content_list` yields for the same filters and `limit`.
 
@@ -1032,15 +1019,7 @@ class Storage:
         Raises:
             sqlite3.Error: if the query fails.
         """
-        where, params = self._content_list_where(
-            since=since,
-            include_archived=include_archived,
-            source_filter=source_filter,
-            kind_filter=kind_filter,
-            priorities=priorities,
-            unread_only=unread_only,
-            interesting=interesting,
-        )
+        where, params = self._content_list_where(**filters)
         try:
             row = self.conn.execute(
                 "SELECT COUNT(*) FROM (SELECT 1 FROM content c"
@@ -1055,16 +1034,7 @@ class Storage:
     def iter_content_list(
         self,
         limit: int = 50,
-        *,
-        view: str = "full",
-        sort_by: str = "priority",
-        since: datetime | None = None,
-        include_archived: bool = False,
-        source_filter: str | None = None,
-        kind_filter: list[str] | None = None,
-        priorities: list[str] | None = None,
-        unread_only: bool = False,
-        interesting: bool = False,
+        **options: Unpack[ContentListArgs],
     ) -> Iterator[dict[str, Any]]:
         """One bounded SQL read behind GET /api/entries: filter, sort and LIMIT all
         run in SQLite, and rows come off one cursor in small batches, so a caller
@@ -1096,8 +1066,10 @@ class Storage:
             ValueError: unknown `view`.
             sqlite3.Error: if the query fails, here or while iterating.
         """
+        view = options.get("view", "full")
         if view not in ("full", "list"):
             raise ValueError(f"Unknown content view: {view!r}")
+        sort_by = options.get("sort_by", "priority")
         order_by = self._LIST_ORDER_BY.get(sort_by, self._LIST_ORDER_BY["priority"])
         try:
             if view == "list":
@@ -1120,15 +1092,7 @@ class Storage:
                 )
             else:
                 columns = "c.*"
-            where, params = self._content_list_where(
-                since=since,
-                include_archived=include_archived,
-                source_filter=source_filter,
-                kind_filter=kind_filter,
-                priorities=priorities,
-                unread_only=unread_only,
-                interesting=interesting,
-            )
+            where, params = self._content_list_where(**options)
             query = (
                 f"SELECT {columns}, s.name as source_name, s.type as source_type"
                 " FROM content c JOIN sources s ON c.source_id = s.id"

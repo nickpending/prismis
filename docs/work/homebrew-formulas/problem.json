@@ -1,0 +1,16 @@
+{
+  "what": "Close gh #48: three Homebrew formulas, one per prismis component, each installable alone: prismis-tui (the TUI, for humans), prismis-cli (the client CLI, for agents) and prismis-daemon (the fetching daemon, with a launchd service), so a Mac user installs exactly the part they need with brew instead of cloning the repo and running make.",
+  "why": "Installing today needs git clone, Go and uv toolchains and `make install` (README Installation). The operator's own fleet already splits by component, which the Makefile mirrors (install-tui 'for remote machines', client-only install-cli, install-daemon), and the TUI serves humans while the CLI serves agents, so a machine that runs agents wants the CLI alone and a reader's Mac wants the TUI and CLI against a remote daemon. The repo is public (13 stars), so a tap is reachable by anyone; the latest GitHub release, v0.2.0 from 2026-04-08, predates every change since and describes the llm-core era.",
+  "decided": [
+    "Three formulas, prismis-tui, prismis-cli and prismis-daemon, each with no dependency on the others, so any one installs alone.",
+    "prismis-tui builds from the tagged source on the user's machine (depends_on go at build time): brew allows network access during builds by default (Homebrew's formula.rb DEFAULT_NETWORK_ACCESS_ALLOWED), so Go modules download and the cgo sqlite driver (mattn/go-sqlite3) compiles with the native clang, and no prebuilt binaries or CI cross-compiles are needed.",
+    "prismis-cli installs the client-only CLI (no [local] extra, no prismis_daemon) into a brew virtualenv from resources pinned to cli/uv.lock: its runtime dependencies (httpx, python-dotenv, rich, typer and their transitive set) are pure Python, which brew's pip path (--no-binary=:all:, with py3-none-any wheels allowed) can install.",
+    "prismis-daemon cannot use brew's standard Python path, because torch, tokenizers, pydantic-core and scipy cannot build from source; it installs with uv into the formula's libexec using daemon/uv.lock as constraints (binary wheels, the same pinned set the gate tests), on brew's python@3.14.",
+    "prismis-daemon carries a brew `service` block that runs the daemon under launchd; provider keys reach it the way they do everywhere, as environment variables, via ~/.config/prismis/.env, which the daemon already loads at startup.",
+    "Each client formula's caveats print the one setup step it needs (the [remote] url and key in ~/.config/prismis/config.toml) and a check that it works; the daemon formula's caveats print the first-run path (OPENROUTER_API_KEY, prismis-cli context bootstrap, verify).",
+    "Formulas install from a tagged GitHub release's source tarball, so shipping needs a fresh release; creating that public release is an outward-facing step the operator confirms at deploy."
+  ],
+  "open": [
+    "Where do the formulas live: a separate public nickpending/homebrew-prismis tap repo (the standard one-line `brew install nickpending/prismis/prismis-tui`), or a Formula/ directory inside the prismis repo itself (no second repo, but users run `brew tap nickpending/prismis https://github.com/nickpending/prismis` once before installing)?"
+  ]
+}

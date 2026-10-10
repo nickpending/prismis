@@ -18,7 +18,7 @@ from ..praw_defaults import pin_praw_defaults
 from ..models import ContentItem
 from ..observability import log as obs_log
 from ..readability import (
-    REDDIT_DISCUSSION_HEADER,
+    format_discussion,
     format_reddit_link_only,
     is_readable,
 )
@@ -502,15 +502,7 @@ class RedditFetcher:
         if not already_readable:
             comments, comments_outcome = self._fetch_comments(submission)
         if comments:
-            # Format comments as markdown discussion section with author attribution
-            discussion = f"\n\n{REDDIT_DISCUSSION_HEADER}\n\n"
-            formatted_comments = []
-            for comment in comments:
-                # Format as: **u/author:**\n> comment body (blockquote for clarity)
-                formatted = f"**u/{comment['author']}:**\n> {comment['body']}"
-                formatted_comments.append(formatted)
-            discussion += "\n\n".join(formatted_comments)
-            content += discussion
+            content += format_discussion(comments, author_prefix="u/")
             logger.debug(f"Enriched content with {len(comments)} comments")
 
         # Parse published date (Reddit uses Unix timestamp) - make timezone-aware

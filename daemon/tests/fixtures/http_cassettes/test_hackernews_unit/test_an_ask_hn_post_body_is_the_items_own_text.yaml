@@ -1,0 +1,98 @@
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://news.ycombinator.com/rss
+  response:
+    body:
+      string: <?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Hacker News</title><link>https://news.ycombinator.com/</link><description>Links
+        for the intellectually curious, ranked by readers.</description><item><title>How do Lightroom/DxO
+        achieve such good AI denoising results?</title><link>https://news.ycombinator.com/item?id=50034715</link><pubDate>Sat,
+        10 Oct 2026 16:51:39 GMT</pubDate><comments>https://news.ycombinator.com/item?id=50034715</comments><description><![CDATA[<a
+        href="https://news.ycombinator.com/item?id=50034715">Comments</a>]]></description></item></channel></rss>
+    headers:
+      Content-Type:
+      - application/rss+xml; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://hacker-news.firebaseio.com/v0/item/50034715.json
+  response:
+    body:
+      string: '{"by":"febed","descendants":1,"id":50034715,"kids":[50034826],"score":3,"text":"I&#x27;m
+        curious about the technical details behind the RAW denoising in Adobe Lightroom, DxO DeepPRIME,
+        etc. What makes these propreitary solutions so much better than open-source models like RawNIND?","time":1791651099,"title":"How
+        do Lightroom/DxO achieve such good AI denoising results?","type":"story"}'
+    headers:
+      Cache-Control:
+      - no-cache
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '387'
+      Content-Type:
+      - application/json; charset=utf-8
+      Date:
+      - Sat, 10 Oct 2026 19:35:07 GMT
+      Server:
+      - nginx
+      Strict-Transport-Security:
+      - max-age=31556926; includeSubDomains; preload
+      access-control-allow-origin:
+      - '*'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://hacker-news.firebaseio.com/v0/item/50034826.json
+  response:
+    body:
+      string: '{"by":"PaulHoule","id":50034826,"parent":50034715,"text":"Here&#x27;s the RawNIND paper<p><a
+        href=\"https:&#x2F;&#x2F;arxiv.org&#x2F;pdf&#x2F;2501.08924\" rel=\"nofollow\">https:&#x2F;&#x2F;arxiv.org&#x2F;pdf&#x2F;2501.08924</a><p>I&#x27;d
+        be inclined to say that DxO could have done something similar but just spent more resources developing
+        it.","time":1791651697,"type":"comment"}'
+    headers:
+      Cache-Control:
+      - no-cache
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '383'
+      Content-Type:
+      - application/json; charset=utf-8
+      Date:
+      - Sat, 10 Oct 2026 19:35:07 GMT
+      Server:
+      - nginx
+      Strict-Transport-Security:
+      - max-age=31556926; includeSubDomains; preload
+      access-control-allow-origin:
+      - '*'
+    status:
+      code: 200
+      message: OK
+version: 1

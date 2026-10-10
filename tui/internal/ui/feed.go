@@ -710,6 +710,13 @@ func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
 	rightBracket := lipgloss.NewStyle().Foreground(theme.Gray).Bold(true).Render(" ]")
 	content.WriteString(priorityDotRendered + " " + titleText + leftBracket + metadataStr + rightBracket)
 
+	// Discussion-basis notice: the summary was written from the reader discussion
+	// because the article could not be read, so it is not the article's. On its own
+	// line so the narrow reader pane does not wrap it inside the brackets.
+	if parseMetadata(item.Analysis).ContentBasis == contentBasisDiscussion {
+		content.WriteString("\n" + lipgloss.NewStyle().Foreground(theme.Orange).Render(discussionBasisNotice))
+	}
+
 	content.WriteString("\n\n")
 
 	// Divider

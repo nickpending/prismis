@@ -27,12 +27,17 @@ import re
 RSS_NO_CONTENT_FALLBACK = "No content available"
 
 # fetchers/reddit.py's `_to_content_item` writes content starting with this prefix
-# for every link post, before (or instead of) any extracted article text.
+# for every link post, before (or instead of) any extracted article text; the RSS
+# fetcher writes it for a Hacker News story whose article it could not read.
 REDDIT_LINK_PREFIX = "Link: "
 
-# The header fetchers/reddit.py's `_to_content_item` puts above a post's comments; the
-# link-without-article rule reads the text before it.
-REDDIT_DISCUSSION_HEADER = "## Discussion"
+# The header both fetchers/reddit.py and fetchers/rss.py put above a story's comments;
+# the link-without-article rule reads the text before it and the discussion after it.
+DISCUSSION_HEADER = "## Discussion"
+
+# The `content_basis` analysis value for an item whose readable text is its discussion
+# only, the article being absent.
+CONTENT_BASIS_DISCUSSION = "discussion"
 
 # fetchers/youtube.py's `_handle_missing_transcript` writes content ending in this
 # sentence when yt-dlp found no transcript for a video.
@@ -71,6 +76,23 @@ def format_reddit_link_only(url: str) -> str:
     return f"{REDDIT_LINK_PREFIX}{url}"
 
 
+def format_discussion(comments: list[dict[str, str]], author_prefix: str = "") -> str:
+    """The discussion block both fetchers append to an item's content.
+
+    Each comment is a dict with `author` and `body`; it is written as a bold author
+    line over the body as a blockquote, under `DISCUSSION_HEADER`. Reddit passes
+    `u/` as `author_prefix`. An empty list gives an empty string: no header over
+    nothing.
+    """
+    if not comments:
+        return ""
+    formatted = [
+        f"**{author_prefix}{comment['author']}:**\n> {comment['body']}"
+        for comment in comments
+    ]
+    return f"\n\n{DISCUSSION_HEADER}\n\n" + "\n\n".join(formatted)
+
+
 def format_youtube_no_transcript(title: str) -> str:
     """The content a YouTube video gets when yt-dlp found no transcript for it.
 
@@ -93,18 +115,20 @@ def _is_reddit_link_only(normalized: str) -> bool:
     return bool(remainder) and " " not in remainder
 
 
-def _is_reddit_link_without_article(stripped: str) -> bool:
-    """`stripped` starts with the link line and nothing but whitespace stands between
-    that line and the discussion header (or the end): no self-text, no article."""
+def _discussion_of_link_without_article(stripped: str) -> str | None:
+    """The discussion text of `stripped` when it is a link line and nothing but
+    whitespace stands between that line and the discussion header (or the end): no
+    self-text, no article. None when `stripped` is not that shape; "" when it is and
+    no discussion follows."""
     if not stripped.startswith(REDDIT_LINK_PREFIX):
-        return False
+        return None
     lines = stripped.splitlines()[1:]
-    for line in lines:
-        if line.strip() == REDDIT_DISCUSSION_HEADER:
-            return True
+    for index, line in enumerate(lines):
+        if line.strip() == DISCUSSION_HEADER:
+            return "\n".join(lines[index + 1 :])
         if line.strip():
-            return False
-    return True
+            return None
+    return ""
 
 
 def _is_youtube_no_transcript(normalized: str) -> bool:
@@ -144,6 +168,10 @@ def readability_failure(content: str | None) -> str | None:
     `placeholder:reddit_link_only`, `placeholder:youtube_no_transcript`,
     `link_without_article`, `no_prose` or `js_wall`.
 
+    A link line with nothing after it but a discussion block is `link_without_article`
+    unless that discussion holds prose, in which case the item is readable and
+    `is_discussion_basis` says so.
+
     Genuine short text -- a one-sentence blurb, a two-line question -- is readable:
     the checks are about shape (a line of prose; a JavaScript-requirement notice in
     a small page), never a bare length threshold.
@@ -169,8 +197,10 @@ def readability_failure(content: str | None) -> str | None:
     if _is_youtube_no_transcript(visible):
         return "placeholder:youtube_no_transcript"
 
-    if _is_reddit_link_without_article(stripped):
-        return "link_without_article"
+    discussion = _discussion_of_link_without_article(stripped)
+    if discussion is not None:
+        # No article, so the discussion is all there is: readable when it has prose.
+        return None if _has_prose(discussion) else "link_without_article"
 
     if not _has_prose(stripped):
         return "no_prose"
@@ -179,6 +209,16 @@ def readability_failure(content: str | None) -> str | None:
         return "js_wall"
 
     return None
+
+
+def is_discussion_basis(content: str | None) -> bool:
+    """Whether `content` is readable only because of its discussion: a link line with
+    no article after it, followed by a discussion block that holds prose. An item
+    with an article or self-text before its discussion is not."""
+    if not content:
+        return False
+    discussion = _discussion_of_link_without_article(content.strip())
+    return discussion is not None and _has_prose(discussion)
 
 
 def is_readable(content: str | None) -> bool:

@@ -34,6 +34,42 @@ class ContentSummary:
     substantive: bool | None = None
 
 
+# The system prompt's verdict on whether the text is the piece itself, in every mode but
+# diff. For a discussion-basis item the article is absent by definition, so the verdict
+# is about the discussion instead.
+_SUBSTANTIVE_PARAGRAPH = (
+    '"substantive" says whether the text contains the piece itself (the article, '
+    "post, announcement or release note the title refers to) rather than only "
+    "material around it. Set it to true when the piece's own content is present, "
+    "however short: a two-sentence release note or a one-paragraph announcement is "
+    "substantive, and navigation around it does not change that. Set it to false "
+    "when the piece itself is missing: only a link (with or without reader "
+    "comments), a notice (JavaScript, cookies, bot check, login, error, paywall), "
+    "navigation, interface labels or a site tagline, or a citation or listing "
+    "without the work's content."
+)
+
+_DISCUSSION_SUBSTANTIVE_PARAGRAPH = (
+    '"substantive" says whether the reader discussion in the text says something '
+    "substantive about the story the title refers to. The article itself is "
+    "unavailable, so its absence does not make the text not substantive. Set it to "
+    "true when commenters engage with the story's subject in their own words, "
+    "however briefly: an argument, an experience, a correction, an explanation, a "
+    "counterpoint or a pointer to relevant work. Set it to false when the discussion "
+    "holds nothing about the story: only jokes, one-line reactions, pleasantries, "
+    "off-topic chatter, bare links, or a notice."
+)
+
+# Placed above the content in the request when the article could not be fetched and the text is the
+# item's reader discussion only.
+_DISCUSSION_NOTE = (
+    "ARTICLE UNAVAILABLE: the article itself could not be fetched. The text below is "
+    "reader discussion about the story, not the article. Summarize it as discussion "
+    "(what commenters said, argued and pointed to), and never present it as the "
+    "article's own content."
+)
+
+
 def _squash(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", text.lower())
 
@@ -72,6 +108,7 @@ class ContentSummarizer:
         source_type: str = "",
         source_name: str = "",
         metadata: dict[str, Any] | None = None,
+        content_basis: str | None = None,
     ) -> ContentSummary | None:
         """Generate summary with universal structured analysis.
 
@@ -80,6 +117,9 @@ class ContentSummarizer:
             title: Optional title of the content
             url: Optional URL of the content
             source_type: Optional source type/category
+            content_basis: "discussion" when the article is unavailable and the
+                content is the item's reader discussion only; the request then
+                says so and asks the substantive verdict about the discussion
 
         Returns:
             ContentSummary with summary and structured analysis, or None if fails
@@ -96,7 +136,13 @@ class ContentSummarizer:
         try:
             # Build the analysis prompt (from legacy system)
             prompt = self._build_prompt(
-                content, title, url, source_type, source_name, metadata or {}
+                content,
+                title,
+                url,
+                source_type,
+                source_name,
+                metadata or {},
+                content_basis,
             )
 
             bounded_record = bound_content(content).record
@@ -104,7 +150,9 @@ class ContentSummarizer:
             # Determine summarization mode based on content characteristics
             word_count = self._calculate_word_count(content)
             mode = self._get_mode_name(word_count, source_type)
-            system_prompt = self._select_system_prompt(word_count, source_type)
+            system_prompt = self._select_system_prompt(
+                word_count, source_type, content_basis
+            )
 
             logger.debug(
                 f"Content-aware summarization: {word_count} words, "
@@ -210,16 +258,29 @@ class ContentSummarizer:
         else:
             return "standard"
 
-    def _select_system_prompt(self, word_count: int, source_type: str) -> str:
+    def _select_system_prompt(
+        self, word_count: int, source_type: str, content_basis: str | None = None
+    ) -> str:
         """Select appropriate system prompt based on content characteristics.
 
         Args:
             word_count: Number of words in content
             source_type: Source type (reddit, youtube, rss, file, etc.)
+            content_basis: "discussion" swaps the substantive verdict's wording for
+                the discussion-based one
 
         Returns:
             System prompt string for the selected mode
         """
+        prompt = self._select_mode_prompt(word_count, source_type)
+        if content_basis == "discussion":
+            return prompt.replace(
+                _SUBSTANTIVE_PARAGRAPH, _DISCUSSION_SUBSTANTIVE_PARAGRAPH
+            )
+        return prompt
+
+    def _select_mode_prompt(self, word_count: int, source_type: str) -> str:
+        """The system prompt for the summarization mode these characteristics select."""
         # Diff mode: File sources (content is unified diff)
         if source_type == "file":
             return self._get_diff_system_prompt()
@@ -333,7 +394,7 @@ OUTPUT FORMAT:
 }
 
 SUBSTANTIVE:
-"substantive" says whether the text contains the piece itself (the article, post, announcement or release note the title refers to) rather than only material around it. Set it to true when the piece's own content is present, however short: a two-sentence release note or a one-paragraph announcement is substantive, and navigation around it does not change that. Set it to false when the piece itself is missing: only a link (with or without reader comments), a notice (JavaScript, cookies, bot check, login, error, paywall), navigation, interface labels or a site tagline, or a citation or listing without the work's content."""
+""" + _SUBSTANTIVE_PARAGRAPH
 
     def _get_brief_system_prompt(self) -> str:
         """Get brief system prompt for short content (Reddit <300 words).
@@ -412,6 +473,7 @@ Return JSON with: summary, reading_summary, alpha_insights, patterns, quotes, to
         source_type: str,
         source_name: str,
         metadata: dict[str, Any],
+        content_basis: str | None = None,
     ) -> str:
         """Build the analysis prompt for the LLM.
 
@@ -422,6 +484,8 @@ Return JSON with: summary, reading_summary, alpha_insights, patterns, quotes, to
             source_type: Source type/category
             source_name: Name of the source (e.g., @unsupervised-learning, r/rust)
             metadata: Additional metadata (author, subreddit, view count, etc.)
+            content_basis: "discussion" adds the note that the article is unavailable
+                and the content is reader discussion
 
         Returns:
             Formatted prompt string
@@ -444,6 +508,10 @@ Return JSON with: summary, reading_summary, alpha_insights, patterns, quotes, to
             if metadata.get("view_count"):
                 metadata_str += f"View Count: {metadata['view_count']:,}\n"
 
+        basis_note = (
+            f"{_DISCUSSION_NOTE}\n\n" if content_basis == "discussion" else ""
+        )
+
         return f"""Analyze this content and extract structured insights:
 
 Title: {title}
@@ -454,5 +522,5 @@ IMPORTANT: Use the provided metadata above. Do NOT infer or guess author names, 
 
 CRITICAL FOR URL EXTRACTION: The source URL above ({url}) is where this content came from. DO NOT include it in your extracted URLs - only extract URLs that are referenced WITHIN the content itself.
 
-CONTENT:
+{basis_note}CONTENT:
 {bounded.text}"""

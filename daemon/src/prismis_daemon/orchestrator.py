@@ -6,7 +6,7 @@ from typing import Any
 
 from rich.console import Console
 
-from .analysis import build_llm_analysis, get_learned_preferences
+from .analysis import build_llm_analysis, content_basis, get_learned_preferences
 from .config import Config
 from .deep_extractor import ContentDeepExtractor
 from .embeddings import Embedder
@@ -146,6 +146,7 @@ class DaemonOrchestrator:
             source_type=source_type,
             source_name=source.get("name", ""),
             metadata=metadata,
+            content_basis=content_basis(item.content),
         )
 
         if not summary_result:
@@ -706,9 +707,11 @@ class DaemonOrchestrator:
                 merged["metrics"] = existing_analysis["metrics"]
                 logger.debug("Preserved fetcher metrics in analysis")
 
-            # Preserve any other fetcher-specific data
+            # Preserve any other fetcher-specific data. `content_basis` is not the
+            # fetcher's: a fresh analysis without it means the article is now present,
+            # so a stored one must not survive.
             for key, value in existing_analysis.items():
-                if key not in merged and key != "metrics":
+                if key not in merged and key not in ("metrics", "content_basis"):
                     merged[key] = value
                     logger.debug(f"Preserved existing analysis field: {key}")
 

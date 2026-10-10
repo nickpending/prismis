@@ -16,7 +16,7 @@ Protects:
 import pytest
 
 from prismis_daemon.readability import (
-    REDDIT_DISCUSSION_HEADER,
+    DISCUSSION_HEADER,
     RSS_NO_CONTENT_FALLBACK,
     format_reddit_link_only,
     format_youtube_no_transcript,
@@ -280,18 +280,56 @@ def test_readability_failure_is_none_for_readable_content(content: str) -> None:
 
 _LINK_LINE = format_reddit_link_only("https://example.com/a")
 _DISCUSSION = (
-    f"{REDDIT_DISCUSSION_HEADER}\n\n**u/someone:**\n> I read this yesterday and "
+    f"{DISCUSSION_HEADER}\n\n**u/someone:**\n> I read this yesterday and "
     "found the second half more convincing than the first."
 )
 
 
-def test_reddit_link_post_with_only_a_discussion_is_link_without_article() -> None:
+# A link line over a discussion block, as each platform's fetcher writes it: Reddit's
+# author line carries "u/", HN's names the user as is.
+_HN_DISCUSSION = (
+    f"{DISCUSSION_HEADER}\n\n**pg:**\n> I read this yesterday and "
+    "found the second half more convincing than the first."
+)
+_LINK_OVER_DISCUSSION = [
+    pytest.param(f"{_LINK_LINE}\n\n{_DISCUSSION}", id="reddit"),
+    pytest.param(
+        f"{format_reddit_link_only('https://blog.example.org/post')}\n\n{_HN_DISCUSSION}",
+        id="hn",
+    ),
+]
+
+
+@pytest.mark.parametrize("content", _LINK_OVER_DISCUSSION)
+def test_a_link_with_only_a_discussion_that_has_prose_is_readable(content: str) -> None:
     """
-    BREAKS: a link post holding only the link and its comments reads as prose
-    because the comments are prose, so a post with no article is summarized as
-    though it had one.
+    BREAKS: the old rule called every link-and-comments item link_without_article,
+    so a blocked article with a substantive thread stayed title-only.
     """
-    content = f"{_LINK_LINE}\n\n\n\n{_DISCUSSION}"
+    assert readability_failure(content) is None
+    assert is_readable(content) is True
+
+
+@pytest.mark.parametrize(
+    "discussion",
+    [
+        pytest.param(f"{DISCUSSION_HEADER}", id="header-only"),
+        pytest.param(f"{DISCUSSION_HEADER}\n\n", id="header-and-blank"),
+        pytest.param(
+            f"{DISCUSSION_HEADER}\n\n**pg:**\n> https://archive.ph/abc123",
+            id="only-a-url",
+        ),
+        pytest.param(f"{DISCUSSION_HEADER}\n\n**pg:**\n> lol", id="one-word"),
+    ],
+)
+def test_a_link_with_a_discussion_that_has_no_prose_is_link_without_article(
+    discussion: str,
+) -> None:
+    """
+    BREAKS: treating any discussion header as proof of a discussion rescues items
+    whose thread says nothing.
+    """
+    content = f"{_LINK_LINE}\n\n{discussion}"
 
     assert readability_failure(content) == "link_without_article"
     assert is_readable(content) is False

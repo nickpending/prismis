@@ -11,7 +11,11 @@ from prismis_daemon.config import REDDIT_NOT_CONFIGURED
 from prismis_daemon.fetchers.reddit import RedditFetcher, RedditNotConfiguredError
 from prismis_daemon.http_deadline import DeadlineAdapter
 from prismis_daemon.models import ContentItem
-from prismis_daemon.readability import REDDIT_DISCUSSION_HEADER, readability_failure
+from prismis_daemon.readability import (
+    DISCUSSION_HEADER,
+    is_discussion_basis,
+    readability_failure,
+)
 
 from conftest import make_config
 
@@ -598,8 +602,27 @@ def test_to_content_item_link_post_discussion_uses_the_shared_header() -> None:
     item = fetcher._to_content_item(submission, "test-source-id")
 
     assert item.content is not None
-    assert item.content.endswith(f"\n\n{REDDIT_DISCUSSION_HEADER}\n\n**u/a:**\n> b")
+    assert item.content.endswith(f"\n\n{DISCUSSION_HEADER}\n\n**u/a:**\n> b")
     assert readability_failure(item.content) == "link_without_article"
+
+
+def test_to_content_item_link_post_with_a_prose_discussion_is_readable() -> None:
+    """hn-discussion SC-3: a reddit link post whose article was not read but whose
+    top comment has prose is readable on the strength of that discussion.
+    BREAKS: the old rule calls every link-and-comments post link_without_article."""
+    fetcher = RedditFetcher()
+    submission = _link_post_submission("https://www.reddit.com/r/o/comments/9/x/")
+    comment = Mock()
+    comment.parent_id = "t3_9"
+    comment.body = "I read this yesterday and found the second half more convincing."
+    comment.author = "a"
+    submission.comments = Mock()
+    submission.comments.list.return_value = [comment]
+
+    item = fetcher._to_content_item(submission, "test-source-id")
+
+    assert readability_failure(item.content) is None
+    assert is_discussion_basis(item.content)
 
 
 def test_to_content_item_link_post_skips_fetch_for_image_link() -> None:

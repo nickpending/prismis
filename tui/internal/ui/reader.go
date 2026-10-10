@@ -16,8 +16,17 @@ type ContentMetadata struct {
 	URLs           []string `json:"urls"`
 	Kind           string   `json:"kind"`
 	TitleOnly      bool     `json:"title_only"`
+	ContentBasis   string   `json:"content_basis"`
 	DeepExtraction *DeepExtraction
 }
+
+// contentBasisDiscussion is the analysis content_basis of an item summarized from its
+// reader discussion because the article could not be read; discussionBasisNotice is
+// what the reader header says for it.
+const (
+	contentBasisDiscussion = "discussion"
+	discussionBasisNotice  = "from the discussion — article unavailable"
+)
 
 // DeepExtraction represents second-tier LLM synthesis for HIGH-priority items
 type DeepExtraction struct {
@@ -81,6 +90,12 @@ func parseMetadata(analysisJSON string) ContentMetadata {
 	// title-only" as the default without a separate presence check.
 	if titleOnly, ok := analysis["title_only"].(bool); ok {
 		metadata.TitleOnly = titleOnly
+	}
+
+	// Extract content_basis (what the readable text rests on: "discussion" when the
+	// article was unavailable). Absent or not a string leaves ContentBasis "".
+	if basis, ok := analysis["content_basis"].(string); ok {
+		metadata.ContentBasis = basis
 	}
 
 	// Extract deep_extraction (HIGH-priority synthesis from second-tier LLM call)

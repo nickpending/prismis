@@ -1,0 +1,186 @@
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://news.ycombinator.com/rss
+  response:
+    body:
+      string: <?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Hacker News</title><link>https://news.ycombinator.com/</link><description>Links
+        for the intellectually curious, ranked by readers.</description><item><title>Tom Brown used GOP
+        ties to broker a $1.25B/month SpaceX compute deal</title><link>https://wsj.com/tech/ai/tom-brown-athropic-669005ad</link><pubDate>Sat,
+        10 Oct 2026 15:04:38 GMT</pubDate><comments>https://news.ycombinator.com/item?id=50033678</comments><description><![CDATA[<a
+        href="https://news.ycombinator.com/item?id=50033678">Comments</a>]]></description></item></channel></rss>
+    headers:
+      Content-Type:
+      - application/rss+xml; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://wsj.com/tech/ai/tom-brown-athropic-669005ad
+  response:
+    body:
+      string: <html><body>Forbidden</body></html>
+    headers:
+      Content-Type:
+      - text/html
+    status:
+      code: 403
+      message: Error
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://hacker-news.firebaseio.com/v0/item/50033678.json
+  response:
+    body:
+      string: '{"by":"utiiiD","descendants":37,"id":50033678,"kids":[50036267,50035643,50036274,50035250,50035505,50034857,50035726,50035655],"score":99,"time":1791644678,"title":"Tom
+        Brown used GOP ties to broker a $1.25B/month SpaceX compute deal","type":"story","url":"https://wsj.com/tech/ai/tom-brown-athropic-669005ad"}'
+    headers:
+      Cache-Control:
+      - no-cache
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '310'
+      Content-Type:
+      - application/json; charset=utf-8
+      Date:
+      - Sat, 10 Oct 2026 19:35:06 GMT
+      Server:
+      - nginx
+      Strict-Transport-Security:
+      - max-age=31556926; includeSubDomains; preload
+      access-control-allow-origin:
+      - '*'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://hacker-news.firebaseio.com/v0/item/50036267.json
+  response:
+    body:
+      string: '{"by":"dtf","id":50036267,"parent":50033678,"text":"<i>&quot;He offered to mop the floors
+        at OpenAI to get his foot in the door.&quot;</i><p>The American dream is alive and kicking.","time":1791660382,"type":"comment"}'
+    headers:
+      Cache-Control:
+      - no-cache
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '218'
+      Content-Type:
+      - application/json; charset=utf-8
+      Date:
+      - Sat, 10 Oct 2026 19:35:06 GMT
+      Server:
+      - nginx
+      Strict-Transport-Security:
+      - max-age=31556926; includeSubDomains; preload
+      access-control-allow-origin:
+      - '*'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://hacker-news.firebaseio.com/v0/item/50035643.json
+  response:
+    body:
+      string: '{"by":"bix6","id":50035643,"parent":50033678,"text":"<a href=\"https:&#x2F;&#x2F;archive.ph&#x2F;X2W6e\"
+        rel=\"nofollow\">https:&#x2F;&#x2F;archive.ph&#x2F;X2W6e</a>","time":1791656497,"type":"comment"}'
+    headers:
+      Cache-Control:
+      - no-cache
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '202'
+      Content-Type:
+      - application/json; charset=utf-8
+      Date:
+      - Sat, 10 Oct 2026 19:35:06 GMT
+      Server:
+      - nginx
+      Strict-Transport-Security:
+      - max-age=31556926; includeSubDomains; preload
+      access-control-allow-origin:
+      - '*'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://hacker-news.firebaseio.com/v0/item/50036274.json
+  response:
+    body:
+      string: '{"by":"stillpointlab","id":50036274,"parent":50033678,"text":"My most cynical take: keeping
+        the feel-good image of Anthropic is a temporary ploy to keep fickle SV tech workers building the
+        technology.<p>When OpenAI started to move obviously towards commercial and governmental ties,
+        a lot of people left. Those people were necessary to build the tech. Many landed at Anthropic,
+        a company that still attracts the most ideologically strict and capable ML researchers.<p>But
+        at some point of their choosing, the powers that be will just take it.","time":1791660416,"type":"comment"}'
+    headers:
+      Cache-Control:
+      - no-cache
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '579'
+      Content-Type:
+      - application/json; charset=utf-8
+      Date:
+      - Sat, 10 Oct 2026 19:35:06 GMT
+      Server:
+      - nginx
+      Strict-Transport-Security:
+      - max-age=31556926; includeSubDomains; preload
+      access-control-allow-origin:
+      - '*'
+    status:
+      code: 200
+      message: OK
+version: 1

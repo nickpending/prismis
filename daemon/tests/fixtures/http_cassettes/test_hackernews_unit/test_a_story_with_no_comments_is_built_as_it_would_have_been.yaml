@@ -1,0 +1,71 @@
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://news.ycombinator.com/rss
+  response:
+    body:
+      string: '<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Hacker News</title><link>https://news.ycombinator.com/</link><description>Links
+        for the intellectually curious, ranked by readers.</description><item><title>CAVEWOMAN: How LLMs
+        Behave Under Linguistic Input and Output Compression</title><link>https://arxiv.org/abs/2606.24083</link><pubDate>Sat,
+        10 Oct 2026 19:31:57 GMT</pubDate><comments>https://news.ycombinator.com/item?id=50036322</comments><description><![CDATA[<a
+        href="https://news.ycombinator.com/item?id=50036322">Comments</a>]]></description></item></channel></rss>'
+    headers:
+      Content-Type:
+      - application/rss+xml; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://arxiv.org/abs/2606.24083
+  response:
+    body:
+      string: <html><body>Not Found</body></html>
+    headers:
+      Content-Type:
+      - text/html
+    status:
+      code: 404
+      message: Error
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://hacker-news.firebaseio.com/v0/item/50036322.json
+  response:
+    body:
+      string: '{"by":"farlight","descendants":0,"id":50036322,"score":1,"time":1791660717,"title":"CAVEWOMAN:
+        How LLMs Behave Under Linguistic Input and Output Compression","type":"story","url":"https://arxiv.org/abs/2606.24083"}'
+    headers:
+      Cache-Control:
+      - no-cache
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '214'
+      Content-Type:
+      - application/json; charset=utf-8
+      Date:
+      - Sat, 10 Oct 2026 19:35:08 GMT
+      Server:
+      - nginx
+      Strict-Transport-Security:
+      - max-age=31556926; includeSubDomains; preload
+      access-control-allow-origin:
+      - '*'
+    status:
+      code: 200
+      message: OK
+version: 1

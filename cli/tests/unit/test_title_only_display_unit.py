@@ -52,7 +52,21 @@ _READABLE_ENTRY: dict[str, Any] = {
     "title_only_reason": None,
 }
 
-_ENTRIES = {e["id"]: e for e in (_TITLE_ONLY_ENTRY, _READABLE_ENTRY)}
+_DISCUSSION_ENTRY: dict[str, Any] = {
+    "id": "33333333-aaaa-bbbb-cccc-000000000003",
+    "title": "Discussion Item",
+    "priority": "medium",
+    "published": "2026-01-03 00:00",
+    "source_name": "Feed",
+    "url": "https://example.com/discussion",
+    "title_only": False,
+    "title_only_reason": None,
+    "analysis": {"content_basis": "discussion", "title_only": False},
+}
+
+_ENTRIES = {
+    e["id"]: e for e in (_TITLE_ONLY_ENTRY, _READABLE_ENTRY, _DISCUSSION_ENTRY)
+}
 
 _list_app = typer.Typer()
 _list_app.command()(list_command)
@@ -141,6 +155,23 @@ def test_get_prints_no_title_only_line_for_a_readable_entry(
 
     assert result.exit_code == 0, result.output
     assert "Readable Item" in result.output
+    assert "Title only" not in result.output
+    assert "article unavailable" not in result.output
+
+
+def test_get_says_a_discussion_basis_entry_is_from_the_discussion(
+    entries_server: str,
+) -> None:
+    """
+    hn-discussion SC-6: an entry whose analysis has content_basis = discussion is
+    labelled, so its summary is not read as the article's.
+    BREAKS: a get that never reads analysis.content_basis prints nothing for it.
+    """
+    result = runner.invoke(_get_app, [_DISCUSSION_ENTRY["id"]])
+
+    assert result.exit_code == 0, result.output
+    assert "Discussion Item" in result.output
+    assert "from the discussion — article unavailable" in result.output
     assert "Title only" not in result.output
 
 

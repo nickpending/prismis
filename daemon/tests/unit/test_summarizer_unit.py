@@ -477,3 +477,36 @@ def test_summarize_with_analysis_parses_the_substantive_verdict(
 
     assert result is not None
     assert result.substantive is expected
+
+
+# --- hn-discussion SC-4: a discussion-basis item is summarized as discussion ---
+
+
+def test_discussion_basis_swaps_the_substantive_wording_in_every_non_diff_mode() -> None:
+    """
+    BREAKS: asking whether "the piece itself" is present of an item whose article is
+    absent by definition marks every rescued discussion not substantive.
+    """
+    summarizer = ContentSummarizer(SERVICE)
+
+    for word_count, source_type in [(500, "rss"), (100, "reddit"), (6000, "youtube")]:
+        plain = summarizer._select_system_prompt(word_count, source_type)
+        rescued = summarizer._select_system_prompt(
+            word_count, source_type, "discussion"
+        )
+        assert "contains the piece itself" in plain
+        assert "contains the piece itself" not in rescued
+        assert "reader discussion in the text" in rescued
+        assert "reader discussion in the text" not in plain
+        assert rescued.count('"substantive" says whether') == 1
+
+
+def test_discussion_basis_note_reaches_only_the_discussion_request() -> None:
+    summarizer = ContentSummarizer(SERVICE)
+
+    rescued = summarizer._build_prompt("c", "t", "u", "rss", "", {}, "discussion")
+    plain = summarizer._build_prompt("c", "t", "u", "rss", "", {}, None)
+
+    assert "ARTICLE UNAVAILABLE" in rescued
+    assert rescued.index("ARTICLE UNAVAILABLE") < rescued.index("CONTENT:")
+    assert "ARTICLE UNAVAILABLE" not in plain

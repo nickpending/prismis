@@ -14,7 +14,7 @@ import itertools
 import json as _json
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +27,12 @@ from prismis_daemon.evaluator import ContentEvaluation, ContentEvaluator
 from prismis_daemon.models import ContentItem
 from prismis_daemon.notifier import Notifier
 from prismis_daemon.orchestrator import DaemonOrchestrator
-from prismis_daemon.readability import RSS_NO_CONTENT_FALLBACK
+from prismis_daemon.readability import (
+    DISCUSSION_HEADER,
+    RSS_NO_CONTENT_FALLBACK,
+    format_discussion,
+    format_reddit_link_only,
+)
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer, ContentSummary
 
@@ -464,6 +469,88 @@ def test_build_llm_analysis_stores_title_only_exactly_when_a_reason_is_set(
 
 
 # ---------------------------------------------------------------------------
+# hn-discussion SC-3: a link line over a discussion with prose is readable, with
+# content_basis = discussion; over an empty discussion it stays title-only.
+# ---------------------------------------------------------------------------
+
+_LINK_ONLY = format_reddit_link_only("https://blog.example.org/post")
+_THREAD_BODY = (
+    "I read this yesterday and found the second half more convincing than the first."
+)
+# Reddit's author line carries "u/", HN's does not.
+_DISCUSSION_ITEMS = [
+    pytest.param(
+        _LINK_ONLY
+        + format_discussion([{"author": "someone", "body": _THREAD_BODY}], "u/"),
+        id="reddit",
+    ),
+    pytest.param(
+        _LINK_ONLY + format_discussion([{"author": "pg", "body": _THREAD_BODY}]),
+        id="hn",
+    ),
+]
+_EMPTY_DISCUSSION = f"{_LINK_ONLY}\n\n{DISCUSSION_HEADER}"
+_NO_EVALUATION = ContentEvaluation(priority=None, matched_interests=[])
+
+
+@pytest.mark.parametrize("content", _DISCUSSION_ITEMS)
+def test_a_link_over_a_discussion_with_prose_is_readable_with_discussion_basis(
+    content: str,
+) -> None:
+    """
+    BREAKS: the old link-without-article rule makes this title-only and records no
+    basis, so a blocked article with a substantive thread is stored as a bare title.
+    """
+    assert title_only_reason(content, _FAILED_429, None) is None
+
+    analysis = build_llm_analysis(_summary(True), _NO_EVALUATION, content, _FAILED_429)
+
+    assert analysis["content_basis"] == "discussion"
+    assert analysis["title_only"] is False
+    assert analysis["title_only_reason"] is None
+
+
+def test_a_link_over_an_empty_discussion_is_title_only_with_no_basis() -> None:
+    """
+    BREAKS: treating the discussion header as a discussion rescues an item with
+    nothing to read, or records a basis for it.
+    """
+    assert (
+        title_only_reason(_EMPTY_DISCUSSION, None, None)
+        == "content:link_without_article"
+    )
+
+    analysis = build_llm_analysis(_summary(None), _NO_EVALUATION, _EMPTY_DISCUSSION)
+
+    assert "content_basis" not in analysis
+    assert analysis["title_only"] is True
+    assert analysis["title_only_reason"] == "content:link_without_article"
+
+
+def test_content_with_an_article_records_no_basis_even_beside_a_discussion() -> None:
+    """
+    BREAKS: recording the basis whenever a discussion block exists warns the reader
+    that the article was unavailable when it was not.
+    """
+    content = f"{_LINK_ONLY}\n\n{_READABLE}" + format_discussion(
+        [{"author": "pg", "body": _THREAD_BODY}]
+    )
+
+    analysis = build_llm_analysis(_summary(True), _NO_EVALUATION, content)
+
+    assert "content_basis" not in analysis
+
+
+def test_a_discussion_the_model_calls_not_substantive_keeps_its_basis() -> None:
+    content = _LINK_ONLY + format_discussion([{"author": "pg", "body": _THREAD_BODY}])
+
+    analysis = build_llm_analysis(_summary(False), _NO_EVALUATION, content)
+
+    assert analysis["title_only_reason"] == "model:not_substantive"
+    assert analysis["content_basis"] == "discussion"
+
+
+# ---------------------------------------------------------------------------
 # Through the real pipeline: the model's verdict and the fetcher's outcome
 # ---------------------------------------------------------------------------
 
@@ -474,6 +561,10 @@ class _LLMStub:
 
     def __init__(self) -> None:
         self.substantive: bool | None = True
+        # When set, the summarize request's (system, user) prompts decide the verdict,
+        # standing in for a model that does what the prompt it was given asks.
+        self.verdict: Callable[[str, str], bool | None] | None = None
+        self.summarize_requests: list[tuple[str, str]] = []
         self.requests = 0
         outer = self
 
@@ -483,8 +574,14 @@ class _LLMStub:
 
             def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length", "0"))
-                self.rfile.read(length)
+                request = _json.loads(self.rfile.read(length))
                 outer.requests += 1
+                system, user = (m["content"] for m in request["messages"][:2])
+                verdict = outer.substantive
+                if "SUBSTANTIVE:" in system:
+                    outer.summarize_requests.append((system, user))
+                    if outer.verdict is not None:
+                        verdict = outer.verdict(system, user)
                 reply: dict[str, Any] = {
                     "summary": "A stubbed summary.",
                     "reading_summary": "A stubbed reading summary.",
@@ -497,8 +594,8 @@ class _LLMStub:
                     "matched_interests": [],
                     "reasoning": "stubbed",
                 }
-                if outer.substantive is not None:
-                    reply["substantive"] = outer.substantive
+                if verdict is not None:
+                    reply["substantive"] = verdict
                 payload = {
                     "id": "stub",
                     "object": "chat.completion",
@@ -632,6 +729,118 @@ def test_pipeline_stores_the_model_verdict_as_the_reason(
     analysis = _stored_analysis(storage, "verdict-item")
     assert analysis["title_only_reason"] == expected_reason
     assert analysis["title_only"] is (expected_reason is not None)
+
+
+_JOKE = "Ha, this is the best joke I have heard all week."
+
+
+def _model_following_its_prompt(system: str, user: str) -> bool | None:
+    """The verdict of a model that does what the prompt it was given asks.
+
+    Told the article is unavailable but asked whether the piece itself is present, it
+    says no; asked whether the discussion says something substantive, it judges the
+    thread, and a thread that is only the joke says nothing.
+    """
+    if "reader discussion in the text" not in system:
+        return False
+    return _JOKE not in user
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_reason"),
+    [(_THREAD_BODY, None), (_JOKE, "model:not_substantive")],
+    ids=["substantive-thread", "joke-thread"],
+)
+def test_pipeline_summarizes_a_discussion_basis_item_as_discussion(
+    test_db: Path,
+    isolated_xdg_env: Path,
+    llm_stub: _LLMStub,
+    body: str,
+    expected_reason: str | None,
+) -> None:
+    """
+    SC-4: the summarize request for a discussion-basis item tells the model the article
+    is unavailable and the text is discussion and carries the discussion-based
+    substantive wording; a substantive thread's item is not marked
+    model:not_substantive and a one-line joke thread's still is.
+    BREAKS: a pipeline that does not pass the basis to the summarizer sends the
+    piece-itself wording, which marks every rescued item not substantive; one that
+    always passes the discussion wording would stop a joke thread being caught.
+    """
+    llm_stub.verdict = _model_following_its_prompt
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Test Feed")
+    orchestrator = _orchestrator(llm_stub.base_url, storage)
+    item = ContentItem(
+        source_id=source_id,
+        external_id="discussion-item",
+        title="Discussion Item",
+        url="https://example.com/discussion",
+        content=_LINK_ONLY + format_discussion([{"author": "pg", "body": body}]),
+    )
+
+    result = orchestrator.analyze_and_store_item(item, _source(source_id))
+
+    assert result is not None
+    [(system, user)] = llm_stub.summarize_requests
+    assert "ARTICLE UNAVAILABLE" in user
+    assert "reader discussion about the story, not the article" in user
+    assert "reader discussion in the text" in system
+    assert "contains the piece itself" not in system
+    analysis = _stored_analysis(storage, "discussion-item")
+    assert analysis["content_basis"] == "discussion"
+    assert analysis["title_only_reason"] == expected_reason
+
+
+def test_pipeline_sends_an_item_with_its_article_the_piece_itself_wording(
+    test_db: Path, isolated_xdg_env: Path, llm_stub: _LLMStub
+) -> None:
+    """
+    BREAKS: sending the discussion note for every item tells the model its articles
+    are unavailable.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Test Feed")
+    orchestrator = _orchestrator(llm_stub.base_url, storage)
+    item = ContentItem(
+        source_id=source_id,
+        external_id="article-item",
+        title="Article Item",
+        url="https://example.com/article",
+        content=_READABLE,
+    )
+
+    orchestrator.analyze_and_store_item(item, _source(source_id))
+
+    [(system, user)] = llm_stub.summarize_requests
+    assert "ARTICLE UNAVAILABLE" not in user
+    assert "contains the piece itself" in system
+    assert "content_basis" not in _stored_analysis(storage, "article-item")
+
+
+def test_pipeline_replaces_a_stored_discussion_basis_when_the_article_arrives(
+    test_db: Path, isolated_xdg_env: Path, llm_stub: _LLMStub
+) -> None:
+    """
+    BREAKS: merging a stored analysis's keys back in keeps the old
+    content_basis on an item that now has its article, so the reader is told the
+    article is unavailable beside a summary of it.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Test Feed")
+    orchestrator = _orchestrator(llm_stub.base_url, storage)
+    item = ContentItem(
+        source_id=source_id,
+        external_id="recovered-item",
+        title="Recovered Item",
+        url="https://example.com/recovered",
+        content=_READABLE,
+        analysis={"content_basis": "discussion"},
+    )
+
+    orchestrator.analyze_and_store_item(item, _source(source_id))
+
+    assert "content_basis" not in _stored_analysis(storage, "recovered-item")
 
 
 def test_pipeline_carries_the_fetch_outcome_into_stored_analysis_and_reason(

@@ -211,6 +211,25 @@ func TestParseMetadata_TitleOnly(t *testing.T) {
 	}
 }
 
+// TestParseMetadata_ContentBasis verifies parseMetadata reads content_basis: the
+// string when the analysis JSON carries one, "" when it is absent or not a string.
+func TestParseMetadata_ContentBasis(t *testing.T) {
+	metadata := parseMetadata(`{"content_basis":"discussion","kind":"news"}`)
+	if metadata.ContentBasis != "discussion" {
+		t.Errorf("ContentBasis should be discussion, got %q", metadata.ContentBasis)
+	}
+
+	metadata = parseMetadata(`{"kind":"news"}`)
+	if metadata.ContentBasis != "" {
+		t.Errorf("ContentBasis should be empty when absent, got %q", metadata.ContentBasis)
+	}
+
+	metadata = parseMetadata(`{"content_basis":7}`)
+	if metadata.ContentBasis != "" {
+		t.Errorf("ContentBasis should be empty when not a string, got %q", metadata.ContentBasis)
+	}
+}
+
 // TestReaderViewWithMetadata tests reader displays analysis metadata
 func TestReaderViewWithMetadata(t *testing.T) {
 	analysisJSON := `{

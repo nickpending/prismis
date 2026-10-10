@@ -12,6 +12,10 @@ from .api_client import APIClient
 
 console = Console()
 
+# Shown for an entry whose analysis has content_basis = "discussion": its summary was
+# written from the reader discussion because the article could not be read.
+DISCUSSION_BASIS_NOTICE = "from the discussion — article unavailable"
+
 
 def get(
     entry_id: str = typer.Argument(..., help="UUID of the content entry to retrieve"),
@@ -71,6 +75,14 @@ def get(
             if entry.get("title_only"):
                 reason = entry.get("title_only_reason") or "no reason recorded"
                 console.print(f"Title only: {escape(reason)}")
+
+            # A summary built from the discussion alone says so (analysis.content_basis)
+            analysis = entry.get("analysis")
+            if (
+                isinstance(analysis, dict)
+                and analysis.get("content_basis") == "discussion"
+            ):
+                console.print(DISCUSSION_BASIS_NOTICE)
 
             # Display summary in panel if available
             summary = entry.get("summary")

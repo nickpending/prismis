@@ -1,0 +1,20 @@
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://news.ycombinator.com/rss
+  response:
+    body:
+      string: <?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Hacker News</title><link>https://news.ycombinator.com/</link><description>Links
+        for the intellectually curious, ranked by readers.</description><item><title>Tom Brown used GOP
+        ties to broker a $1.25B/month SpaceX compute deal</title><link>https://wsj.com/tech/ai/tom-brown-athropic-669005ad</link><pubDate>Sat,
+        10 Oct 2026 15:04:38 GMT</pubDate><comments>https://news.ycombinator.com/item?id=50033678</comments><description><![CDATA[<a
+        href="https://news.ycombinator.com/item?id=50033678">Comments</a>]]></description></item></channel></rss>
+    headers:
+      Content-Type:
+      - application/rss+xml; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1

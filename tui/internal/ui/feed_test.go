@@ -254,6 +254,43 @@ func TestReaderTitleOnlyDisplay_NoMarkerWhenReadable(t *testing.T) {
 	}
 }
 
+// TestReaderDiscussionBasisDisplay verifies the reader header says the summary is
+// "from the discussion — article unavailable" for an item whose analysis carries
+// content_basis: discussion, and says nothing of the kind for an item without the key.
+func TestReaderDiscussionBasisDisplay(t *testing.T) {
+	const notice = "from the discussion — article unavailable"
+	tests := []struct {
+		name     string
+		analysis string
+		want     bool
+	}{
+		{"discussion basis", `{"content_basis":"discussion","title_only":false}`, true},
+		{"no basis key", `{"title_only":false,"kind":"tutorial"}`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			items := []db.ContentItem{
+				{ID: "1", Title: "Reader Article", Content: "Body.", Analysis: tt.analysis},
+			}
+			model := Model{
+				items:    items,
+				cursor:   0,
+				view:     "reader",
+				loading:  false,
+				width:    100,
+				height:   30,
+				viewport: viewport.New(100, 30),
+			}
+			model.updateReaderContent()
+
+			output := model.View()
+			if got := strings.Contains(output, notice); got != tt.want {
+				t.Errorf("notice shown = %v, want %v. Got: %s", got, tt.want, output)
+			}
+		})
+	}
+}
+
 // TestFeedNoEntityTags verifies the feed row shows no tag list for an item whose
 // stored analysis still carries an entities array (older items analysed before the
 // entities field was dropped from the summarizer). The row must render the title

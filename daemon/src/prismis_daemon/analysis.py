@@ -21,7 +21,11 @@ printing anything itself.
 from typing import Any
 
 from .evaluator import ContentEvaluation
-from .readability import readability_failure
+from .readability import (
+    CONTENT_BASIS_DISCUSSION,
+    is_discussion_basis,
+    readability_failure,
+)
 from .storage import Storage
 from .summarizer import ContentSummary
 
@@ -47,6 +51,13 @@ def get_learned_preferences(
     if total_votes < min_votes:
         return None, total_votes
     return feedback_stats.get("for_llm_context"), total_votes
+
+
+def content_basis(content: str | None) -> str | None:
+    """What the readable text of `content` rests on: `"discussion"` when the article
+    is absent and only the item's discussion carries prose, else None. The one
+    producer -- the summarizer's request and the stored analysis both read it."""
+    return CONTENT_BASIS_DISCUSSION if is_discussion_basis(content) else None
 
 
 def title_only_reason(
@@ -98,7 +109,9 @@ def build_llm_analysis(
         daemon pipeline always did; `analyze repair` previously did not,
         which this consolidation fixes (SC-10). Always includes `title_only`,
         true when `title_only_reason` yields a reason (gh #80), and
-        `title_only_reason` (None when readable and substantive).
+        `title_only_reason` (None when readable and substantive). Records
+        `content_basis` = "discussion" when the readable text is the discussion
+        only (the article being absent), and no `content_basis` key otherwise.
     """
     reason = title_only_reason(content, fetch_outcome, summary_result.substantive)
     analysis: dict[str, Any] = {
@@ -115,6 +128,9 @@ def build_llm_analysis(
         "title_only": reason is not None,
         "title_only_reason": reason,
     }
+    basis = content_basis(content)
+    if basis:
+        analysis["content_basis"] = basis
     bounded = summary_result.metadata.get("content_bounded")
     if bounded:
         analysis["content_bounded"] = bounded

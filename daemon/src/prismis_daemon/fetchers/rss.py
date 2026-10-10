@@ -10,9 +10,15 @@ import httpx
 
 from ..article_extractor import extract_article
 from ..config import Config
+from ..hackernews import fetch_discussion, is_item_link, story_id
 from ..models import ContentItem
 from ..observability import log as obs_log
-from ..readability import RSS_NO_CONTENT_FALLBACK, is_readable
+from ..readability import (
+    RSS_NO_CONTENT_FALLBACK,
+    format_discussion,
+    format_reddit_link_only,
+    is_readable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,10 +131,24 @@ class RSSFetcher:
                     # dedup filter discards this item either way, so extracting
                     # again would only be wasted network and CPU.
                     fetch_outcome: dict[str, str] | None = None
+                    comments_outcome: dict[str, str] | None = None
+                    hn_id = story_id(entry.get("comments"))
                     if external_id in known_readable_ids:
+                        content = self._fallback_content(entry)
+                    elif hn_id and is_item_link(url, hn_id):
+                        # An Ask/Show HN self post links to its own HN page: there
+                        # is no article to extract, its body comes from the API.
                         content = self._fallback_content(entry)
                     else:
                         content, fetch_outcome = self._extract_full_content(url, entry)
+
+                    # A Hacker News story also gets its top comments, read from HN's
+                    # API -- skipped, like the article, for an entry already stored
+                    # readably.
+                    if hn_id and external_id not in known_readable_ids:
+                        content, comments_outcome = self._add_hn_discussion(
+                            hn_id, url, content
+                        )
 
                     # Create ContentItem (use fetched_at if no published_at)
                     fetched_at = datetime.now(UTC)
@@ -141,7 +161,19 @@ class RSSFetcher:
                         published_at=published_at or fetched_at,
                         fetched_at=fetched_at,
                         analysis=(
-                            {"fetch_outcome": fetch_outcome} if fetch_outcome else None
+                            {
+                                **(
+                                    {"fetch_outcome": fetch_outcome}
+                                    if fetch_outcome
+                                    else {}
+                                ),
+                                **(
+                                    {"comments_outcome": comments_outcome}
+                                    if comments_outcome
+                                    else {}
+                                ),
+                            }
+                            or None
                         ),
                     )
 
@@ -276,6 +308,33 @@ class RSSFetcher:
 
         logger.debug(f"No readable extraction for {url}, using fallback")
         return self._fallback_content(entry), result.as_fetch_outcome()
+
+    def _add_hn_discussion(
+        self, hn_id: str, url: str, content: str
+    ) -> tuple[str, dict[str, str] | None]:
+        """Add Hacker News story `hn_id`'s API discussion to `content`.
+
+        An Ask/Show HN self post (its `url` is the HN item itself) takes the item's
+        own text as its body. The top comments follow under the shared discussion
+        header. When the article is absent -- `content` is not readable -- a link line
+        to `url` leads instead, the shape the readability check reads as "no article,
+        discussion only".
+
+        Returns:
+            (content, comments_outcome). A failed read returns `content` as it was
+            with `{"outcome": "fetch_failed", "detail": <exception type>}`.
+        """
+        discussion, outcome = fetch_discussion(
+            hn_id, self.config.hackernews_max_comments
+        )
+        if outcome:
+            return content, outcome
+
+        if is_item_link(url, hn_id) and discussion.text:
+            content = discussion.text
+        elif discussion.comments and not is_readable(content):
+            content = format_reddit_link_only(url)
+        return content + format_discussion(discussion.comments), None
 
     def _fallback_content(self, entry: dict) -> str:
         """The feed entry's own content/summary/description, or the shared

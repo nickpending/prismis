@@ -150,6 +150,10 @@ class Config:
     # are stored without a kind, the same as an install that predates this feature.
     llm_kind_service: str | None = None
 
+    # Hacker News settings: top comments read per HN story from the Firebase API
+    # (0 = unlimited). A config file without [hackernews] gets the default.
+    hackernews_max_comments: int = 5
+
     # Hostnames `extract_article` may connect to although they resolve to a
     # non-public address. Empty = every article fetch is public-only.
     fetch_allow_private_hosts: list[str] = field(default_factory=list)
@@ -230,6 +234,12 @@ class Config:
                 f"reddit_max_comments must be >= 0 (0 means unlimited), got {self.reddit_max_comments}"
             )
 
+        # Validate hackernews_max_comments (0 = unlimited is valid)
+        if self.hackernews_max_comments < 0:
+            raise ValueError(
+                f"hackernews_max_comments must be >= 0 (0 means unlimited), got {self.hackernews_max_comments}"
+            )
+
         # Warn if Reddit credentials are not set (don't fail validation)
         if not self.has_reddit_credentials:
             print(
@@ -296,6 +306,7 @@ class Config:
         daemon = config_dict.get("daemon", {})
         llm = config_dict.get("llm", {})
         reddit = config_dict.get("reddit", {})
+        hackernews = config_dict.get("hackernews", {})
         notifications = config_dict.get("notifications", {})
         api = config_dict.get("api", {})
         audio = config_dict.get("audio", {})
@@ -359,6 +370,7 @@ class Config:
                 reddit_client_secret=reddit_client_secret,
                 reddit_user_agent=reddit["user_agent"],
                 reddit_max_comments=reddit["max_comments"],
+                hackernews_max_comments=hackernews.get("max_comments", 5),
                 high_priority_only=notifications["high_priority_only"],
                 notification_command=notifications["command"],
                 api_key=api.get("key"),  # No default - must be explicitly set

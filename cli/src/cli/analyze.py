@@ -112,6 +112,7 @@ def repair(
             # Lazy import heavy LLM dependencies (only when actually repairing)
             from prismis_daemon.analysis import (
                 build_llm_analysis,
+                content_basis,
                 get_learned_preferences,
             )
             from prismis_daemon.config import Config
@@ -180,6 +181,7 @@ def repair(
                         source_type=item.get("source_type", "rss"),
                         source_name=item.get("source_name", ""),
                         metadata={},
+                        content_basis=content_basis(item["content"]),
                     )
 
                     if not summary_result:

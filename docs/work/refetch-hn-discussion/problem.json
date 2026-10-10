@@ -1,0 +1,11 @@
+{
+  "what": "Make `prismis-daemon refetch` give a Hacker News story the same discussion the live fetch now gives it, so stories stored title-only before hn-discussion shipped can be recovered from their discussion.",
+  "why": "hn-discussion (merged 1720d0f) adds a story's top comments only inside the RSS fetcher's live loop (the `_add_hn_discussion` method in fetchers/rss.py). Refetch re-extracts an rss row with `extract_article` alone (the `_reextract_item` helper in refetch.py), so a story whose article is blocked comes back exactly as blocked and stays title-only. On cerebro on 2026-10-10, 47 non-archived HN items are title-only: 39 hold unreadable content (the feed's comments link only, after 403/401/404 fetches or no prose), and 8 are readable but judged not substantive. The 39 are the ones refetch selects, and every one still carries `news.ycombinator.com/item?id=<id>` in its stored content; the HN id is not stored anywhere else, since `external_id` is a hash and the feed's comments link is not persisted.",
+  "decided": [
+    "Refetch of an rss row that is a Hacker News story runs the same discussion step the live fetch runs (the RSS fetcher's `_add_hn_discussion`), after the article re-extraction, so a recovered item is analysed with content_basis = \"discussion\" exactly as a live one is; there is one discussion path, not a second copy in refetch.",
+    "A row is a Hacker News story when its stored content holds a news.ycombinator.com/item?id=<id> link; that id is the story id. Rows without one are re-extracted article-only, as today.",
+    "A failed discussion read during refetch leaves the row as refetch leaves any unrecovered row, with the failure recorded on the item as comments_outcome, as the live fetch does.",
+    "The code ships through the lane; running the backfill on cerebro is a separate operator decision, made with the list of affected items and the cost stated first."
+  ],
+  "open": []
+}

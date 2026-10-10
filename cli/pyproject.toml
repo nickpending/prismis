@@ -1,8 +1,11 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "prismis-cli"
 version = "0.1.0"
 description = "Prismis CLI - manage content sources and query your Prismis instance"
-readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28.1",
@@ -17,6 +20,9 @@ local = ["prismis-daemon"]
 
 [project.scripts]
 prismis-cli = "cli.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cli"]
 
 [dependency-groups]
 dev = [

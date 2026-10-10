@@ -312,7 +312,19 @@ Internet Sources          Python Daemon           Go TUI
 
 ## 🔧 Installation
 
-### Prerequisites
+### Install with Homebrew (macOS)
+
+Each component installs on its own. Install the ones the machine needs:
+
+```bash
+brew install nickpending/prismis/prismis-tui     # the terminal UI, for reading
+brew install nickpending/prismis/prismis-cli     # the CLI, for agents and scripts
+brew install nickpending/prismis/prismis-daemon  # the daemon, for the machine that fetches
+```
+
+`prismis-tui` builds from source and pulls in Go; `prismis-daemon` downloads its pinned Python wheels (including torch) at install time. Each formula prints its setup steps when it finishes (`brew info <formula>` shows them again). The formulas install the client-only CLI; on the daemon host, use `make install` below to get the CLI's local-mode commands too.
+
+### Prerequisites (for building from source)
 
 - **macOS or Linux**
 - **Go 1.21+** for the TUI

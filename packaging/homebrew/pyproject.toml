@@ -1,0 +1,36 @@
+[project]
+name = "prismis-homebrew"
+version = "0.1.0"
+description = "Render script and tests for the prismis Homebrew formulas"
+requires-python = ">=3.13"
+dependencies = [
+    "packaging",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "mypy",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+# Same select as cli/pyproject.toml — one definition of "decidable defect" across units.
+select = [
+    "E4", "E7", "E9", "F",
+    "B", "ASYNC", "BLE", "ERA",
+    "RUF006", "RUF012", "RUF013", "RUF100",
+    "ANN401", "PGH", "S110", "S112",
+]
+
+[tool.mypy]
+python_version = "3.14"
+explicit_package_bases = true
+exclude = ["^\\.venv/"]
+
+[tool.uv]
+package = false

@@ -1,0 +1,13 @@
+{
+  "what": "Make a full-content /api/entries request cost the daemon roughly what a slim one does, so no client, however old, can push cerebro toward out-of-memory: the request-logging middleware stops buffering and re-parsing list responses, and the entries response streams item by item from the database instead of being built whole in memory.",
+  "why": "cerebro (3.9 GB, no swap) peaked at 2.9 GB on 2026-10-10 when an old TUI on bishop sent GET /api/entries?limit=10000 without view=list at 18:26 UTC, the #55 trigger the memory-footprint work closed only for updated clients. Measured on a copy of cerebro's database (28,025 unarchived items, 148 MB of content) with the current code: the full 10,000-item request peaks at 2,954 MB RSS for a 265.7 MB body, the slim view=list request at 642 MB; with the logging middleware removed the full request still peaks at 2,176 MB. The middleware (api.py, the api.request logger) reads the whole body with `body += chunk`, json.loads it to count items (_item_count) and rebuilds the response; the handler builds every item dict and serializes the whole envelope at once. The operator chose on 2026-10-10 to harden the daemon rather than rely on every client being current, since old binaries linger and the UniFi gateway (172.30.100.27) hides which machine sent a request.",
+  "decided": [
+    "The logging middleware never reads a response body: list handlers record their item count where the middleware can read it (request state), and the api.request log line and event keep item_count.",
+    "/api/entries streams its JSON envelope: the envelope opens, items are serialized and sent one at a time from a database cursor, and the envelope closes, so memory does not scale with the number or size of items; the JSON a client receives is unchanged in shape and fields for both views.",
+    "The per-item fields the handler adds today (kind, title_only, title_only_reason, the list view's cut analysis) are computed per row inside the stream.",
+    "Deduplication (skip_dedup=false, capped at DEDUP_WINDOW = 200 items) may keep reading its window into memory, since it is bounded by the window, not the request.",
+    "/api/search gets the middleware fix; it is bounded by its own limit and stays as it is otherwise.",
+    "The proof is a measurement on a copy of real data: a full 10,000-item request's peak RSS within 100 MB of the slim request's, run the same way the 2,954 MB figure was measured."
+  ],
+  "open": []
+}

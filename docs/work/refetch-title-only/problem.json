@@ -1,0 +1,10 @@
+{
+  "what": "Let `prismis-daemon refetch` select only items already flagged title-only, so the HN discussion backfill can recover exactly the stories the reader sees as title-only.",
+  "why": "On cerebro on 2026-10-11, refetch --type rss selects 1,347 unreadable Hacker News items oldest first: 39 carry analysis title_only = true and are the items the TUI shows as title-only; 1,304 predate the title_only key, were never analysed (priority NULL), and reach back to November 2025. The operator chose to backfill only the 39, since recovering the rest would put about 1,100 year-old stories into the unread list. Refetch has no way to select them: get_unreadable_content (storage.py) filters only on source type, archive state and readability.",
+  "decided": [
+    "refetch gains a --title-only option that narrows the existing selection (same source type, non-archived, unreadable, oldest first, --limit) to rows whose stored analysis records title_only = true; without the option the selection is exactly today's.",
+    "The narrowing happens in the storage query, so --limit counts only flagged rows, and --dry-run reports the narrowed count and its cost estimate.",
+    "The operator runs the backfill on cerebro with --type rss --title-only after deploy."
+  ],
+  "open": []
+}

@@ -1,0 +1,41 @@
+{
+  "workOrder": "refetch-title-only",
+  "issues": [],
+  "what": "Add a --title-only option to `prismis-daemon refetch` that narrows its selection to unreadable items whose analysis records title_only = true.",
+  "why": "Design: docs/work/refetch-title-only/design.md. The HN discussion backfill on cerebro should recover the 39 flagged title-only HN items the reader sees, not the 1,304 never-analysed ones refetch's current selection also takes.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "a real test database with non-archived unreadable rss rows flagged title_only true, flagged false, and with no title_only key, plus an archived flagged row and a readable flagged row",
+      "when": "get_unreadable_content runs with title_only_flagged=True",
+      "then": "it fails if any row other than the non-archived unreadable title_only-true rows is returned, or they are not oldest first, or --limit counts unflagged rows; otherwise exactly those rows return, oldest first, up to the limit, and the test is shown red with the json_extract clause removed"
+    },
+    {
+      "id": "SC-2",
+      "given": "the same database",
+      "when": "get_unreadable_content runs without the keyword",
+      "then": "it fails if its result differs from today's selection (every non-archived unreadable row of the type, flagged or not); otherwise it is unchanged"
+    },
+    {
+      "id": "SC-3",
+      "given": "the same database",
+      "when": "`prismis-daemon refetch --type rss --title-only --dry-run` runs",
+      "then": "it fails if the reported count is not the flagged unreadable count or a cost estimate is missing; otherwise both are reported and no extraction, LLM call or write happens"
+    },
+    {
+      "id": "SC-4",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "The 1,304 unflagged HN rows that were never analysed, and the 4 with title_only false, stay as they are."
+  ],
+  "stakes": [
+    "With --title-only, refetch selects only non-archived, unreadable rows of the given type whose analysis records title_only = true, oldest first, up to --limit; rows with title_only false or no title_only key are never selected.",
+    "Without --title-only, the selection is exactly what it is today, rows with no title_only key included.",
+    "refetch --dry-run --title-only reports the narrowed selection's count and cost estimate.",
+    "On cerebro after deploy, refetch --type rss --title-only --dry-run selects the 39 flagged HN items, and the real run reports how many were recovered from their discussion."
+  ]
+}

@@ -721,7 +721,11 @@ class Storage:
             raise sqlite3.Error(f"Failed to get readable external_ids: {e}") from e
 
     def get_unreadable_content(
-        self, source_type: str, limit: int, batch_size: int = 500
+        self,
+        source_type: str,
+        limit: int,
+        batch_size: int = 500,
+        title_only_flagged: bool = False,
     ) -> list[dict[str, Any]]:
         """Non-archived content of `source_type` whose stored `content`
         `readability.is_readable` rejects, oldest fetched first, bounded by
@@ -739,6 +743,9 @@ class Storage:
             source_type: 'youtube', 'rss' or 'reddit'
             limit: Maximum number of unreadable items to return
             batch_size: Page size for the underlying scan
+            title_only_flagged: When True, only rows whose analysis records
+                `title_only` true are paged (rows with false or no key are
+                never selected), so `limit` counts only those rows
 
         Returns:
             List of content dicts, oldest fetched_at first
@@ -756,10 +763,11 @@ class Storage:
                     FROM content c
                     JOIN sources s ON c.source_id = s.id
                     WHERE s.type = ? AND c.archived_at IS NULL
+                      AND (? = 0 OR json_extract(c.analysis, '$.title_only') = 1)
                     ORDER BY c.fetched_at ASC
                     LIMIT ? OFFSET ?
                     """,
-                    (source_type, batch_size, offset),
+                    (source_type, int(title_only_flagged), batch_size, offset),
                 )
                 rows = cursor.fetchall()
                 if not rows:

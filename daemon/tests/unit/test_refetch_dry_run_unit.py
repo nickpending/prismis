@@ -22,14 +22,19 @@ import threading
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from prismis_daemon.__main__ import app
 from prismis_daemon.config import Config
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.models import ContentItem
 from prismis_daemon.notifier import Notifier
 from prismis_daemon.observability import get_logger as get_obs_logger
 from prismis_daemon.orchestrator import DaemonOrchestrator
-from prismis_daemon.readability import format_youtube_no_transcript
+from prismis_daemon.readability import (
+    RSS_NO_CONTENT_FALLBACK,
+    format_youtube_no_transcript,
+)
 from prismis_daemon.refetch import (
     _reextract_item,
     run_refetch,
@@ -235,3 +240,49 @@ def test_refetch_extraction_honours_the_configured_allow_list(
         server.shutdown()
         server.server_close()
         thread.join(timeout=2.0)
+
+
+def test_cli_title_only_dry_run_reports_the_flagged_count_and_cost_and_writes_nothing(
+    test_db: Path, isolated_xdg_env: Path
+) -> None:
+    """refetch-title-only SC-3: `refetch --type rss --title-only --dry-run` reports
+    the flagged unreadable count (not the unflagged unreadable rows beside them) and
+    a cost estimate, and leaves every row as it was.
+    BREAKS: a CLI that does not pass --title-only through reports all four
+    unreadable rows; one that drops the estimate loses the cost line; one that
+    patches rows on a dry run changes the stored analysis compared below.
+    """
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
+    for name, analysis in (
+        ("flagged-a", {"title_only": True}),
+        ("flagged-b", {"title_only": True}),
+        ("unflagged", {"title_only": False}),
+        ("never-analysed", None),
+    ):
+        storage.add_content(
+            ContentItem(
+                source_id=source_id,
+                external_id=name,
+                title=name,
+                url=f"http://example.com/{name}",
+                content=RSS_NO_CONTENT_FALLBACK,
+                analysis=analysis,
+            )
+        )
+    get_obs_logger().log("llm.call", action="summarize", status="success", cost_usd=0.01)
+    before = storage.conn.execute(
+        "SELECT id, content, analysis, updated_at FROM content ORDER BY id"
+    ).fetchall()
+
+    result = CliRunner().invoke(
+        app, ["refetch", "--type", "rss", "--title-only", "--dry-run"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Would re-extract 2 rss item(s)" in result.output
+    assert "Estimated upper-bound LLM cost: $0.0200" in result.output
+    after = storage.conn.execute(
+        "SELECT id, content, analysis, updated_at FROM content ORDER BY id"
+    ).fetchall()
+    assert [tuple(r) for r in after] == [tuple(r) for r in before]

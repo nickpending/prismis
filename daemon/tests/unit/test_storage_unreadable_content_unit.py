@@ -31,6 +31,7 @@ def _seed(
     title: str,
     content: str,
     fetched_at: datetime | None = None,
+    analysis: dict | None = None,
 ) -> str:
     content_id = storage.add_content(
         ContentItem(
@@ -40,6 +41,7 @@ def _seed(
             url=f"http://example.com/{uuid.uuid4().hex[:8]}",
             content=content,
             fetched_at=fetched_at,
+            analysis=analysis,
         )
     )
     assert content_id is not None, "expected a newly inserted content id, got a duplicate"
@@ -198,3 +200,104 @@ def test_readable_external_ids_settle_model_only_title_only_items(
     settled = storage.get_readable_external_ids(source_id)
 
     assert settled == {"readable", "no-analysis-key", "model-only"}
+
+
+def _seed_title_only_mix(storage: Storage) -> dict[str, str]:
+    """One rss source holding every row shape the title-only selection must tell
+    apart. Fetch times ascend in the order listed, except the two decoys that are
+    never selected, so oldest-first is observable among the flagged rows."""
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
+    now = datetime.now(UTC)
+    rows: dict[str, str] = {}
+    spec: list[tuple[str, str, dict | None]] = [
+        ("flagged-old", RSS_NO_CONTENT_FALLBACK, {"title_only": True}),
+        ("unflagged-false", RSS_NO_CONTENT_FALLBACK, {"title_only": False}),
+        ("flagged-mid", RSS_NO_CONTENT_FALLBACK, {"title_only": True}),
+        ("no-key", RSS_NO_CONTENT_FALLBACK, {"metrics": {}}),
+        ("no-analysis", RSS_NO_CONTENT_FALLBACK, None),
+        ("flagged-new", RSS_NO_CONTENT_FALLBACK, {"title_only": True}),
+        ("flagged-readable", _READABLE_CONTENT, {"title_only": True}),
+        ("flagged-archived", RSS_NO_CONTENT_FALLBACK, {"title_only": True}),
+    ]
+    for i, (name, content, analysis) in enumerate(spec):
+        rows[name] = _seed(
+            storage,
+            source_id,
+            title=name,
+            content=content,
+            fetched_at=now - timedelta(days=len(spec) - i),
+            analysis=analysis,
+        )
+    storage.conn.execute(
+        "UPDATE content SET archived_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (rows["flagged-archived"],),
+    )
+    storage.conn.commit()
+    return rows
+
+
+def test_title_only_flagged_selects_only_flagged_unreadable_rows_oldest_first(
+    test_db: Path,
+) -> None:
+    """
+    refetch-title-only SC-1: with `title_only_flagged=True` only non-archived
+    unreadable rows whose analysis records title_only true come back, oldest first;
+    false, key-less, analysis-less, readable and archived rows never do.
+    BREAKS: a selection that drops the json_extract clause returns the unflagged
+    rows too; one that ignores archived_at or readability returns those decoys.
+    """
+    storage = Storage(test_db)
+    rows = _seed_title_only_mix(storage)
+
+    results = storage.get_unreadable_content("rss", limit=10, title_only_flagged=True)
+
+    assert [row["id"] for row in results] == [
+        rows["flagged-old"],
+        rows["flagged-mid"],
+        rows["flagged-new"],
+    ]
+
+
+def test_title_only_flagged_limit_counts_only_flagged_rows(test_db: Path) -> None:
+    """
+    refetch-title-only SC-1: `limit` bounds the flagged rows, not the rows scanned --
+    unflagged rows older than the flagged ones must not use up the limit, even
+    across several scan pages.
+    BREAKS: filtering after the page is read, or counting unflagged rows toward the
+    limit, returns fewer than `limit` flagged rows.
+    """
+    storage = Storage(test_db)
+    rows = _seed_title_only_mix(storage)
+
+    results = storage.get_unreadable_content(
+        "rss", limit=2, batch_size=1, title_only_flagged=True
+    )
+
+    assert [row["id"] for row in results] == [
+        rows["flagged-old"],
+        rows["flagged-mid"],
+    ]
+
+
+def test_without_title_only_flag_selection_is_every_unreadable_row(
+    test_db: Path,
+) -> None:
+    """
+    refetch-title-only SC-2: the default selection is unchanged -- every
+    non-archived unreadable row, flagged or not, key-less rows included.
+    BREAKS: a default that narrows to flagged rows drops the false, key-less and
+    analysis-less rows.
+    """
+    storage = Storage(test_db)
+    rows = _seed_title_only_mix(storage)
+
+    results = storage.get_unreadable_content("rss", limit=10)
+
+    assert [row["id"] for row in results] == [
+        rows["flagged-old"],
+        rows["unflagged-false"],
+        rows["flagged-mid"],
+        rows["no-key"],
+        rows["no-analysis"],
+        rows["flagged-new"],
+    ]

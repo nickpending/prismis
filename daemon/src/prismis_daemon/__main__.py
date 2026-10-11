@@ -946,11 +946,19 @@ def refetch(
             help="Report the selection and an estimated cost; make no extraction, LLM call or write",
         ),
     ] = False,
+    title_only: Annotated[
+        bool,
+        typer.Option(
+            "--title-only",
+            help="Select only items whose analysis records title_only = true",
+        ),
+    ] = False,
 ) -> None:
     """Re-extract and re-analyse stored items whose content isn't readable (gh #80).
 
     Selects non-archived, not-readable items of --type, oldest first, bounded by
-    --limit; re-extracts each through its own fetcher's single-item path, and
+    --limit (with --title-only, only those whose analysis records title_only =
+    true); re-extracts each through its own fetcher's single-item path, and
     routes a recovered item back through the same analysis pipeline the fetch
     loop uses. Exits 1 if any item failed on a real run.
     """
@@ -969,7 +977,13 @@ def refetch(
     storage = Storage()
     orchestrator = build_orchestrator(config, storage)
 
-    report = run_refetch(orchestrator, source_type, limit, dry_run=dry_run)
+    report = run_refetch(
+        orchestrator,
+        source_type,
+        limit,
+        dry_run=dry_run,
+        title_only_flagged=title_only,
+    )
     _print_refetch_report(report, console)
 
     if not report.dry_run and report.failed:

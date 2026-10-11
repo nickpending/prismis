@@ -289,6 +289,7 @@ def run_refetch(
     source_type: str,
     limit: int,
     dry_run: bool = False,
+    title_only_flagged: bool = False,
 ) -> RefetchReport:
     """Select, then (unless `dry_run`) re-extract and re-analyse, the
     not-readable stored items of `source_type` (SC-2, SC-3).
@@ -300,6 +301,8 @@ def run_refetch(
         limit: Maximum number of items to select
         dry_run: When True, only counts the selection and estimates cost --
             no extraction, LLM call or write happens.
+        title_only_flagged: When True, select only rows whose analysis records
+            `title_only` true.
 
     Returns:
         A RefetchReport describing what was (or would be) done.
@@ -313,7 +316,9 @@ def run_refetch(
             f"expected one of {REFETCH_TYPES}"
         )
 
-    rows = orchestrator.storage.get_unreadable_content(source_type, limit)
+    rows = orchestrator.storage.get_unreadable_content(
+        source_type, limit, title_only_flagged=title_only_flagged
+    )
 
     if dry_run:
         per_item_cost = upper_bound_cost_estimate(get_obs_logger().base_dir)

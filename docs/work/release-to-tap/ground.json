@@ -1,0 +1,21 @@
+{
+  "impacted": [
+    {"path": ".github/workflows/ci.yml", "role": "the only workflow; runs verify.sh on push to main with actions pinned by commit hash, the pattern a release workflow follows"},
+    {"path": "packaging/homebrew/render.py", "role": "fill_formulas (line 136) writes a tag's url, sha256 and version into the three formulas; main (line 155) exposes check and fill"},
+    {"path": "packaging/homebrew/prismis-tui.rb", "role": "with prismis-cli.rb and prismis-daemon.rb, the committed formulas, currently filled with v0.3.0's url and sha256 by commit 4b78341"},
+    {"path": "Makefile", "role": "install and dev targets (help at line 23); no release target exists"}
+  ],
+  "constraints": [
+    {"tag": "OBSERVED", "path": "packaging/homebrew/render.py", "line": 136, "text": "On 2026-10-12 the first `git push origin v0.3.0` failed without a visible error: the pre-push hook ran ember verify for several minutes while the ssh session to GitHub was open, and the chained `| tail -1` dropped the failure; a second push with --no-verify landed the tag."},
+    {"tag": "OBSERVED", "path": "packaging/homebrew/render.py", "line": 136, "text": "Immediately after the tag reached GitHub, https://github.com/nickpending/prismis/archive/refs/tags/v0.3.0.tar.gz returned 404; the same request succeeded seconds later."},
+    {"tag": "OBSERVED", "path": "Makefile", "line": 129, "text": "This Mac runs prismis-cli v0.1.0 as a uv tool and the TUI at ~/.local/bin/prismis from make install-tui; ~/.local/bin precedes Homebrew's bin on its PATH, so brew-installed binaries are shadowed until those are removed."},
+    {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 93, "text": "Security requirements: secrets stay in env or config, never inline or logged; the tap deploy key lives only in the Actions secret."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {"query": "gh issue list --state open --search \"release OR brew OR homebrew\"", "issues": []},
+  "reuse": [
+    {"path": "packaging/homebrew/render.py", "what": "check and fill, run by the workflow rather than reimplemented"},
+    {"path": ".github/workflows/ci.yml", "what": "the pinned checkout and setup-uv steps"}
+  ],
+  "open": []
+}

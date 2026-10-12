@@ -1,0 +1,12 @@
+{
+  "what": "Make pushing a v* tag publish that release to the nickpending/homebrew-prismis tap, so `brew upgrade` follows every release, and make cutting a release one command.",
+  "why": "v0.3.0 was published on 2026-10-12 by hand in five steps: bump daemon and cli versions and relock, tag, download the tag's tarball, run render.py fill, copy the three formulas into the tap repo and push. A brew user, including the operator's own Mac once it switches from its uv/make install to brew, only moves when all five happen, and each is a place to slip: the first tag push silently failed (its ssh connection dropped while the pre-push gate ran, and a `| tail -1` hid the error) and the tarball returned 404 for seconds after a good push. The operator chose on 2026-10-12 to automate releases, then switch this Mac to brew.",
+  "decided": [
+    "A GitHub Actions workflow on push of a v* tag fails unless daemon/pyproject.toml and cli/pyproject.toml both carry the tag's version and render.py check passes, then downloads the tag's source tarball (retrying while GitHub returns 404), runs render.py fill on a copy of packaging/homebrew's formulas, and pushes them to the tap's Formula/ as one commit naming the release.",
+    "The workflow writes to the tap with a deploy key that has write access to nickpending/homebrew-prismis only, held as an Actions secret on nickpending/prismis; it never writes to the prismis repository.",
+    "The formulas committed in prismis are templates: url, sha256 and version hold the v0.0.0 placeholders, and the tap is the one place real release values live.",
+    "`make release VERSION=X.Y.Z` bumps both pyproject versions, relocks both, runs verify.sh, commits, tags vX.Y.Z and pushes main then the tag, stopping at the first failure and reporting a failed push.",
+    "The pipeline is proven by cutting v0.3.1 with it and installing that release from the tap; this Mac then switches to brew's prismis-tui and prismis-cli in place of its make-installed TUI and uv-installed CLI."
+  ],
+  "open": []
+}

@@ -1,0 +1,15 @@
+{
+  "scrutiny": [
+    {"test": "T0 purpose: brew users, this Mac included, only move when the tap moves; today that takes five manual steps, two of which failed silently or transiently while cutting v0.3.0.", "failureCase": "A release that leaves the tap behind.", "result": "held"},
+    {"test": "T1 owners: render.py owns filling and checking formulas; the workflow runs it rather than re-deriving url, sha256 or resources.", "failureCase": "A second formula writer in YAML.", "result": "held"},
+    {"test": "T6 assumption checked: GITHUB_TOKEN cannot push to another repository, so a write deploy key scoped to the tap is the narrowest credential that works.", "failureCase": "A personal access token with access to every repo.", "result": "held"},
+    {"test": "T11 class, every formula field that changes per release: url, sha256 and version via fill; prismis-cli's resources via the lock, already guarded by test_render's resources-match-lock test inside verify.sh, which make release runs before tagging.", "failureCase": "A release whose cli resources no longer match cli/uv.lock.", "result": "held"},
+    {"test": "T13 two places: release values live only in the tap; the prismis copies return to templates.", "failureCase": "Two copies of the release url and sha256 that drift apart.", "result": "held"},
+    {"test": "T20 walk: make release VERSION=0.3.1 bumps and relocks, verify passes, commit and tag push; the workflow checks versions and resources, fetches the tarball with retry, fills, pushes one tap commit; brew update on this Mac sees prismis 0.3.1 and brew upgrade installs it.", "failureCase": "A step that needs a human between tag and tap.", "result": "held"}
+  ],
+  "decisions": [
+    {"question": "Automate tag-to-tap releases before switching this Mac to brew, or switch now with manual releases?", "answer": "Automate first, then switch (operator, 2026-10-12)."}
+  ],
+  "verdict": "accept",
+  "carried": []
+}

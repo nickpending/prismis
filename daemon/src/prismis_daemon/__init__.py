@@ -1,3 +1,5 @@
 """Prismis daemon for content fetching and analysis."""
 
-__version__ = "0.1.0"
+from importlib.metadata import version
+
+__version__ = version("prismis-daemon")

@@ -1,0 +1,47 @@
+---
+type: design
+date: 2026-10-12
+title: "Design: release-to-tap"
+description: "A release is one command, and the tap follows it without a human step, so `brew upgrade` on any machine (this Mac included) picks up every tagged release."
+purpose: "The recorded design of the release-to-tap work order, read by its plan and its builders."
+producer: cli:shape
+---
+
+# Design: release-to-tap
+
+## Purpose
+
+A release is one command, and the tap follows it without a human step, so `brew upgrade` on any machine (this Mac included) picks up every tagged release.
+
+## Form
+
+1. Release workflow. .github/workflows/release.yml runs on push of a v* tag. It checks out the tag with the same pinned actions ci.yml uses, fails unless the version in daemon/pyproject.toml and cli/pyproject.toml equals the tag without its leading v, and fails unless `render.py check` passes. It downloads the tag's source tarball from GitHub, retrying a bounded number of times while it returns 404, runs `render.py fill <tag> <tarball>` on a scratch copy of packaging/homebrew's three formulas, checks out nickpending/homebrew-prismis over ssh with the deploy key from the TAP_DEPLOY_KEY secret, replaces Formula/ with the filled copies, and pushes one commit named for the release. It logs the tag, the tarball sha256 and the tap commit. It needs no write permission on prismis: contents: read.
+
+2. Templates in prismis. The three formulas committed under packaging/homebrew go back to the v0.0.0 url, all-zero sha256 and 0.0.0 version, so the tap is the one home of real release values and nothing in prismis goes stale after a release.
+
+3. make release. `make release VERSION=X.Y.Z` refuses a dirty tree, a branch other than main, a malformed version or an existing tag; sets both pyproject versions, relocks daemon and cli, runs verify.sh, commits, creates the annotated tag, and pushes main and then the tag with --no-verify (verify.sh just ran), checking each push's exit status itself rather than through a pipe.
+
+4. Deploy key. An ed25519 key pair made for this purpose: the public half is a write deploy key on nickpending/homebrew-prismis, the private half is set as TAP_DEPLOY_KEY on nickpending/prismis with gh secret set, and the local copy is deleted.
+
+5. Proof and switch. v0.3.1 is cut with make release; the workflow run is shown green, the tap's formulas carry v0.3.1 and its tarball's sha256, and brew installs prismis-tui and prismis-cli from the tap on this Mac, replacing ~/.local/bin/prismis and the uv tool prismis-cli, with `prismis-cli --help` and the TUI binary resolving to Homebrew's bin.
+
+## Commitments
+
+- Pushing a v* tag whose versions match updates all three formulas in the tap to that tag's url, sha256 and version, with no manual step.
+- A tag whose pyproject versions do not match, or a failed render.py check, fails the workflow before anything is pushed to the tap.
+- make release VERSION=X.Y.Z bumps, relocks, verifies, commits, tags and pushes, and stops with a non-zero exit at the first failed step, a failed push included.
+- The deploy key's private half exists only as the TAP_DEPLOY_KEY Actions secret; it is never committed, printed or kept on disk.
+- This Mac runs prismis-tui and prismis-cli from the tap at v0.3.1, with `brew upgrade` as its update path.
+
+## Sacrifices
+
+- The workflow's tap push is proven only by a real tag push (v0.3.1); no test runs it locally.
+- Releases are cut from this Mac; there is no release button in GitHub's UI.
+
+## Risk
+
+A workflow that pushes a partially filled formula set would break `brew install` for everyone; fill runs on all three before the single tap commit, and render.py fill fails on any formula it cannot fill.
+
+## Licensed by
+
+packaging/homebrew/render.py:136

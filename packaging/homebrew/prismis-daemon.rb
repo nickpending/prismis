@@ -44,17 +44,21 @@ class PrismisDaemon < Formula
 
   def caveats
     <<~EOS
-      First run:
+      First run (steps 2 and 4 use the CLI:
+      brew install nickpending/prismis/prismis-cli):
 
         1. Put your LLM key in ~/.config/prismis/.env:
              OPENROUTER_API_KEY=sk-your-key-here
         2. Run `prismis-daemon` once to write ~/.config/prismis/config.toml, then
            tell Prismis what you care about:
              prismis-cli context bootstrap
-        3. Check that config, LLM services and sources are wired up:
-             prismis-daemon verify
-        4. Start the daemon at login and keep it running:
+        3. Start the daemon at login and keep it running (it creates the
+           database on its first start):
              brew services start prismis-daemon
+        4. Add the feeds you read (bootstrap's answer lists them):
+             prismis-cli source add <url>
+        5. Check that config, LLM services and sources are wired up:
+             prismis-daemon verify
     EOS
   end
 

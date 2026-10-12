@@ -268,7 +268,8 @@ def get_db_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
 
     if not db_path.exists():
         raise FileNotFoundError(
-            f"Database not found at {db_path}. Run init_db() first."
+            f"no database yet at {db_path}: start the daemon once "
+            "(prismis-daemon) and it creates it"
         )
 
     conn = sqlite3.connect(db_path, check_same_thread=False)

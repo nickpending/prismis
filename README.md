@@ -24,7 +24,7 @@ Think of it as having a research assistant who reads everything and only interru
 
 ## Status: Alpha
 
-**This is early software that works but has rough edges.** It's been in daily use for 3 months, handling 500+ items/day across 30+ sources, but expect quirks. Version 0.3.0 adds semantic search, remote TUI mode, smart archival, and static file monitoring. Each release gets more polished.
+**This is early software that works but has rough edges.** It's been in daily use for 3 months, handling 500+ items/day across 30+ sources, but expect quirks. Version 0.3 added semantic search, remote TUI mode, smart archival, and static file monitoring, and releases now ship through Homebrew, so `brew upgrade` picks up each one.
 
 ## ✨ Features
 
@@ -47,21 +47,21 @@ Think of it as having a research assistant who reads everything and only interru
 
 ## 🎬 Quick Start
 
+On macOS with Homebrew (for Linux or a source checkout, see [Installation](#-installation)):
+
 ```bash
-# Install everything (macOS/Linux)
-make install
+# Install. Homebrew loads a third-party tap only after you trust it.
+brew tap nickpending/prismis
+brew trust nickpending/prismis   # unknown command? run `brew update` first
+brew install prismis-daemon prismis-cli prismis-tui
 
 # Set your LLM key (the default config uses OpenRouter)
-edit ~/.config/prismis/.env  # Set OPENROUTER_API_KEY
+mkdir -p ~/.config/prismis
+echo 'OPENROUTER_API_KEY=sk-your-key-here' >> ~/.config/prismis/.env
+chmod 600 ~/.config/prismis/.env
 
 # First run: writes ~/.config/prismis/config.toml, then exits
 prismis-daemon
-
-# Upgrading from an older install? Bring config to current shape:
-prismis-daemon migrate-config
-
-# Smoke-check that everything is wired up (config + LLM services + sources)
-prismis-daemon verify
 
 # Tell Prismis what you care about: print an interview prompt, paste it into any
 # chatbot, answer its questions, then save the context.md it returns to
@@ -69,13 +69,16 @@ prismis-daemon verify
 # (The sample context.md written on first run is a placeholder until you replace it.)
 prismis-cli context bootstrap
 
-# Check the saved context.md (and everything else) again
-prismis-daemon verify
+# Start the daemon and keep it running; it creates the database on its first start
+brew services start prismis-daemon
 
-# Add your favorite sources
+# Add your sources (the bootstrap answer lists the ones you named)
 prismis-cli source add https://simonwillison.net/atom/everything/
 prismis-cli source add reddit://rust
 prismis-cli source add youtube://UCsBjURrPoezykLs9EqgamOA
+
+# Smoke-check that everything is wired up (config + LLM services + sources + context.md)
+prismis-daemon verify
 
 # Launch the TUI
 prismis
@@ -314,9 +317,11 @@ Internet Sources          Python Daemon           Go TUI
 
 ### Install with Homebrew (macOS)
 
-Each component installs on its own. Install the ones the machine needs:
+Each component installs on its own. Trust the tap once (Homebrew refuses to load formulas from a third-party tap until you do), then install the ones the machine needs:
 
 ```bash
+brew tap nickpending/prismis
+brew trust nickpending/prismis   # unknown command? run `brew update` first
 brew install nickpending/prismis/prismis-tui     # the terminal UI, for reading
 brew install nickpending/prismis/prismis-cli     # the CLI, for agents and scripts
 brew install nickpending/prismis/prismis-daemon  # the daemon, for the machine that fetches

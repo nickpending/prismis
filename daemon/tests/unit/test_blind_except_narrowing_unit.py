@@ -460,3 +460,24 @@ def test_the_doctor_reports_a_sources_check_that_cannot_open_the_database(
 
     assert exited.value.code == 1
     assert "sources check failed" in capsys.readouterr().out
+
+
+def test_the_doctor_tells_a_fresh_install_to_start_the_daemon_when_no_database_exists(
+    test_db: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """
+    INVARIANT: before the daemon's first start there is no database, and the sources check
+    says to start the daemon rather than naming an internal function
+    BREAKS: a newcomer following the install steps sees "Run init_db() first", a call no
+    user can make
+    """
+    test_db.unlink()
+
+    with pytest.raises(SystemExit) as exited:
+        verify()
+
+    out = capsys.readouterr().out
+    assert exited.value.code == 1
+    assert "no database yet" in out
+    assert "start the daemon" in out
+    assert "init_db" not in out

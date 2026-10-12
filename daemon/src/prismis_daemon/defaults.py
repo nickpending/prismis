@@ -166,9 +166,11 @@ Next steps:
   3. Write your own context.md: run `prismis-cli context bootstrap`, paste its output
      into a chatbot, and save the context it returns to ~/.config/prismis/context.md
      (the sample written here is a placeholder)
+  4. Start the daemon (`prismis-daemon`, or `brew services start prismis-daemon` for a
+     Homebrew install); it creates the database on its first start
+  5. Add a source: prismis-cli source add <url>
 
 Then check the setup with: prismis-daemon verify
-and start the daemon with: prismis-daemon
 """)
         return False
 

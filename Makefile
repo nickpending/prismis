@@ -83,11 +83,12 @@ install: check-deps build install-binaries install-config ## Install everything 
 	@echo ""
 	@echo "Next steps:"
 	@echo "1. Edit ~/.config/prismis/.env and set OPENROUTER_API_KEY"
-	@echo "2. Run prismis-daemon once to write ~/.config/prismis/config.toml, then prismis-daemon verify"
-	@echo "3. Customize ~/.config/prismis/context.md with your interests"
-	@echo "4. Start daemon: prismis-daemon &"
+	@echo "2. Run prismis-daemon once to write ~/.config/prismis/config.toml"
+	@echo "3. Write your context.md: prismis-cli context bootstrap"
+	@echo "4. Start daemon (it creates the database on first start): prismis-daemon &"
 	@echo "5. Add sources: prismis-cli source add https://example.com/feed"
-	@echo "6. Launch TUI: prismis"
+	@echo "6. Check the setup: prismis-daemon verify"
+	@echo "7. Launch TUI: prismis"
 	@echo "========================================="
 
 .PHONY: install-binaries

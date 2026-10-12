@@ -184,6 +184,16 @@ def test_daemon_caveats_name_the_first_run_steps() -> None:
         assert step in text, f"daemon caveats omit {step}"
 
 
+def test_daemon_caveats_start_the_daemon_and_add_a_source_before_verify() -> None:
+    # verify fails until the daemon has created the database and a source exists, and
+    # `source add` goes through the running daemon's API.
+    text = caveats("prismis-daemon")
+    start = text.find("brew services start prismis-daemon")
+    add = text.find("prismis-cli source add")
+    check = text.find("prismis-daemon verify")
+    assert -1 < start < add < check, "caveats must order: start daemon, add source, verify"
+
+
 def test_readme_installation_leads_with_the_three_brew_commands() -> None:
     readme = (REPO / "README.md").read_text()
     m = re.search(r"^## [^\n]*Installation[^\n]*\n(.*?)^## ", readme, re.S | re.M)
@@ -197,6 +207,21 @@ def test_readme_installation_leads_with_the_three_brew_commands() -> None:
     positions = [section.find(c) for c in cmds]
     assert all(p >= 0 for p in positions), "a brew command is missing from Installation"
     assert section.find("make install") > max(positions), "make install must follow the brew commands"
+
+
+def test_readme_quick_start_trusts_the_tap_and_verifies_last() -> None:
+    # Homebrew refuses an untrusted tap's formulas, and verify fails until the daemon has
+    # created the database and a source exists.
+    readme = (REPO / "README.md").read_text()
+    m = re.search(r"^## [^\n]*Quick Start[^\n]*\n(.*?)^## ", readme, re.S | re.M)
+    assert m, "README has no Quick Start section"
+    commands = [ln for ln in m.group(1).splitlines() if ln and not ln.lstrip().startswith("#")]
+    order = ["brew trust nickpending/prismis", "brew install", "brew services start prismis-daemon",
+             "prismis-cli source add", "prismis-daemon verify"]
+    positions = [next((i for i, ln in enumerate(commands) if ln.startswith(step)), -1)
+                 for step in order]
+    assert -1 not in positions, f"Quick Start runs no {order[positions.index(-1)]}"
+    assert positions == sorted(positions), f"Quick Start must run {order} in that order"
 
 
 # ------------------------------------------------------------ SC-1, SC-3, SC-4 (standing parts)

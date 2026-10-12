@@ -1,0 +1,56 @@
+{
+  "workOrder": "release-to-tap",
+  "issues": [],
+  "what": "Publish every v* tag to the nickpending/homebrew-prismis tap from a GitHub Actions workflow, make cutting a release one `make release VERSION=X.Y.Z` command, and return prismis's committed formulas to templates.",
+  "why": "Design: docs/work/release-to-tap/design.md. v0.3.0 took five manual steps to publish, one of which failed silently; brew users, and this Mac once switched to brew, only update when the tap does.",
+  "criteria": [
+    {
+      "id": "SC-1",
+      "given": "the release logic the workflow runs, invoked locally with a tag, that tag's source tarball and an empty directory standing in for the tap checkout",
+      "when": "the tag's version equals daemon/pyproject.toml's and cli/pyproject.toml's",
+      "then": "it fails if the directory does not end with Formula/prismis-tui.rb, prismis-cli.rb and prismis-daemon.rb carrying the tag's url, the tarball's sha256 and the version, everything else identical to packaging/homebrew's formulas; otherwise it does, and the committed formulas in packaging/homebrew are left unchanged"
+    },
+    {
+      "id": "SC-2",
+      "given": "the same release logic",
+      "when": "the tag's version differs from either pyproject version, or render.py check fails",
+      "then": "it fails if it exits zero or writes anything into the tap directory; otherwise it exits non-zero naming the mismatch and the directory is untouched, shown red with the version check removed"
+    },
+    {
+      "id": "SC-3",
+      "given": ".github/workflows/release.yml",
+      "when": "read",
+      "then": "it fails if it does not trigger on push of v* tags, run the release logic of SC-1, retry the tarball download a bounded number of times on 404, push the tap over ssh with the TAP_DEPLOY_KEY secret as one commit, and hold only contents: read on prismis, or if it uses an action not pinned by commit hash; otherwise all hold"
+    },
+    {
+      "id": "SC-4",
+      "given": "a clean clone on main",
+      "when": "`make release VERSION=X.Y.Z` runs with a malformed version, a dirty tree, a branch other than main or an existing tag",
+      "then": "it fails if any of these proceeds to change a file, commit, tag or push; otherwise each stops with a non-zero exit before changing anything; and on a valid version it sets both pyproject versions, relocks daemon and cli, runs verify.sh, commits, tags and pushes main then the tag, exiting non-zero if either push fails"
+    },
+    {
+      "id": "SC-5",
+      "given": "packaging/homebrew/prismis-tui.rb, prismis-cli.rb and prismis-daemon.rb",
+      "when": "read",
+      "then": "it fails if any carries a release url, sha256 or version other than the v0.0.0 template values; otherwise all three are templates, guarded by a test"
+    },
+    {
+      "id": "SC-6",
+      "given": "the repository after the change",
+      "when": "`./.specify/verify.sh` runs",
+      "then": "it fails on any failing check; otherwise its last line is `verify: PASS`"
+    }
+  ],
+  "outOfScope": [
+    "The workflow's tap push is proven only by a real tag push (v0.3.1); no test runs it locally.",
+    "Releases are cut from this Mac; there is no release button in GitHub's UI.",
+    "Creating the deploy key, setting TAP_DEPLOY_KEY, cutting v0.3.1 through the workflow and switching this Mac to brew are done after merge by the orchestrator on the operator's approval of 2026-10-12, not in the build job."
+  ],
+  "stakes": [
+    "Pushing a v* tag whose versions match updates all three formulas in the tap to that tag's url, sha256 and version, with no manual step.",
+    "A tag whose pyproject versions do not match, or a failed render.py check, fails the workflow before anything is pushed to the tap.",
+    "make release VERSION=X.Y.Z bumps, relocks, verifies, commits, tags and pushes, and stops with a non-zero exit at the first failed step, a failed push included.",
+    "The deploy key's private half exists only as the TAP_DEPLOY_KEY Actions secret; it is never committed, printed or kept on disk.",
+    "This Mac runs prismis-tui and prismis-cli from the tap at v0.3.1, with `brew upgrade` as its update path."
+  ]
+}

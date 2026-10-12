@@ -65,11 +65,11 @@ state() {
 refused() {
   local desc="$1" dir="$2" version="$3" before after out rc=0
   before="$(state "$dir")"
-  out="$(cd "$dir" && RELEASE_TEST=1 RELEASE_VERIFY_CMD=true make release VERSION="$version" 2>&1)" || rc=$?
+  out="$(cd "$dir" && RELEASE_TEST=1 RELEASE_VERIFY_CMD='touch gate-stub-ran' make release VERSION="$version" 2>&1)" || rc=$?
   after="$(state "$dir")"
   if [ "$rc" -eq 0 ]; then fail "$desc: exited zero" "$out"
   elif [ "$before" != "$after" ]; then fail "$desc: changed the clone or the remote" "$out"
-  elif [ -e "$dir/real-gate-ran" ]; then fail "$desc: reached the gate" "$out"
+  elif [ -e "$dir/gate-stub-ran" ] || [ -e "$dir/real-gate-ran" ]; then fail "$desc: reached the gate" "$out"
   else ok "$desc"; fi
 }
 

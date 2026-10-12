@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Publishes the tag to nickpending/homebrew-prismis. This repo needs read access only: the
+# tap is written over ssh with a deploy key, never with GITHUB_TOKEN.
+permissions:
+  contents: read
+
+jobs:
+  tap:
+    name: publish ${{ github.ref_name }} to the tap
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+
+      # The tag's source tarball can 404 for a moment after the tag lands. Retry a bounded
+      # number of times on 404 only; any other status fails at once.
+      - name: Download the tag's source tarball
+        run: |
+          set -euo pipefail
+          url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+          for attempt in 1 2 3 4 5 6; do
+            code="$(curl -sSL -o "$RUNNER_TEMP/prismis.tar.gz" -w '%{http_code}' "$url")"
+            echo "attempt ${attempt}: HTTP ${code}"
+            [ "$code" = "200" ] && exit 0
+            [ "$code" = "404" ] || { echo "::error::unexpected HTTP ${code} for ${url}"; exit 1; }
+            sleep 10
+          done
+          echo "::error::${url} still 404 after 6 attempts"
+          exit 1
+
+      # Version match, render.py check and the fill all happen here, before the tap is
+      # touched. Output goes to a staging directory, not the tap.
+      - name: Fill the formulas
+        working-directory: packaging/homebrew
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/stage"
+          uv run --locked python release.py "$TAG" "$RUNNER_TEMP/prismis.tar.gz" "$RUNNER_TEMP/stage"
+
+      # The key goes from the secret into an ssh-agent through stdin; it is never written
+      # to disk or echoed.
+      - name: Push the tap
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          eval "$(ssh-agent -s)" >/dev/null
+          printf '%s\n' "$TAP_DEPLOY_KEY" | ssh-add - 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new"
+          git clone --depth 1 git@github.com:nickpending/homebrew-prismis.git "$RUNNER_TEMP/tap"
+          cd "$RUNNER_TEMP/tap"
+          rm -rf Formula
+          cp -R "$RUNNER_TEMP/stage/Formula" Formula
+          git add -A Formula
+          if git diff --cached --quiet; then
+            echo "tap already carries ${TAG}; nothing to push"
+            exit 0
+          fi
+          git -c user.name="prismis release" -c user.email="noreply@github.com" commit -m "prismis ${TAG}"
+          git push origin HEAD
+          echo "tag=${TAG} sha256=$(sha256sum "$RUNNER_TEMP/prismis.tar.gz" | cut -d' ' -f1) tap_commit=$(git rev-parse HEAD)"

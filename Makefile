@@ -302,6 +302,10 @@ test: ## Run the full verification gate (the same script CI runs)
 # gate rejects. One definition of "tested", three callers — developer, make, CI.
 	bash .specify/verify.sh
 
+.PHONY: release
+release: ## Cut a release: make release VERSION=X.Y.Z (bump, relock, verify, commit, tag, push)
+	@./scripts/release.sh "$(VERSION)"
+
 .PHONY: clean
 clean: ## Clean build artifacts
 	rm -f tui/prismis

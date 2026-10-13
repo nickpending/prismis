@@ -143,6 +143,10 @@ def list(
         console.print(table)
         console.print(f"\n[dim]Showing {len(entries)} entries[/dim]\n")
 
+    except typer.Exit:
+        # click's Exit subclasses RuntimeError; without this the command's own
+        # exit is caught below and reported a second time as "Error: 1".
+        raise
     except RuntimeError as e:
         if output_json:
             typer.echo(f"Error: {e}", err=True)

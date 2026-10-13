@@ -177,6 +177,10 @@ def generate(
             # Print report to console
             console.print("\n" + report, markup=False, highlight=False, soft_wrap=True)
 
+    except typer.Exit:
+        # click's Exit subclasses RuntimeError; without this the command's own
+        # exit is caught below and reported a second time as "Error: 1".
+        raise
     except RuntimeError as e:
         console.print(f"[red]✗ Error: {e}[/red]")
         raise typer.Exit(1) from e

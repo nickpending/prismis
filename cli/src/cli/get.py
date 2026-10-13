@@ -33,7 +33,8 @@ def get(
         client = APIClient()
 
         if raw and output_json:
-            console.print("[red]✗ Error: Cannot use --raw and --json together[/red]")
+            message = "Cannot use --raw and --json together"
+            typer.echo(f"Error: {message}", err=True)
             raise typer.Exit(1)
 
         if raw:
@@ -98,6 +99,10 @@ def get(
 
             console.print("\n")
 
+    except typer.Exit:
+        # click's Exit subclasses RuntimeError; without this the command's own
+        # exit is caught below and reported a second time as "Error: 1".
+        raise
     except RuntimeError as e:
         if output_json:
             typer.echo(f"Error: {e}", err=True)

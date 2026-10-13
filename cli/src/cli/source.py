@@ -112,7 +112,9 @@ def add(
         except RuntimeError as e:
             # Check if it's a validation error
             error_msg = str(e)
-            if not output_json:
+            if output_json:
+                typer.echo(f"Error: {error_msg}", err=True)
+            else:
                 if "validation failed" in error_msg.lower():
                     console.print(f"[red]❌ Validation failed:[/red] {error_msg}")
                 else:
@@ -125,8 +127,12 @@ def add(
         console.print(f"[dim]URL: {result.get('url', url)}[/dim]")
         console.print(f"[dim]ID: {source_id}[/dim]")
 
+    except typer.Exit:
+        raise
     except Exception as e:
-        if not output_json:
+        if output_json:
+            typer.echo(f"Error: {e}", err=True)
+        else:
             console.print(f"[red]❌ Failed to add source:[/red] {str(e)}")
         raise typer.Exit(1) from e
 
@@ -170,7 +176,9 @@ def list_sources(
         console.print(f"\n[dim]Total sources: {len(sources)}[/dim]")
 
     except Exception as e:
-        if not output_json:
+        if output_json:
+            typer.echo(f"Error: {e}", err=True)
+        else:
             console.print(f"[red]❌ Failed to list sources:[/red] {str(e)}")
         raise typer.Exit(1) from e
 
@@ -220,7 +228,8 @@ def remove(
             console.print(f"[red]❌ Failed to remove source:[/red] {str(e)}")
             raise typer.Exit(1) from e
 
-    except typer.Exit:
+    except (typer.Exit, typer.Abort):
+        # Abort (Ctrl-C or EOF at the confirm prompt) is an Exception too; click reports it.
         raise
     except Exception as e:
         console.print(f"[red]❌ Failed to remove source:[/red] {str(e)}")

@@ -83,6 +83,10 @@ def count(
                 f"📊 Found [bold yellow]{count}[/bold yellow] unprioritized items{age_text}"
             )
 
+    except typer.Exit:
+        # click's Exit subclasses RuntimeError; without this the command's own
+        # exit is caught below and reported a second time as "Error: 1".
+        raise
     except RuntimeError as e:
         console.print(f"[red]✗ Error: {e}[/red]")
         raise typer.Exit(1) from e
@@ -139,6 +143,10 @@ def delete(
         deleted_count = result.get("deleted", 0)
         console.print(f"✅ Deleted [bold green]{deleted_count}[/bold green] items")
 
+    except typer.Exit:
+        # click's Exit subclasses RuntimeError; without this the command's own
+        # exit is caught below and reported a second time as "Error: 1".
+        raise
     except RuntimeError as e:
         console.print(f"[red]✗ Error: {e}[/red]")
         raise typer.Exit(1) from e

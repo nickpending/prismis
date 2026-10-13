@@ -131,6 +131,10 @@ def search(
             f"\n[dim]Found {len(results)} result{'s' if len(results) != 1 else ''} for '{query}'[/dim]\n"
         )
 
+    except typer.Exit:
+        # click's Exit subclasses RuntimeError; without this the command's own
+        # exit is caught below and reported a second time as "Error: 1".
+        raise
     except RuntimeError as e:
         if output_json:
             typer.echo(f"Error: {e}", err=True)

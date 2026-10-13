@@ -53,8 +53,11 @@ def search(
 
         # Validate limit
         if limit < 1 or limit > 50:
-            if not output_json:
-                console.print("[red]✗ Error: Limit must be between 1 and 50[/red]")
+            message = "Limit must be between 1 and 50"
+            if output_json:
+                typer.echo(f"Error: {message}", err=True)
+            else:
+                console.print(f"[red]✗ Error: {message}[/red]")
             raise typer.Exit(1)
 
         # Search content
@@ -129,6 +132,8 @@ def search(
         )
 
     except RuntimeError as e:
-        if not output_json:
+        if output_json:
+            typer.echo(f"Error: {e}", err=True)
+        else:
             console.print(f"[red]✗ Error: {e}[/red]")
         raise typer.Exit(1) from e

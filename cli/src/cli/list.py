@@ -63,10 +63,11 @@ def list(
 
         # Determine archive filter mode
         if archived and include_archived:
-            if not output_json:
-                console.print(
-                    "[red]✗ Error: Cannot use --archived and --include-archived together[/red]"
-                )
+            message = "Cannot use --archived and --include-archived together"
+            if output_json:
+                typer.echo(f"Error: {message}", err=True)
+            else:
+                console.print(f"[red]✗ Error: {message}[/red]")
             raise typer.Exit(1)
 
         # Map flags to API parameter
@@ -143,6 +144,8 @@ def list(
         console.print(f"\n[dim]Showing {len(entries)} entries[/dim]\n")
 
     except RuntimeError as e:
-        if not output_json:
+        if output_json:
+            typer.echo(f"Error: {e}", err=True)
+        else:
             console.print(f"[red]✗ Error: {e}[/red]")
         raise typer.Exit(1) from e

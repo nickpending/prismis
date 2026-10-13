@@ -99,6 +99,8 @@ def get(
             console.print("\n")
 
     except RuntimeError as e:
-        if not output_json:
+        if output_json:
+            typer.echo(f"Error: {e}", err=True)
+        else:
             console.print(f"[red]✗ Error: {e}[/red]")
         raise typer.Exit(1) from e

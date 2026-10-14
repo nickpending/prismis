@@ -1,0 +1,14 @@
+{
+  "what": "Render the web view's article detail as real markdown: the reading summary and the deep synthesis in daemon/src/prismis_daemon/static/index.html go through vendored marked, sanitized by vendored DOMPurify, replacing the escaped pre-wrap text and renderSimpleMarkdown.",
+  "why": "The summarizer asks the LLM for a full markdown reading summary, so the web detail panel shows readers raw ##, - and ** where the TUI renders the same text with glamour; the web view is prismis's lowest-friction entry point and this reads as broken on first use.",
+  "decided": [
+    "The reading summary and the deep synthesis are both rendered as markdown by marked and sanitized by DOMPurify before insertion.",
+    "marked and DOMPurify are vendored as pinned local files under the daemon's static directory and served by the daemon, with no CDN, so the page works offline and the browser tests' block on non-loopback requests still holds.",
+    "Each vendored file is a release at least two weeks old, and its version and sha256 are recorded beside it.",
+    "renderSimpleMarkdown is removed once both fields use the renderer.",
+    "A browser test seeds a summary with # and ## headings, a - list, a numbered list, **bold**, inline code and a link, and asserts each renders as the matching HTML element with no literal ##, '- ' or ** left in the panel text.",
+    "A browser test seeds a summary containing <script>, an onerror attribute and a javascript: link, and asserts none survives into the DOM.",
+    "Both tests are shown red against the current index.html before the fix."
+  ],
+  "open": []
+}

@@ -1,0 +1,30 @@
+{
+  "scrutiny": [
+    {"test": "0 purpose", "failureCase": "The bundle polishes a surface without moving adoption. docs/IDEA.md names zero-ops daily use and README.md:105 promises a mobile-responsive briefing; this makes the first web visit self-explaining and keeps that promise on phones.", "result": "held"},
+    {"test": "1 owner decides", "failureCase": "Duplicating an existing modal or test pattern. index.html:529 owns the overlay pattern and is reused; cli/tests/conftest.py:191 owns the live-server pattern and is followed.", "result": "held"},
+    {"test": "2 evidence noun", "failureCase": "Asserting document overflow would miss the detail panel, which is position: fixed and cannot widen the document. The design measures the panel's own scrollWidth against its clientWidth and seeds a 200-character unbroken token that overflows today (pre-wrap breaks only at spaces).", "result": "held"},
+    {"test": "3 degrades (security)", "failureCase": "Adding version to unauthenticated /health discloses the exact build to anyone who can reach the daemon. defaults.py:61 makes 0.0.0.0 an opt-in LAN binding, which cerebro uses. Fixed: the version moves behind verify_api_key on GET /api/version, and /health is unchanged.", "result": "fixed"},
+    {"test": "4 reuse", "failureCase": "A second modal system or a second live-server mechanism. Both extend existing ones (index.html:529, cli/tests/conftest.py:191).", "result": "held"},
+    {"test": "5 real system", "failureCase": "Only seeded data proves it. The browser tests drive the real app and page; the lane's demo also loads the deployed web view at 375 px against real data. That demo is manual and unguarded, and the work order says so.", "result": "held"},
+    {"test": "6 assumptions", "failureCase": "Playwright not supporting the daemon's Python 3.14. PyPI shows playwright 1.64.0, requires_python >=3.10, py3 wheels. Adoption: microsoft/playwright 97,653 stars, playwright-python 15,040, both pushed 2026-10-13. auth.py raises AuthenticationError (403) for a missing key.", "result": "held"},
+    {"test": "7 consumers", "failureCase": "Status-bar ids used by tests that the markup change breaks. `git grep statusInfo|refreshInfo|sortSelect -- daemon/tests` finds none; test_web_kind_unit.py uses kindSelect, which is kept. /health's only other in-repo reader is api.py:108's logging skip.", "result": "held"},
+    {"test": "8 shape", "failureCase": "A runtime guard where structure could forbid the state. The keyboard guard reads event target and modal state at keypress; no type system applies to inline page JS.", "result": "held"},
+    {"test": "9 six months", "failureCase": "Two things decay. The help list must be updated by hand when a control is added (accepted out loud as a sacrifice, as with help_modal.go). A CI cache keyed on all of uv.lock would refetch Chromium on every unrelated lock change; fixed by keying on the installed Playwright version.", "result": "fixed"},
+    {"test": "10 reversibility", "failureCase": "A one-way door. Everything is additive (a new endpoint, CSS, JS, a test file, a CI step) and reverts with one commit.", "result": "held"},
+    {"test": "11 class", "failureCase": "Fixing overflow for the synthesis only. overflow-wrap covers every long-text surface the feed and detail render (titles, summaries, synthesis, quotes), and the overflow test runs on the feed, the detail panel and the help modal at three widths. Web only; the stack and engine axes do not apply to a static page.", "result": "held"},
+    {"test": "12 new state", "failureCase": "An endpoint the problem does not force. /api/version is forced by test 3: the only unauthenticated home for the fact leaks it, and /api/statistics runs a whole-database query (api.py get_statistics) that a banner should not trigger.", "result": "changed"},
+    {"test": "13 fact twice", "failureCase": "A second source of the version. Only prismis_daemon.__version__ (__init__.py:5) is read.", "result": "held"},
+    {"test": "14 prose vs gate", "failureCase": "A rule kept only in prose. Every commitment has a browser or integration test running in verify.sh.", "result": "held"},
+    {"test": "15 model vs code", "failureCase": "Not applicable: no model-composed text in this work.", "result": "held"},
+    {"test": "16 second home", "failureCase": "Restating a rule the owner states. The tests import TEST_API_KEY and __version__ rather than restating literals.", "result": "held"},
+    {"test": "17 text matching", "failureCase": "Deciding a skip by matching Playwright's error text. The design adds no skip guard; a missing browser simply fails.", "result": "held"},
+    {"test": "18 cause", "failureCase": "Patching overflow per element after the fact. The cause is unbreakable tokens with no wrap rule, removed by overflow-wrap on the text surfaces.", "result": "held"},
+    {"test": "19 direct observation", "failureCase": "Inferring layout from CSS text. scrollWidth and computed style are read from the rendered page.", "result": "held"},
+    {"test": "20 walk", "failureCase": "Walking a first-time visit: the API-key modal shows, ? lands in the input, the key is saved, then saveApiKey (index.html:900) calls loadContent but never loadKinds, so the kind select stays empty until a reload. Fixed: saveApiKey loads kinds and the version, and a browser test enters the key through the modal.", "result": "fixed"}
+  ],
+  "decisions": [],
+  "verdict": "redesign",
+  "carried": [
+    "Where does the banner read the daemon version: the unauthenticated /health endpoint, or a new GET /api/version behind verify_api_key?"
+  ]
+}

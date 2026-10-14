@@ -1,0 +1,16 @@
+{
+  "what": "A first-impression pass on the web view in daemon/src/prismis_daemon/static/index.html: a help modal opened by ? or a header button with an identity banner showing the running version (#53), a redesigned status bar (#41), and phone-width treatment of the article detail panel and its deep-synthesis card (#40), proven in a real browser.",
+  "why": "The web view is prismis's lowest-friction entry point and the measure is adoption; today it has no in-app guidance, a status bar that reads as placeholder, and a synthesis card whose section headings are unstyled and whose detail panel has no phone-width rules, so a first visitor meets an unfinished product.",
+  "decided": [
+    "The three issues ship as one work order because all three touch only the web view's first impression and the same file.",
+    "The help modal opens on ? or a (?) header button, closes on Esc or ?, and describes only controls the web view actually has: votes, Mark Read, the sort and kind selects, the summary click that opens the detail panel, the audio briefing, priority meanings, the learned marker and the duplicate badge.",
+    "Esc also closes the article detail panel, which has no keyboard close today.",
+    "The identity banner shows the running daemon version, read from a new version field on the existing unauthenticated /health endpoint.",
+    "#41 redesigns only what the status bar holds today (the counts line, the kind and sort selects, the refresh countdown); filter chips and an archived toggle named in #41 do not exist and are not built.",
+    "The dead .filter-tabs rules in the 768px media query are removed.",
+    "#40 styles the h4 headings renderSimpleMarkdown emits inside .detail-synthesis, and adds phone-width rules for the detail panel, the synthesis card and the quotes.",
+    "#42's palette and visual-identity decision stays out; the existing colors are kept.",
+    "Proof is Playwright browser tests in the daemon test suite that load the real page: ? opens and Esc closes the help modal, Esc closes the detail panel, and no horizontal overflow at 375, 768 and 1024 px widths."
+  ],
+  "open": []
+}

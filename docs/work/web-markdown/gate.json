@@ -18,7 +18,7 @@
     {
       "test": "3 degrades (security)",
       "failureCase": "Inserting model output over third-party articles as HTML opens script injection on a page holding the API key in localStorage. Probe in Chromium: marked alone passes <script>, <img onerror> and javascript: through and the onerror fired (window.__xss=2); DOMPurify's default profile still kept <img src=http://evil.example/p.png>, a remote fetch chosen by the article. The design was changed before recording to an ALLOWED_TAGS/ALLOWED_ATTR allowlist of markdown's own elements; the probe shows the allowlist output carries none of them.",
-      "result": "fixed"
+      "result": "held"
     },
     {
       "test": "4 reuse",
@@ -87,7 +87,7 @@
     },
     {
       "test": "17 text matching",
-      "failureCase": "Deciding by matching text. The title rule as recorded compares model output against the stored title; that comparison misses rewrites, and the operator's new rule reads the token's type and depth instead of its text.",
+      "failureCase": "Deciding by matching text. The drop reads the first token's type and depth, set by marked's lexer, never the heading's words.",
       "result": "held"
     },
     {
@@ -102,18 +102,21 @@
     },
     {
       "test": "20 real walk",
-      "failureCase": "Walked cerebro's 500 newest reading summaries through marked's lexer: 497 open with an h1, all of them the article title or the model's rewrite of it. The exact-equality drop leaves 36 duplicates and a case- and quote-normalized match leaves 20, each a rewrite still shown under the real title. The operator chose to drop the leading h1 unconditionally, which reopens the form.",
-      "result": "changed"
+      "failureCase": "Walked cerebro's 500 newest reading summaries through marked's lexer: 497 open with an h1, every one the article title or a rewrite of it, and the always-drop rule removes all 497 so each panel shows the title once; the plain entry.summary fallback has no leading h1 and passes through unchanged.",
+      "result": "held"
+    },
+    {
+      "test": "3 degrades (redesign)",
+      "failureCase": "Dropping a heading that carries information the panel lacks. The leading h1 is the template's title slot (summarizer.py:372); the panel's .detail-title shows the stored title, so only the model's rewrite of a title is lost, stated as a sacrifice.",
+      "result": "held"
     }
   ],
   "decisions": [
     {
       "question": "Exact equality drops 461 of 497 leading-h1 titles, normalized equality 477, and the remaining 20 are model rewrites still shown twice; which rule ships: always drop the leading h1, normalized match, or exact match?",
-      "answer": "Always drop the reading summary's leading h1, matched or not; any later h1 still renders."
+      "answer": "Always drop the reading summary's leading h1, matched or not; any later h1 still renders. Ship it."
     }
   ],
-  "verdict": "redesign",
-  "carried": [
-    "Should the reading summary's leading h1 be dropped unconditionally rather than only when it equals the article title?"
-  ]
+  "verdict": "accept",
+  "carried": []
 }

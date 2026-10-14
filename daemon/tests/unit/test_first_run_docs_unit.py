@@ -47,7 +47,7 @@ def test_readme_quick_start_names_the_variable_and_file() -> None:
     BREAKS: a newcomer following the README sets a variable the code never reads.
     """
     readme = (_REPO / "README.md").read_text()
-    start = readme.index("## 🎬 Quick Start")
+    start = readme.index("## Quick Start")
     section = readme[start : readme.index("\n## ", start + 1)]
     assert _default_key_variable() in section
     assert _ENV_FILE in section

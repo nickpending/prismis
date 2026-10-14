@@ -38,7 +38,9 @@ from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
 
 # Seeded feed: known per-priority counts, some read.
-HIGH, MEDIUM, LOW = 3, 2, 1
+# The three markdown items ('markdown', 'titled', 'hostile') are low priority and read, so
+# they raise LOW and TOTAL and leave UNREAD alone.
+HIGH, MEDIUM, LOW = 3, 2, 4
 TOTAL = HIGH + MEDIUM + LOW
 UNREAD = 4
 
@@ -51,7 +53,7 @@ TOKEN = {
 }
 
 # Badge colors from the stylesheet (.badge-high, .badge-medium, .badge-low) and the
-# synthesis accent (.detail-synthesis h3).
+# synthesis accent (.synthesis-body h3).
 COLOR_HIGH = "rgb(255, 0, 102)"
 COLOR_MEDIUM = "rgb(255, 136, 0)"
 COLOR_LOW = "rgb(102, 102, 102)"
@@ -68,7 +70,56 @@ TITLES = {
     "m1": "Garden birds migrate earlier each spring",
     "m2": "New sourdough hydration study released",
     "l1": "Local library extends weekend opening hours",
+    "markdown": "Volcanic basalt columns form hexagonal patterns",
+    "titled": "Medieval bridge restoration finishes in Prague",
+    "hostile": "Deep sea cable repair ships head to Atlantic",
 }
+
+# The rewritten title the summarizer put in the h1 of the 'titled' item's reading summary.
+REWRITTEN_TITLE = "Prague reopens its restored medieval crossing"
+SEEDED_LINK = "https://example.com/md"
+
+MARKDOWN_SUMMARY = f"""# Seeded heading
+
+## Overview
+Plain paragraph with **bold**, inline `code` and a [link]({SEEDED_LINK}).
+
+# Second part
+
+## Steps
+- first bullet
+- second bullet
+
+1. numbered one
+2. numbered two
+"""
+
+MARKDOWN_SYNTHESIS = """### Why it matters
+Body paragraph.
+
+### Takeaways
+- a synthesis bullet
+- another synthesis bullet
+"""
+
+TITLED_SUMMARY = f"""# {REWRITTEN_TITLE}
+
+## Overview
+A paragraph under the overview.
+"""
+
+HOSTILE_SUMMARY = """## Safe heading
+
+A safe [link](https://example.com/ok) in a paragraph.
+
+<script>window.__xss = 'script'</script>
+
+<img src=x onerror="window.__xss = 'onerror'">
+
+[bad link](javascript:window.__xss='href')
+
+![x](http://evil.example/p.png)
+"""
 
 
 @pytest.fixture(scope="module")
@@ -141,6 +192,17 @@ def seeded_ids(live_web_app: str, test_db: Path) -> dict[str, str]:
     add("m1", "medium", analysis={"preference_influenced": True})
     add("m2", "medium", read=True)
     add("l1", "low")
+    add(
+        "markdown",
+        "low",
+        read=True,
+        analysis={
+            "reading_summary": MARKDOWN_SUMMARY,
+            "deep_extraction": {"synthesis": MARKDOWN_SYNTHESIS},
+        },
+    )
+    add("titled", "low", read=True, analysis={"reading_summary": TITLED_SUMMARY})
+    add("hostile", "low", read=True, analysis={"reading_summary": HOSTILE_SUMMARY})
     return ids
 
 
@@ -545,7 +607,7 @@ def test_no_horizontal_overflow_and_synthesis_headings_are_styled(
     """
     INVARIANT: at 375, 768 and 1024 px the document, the detail panel and the help modal
                never scroll horizontally, even with a 200-character unbroken token in the
-               title, summary, synthesis and a quote; synthesis h4 uses the accent color
+               title, summary, synthesis and a quote; synthesis h3 uses the accent color
     BREAKS: a long URL or token widens the page and a phone reader pans sideways
     """
     page = pages.open(width=width)
@@ -553,7 +615,7 @@ def test_no_horizontal_overflow_and_synthesis_headings_are_styled(
     _assert_no_overflow(page, "feed", width)
 
     _summary_of(page, seeded_ids["long"]).click()
-    heading = page.locator("#detailContent .detail-synthesis h4").first
+    heading = page.locator("#detailContent .synthesis-body h3").first
     expect(heading).to_be_visible()
     expect(page.locator("#detailContent blockquote").first).to_be_visible()
     _assert_no_overflow(page, "detail", width)
@@ -562,3 +624,96 @@ def test_no_horizontal_overflow_and_synthesis_headings_are_styled(
     page.keyboard.press("?")
     expect(page.locator("#helpModal")).to_be_visible()
     _assert_no_overflow(page, "help", width)
+
+
+# ------------------------------------------------------------------------- markdown
+
+
+def _open_detail(page: Page, item_id: str) -> None:
+    _loaded(page)
+    _summary_of(page, item_id).click()
+    expect(page.locator("#detailContent .detail-summary")).to_be_visible()
+
+
+def test_summary_and_synthesis_render_as_markdown_without_the_leading_title(
+    pages: PageFactory, seeded_ids: dict[str, str]
+) -> None:
+    """
+    INVARIANT: the reading summary and the deep synthesis render as markdown elements, the
+               summary's leading h1 is dropped and a later h1 stays, links open in a new tab
+    BREAKS: readers see raw ##, ** and '- ', or the article title twice
+    """
+    page = pages.open()
+    _open_detail(page, seeded_ids["markdown"])
+
+    summary = page.locator("#detailContent .detail-summary")
+    expect(summary.locator("h1")).to_have_count(1)
+    expect(summary.locator("h1")).to_have_text("Second part")
+    assert "Seeded heading" not in summary.inner_text()
+    for selector in ("h2", "ul > li", "ol > li", "strong", "code"):
+        assert summary.locator(selector).count() > 0, selector
+    link = summary.locator("a")
+    expect(link).to_have_attribute("href", SEEDED_LINK)
+    expect(link).to_have_attribute("target", "_blank")
+    assert "noopener" in (link.get_attribute("rel") or "")
+
+    synthesis = page.locator("#detailContent .synthesis-body")
+    assert synthesis.locator("h3").count() == 2
+    assert synthesis.locator("li").count() == 2
+
+    text = page.locator("#detailContent").inner_text()
+    assert "##" not in text
+    assert "**" not in text
+    assert not re.search(r"^- ", text, re.MULTILINE), text
+
+
+def test_leading_title_h1_is_dropped_even_when_rewritten(
+    pages: PageFactory, seeded_ids: dict[str, str]
+) -> None:
+    """
+    INVARIANT: a summary opening with an h1 that rewrites the title shows neither that h1
+               nor its text; the stored title is shown once, in the panel title
+    BREAKS: the panel shows two different headlines for one article
+    """
+    page = pages.open()
+    _open_detail(page, seeded_ids["titled"])
+
+    summary = page.locator("#detailContent .detail-summary")
+    expect(summary.locator("h1")).to_have_count(0)
+    assert REWRITTEN_TITLE not in summary.inner_text()
+    first_heading = summary.locator("h1, h2, h3, h4, h5, h6").first
+    assert first_heading.evaluate("e => e.tagName") == "H2"
+    expect(first_heading).to_have_text("Overview")
+    expect(page.locator("#detailContent .detail-title")).to_contain_text(
+        TITLES["titled"]
+    )
+
+
+def test_hostile_summary_is_sanitized_and_runs_nothing(
+    pages: PageFactory, seeded_ids: dict[str, str]
+) -> None:
+    """
+    INVARIANT: model output cannot inject script, handlers, javascript: links or images,
+               and cannot make the page fetch from another host
+    BREAKS: a hostile article steers the summary into code running on a page that holds
+            the API key
+    """
+    page = pages.open()
+    _open_detail(page, seeded_ids["hostile"])
+
+    summary = page.locator("#detailContent .detail-summary")
+    expect(summary.locator("h2")).to_have_text("Safe heading")
+    expect(summary.locator("a[href='https://example.com/ok']")).to_have_count(1)
+
+    detail = page.locator("#detailContent")
+    assert detail.locator("script").count() == 0
+    assert detail.locator("[onerror]").count() == 0
+    assert detail.locator("img").count() == 0
+    javascript_links = detail.locator("a").evaluate_all(
+        "els => els.filter(a => (a.getAttribute('href') || '').toLowerCase()"
+        ".startsWith('javascript:')).length"
+    )
+    assert javascript_links == 0
+    page.wait_for_timeout(500)  # an image error handler would have fired by now
+    assert page.evaluate("window.__xss") is None
+    assert "evil.example" not in pages.blocked_hosts

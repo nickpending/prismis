@@ -794,7 +794,7 @@
         .detail-title a:hover { color: #00D9FF; }
         .detail-summary {
             font-size: 14px; color: #CCCCCC; line-height: 1.7; margin: 16px 0;
-            white-space: pre-wrap; overflow-wrap: anywhere;
+            overflow-wrap: anywhere;
         }
         .detail-synthesis {
             border-left: 3px solid #9F4DFF;
@@ -808,12 +808,46 @@
             color: #9F4DFF; font-size: 13px; font-weight: 600;
             text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px;
         }
-        .detail-synthesis h4 {
+        .detail-synthesis .synthesis-body h1, .detail-synthesis .synthesis-body h2,
+        .detail-synthesis .synthesis-body h3, .detail-synthesis .synthesis-body h4 {
             color: #9F4DFF; font-size: 12px; font-weight: 600;
             text-transform: uppercase; letter-spacing: 0.08em; margin: 16px 0 6px;
         }
         .detail-synthesis p { font-size: 14px; color: #CCCCCC; line-height: 1.7; }
         .synthesis-body p + p { margin-top: 10px; }
+
+        /* Rendered markdown (reading summary and synthesis bodies). Headings stay below
+           the 20px .detail-title so a heading never outranks the panel title. */
+        .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+            color: #EEEEEE; font-weight: 600; line-height: 1.4; margin: 16px 0 6px;
+        }
+        .md h1 { font-size: 18px; }
+        .md h2 { font-size: 16px; }
+        .md h3 { font-size: 15px; }
+        .md h4, .md h5, .md h6 { font-size: 14px; }
+        .md p + p, .md p + ul, .md p + ol, .md ul + p, .md ol + p { margin-top: 10px; }
+        .md ul, .md ol { padding-left: 24px; margin: 8px 0; }
+        .md ul { list-style: disc; }
+        .md ol { list-style: decimal; }
+        .md li { margin: 4px 0; }
+        .md code {
+            font-family: 'JetBrains Mono', monospace; font-size: 13px;
+            background: rgba(255, 255, 255, 0.08); padding: 1px 5px; border-radius: 3px;
+        }
+        .md pre {
+            background: rgba(0, 0, 0, 0.35); padding: 10px 12px; border-radius: 4px;
+            overflow-x: auto; margin: 10px 0;
+        }
+        .md pre code { background: none; padding: 0; }
+        .md a { color: #00D9FF; text-decoration: none; }
+        .md a:hover { text-decoration: underline; }
+        .md blockquote {
+            border-left: 3px solid #444444; padding-left: 12px; margin: 10px 0;
+            color: #AAAAAA;
+        }
+        .md table { display: block; overflow-x: auto; border-collapse: collapse; margin: 10px 0; }
+        .md th, .md td { border: 1px solid #333333; padding: 4px 8px; text-align: left; }
+        .md hr { border: none; border-top: 1px solid #333333; margin: 14px 0; }
         .detail-quotes { margin: 20px 0; }
         .detail-quotes h3 {
             color: #9F4DFF; font-size: 13px; font-weight: 600;
@@ -1051,7 +1085,21 @@
         <div id="detailContent"></div>
     </div>
 
+    <script src="/assets/marked.umd.js"></script>
+    <script src="/assets/purify.min.js"></script>
     <script>
+        // What markdown produces and nothing more: DOMPurify's default profile also allows
+        // img, video, audio and svg, whose remote src would make the page fetch from a host
+        // the article's author chose.
+        const MD_POLICY = {
+            ALLOWED_TAGS: [
+                'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'hr', 'ul', 'ol', 'li',
+                'strong', 'em', 'del', 'code', 'pre', 'blockquote', 'a',
+                'table', 'thead', 'tbody', 'tr', 'th', 'td'
+            ],
+            ALLOWED_ATTR: ['href', 'title', 'align']
+        };
+
         class PrismisWebapp {
             constructor() {
                 this.apiKey = localStorage.getItem('prismis_api_key');
@@ -1068,6 +1116,14 @@
                 this.isGeneratingAudio = false;
                 this.currentAudioFile = null;
                 this.detailOpen = false;
+
+                // Links in rendered markdown open in a new tab, like the detail title link.
+                DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+                    if (node.tagName === 'A' && node.hasAttribute('href')) {
+                        node.setAttribute('target', '_blank');
+                        node.setAttribute('rel', 'noopener noreferrer');
+                    }
+                });
 
                 this.init();
             }
@@ -2004,7 +2060,7 @@
                         synthesisHtml = `
                             <div class="detail-synthesis">
                                 <h3>Deep Synthesis</h3>
-                                <div class="synthesis-body">${this.renderSimpleMarkdown(de.synthesis)}</div>
+                                <div class="synthesis-body md">${this.renderMarkdown(de.synthesis)}</div>
                             </div>`;
                     }
 
@@ -2038,7 +2094,7 @@
                                 ${this.escapeHtml(entry.title)}
                             </a>
                         </div>
-                        <div class="detail-summary">${this.escapeHtml(summary)}</div>
+                        <div class="detail-summary md">${this.renderMarkdown(summary, { dropLeadingTitle: true })}</div>
                         ${synthesisHtml}
                         ${quotesHtml}
                     `;
@@ -2060,21 +2116,19 @@
                 return div.innerHTML;
             }
 
-            // Lightweight Markdown pass for the deep_extraction.synthesis field.
-            // Escape first (XSS), then transform a small set of inline markers the
-            // task 1.2 prompt emits: `### Header` line-starts and `**bold**` spans.
-            // No external library; mirrors the labeled-sections pattern the TUI
-            // renderSimpleMarkdown produces in cyan.
-            renderSimpleMarkdown(text) {
+            // Markdown to sanitized HTML. The summarizer opens every reading summary with
+            // '# <title>', which the panel already shows as its link, so dropLeadingTitle
+            // removes a leading depth-1 heading and leaves any later h1.
+            renderMarkdown(text, { dropLeadingTitle = false } = {}) {
                 if (!text) return '';
-                let html = this.escapeHtml(text);
-                // ### headers at start of line (multiline-aware) → <h4>
-                html = html.replace(/^###\s+(.+)$/gm, '<h4>$1</h4>');
-                // **bold** → <strong>bold</strong> (non-greedy, no line breaks)
-                html = html.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
-                // Preserve paragraph breaks: double newline → </p><p>, single → <br>
-                html = '<p>' + html.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
-                return html;
+                const tokens = marked.lexer(text);
+                if (dropLeadingTitle) {
+                    const first = tokens.findIndex(t => t.type !== 'space');
+                    if (first !== -1 && tokens[first].type === 'heading' && tokens[first].depth === 1) {
+                        tokens.splice(first, 1);
+                    }
+                }
+                return DOMPurify.sanitize(marked.parser(tokens), MD_POLICY);
             }
 
             timeAgo(date) {

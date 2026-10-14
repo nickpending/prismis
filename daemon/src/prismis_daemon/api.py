@@ -1847,17 +1847,25 @@ app.mount(
     "/audio", StaticFiles(directory=str(audio_dir), check_dir=False), name="audio"
 )
 
+# Vendored browser scripts (marked, DOMPurify) the SPA loads with plain script tags.
+# Registered before the SPA catch-all so an unknown /assets path is a 404, never index.html.
+app.mount(
+    "/assets",
+    StaticFiles(directory=str(static_dir / "assets"), check_dir=False),
+    name="assets",
+)
+
 # SPA catch-all routes (defined after all API routes)
 if static_dir.exists():
     index_path = static_dir / "index.html"
 
-    # Serve index.html for all GET requests to non-API, non-audio paths
+    # Serve index.html for all GET requests to non-API, non-audio, non-assets paths
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str) -> FileResponse:
         """Serve index.html for SPA client-side routing."""
         # Return 404 for API routes (check with and without leading slash)
         normalized_path = full_path.lstrip("/")
-        if normalized_path.startswith("api/") or normalized_path.startswith("audio/"):
+        if normalized_path.startswith(("api/", "audio/", "assets/")):
             raise HTTPException(status_code=404, detail="Not Found")
         # Serve index.html for SPA routes
         if index_path.exists():

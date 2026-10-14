@@ -1,0 +1,20 @@
+{
+  "marked.umd.js": {
+    "package": "marked",
+    "version": "18.0.14",
+    "tarball": "https://registry.npmjs.org/marked/-/marked-18.0.14.tgz",
+    "source_path": "lib/marked.umd.js",
+    "license": "MIT",
+    "banner": "marked v18.0.14",
+    "sha256": "21568877a938d2c4e7d74e27f18e60da96bb73a68809610ca39216e1efebae62"
+  },
+  "purify.min.js": {
+    "package": "dompurify",
+    "version": "3.4.16",
+    "tarball": "https://registry.npmjs.org/dompurify/-/dompurify-3.4.16.tgz",
+    "source_path": "dist/purify.min.js",
+    "license": "(MPL-2.0 OR Apache-2.0)",
+    "banner": "DOMPurify 3.4.16",
+    "sha256": "2c90a9b46d6463f26038a29b686e82bc91de01fdac9d5229e7cfe3b360134ea2"
+  }
+}

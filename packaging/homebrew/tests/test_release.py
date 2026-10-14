@@ -164,6 +164,19 @@ def test_workflow_pins_every_action_by_commit_hash() -> None:
         assert re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", ref), f"not pinned by hash: {ref}"
 
 
+def test_every_workflow_pins_an_action_to_the_same_commit() -> None:
+    # A Dependabot PR opened before a workflow file existed bumps only the files it saw,
+    # so the release would run an action CI no longer proves.
+    pins: dict[str, dict[str, list[str]]] = {}
+    for workflow in sorted(WORKFLOW.parent.glob("*.yml")):
+        for ref in re.findall(r"^\s*-?\s*uses:\s*(\S+)", workflow.read_text(), re.M):
+            action, _, sha = ref.partition("@")
+            pins.setdefault(action, {}).setdefault(sha, []).append(workflow.name)
+    assert "astral-sh/setup-uv" in pins
+    drifted = {action: shas for action, shas in pins.items() if len(shas) > 1}
+    assert not drifted, f"one action pinned to different commits: {drifted}"
+
+
 def test_workflow_runs_the_release_logic_retries_on_404_and_pushes_the_tap_over_ssh() -> None:
     text = WORKFLOW.read_text()
     assert "release.py" in text

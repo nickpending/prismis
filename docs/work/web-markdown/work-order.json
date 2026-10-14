@@ -1,0 +1,77 @@
+{
+  "workOrder": "web-markdown",
+  "what": "Render the web detail panel's reading summary and deep synthesis as markdown through vendored marked 18.0.14 and DOMPurify 3.4.16 served from a new /assets mount, sanitized to markdown's own elements, with the summary's leading title h1 dropped and renderSimpleMarkdown deleted, proven by Playwright tests against the real app.",
+  "why": "The design is docs/work/web-markdown/design.md. The summarizer writes a full markdown reading summary, and the web view shows readers raw ##, - and ** where the TUI formats the same text; the web view is prismis's lowest-friction entry point, and this reads as broken on first use.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "daemon/src/prismis_daemon/static/assets/ holding marked.umd.js, purify.min.js and VENDORED.json",
+      "when": "the vendoring unit test runs",
+      "then": "It fails if a file named in VENDORED.json is missing, hashes to anything but its recorded sha256, or lacks a banner naming its recorded version ('marked v18.0.14', 'DOMPurify 3.4.16'); it passes on the committed files, which are byte-identical to lib/marked.umd.js from marked-18.0.14.tgz and dist/purify.min.js from dompurify-3.4.16.tgz on the npm registry, and VENDORED.json records package, version, tarball URL, license and sha256 for each. The files are committed under assets/, not vendor/, and git ls-files lists both."
+    },
+    {
+      "id": "C2",
+      "given": "the real FastAPI app with its /assets StaticFiles mount registered beside /audio and before the SPA catch-all",
+      "when": "GET /assets/missing.js, GET /assets/marked.umd.js, GET /assets/purify.min.js and GET of a non-API path such as /anything are requested",
+      "then": "/assets/missing.js is 404 and its body is not index.html; both scripts are 200 with a JavaScript content type and bodies whose sha256 equals VENDORED.json; /anything still returns index.html. serve_spa treats assets/ as it treats api/ and audio/."
+    },
+    {
+      "id": "C3",
+      "given": "a seeded item whose reading_summary opens with '# Seeded heading' and holds a later '# Second part' h1, ## headings, a - list, a numbered list, **bold**, inline `code` and a [link](https://example.com/md), and whose deep_extraction.synthesis holds ### headings and a - list",
+      "when": "its detail panel is opened in Chromium against the real app",
+      "then": "Against today's index.html this test fails, because the panel shows raw markdown. After the change .detail-summary holds exactly one h1, 'Second part', and no 'Seeded heading' text, plus h2, ul>li, ol>li, strong, code and an a whose href is the seeded URL with target=_blank and rel containing noopener; .synthesis-body holds h3 and li; and the panel's innerText contains no '##', no '**' and no line starting with '- '."
+    },
+    {
+      "id": "C4",
+      "given": "a seeded item whose reading_summary opens with '# ' plus a rewritten form of its title that differs from the stored title, then '## Overview' and a paragraph",
+      "when": "its detail panel is opened in Chromium",
+      "then": "Against today's index.html this test fails. After the change .detail-summary holds no h1 and no text of the rewritten title, its first heading is the h2 'Overview', and the stored title appears in .detail-title. With the leading-h1 drop removed from renderMarkdown this test fails, and with the drop applied to every h1 instead of the leading one C3 fails; both mutations are run and their failures reported."
+    },
+    {
+      "id": "C5",
+      "given": "a seeded item whose reading_summary holds '## Safe heading', a safe [link](https://example.com/ok), a <script> that sets window.__xss, an <img src=x onerror> that sets window.__xss, a [link](javascript:...) that would set it, and a markdown image ![x](http://evil.example/p.png)",
+      "when": "its detail panel is opened in Chromium and the page waits long enough for an image error to fire",
+      "then": "Against today's index.html this test fails, because the safe heading is not an h2. With DOMPurify.sanitize removed from renderMarkdown it fails, because the onerror handler runs and the page requests evil.example; that mutation is run and its failure reported. After the change the safe heading is an h2 and the safe link an a; #detailContent holds no script, no element with an onerror attribute, no img and no a whose href starts with javascript:; window.__xss is undefined; and the page factory recorded no blocked non-loopback request."
+    },
+    {
+      "id": "C6",
+      "given": "the seeded 'long' item whose title, summary, synthesis and quote each carry a 200-character unbroken token, now rendered through marked",
+      "when": "the overflow test opens the feed, the detail panel and the help modal at 375, 768 and 1024 px",
+      "then": "None of them scrolls horizontally, and the first '#detailContent .synthesis-body h3' computes to the synthesis accent rgb(159, 77, 255); the test's old '.detail-synthesis h4' locator is gone. .detail-summary no longer sets white-space: pre-wrap."
+    },
+    {
+      "id": "C7",
+      "given": "the changed index.html",
+      "when": "it is read and the full browser test module runs",
+      "then": "renderSimpleMarkdown no longer appears anywhere in index.html; /assets/marked.umd.js and /assets/purify.min.js load through plain script tags placed before the inline application script; renderMarkdown sanitizes with ALLOWED_TAGS limited to h1-h6, p, br, hr, ul, ol, li, strong, em, del, code, pre, blockquote, a, table, thead, tbody, tr, th, td and ALLOWED_ATTR to href, title, align; and every existing browser test, including the non-loopback abort test, passes."
+    },
+    {
+      "id": "C8",
+      "given": "the whole tree after the change",
+      "when": "./.specify/verify.sh runs",
+      "then": "It prints verify: PASS, with the gitleaks step covering the two vendored files."
+    }
+  ],
+  "issues": [94],
+  "outOfScope": [
+    "DOMPurify 3.4.16, not 3.4.17: the two-week rule skips a release whose fixes cover IN_PLACE, SAFE_FOR_TEMPLATES, shadow roots and XHTML mode, none of which a default string sanitize uses.",
+    "The vendored files have no automated update path: dependabot does not see them, and a bump is a manual copy plus a VENDORED.json edit that the hash test then holds.",
+    "The .map source maps are not shipped, so a browser with devtools open logs a 404 for each.",
+    "No syntax highlighting in code blocks.",
+    "The feed cards' short summaries stay plain text.",
+    "The TUI keeps its own renderSimpleMarkdown in helpers.go; no TUI parity work.",
+    "Chromium only, as in web-first-impression.",
+    "Markdown images render as nothing, since img is outside the allowlist.",
+    "The model's rewritten headline, when it differs from the stored title, is not shown; the panel shows the stored title only.",
+    "A reading summary that opened with an h1 that was not a title would lose that heading; none of the 497 observed did."
+  ],
+  "stakes": [
+    "The reading summary and the deep synthesis in the web detail panel are rendered from markdown into HTML elements: headings, bullet and numbered lists, bold, inline code and links, with no literal ##, ** or leading '- ' left in the panel text.",
+    "A reading summary's leading h1, which the summarizer always writes as the article title or a rewrite of it, is not rendered, so the panel shows the title once; a later h1 renders.",
+    "Rendered markdown passes DOMPurify with an allowlist of only the elements markdown produces: no script, no on* handler attribute, no javascript: link and no img, media or svg element reaches the DOM, a hostile summary runs no code, and it cannot make the page fetch from another host.",
+    "Links inside rendered markdown open in a new tab with rel noopener noreferrer.",
+    "marked 18.0.14 and DOMPurify 3.4.16 are served by the daemon from /assets, byte-identical to their npm releases, with version and sha256 recorded in VENDORED.json and checked by a test; no page request leaves the loopback host.",
+    "Synthesis section headings keep the accent styling, and at 375, 768 and 1024 px the detail panel still never scrolls horizontally with rendered markdown in it.",
+    "renderSimpleMarkdown no longer exists, and an unknown /assets path returns 404 rather than index.html."
+  ]
+}

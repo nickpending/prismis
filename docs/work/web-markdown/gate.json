@@ -87,7 +87,7 @@
     },
     {
       "test": "17 text matching",
-      "failureCase": "Deciding by matching text ember wrote. Not applicable; the only text compare is the operator-chosen title match below, against data the daemon stores.",
+      "failureCase": "Deciding by matching text. The title rule as recorded compares model output against the stored title; that comparison misses rewrites, and the operator's new rule reads the token's type and depth instead of its text.",
       "result": "held"
     },
     {
@@ -102,18 +102,18 @@
     },
     {
       "test": "20 real walk",
-      "failureCase": "Walking a real item through the design: every panel would show the title as the link and again as an h1 directly below it, since nearly every summary opens with the title verbatim. The design as recorded renders that duplicate; the operator chose to drop it, which reopens the form.",
+      "failureCase": "Walked cerebro's 500 newest reading summaries through marked's lexer: 497 open with an h1, all of them the article title or the model's rewrite of it. The exact-equality drop leaves 36 duplicates and a case- and quote-normalized match leaves 20, each a rewrite still shown under the real title. The operator chose to drop the leading h1 unconditionally, which reopens the form.",
       "result": "changed"
     }
   ],
   "decisions": [
     {
-      "question": "498 of the last 500 reading summaries open with '# <title>', a verbatim copy of the article title, so every rendered panel shows the title twice. Drop it, keep it styled small, or fix the prompt instead?",
-      "answer": "Drop the summary's leading h1 only when its text equals the article title; any other h1 still renders."
+      "question": "Exact equality drops 461 of 497 leading-h1 titles, normalized equality 477, and the remaining 20 are model rewrites still shown twice; which rule ships: always drop the leading h1, normalized match, or exact match?",
+      "answer": "Always drop the reading summary's leading h1, matched or not; any later h1 still renders."
     }
   ],
   "verdict": "redesign",
   "carried": [
-    "How does the renderer drop a reading summary's leading h1 that repeats the article title, while keeping any other h1?"
+    "Should the reading summary's leading h1 be dropped unconditionally rather than only when it equals the article title?"
   ]
 }

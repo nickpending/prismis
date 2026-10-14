@@ -1,0 +1,198 @@
+{
+  "impacted": [
+    {
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "role": "The whole web view: markup, CSS and the PrismisWebapp class; every UI change in the bundle lands here."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/api.py",
+      "role": "The /health handler gains a version field; the SPA catch-all serves index.html."
+    },
+    {
+      "path": "daemon/tests/",
+      "role": "Gains the Playwright browser test module and the live-server fixture it needs."
+    },
+    {
+      "path": "daemon/pyproject.toml",
+      "role": "The dev dependency group gains the Playwright test dependency."
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "role": "Must install the Chromium build Playwright drives before the Verify step."
+    }
+  ],
+  "constraints": [
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 756,
+      "text": "The status bar holds only #statusInfo (a counts line), #kindSelect, #sortSelect and #refreshInfo (a countdown); there are no filter chips and no archived toggle."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 633,
+      "text": "The 768px media query styles .filter-tabs and .filter-tab, which no markup or script renders."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 1728,
+      "text": "renderSimpleMarkdown turns ### lines of the deep synthesis into <h4> elements."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 709,
+      "text": "The CSS styles .detail-synthesis h3 and p but has no rule for .detail-synthesis h4, so synthesis section headings render with browser defaults."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 677,
+      "text": "The detail panel is a fixed side panel min(720px, 100vw) wide with 24px padding; no media query adjusts it, the synthesis card or the quotes."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 848,
+      "text": "setupEventListeners registers click and change handlers only; the page has no keydown handling at all, so ? and Esc are new."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 529,
+      "text": "An existing modal pattern exists: .api-key-modal (fixed overlay, z-index 1000, .hidden toggles display) with .modal-content."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 9,
+      "text": "The page loads JetBrains Mono from fonts.googleapis.com, a third-party host."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 9,
+      "text": "A browser test that loads the page unaltered makes a live request to Google; the tests must block every non-loopback request so the result never depends on the network."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/api.py",
+      "line": 1467,
+      "text": "/health needs no API key and returns success, message and data {service, database, sources}."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/__init__.py",
+      "line": 5,
+      "text": "__version__ is read from the installed prismis-daemon distribution metadata."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "daemon/src/prismis_daemon/api.py",
+      "line": 1467,
+      "text": "Because /health needs no key, the banner can show the version before the API-key modal is answered."
+    },
+    {
+      "tag": "RULE",
+      "path": ".specify/memory/constitution.md",
+      "line": 86,
+      "text": "Principle VIII: interfaces change additively; adding version to /health's data is additive, removing or renaming an existing field is not."
+    },
+    {
+      "tag": "RULE",
+      "path": ".specify/memory/constitution.md",
+      "line": 40,
+      "text": "Principle I: tests exercise real collaborators; the browser tests load the real page from the real app against a real database, mocking nothing internal."
+    },
+    {
+      "tag": "RULE",
+      "path": ".specify/memory/constitution.md",
+      "line": 61,
+      "text": "Principle IV: verification runs where the code runs; the browser binary must be installed by CI's own steps, not supplied by a developer's shell."
+    },
+    {
+      "tag": "RULE",
+      "path": ".specify/memory/constitution.md",
+      "line": 49,
+      "text": "Principle II: a missing browser must fail distinguishably with a message naming the install, never skip and let verify pass having checked nothing."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": ".specify/verify.sh",
+      "line": 62,
+      "text": "verify.sh runs `uv run --locked --quiet pytest -q` in each Python unit, so a browser test in daemon/tests runs in every local and CI gate."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": ".github/workflows/ci.yml",
+      "line": 71,
+      "text": "CI installs dependencies with uv sync --frozen per unit and caches the embedding model keyed on the file that names it; it has no browser install step."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "cli/tests/conftest.py",
+      "line": 191,
+      "text": "_run_live_daemon runs the real FastAPI app under uvicorn in a thread against the sealed XDG environment; the daemon tests have no equivalent fixture."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/tests/conftest.py",
+      "line": 146,
+      "text": "isolated_xdg_env (autouse) seals HOME and XDG dirs and writes a config with TEST_API_KEY, which a live server and the page's stored API key can share."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/tests/unit/test_web_click_delegation_unit.py",
+      "line": 1,
+      "text": "Existing web tests read index.html as text with regexes; they prove structure, not behavior."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/tests/unit/test_web_click_delegation_unit.py",
+      "line": 44,
+      "text": "INV-D3 requires every card button listener to stop propagation; new header and modal buttons sit outside cards, so it does not bind them."
+    }
+  ],
+  "adrs": {
+    "scanned": 0,
+    "binding": []
+  },
+  "related": {
+    "query": "gh issue list --label web --state all --limit 30; gh issue list --search \"web OR health OR version OR playwright OR mobile\" --state open --limit 30",
+    "issues": [
+      {
+        "number": 42,
+        "why": "Visual identity for the same file; kept out so this bundle does not decide the palette."
+      },
+      {
+        "number": 22,
+        "why": "Closed NOT_PLANNED in May: browser JS testing rejected because package.json plus vitest/jsdom cost more than ~30 lines of JS were worth, with 'reopen if the web view grows non-trivially (more async paths)'. Python Playwright needs no package.json, and this bundle adds keyboard handling, a modal and a version fetch."
+      },
+      {
+        "number": 84,
+        "why": "Closed; added the kind select and badge whose static tests (test_web_kind_unit.py) the status-bar redesign must keep passing."
+      }
+    ]
+  },
+  "reuse": [
+    {
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "what": "The .api-key-modal overlay and .modal-content styles for the help modal; the priority badge colors for the status-bar counts."
+    },
+    {
+      "path": "cli/tests/conftest.py",
+      "what": "The _run_live_daemon pattern (uvicorn.Server in a thread, wait until started) for the daemon-side live-server fixture."
+    },
+    {
+      "path": "daemon/tests/conftest.py",
+      "what": "isolated_xdg_env, test_db, add_new_content and TEST_API_KEY for seeding the page's data."
+    },
+    {
+      "path": "tui/internal/ui/help_modal.go",
+      "what": "Section structure and close keys (ESC, ?) the web help modal mirrors."
+    }
+  ],
+  "open": []
+}

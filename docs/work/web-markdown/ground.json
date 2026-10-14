@@ -1,0 +1,184 @@
+{
+  "impacted": [
+    {
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "role": "openDetail builds the detail panel: the reading summary goes through escapeHtml into .detail-summary and the deep synthesis through renderSimpleMarkdown into .synthesis-body; both change, and renderSimpleMarkdown and the pre-wrap rule go."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/static/",
+      "role": "Gains the pinned marked and DOMPurify browser builds plus a record of their versions and sha256."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/api.py",
+      "role": "Has no route that serves a static file other than index.html; the vendored scripts need a mount ahead of the SPA catch-all."
+    },
+    {
+      "path": "daemon/tests/integration/test_web_browser_integration.py",
+      "role": "Gains the markdown and sanitization browser tests; its synthesis h4 assertion depends on the heading element renderSimpleMarkdown emits."
+    }
+  ],
+  "constraints": [
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 2041,
+      "text": "openDetail inserts the reading summary (analysis.reading_summary, else entry.summary) as escapeHtml output into div.detail-summary."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 795,
+      "text": ".detail-summary sets white-space: pre-wrap, which is why the escaped markdown shows its raw line structure."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 2068,
+      "text": "renderSimpleMarkdown escapes the text, then turns ### lines into h4 and **x** into strong, and wraps paragraphs; it is called only for de.synthesis."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 807,
+      "text": ".detail-synthesis h3 styles the card's own 'Deep Synthesis' label and .detail-synthesis h4 styles the synthesis section headings, both in the accent #9F4DFF."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 807,
+      "text": "marked renders ### as h3, not h4, so a synthesis heading rendered by marked would pick up the card-label rule and lose the h4 rule; heading styles for rendered markdown must be scoped to the rendered container rather than to .detail-synthesis."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/tests/integration/test_web_browser_integration.py",
+      "line": 556,
+      "text": "test_no_horizontal_overflow_and_synthesis_headings_are_styled locates '#detailContent .detail-synthesis h4' and asserts its color is the synthesis accent, so the heading element it names changes with the renderer."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/summarizer.py",
+      "line": 372,
+      "text": "The reading summary template is '# <title>', then '## Overview', '## Key Points' as a - list, '## Summary' and '## Takeaways'; the prompt asks for markdown with no HTML."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "daemon/src/prismis_daemon/summarizer.py",
+      "line": 372,
+      "text": "Every rendered reading summary opens with an h1 repeating the article title that .detail-title already shows above it."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "tui/internal/ui/reader.go",
+      "line": 286,
+      "text": "The TUI renders the reading summary with its own renderSimpleMarkdown in helpers.go, not glamour as #94 says; it shows # and ## headings, the # title included, as '▸ Header' lines."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/api.py",
+      "line": 1856,
+      "text": "serve_spa answers every GET outside api/ and audio/ with index.html, and no StaticFiles mount covers the static directory, so a <script src> pointing at a file beside index.html would receive index.html."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/api.py",
+      "line": 1846,
+      "text": "The /audio StaticFiles mount is registered before the SPA catch-all route and is excluded from it, the pattern a scripts mount can follow."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/api.py",
+      "line": 109,
+      "text": "The request-logging middleware already skips paths under /assets/, though no route serves /assets today."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": ".gitignore",
+      "line": 35,
+      "text": "vendor/ is ignored, so files placed in a directory named vendor would never be committed, and hatchling, which honours .gitignore, would leave them out of the wheel."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/pyproject.toml",
+      "line": 55,
+      "text": "The wheel packages src/prismis_daemon whole, which is how static/index.html ships today; files committed under static/ ship the same way."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/tests/integration/test_web_browser_integration.py",
+      "line": 157,
+      "text": "Each browser context aborts every request whose host is not 127.0.0.1, so a CDN script would never load in the tests."
+    },
+    {
+      "tag": "RULE",
+      "path": ".specify/memory/constitution.md",
+      "line": 112,
+      "text": "prismis is local-first and runs entirely on the operator's machines; the renderer cannot depend on a third-party host at runtime."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "https://registry.npmjs.org/marked",
+      "line": 1,
+      "text": "The newest marked release at least two weeks old on 2026-10-14 is 18.0.14 (2026-09-22, MIT); its browser build is lib/marked.umd.js (46,891 bytes), and the package ships no minified file."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "https://registry.npmjs.org/dompurify",
+      "line": 1,
+      "text": "The newest DOMPurify release at least two weeks old on 2026-10-14 is 3.4.16 (2026-09-23, MPL-2.0 OR Apache-2.0); its browser build is dist/purify.min.js (28,885 bytes)."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "https://github.com/cure53/DOMPurify/releases/tag/3.4.17",
+      "line": 1,
+      "text": "3.4.17, the release the two-week rule skips, fixes IN_PLACE, SAFE_FOR_TEMPLATES and shadow-root handling, the SMIL attributeName guard in XHTML mode, and smaller namespace and isValidAttribute edge cases."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "https://github.com/cure53/DOMPurify/releases/tag/3.4.17",
+      "line": 1,
+      "text": "A string-in, string-out sanitize call with default options uses none of IN_PLACE, SAFE_FOR_TEMPLATES or XHTML mode, so pinning 3.4.16 leaves it outside every path 3.4.17 fixes."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "line": 2037,
+      "text": "The detail title link opens with target=_blank and rel='noopener noreferrer'; links inside rendered markdown have no such treatment yet."
+    }
+  ],
+  "adrs": {
+    "scanned": 0,
+    "binding": []
+  },
+  "related": {
+    "query": "gh issue list --label web --state all --limit 20",
+    "issues": [
+      {
+        "number": 42,
+        "why": "Visual identity of the same file; out of scope, so the rendered markdown uses the existing palette."
+      },
+      {
+        "number": 40,
+        "why": "Closed by web-first-impression; it added the synthesis h4 styling and the overflow-wrap and phone rules this work must keep holding for rendered markdown."
+      },
+      {
+        "number": 22,
+        "why": "Closed in May over JS test cost; Playwright browser tests now exist, and this work extends them rather than adding JS tooling."
+      }
+    ]
+  },
+  "reuse": [
+    {
+      "path": "daemon/tests/integration/test_web_browser_integration.py",
+      "what": "The seeded_ids fixture's add helper, the PageFactory with its non-loopback abort, and _summary_of for opening a detail panel."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/api.py",
+      "what": "The /audio StaticFiles mount and its exclusion in serve_spa, for mounting the scripts directory."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/static/index.html",
+      "what": "The synthesis accent and h4 heading styles and the existing overflow-wrap and 768px rules, applied to the rendered markdown containers."
+    }
+  ],
+  "open": []
+}

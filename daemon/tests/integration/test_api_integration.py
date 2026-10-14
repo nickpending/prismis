@@ -764,3 +764,30 @@ def test_explicit_null_feedback_still_clears_the_vote(
         f"an explicit null must clear the vote, got {stored!r} — otherwise the fix for "
         f"the omitted case has made retracting a vote impossible"
     )
+
+
+def test_version_endpoint_requires_key_and_health_carries_no_version(
+    api_client: TestClient,
+) -> None:
+    """
+    INVARIANT: /api/version needs the API key; /health stays version-free
+    BREAKS: an unauthenticated version string tells a scanner which build to attack,
+            and the SPA catch-all would answer the route with index.html
+    """
+    from prismis_daemon import __version__
+
+    for headers in ({}, {"X-API-Key": "wrong-key"}):
+        denied = api_client.get("/api/version", headers=headers)
+        assert denied.status_code == 403
+        assert denied.json()["success"] is False
+        assert __version__ not in denied.text
+
+    ok = api_client.get("/api/version", headers={"X-API-Key": TEST_API_KEY})
+    assert ok.status_code == 200
+    assert ok.headers["content-type"].startswith("application/json")
+    assert ok.json()["data"] == {"version": __version__}
+
+    health = api_client.get("/health")
+    assert health.status_code == 200
+    assert set(health.json()["data"]) == {"service", "database", "sources"}
+    assert __version__ not in health.text

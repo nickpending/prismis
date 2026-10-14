@@ -91,6 +91,28 @@ jobs:
             (cd "$dir" && go mod download)
           done < <(find . -name go.mod -not -path '*/vendor/*' | sort)
 
+      # The web-view browser tests (daemon/tests/integration/test_web_browser_integration.py)
+      # drive Chromium, which `uv sync` does not install. The cache key is DERIVED from the
+      # Playwright version the daemon environment actually has, not hand-written: a Playwright
+      # bump needs a matching browser build and so changes the key, while an unrelated lock
+      # change leaves it alone. `install --with-deps` also fetches the system libraries
+      # Chromium needs on the runner; it is a no-op for the browser itself on a cache hit.
+      - name: Read the installed Playwright version
+        id: playwright
+        working-directory: daemon
+        run: |
+          echo "version=$(uv run --frozen python -c 'from importlib.metadata import version; print(version("playwright"))')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Playwright browser
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install Chromium for the browser tests
+        working-directory: daemon
+        run: uv run --frozen playwright install --with-deps chromium
+
       - name: Verify
         # The gate's own contract treats an uncovered check as a notice, not a failure:
         # verify.sh prints VERIFY_UNCOVERED and falls through to `verify: PASS`, and its

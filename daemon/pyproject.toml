@@ -58,6 +58,7 @@ packages = ["src/prismis_daemon"]
 [dependency-groups]
 dev = [
     "mypy",
+    "playwright",
     "pyyaml",
     "types-pyyaml",
     "types-requests",

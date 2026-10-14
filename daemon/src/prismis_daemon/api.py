@@ -25,6 +25,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from rich.console import Console
 
+from . import __version__
 from .api_errors import (
     APIError,
     NotFoundError,
@@ -1106,6 +1107,20 @@ async def get_content(
         raise  # a validation error stays its own 4xx, not a generic 500
     except Exception as e:
         raise _server_error("Failed to get content", e) from e
+
+
+@app.get("/api/version", dependencies=[Depends(verify_api_key)])
+async def get_version() -> dict:
+    """Report the running daemon version (API key required).
+
+    Deliberately not part of /health: that endpoint is unauthenticated, and an
+    unauthenticated version string tells a scanner which build to aim at.
+    """
+    return {
+        "success": True,
+        "message": "Version retrieved",
+        "data": {"version": __version__},
+    }
 
 
 @app.get("/api/kinds", dependencies=[Depends(verify_api_key)])

@@ -298,6 +298,26 @@ not an error.
 
 ---
 
+### Version
+
+**`GET /api/version`**
+
+The running daemon's version, shown in the web UI header. Requires the API key;
+`/health` deliberately carries no version because it is unauthenticated.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Version retrieved",
+  "data": {
+    "version": "0.3.3"
+  }
+}
+```
+
+---
+
 ### Update Entry Status
 
 **`PATCH /api/entries/{content_id}`**

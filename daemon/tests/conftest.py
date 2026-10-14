@@ -1,5 +1,6 @@
 """Shared test fixtures for all tests."""
 
+import asyncio
 import copy
 import dataclasses
 import difflib
@@ -20,6 +21,7 @@ from typing import Any
 import httpx2
 import openai
 import pytest
+import uvicorn
 import vcr
 import vcr.errors
 
@@ -1179,3 +1181,43 @@ def configure_local_services(cfg_home: Path, base_url: str) -> None:
             'model = "stub-model"'
         )
     path.write_text("\n".join(out) + "\n")
+
+
+@pytest.fixture
+def live_web_app(test_db: Path) -> Iterator[str]:
+    """The real `prismis_daemon.api.app` served by uvicorn on 127.0.0.1; yields its base URL.
+
+    Real Storage over `test_db`, real Config from the sealed XDG config, real
+    `verify_api_key` and the real static `index.html` -- nothing the daemon owns is stood
+    in for, so a browser pointed at the URL exercises the shipped page. The caller seeds
+    `test_db` through `Storage` before (or after) requesting this fixture's URL; the
+    server opens its connections per request, so either order works.
+
+    Lives here rather than in the browser test file so a second live-server test reuses
+    it instead of pasting a copy that trips verify's duplication check.
+    """
+    from prismis_daemon.api import app
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(128)
+    host, port = sock.getsockname()
+
+    app.state.deep_extractor = None
+    server = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
+    thread = threading.Thread(
+        target=lambda: asyncio.run(server.serve(sockets=[sock])), daemon=True
+    )
+    thread.start()
+    deadline = time.time() + 10.0
+    while not server.started and time.time() < deadline:
+        time.sleep(0.01)
+    assert server.started, "uvicorn test server did not start in time"
+
+    try:
+        yield f"http://{host}:{port}"
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5.0)
+        sock.close()

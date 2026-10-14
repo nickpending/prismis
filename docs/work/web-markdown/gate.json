@@ -1,0 +1,119 @@
+{
+  "scrutiny": [
+    {
+      "test": "0 purpose",
+      "failureCase": "Polishing a surface without moving the purpose. docs/IDEA.md names zero-friction daily consumption that works offline, and README.md:77 promises a mobile-friendly web briefing; today the detail panel shows raw ## and ** (index.html:2041), so the web reader is worse than the TUI at its one job. Rendering it advances that directly, with vendored files keeping it offline.",
+      "result": "held"
+    },
+    {
+      "test": "1 owner decides",
+      "failureCase": "Adding a second static-serving pattern or restating a rule the owner already states. api.py:1846 owns the StaticFiles mount pattern and is followed; constitution.md:112 (local-first) is honoured by vendoring rather than a CDN.",
+      "result": "held"
+    },
+    {
+      "test": "2 evidence noun",
+      "failureCase": "Claiming the pipeline renders real summaries from a hand-built fixture. Ran the pinned marked 18.0.14 and DOMPurify 3.4.16 in Chromium over the newest real reading summary and synthesis pulled from cerebro's database: headings, lists and bold rendered as h2, ul/li and strong.",
+      "result": "held"
+    },
+    {
+      "test": "3 degrades (security)",
+      "failureCase": "Inserting model output over third-party articles as HTML opens script injection on a page holding the API key in localStorage. Probe in Chromium: marked alone passes <script>, <img onerror> and javascript: through and the onerror fired (window.__xss=2); DOMPurify's default profile still kept <img src=http://evil.example/p.png>, a remote fetch chosen by the article. The design was changed before recording to an ALLOWED_TAGS/ALLOWED_ATTR allowlist of markdown's own elements; the probe shows the allowlist output carries none of them.",
+      "result": "fixed"
+    },
+    {
+      "test": "4 reuse",
+      "failureCase": "A second markdown renderer beside renderSimpleMarkdown. The design deletes renderSimpleMarkdown (index.html:2068) and routes both fields through one renderMarkdown; the mount follows api.py:1846.",
+      "result": "held"
+    },
+    {
+      "test": "5 real system",
+      "failureCase": "Only seeded fixtures prove rendering. The cerebro probe above ran real stored output; after the build, opening an item on cerebro's web view is the live check.",
+      "result": "held"
+    },
+    {
+      "test": "6 unverified assumptions",
+      "failureCase": "Assuming the UMD build exposes the globals, that StaticFiles serves .js as JavaScript, or that gitleaks passes minified code. Verified: the probe read typeof marked.parse === 'function' and DOMPurify.version === '3.4.16'; mimetypes.guess_type('a.js') is text/javascript; the repo's gitleaks config over both files reported no leaks.",
+      "result": "held"
+    },
+    {
+      "test": "7 consumers",
+      "failureCase": "Missing a consumer of what changes. Enumerated with grep for renderSimpleMarkdown, detail-summary, detail-synthesis h4, synthesis-body and /assets over py, html, md, go, yml and json: the web consumers are index.html and the overflow test at test_web_browser_integration.py:556 (in the design); the TUI's renderSimpleMarkdown is a separate Go function; docs/architecture/components.md:101 describes the web view as 'no framework, no build step', which still holds, and the architecture refresh updates that file.",
+      "result": "held"
+    },
+    {
+      "test": "8 shape",
+      "failureCase": "A runtime filter where structure could forbid it. The tag allowlist makes img, media, svg and script unrepresentable in the output rather than filtering bad attributes after the fact.",
+      "result": "held"
+    },
+    {
+      "test": "9 six months",
+      "failureCase": "A vendored file silently swapped or bumped without its record. VENDORED.json plus a test that hashes each file and checks its banner names the recorded version holds that; what still needs a human is noticing a DOMPurify advisory, since dependabot cannot see vendored files. Accepted out loud as a sacrifice.",
+      "result": "held"
+    },
+    {
+      "test": "10 reversibility",
+      "failureCase": "A one-way change. The work is files plus one mount; a revert of the commit undoes it with no data or schema change.",
+      "result": "held"
+    },
+    {
+      "test": "11 class",
+      "failureCase": "Fixing the detail summary while a sibling surface still shows raw model markdown. Swept index.html's innerHTML and escapeHtml sites: feed and must-read cards show the short summary, which summarizer.py:371 asks for as a brief plain summary, and quotes are plain sentences; only reading_summary and synthesis are markdown. Stacks: the fix is JS in the web view; the Go TUI already renders markdown with its own renderer; Python only serves the files; no Rust or JS package units exist. Engines do not apply to product code.",
+      "result": "held"
+    },
+    {
+      "test": "12 new state",
+      "failureCase": "A state or setting the problem does not force. None added: no flag, no fallback path, no renderer toggle.",
+      "result": "held"
+    },
+    {
+      "test": "13 computed twice",
+      "failureCase": "Two renderers or two records of a version. One renderer replaces the old one; the version in VENDORED.json and the file banner are tied by the banner test.",
+      "result": "held"
+    },
+    {
+      "test": "14 prose vs gate",
+      "failureCase": "'Never load third-party resources' living only in a comment. It lives in the allowlist and is asserted by the hostile-summary test's blocked-host check.",
+      "result": "held"
+    },
+    {
+      "test": "15 model vs code",
+      "failureCase": "No model decides anything at runtime here; rendering is deterministic code.",
+      "result": "held"
+    },
+    {
+      "test": "16 second home",
+      "failureCase": "Restating the overflow or local-first rules. The design extends the existing overflow test and points at constitution.md:112 rather than restating it.",
+      "result": "held"
+    },
+    {
+      "test": "17 text matching",
+      "failureCase": "Deciding by matching text ember wrote. Not applicable; the only text compare is the operator-chosen title match below, against data the daemon stores.",
+      "result": "held"
+    },
+    {
+      "test": "18 cause",
+      "failureCase": "Patching around raw markdown with more regex rules in renderSimpleMarkdown. The cause is that the page has no markdown renderer; the design adds one and deletes the partial one.",
+      "result": "held"
+    },
+    {
+      "test": "19 direct observation",
+      "failureCase": "Guessing what summaries look like from the prompt. Queried cerebro: 498 of the 500 newest reading summaries open with '# <title>', and the six sampled equal the stored title verbatim.",
+      "result": "held"
+    },
+    {
+      "test": "20 real walk",
+      "failureCase": "Walking a real item through the design: every panel would show the title as the link and again as an h1 directly below it, since nearly every summary opens with the title verbatim. The design as recorded renders that duplicate; the operator chose to drop it, which reopens the form.",
+      "result": "changed"
+    }
+  ],
+  "decisions": [
+    {
+      "question": "498 of the last 500 reading summaries open with '# <title>', a verbatim copy of the article title, so every rendered panel shows the title twice. Drop it, keep it styled small, or fix the prompt instead?",
+      "answer": "Drop the summary's leading h1 only when its text equals the article title; any other h1 still renders."
+    }
+  ],
+  "verdict": "redesign",
+  "carried": [
+    "How does the renderer drop a reading summary's leading h1 that repeats the article title, while keeping any other h1?"
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "workOrder": "web-first-impression",
+  "what": "A first-impression pass on the web view: a help modal on ? and a header button, the running version in the header from a key-protected GET /api/version, a redesigned status bar, phone-width treatment of the article detail and its deep-synthesis card, and Playwright browser tests that prove each against the real app.",
+  "why": "The design is docs/work/web-first-impression/design.md. The web view is prismis's lowest-friction entry point and the measure is adoption; today it has no in-app guidance, a placeholder-looking status bar, unstyled synthesis headings and no phone-width rules for the detail panel, and nothing proves its behavior in a browser.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "a running daemon and the sealed test config",
+      "when": "GET /api/version is called with no X-API-Key, with a wrong key, and with the configured key; and GET /health is called",
+      "then": "Without a key and with a wrong key the response is 403 and carries no version; with the key it is 200 with data.version equal to prismis_daemon.__version__; /health's data keys are unchanged (service, database, sources) and carry no version. The route is registered ahead of the SPA catch-all, so it never returns index.html."
+    },
+    {
+      "id": "C2",
+      "given": "the web page served by the real app, with the key stored in localStorage",
+      "when": "the page loads, and separately when /api/version fails (the stored key is wrong)",
+      "then": "With a valid key the header shows exactly `v` followed by prismis_daemon.__version__; with a failing call it shows `version unavailable` and never an empty span. No version text appears before a key exists."
+    },
+    {
+      "id": "C3",
+      "given": "a first visit with no stored key",
+      "when": "the visitor types ? into the API-key input, then enters the key and saves",
+      "then": "The ? lands in the input and the help modal stays closed while the key prompt is open. After saving, the feed, the kind select's options from /api/kinds and the header version all populate without a reload, the same three loads init makes when a key is already stored."
+    },
+    {
+      "id": "C4",
+      "given": "the loaded feed with no field focused",
+      "when": "? is pressed, ? is pressed again, the (?) header button is clicked, Escape is pressed, and ? is pressed with ctrl, meta or alt held or while a select has focus",
+      "then": "? opens the help modal and ? again closes it; the header button opens it; Escape closes it; a modified ? or a ? aimed at a focused select does nothing. A backdrop click and the modal's close button also close it."
+    },
+    {
+      "id": "C5",
+      "given": "the help modal open",
+      "when": "its text is read",
+      "then": "It describes the controls the web view has (? and Escape, opening the detail panel by clicking a summary, the title link, the 👍/👎 votes, Mark Read, the kind select, the Priority/Newest/Unread sort, the 24-hour window and 30-second refresh, HIGH/MEDIUM/LOW, the ✦ learned marker, the xN sources badge, the interests-matched badge, Top Must-Reads and the audio briefing) and names no control the page lacks, such as a keyboard shortcut for voting or an archived toggle."
+    },
+    {
+      "id": "C6",
+      "given": "an item's detail panel open and the help modal open over it",
+      "when": "Escape is pressed twice",
+      "then": "The first Escape closes only the help modal and the detail panel stays open; the second closes the detail panel. With only the detail panel open, one Escape closes it."
+    },
+    {
+      "id": "C7",
+      "given": "a seeded feed of known high, medium and low items, some read",
+      "when": "the status bar renders",
+      "then": "statusInfo, kindSelect, sortSelect and refreshInfo still exist with those ids; the high, medium and low counts each render in their own element carrying the matching badge color and equal the seeded counts; both selects have a visible label (KIND, SORT); a keyboard-focused select shows a visible focus indicator rather than outline: none; the offline status still renders as plain text. The .filter-tabs and .filter-tab rules are gone from the stylesheet."
+    },
+    {
+      "id": "C8",
+      "given": "an item whose deep_extraction.synthesis holds ### headings and whose title, summary, synthesis and a quote each hold a 200-character unbroken token",
+      "when": "the page is rendered at 375, 768 and 1024 px wide, first the feed, then with that item's detail panel open, then with the help modal open",
+      "then": "At every width the document, the detail panel and the help modal each have a scrollWidth no greater than their clientWidth. This fails on today's index.html (the token overflows the pre-wrap summary) and passes after. The synthesis h4 headings compute to the synthesis accent color, not the browser default."
+    },
+    {
+      "id": "C9",
+      "given": "the browser tests in daemon/tests",
+      "when": "they run under verify.sh locally and in CI",
+      "then": "They start the real FastAPI app under uvicorn on 127.0.0.1 against the sealed XDG environment and a test database seeded through the storage API, mocking nothing internal. Every request to a host other than 127.0.0.1 is aborted, Google Fonts included, and none is ever made. When Chromium is not installed, the tests fail with Playwright's error naming the install command, never skip. Each browser test is shown red with its behavior removed before it is trusted."
+    },
+    {
+      "id": "C10",
+      "given": ".github/workflows/ci.yml",
+      "when": "CI runs on a push to main",
+      "then": "A step after dependency install reads the installed Playwright version from daemon's environment, restores ~/.cache/ms-playwright under a key derived from that version, and installs Chromium with its system dependencies before Verify. The browser tests run and pass in that CI run, shown green on the pushed commit."
+    }
+  ],
+  "issues": [
+    53,
+    41,
+    40
+  ],
+  "outOfScope": [
+    "Chromium only: mobile Safari and Firefox, which #40 names, are not exercised; layout is proven at phone widths in Chromium, not on a phone.",
+    "No pixel or screenshot comparison: visual polish of the status bar and help modal is judged by the operator, and only structure, behavior, color of the h4 and overflow are asserted.",
+    "#42's palette and visual identity stay as they are.",
+    "Filter chips and an archived toggle named in #41 are not built.",
+    "CI downloads Chromium and its system packages (cached by lock hash), and a first local verify needs a one-time `playwright install chromium`.",
+    "The existing regex tests over index.html stay as they are and are not migrated to the browser.",
+    "The help modal's contents are a hand-written list; a control added later needs its help line added by hand, as the TUI's help_modal.go does.",
+    "The version is not shown before an API key is entered."
+  ],
+  "stakes": [
+    "GET /api/version returns data.version equal to the installed prismis-daemon version with a valid key and refuses without one; /health is unchanged and carries no version.",
+    "Once a key is stored or entered, the web header shows v<version> from /api/version, and shows `version unavailable` when that call fails; entering the key through the modal also populates the kind select without a reload.",
+    "? toggles a help modal and Esc closes the help modal first, then the detail panel; neither key acts while typing in an input or select or while the API-key modal is open.",
+    "The help modal lists only controls the web view has, and the (?) header button opens it.",
+    "The status bar keeps its four element ids, shows per-priority counts in their badge colors, labels both selects, and gives them a visible keyboard focus ring.",
+    "Synthesis h4 headings are styled, and at 375, 768 and 1024 px neither the feed, the open detail panel nor the open help modal overflows horizontally, even with a long unbroken token in the content.",
+    "Each commitment above is asserted by a Playwright test against the real app and a real database, with every non-loopback request blocked, running in every verify.sh and CI run; a missing browser fails the run rather than skipping.",
+    "Never write a line number into a comment, docstring or test header; name the symbol (CLAUDE.md).",
+    "INV-D3 in test_web_click_delegation_unit.py binds card button listeners; the new header and modal buttons sit outside cards and must not weaken that test.",
+    "Never rewrite main's history while this work order is open: no rebase, pull --rebase, amend or reset on main."
+  ]
+}

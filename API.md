@@ -5,10 +5,11 @@ Local-first content intelligence API for managing RSS feeds, Reddit, YouTube, an
 ## Base URL
 
 ```
-http://localhost:8000
+http://localhost:8989
 ```
 
-The daemon runs locally only. No remote access.
+The daemon binds `127.0.0.1` by default. Set `host = "0.0.0.0"` under `[api]` in the config to
+serve it to your LAN.
 
 ## Authentication
 
@@ -18,19 +19,19 @@ All API endpoints (except `/health`) require an API key header:
 X-API-Key: your-api-key-from-config
 ```
 
-Get your API key from `~/.config/prismis/config.toml`:
+Get your API key from `~/.config/prismis/config.toml`, where the daemon generates it on first run:
 
 ```toml
 [api]
-api_key = "your-secret-key-here"
+key = "prismis-..."
 ```
 
 ## Interactive Documentation
 
 FastAPI provides auto-generated interactive docs:
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+- **Swagger UI**: http://localhost:8989/docs
+- **ReDoc**: http://localhost:8989/redoc
 
 ## Common Response Format
 
@@ -228,42 +229,75 @@ Resume fetching from a paused source.
 
 **`GET /api/entries`**
 
-Get content items with filtering and pagination.
+Get content items with filtering.
 
 **Query Parameters:**
-- `priority` (string, optional): Filter by priority (`high`, `medium`, `low`)
-- `read` (boolean, optional): Filter by read status
-- `favorited` (boolean, optional): Filter by favorite status
-- `source_id` (uuid, optional): Filter by source
-- `limit` (integer, default: 50): Max items to return
-- `offset` (integer, default: 0): Pagination offset
+- `priority` (string, optional): Filter by priority. Single value (`high`) or comma-separated
+  (`high,medium,low`)
+- `kind` (string, optional): Filter by kind(s), single or comma-separated; an unknown kind
+  returns a 422 naming the valid kinds (see `GET /api/kinds`)
+- `unread_only` (boolean, default: false): Only unread items
+- `include_archived` (boolean, default: false): Include archived items
+- `interesting_override` (boolean, optional): Filter by the interesting-override flag
+- `since` (ISO 8601 timestamp, optional): Only items after this time
+- `since_hours` (integer 1–720, optional): Only items from the last N hours
+- `source` (string, optional): Filter by source name (case-insensitive substring)
+- `sort_by` (string, default: `priority`): `priority`, `date` or `unread`
+- `limit` (integer 1–10000, default: 50): Max items to return
+- `skip_dedup` (boolean, default: true): Skip fuzzy title deduplication; pass `false` to group
+  near-duplicates, which fills `duplicate_count` and `duplicate_sources`
+- `view` (string, default: `full`): `full` returns every field including `content` and the whole
+  `analysis`; `list` omits `content` and cuts `analysis` to the keys a list needs
+- `compact` (boolean, default: false): Compact format for LLM consumption (excludes content and
+  analysis)
 
-**Response:**
+**Response** (`view=list`):
 ```json
 {
   "success": true,
+  "message": "Retrieved 1 content items",
   "data": {
-    "entries": [
+    "items": [
       {
         "id": "123e4567-e89b-12d3-a456-426614174000",
         "source_id": "550e8400-e29b-41d4-a716-446655440000",
         "source_name": "My Blog",
+        "source_type": "rss",
+        "external_id": "https://example.com/article",
         "title": "Understanding CRDTs",
         "url": "https://example.com/article",
         "summary": "Conflict-free replicated data types...",
+        "analysis": {"kind": "analysis", "matched_interests": ["distributed systems"]},
         "priority": "high",
+        "kind": "analysis",
+        "title_only": false,
+        "title_only_reason": null,
+        "has_deep_extraction": false,
+        "published_at": "2024-01-15T09:00:00Z",
+        "fetched_at": "2024-01-15T10:30:00Z",
         "read": false,
         "favorited": false,
-        "published_at": "2024-01-15T09:00:00Z",
-        "created_at": "2024-01-15T10:30:00Z"
+        "interesting_override": false,
+        "user_feedback": null,
+        "notes": null,
+        "archived_at": null,
+        "created_at": null,
+        "updated_at": null,
+        "relevance_score": null,
+        "duplicate_count": null,
+        "duplicate_sources": null
       }
     ],
-    "total": 150,
-    "limit": 50,
-    "offset": 0
+    "total": 1,
+    "query": null,
+    "filters_applied": {"priority": "high", "sort_by": "priority", "limit": 1}
   }
 }
 ```
+
+`filters_applied` echoes every filter parameter, including the ones left at their defaults; it is
+shortened here. `relevance_score` is set only by search, and `duplicate_count` and
+`duplicate_sources` only when deduplication runs.
 
 ---
 
@@ -405,11 +439,17 @@ Get full original content (no AI summary).
 
 **`GET /api/search`**
 
-Search content using semantic similarity (embeddings).
+Search content using semantic similarity (embeddings). Results are ranked by
+`relevance_score`: 80% semantic match, 10% priority and 10% source authority.
 
 **Query Parameters:**
 - `q` (string, required): Search query
-- `limit` (integer, default: 10): Max results
+- `limit` (integer 1–50, default: 20): Max results
+- `min_score` (number 0.0–1.0, default: 0.1): Minimum `relevance_score`; the default filters
+  near-zero noise, and `0.0` disables the filter
+- `source` (string, optional): Filter by source name (case-insensitive substring)
+- `compact` (boolean, default: false): Compact format for LLM consumption (excludes content and
+  analysis)
 - `kind` (string, optional): Filter by kind(s). Single value (`release`) or
   comma-separated (`release,question`), from the ten kinds declared in
   `kind_classifier.KINDS`. An unknown kind returns a 422 naming the valid kinds --
@@ -421,22 +461,32 @@ Search content using semantic similarity (embeddings).
 ```json
 {
   "success": true,
+  "message": "Found 1 results for 'distributed systems'",
   "data": {
-    "results": [
+    "items": [
       {
         "id": "123e4567-e89b-12d3-a456-426614174000",
         "title": "Understanding CRDTs",
+        "url": "https://example.com/article",
+        "source_name": "My Blog",
         "summary": "Conflict-free replicated data types...",
-        "similarity": 0.87,
         "priority": "high",
-        "kind": "analysis"
+        "kind": "analysis",
+        "title_only": false,
+        "title_only_reason": null,
+        "published_at": "2024-01-15T09:00:00Z",
+        "relevance_score": 0.87
       }
     ],
+    "total": 1,
     "query": "distributed systems",
-    "total": 5
+    "filters_applied": {"limit": 20, "min_score": 0.1, "source": null, "kind": null, "compact": false}
   }
 }
 ```
+
+Each item carries the same fields as `GET /api/entries`; the example shows a few. Read the score
+from `relevance_score`.
 
 ---
 
@@ -616,7 +666,7 @@ No rate limits - this is a local-only API.
 import requests
 
 class PrismisClient:
-    def __init__(self, api_key: str, base_url: str = "http://localhost:8000"):
+    def __init__(self, api_key: str, base_url: str = "http://localhost:8989"):
         self.base_url = base_url
         self.headers = {"X-API-Key": api_key}
 
@@ -647,7 +697,7 @@ class PrismisClient:
 class PrismisClient {
   constructor(
     private apiKey: string,
-    private baseUrl: string = 'http://localhost:8000'
+    private baseUrl: string = 'http://localhost:8989'
   ) {}
 
   async listEntries(priority?: string, limit = 50) {
@@ -696,6 +746,4 @@ class PrismisClient {
 
 ## Version
 
-API Version: 0.1.3
-
-Last Updated: 2024-11-15
+`GET /api/version` returns the running daemon's version.

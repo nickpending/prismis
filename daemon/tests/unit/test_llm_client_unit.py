@@ -127,6 +127,53 @@ def _content_handler(
     return _Handler
 
 
+def test_complete_reuses_one_connection_across_calls() -> None:
+    """
+    INVARIANT: successive complete() calls to one service share one client and so
+               one keep-alive connection, rather than each opening its own
+    BREAKS: a client built per call opens a connection and TLS context per call and
+            leaves them to the garbage collector; cerebro's 1,812-item re-score ran
+            out of file descriptors at call 1,016 ("[Errno 24] Too many open files")
+    """
+    accepted: list[object] = []
+
+    class _Counting(http.server.ThreadingHTTPServer):
+        def get_request(self):  # type: ignore[no-untyped-def]
+            request = super().get_request()
+            accepted.append(request[1])
+            return request
+
+    class _KeepAlive(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *_args: object) -> None:
+            return
+
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            body = _completion_body("ok")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = _Counting(("127.0.0.1", 0), _KeepAlive)
+    server.daemon_threads = True
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        _write_service("reuse-svc", f"http://127.0.0.1:{server.server_address[1]}")
+        for _ in range(20):
+            assert llm_client.complete(prompt="hi", service="reuse-svc").text == "ok"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+
+    assert len(accepted) == 1, f"{len(accepted)} connections for 20 calls"
+
+
 # ---------------------------------------------------------------------------
 # SC-1: complete() returns the result shape call sites read
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ at call time and never lives in a config file. A service with no `api_key` is ke
 
 from __future__ import annotations
 
+import functools
 import json as jsonlib
 import logging
 import os
@@ -121,14 +122,26 @@ def load_api_key(service: ServiceConfig) -> str | None:
 
 
 def _client_for(service: ServiceConfig, api_key: str | None) -> OpenAI:
-    """Build a sync OpenAI client for the resolved service.
+    """The sync OpenAI client for the resolved service: one per base_url and key,
+    shared by every call.
+
+    A client built per call opened its own connection pool and TLS context and left
+    both to the garbage collector; a 1,812-item `analyze priority` run on cerebro hit
+    the 1,024 open-file limit at call 1,016 ("[Errno 24] Too many open files"). The
+    shared client keeps one pool. httpx2's Client is documented as shareable between
+    threads, which the API threadpool and APScheduler's both need.
 
     Sync, not AsyncOpenAI: api.py's FastAPI handlers call complete() synchronously from
     inside a running event loop, and the orchestrator runs it from APScheduler's
     threadpool. A sync httpx-based client needs no bridge for either caller (F-ASYNC).
     max_retries=3 plus a request timeout stands in for a 3-attempt, 1/2/4s retry.
     """
-    return OpenAI(base_url=service.base_url, api_key=api_key or "not-required", max_retries=3, timeout=60.0)
+    return _shared_client(service.base_url, api_key or "not-required")
+
+
+@functools.cache
+def _shared_client(base_url: str, api_key: str) -> OpenAI:
+    return OpenAI(base_url=base_url, api_key=api_key, max_retries=3, timeout=60.0)
 
 
 def _is_openrouter(base_url: str) -> bool:

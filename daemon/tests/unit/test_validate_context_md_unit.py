@@ -8,6 +8,7 @@ and counts equal what the earlier line walk returned).
 
 import importlib.util
 import os
+import random
 import re
 from pathlib import Path
 from typing import Any
@@ -214,7 +215,22 @@ _MIXED_MARKERS = (
     "## High Priority Topics\n- dash\n* star\n-\n- \n  - indented\n"
     "## Medium Priority Topics\n## Low Priority Topics\n"
 )
+_HEADING_AFTER_SECTION = (
+    "## High Priority Topics\n- before\n# A Title\n- after a one-hash heading\n"
+    "## Medium Priority Topics\n- medium\n## Low Priority Topics\n- low\n"
+)
+_TRIPLE_HASH_HEADING = (
+    "### High Priority Topics\n- under a triple-hash heading\n"
+    "## Medium Priority Topics\n- medium\n## Low Priority Topics\n"
+)
+_EMPTY_SECTION_THEN_HEADING = (
+    "## High Priority Topics\n## Medium Priority Topics\n- medium\n"
+    "## Low Priority Topics\n- low\n"
+)
 _TEXTS = {
+    "heading-after-section": _HEADING_AFTER_SECTION,
+    "triple-hash-heading": _TRIPLE_HASH_HEADING,
+    "empty-section-then-heading": _EMPTY_SECTION_THEN_HEADING,
     "well-formed": _GOOD,
     "grouped": _GROUPED,
     "bullet-directly-under-section": _DIRECT_BULLET,
@@ -256,3 +272,39 @@ def test_the_analyzer_reads_a_grouped_context_through_the_shared_walk(
 def test_the_old_per_module_parsers_are_gone() -> None:
     assert not hasattr(ContextAnalyzer, "_parse_context_sections")
     assert importlib.util.find_spec("prismis_daemon.context_auto_updater") is None
+
+
+_FUZZ_LINES = (
+    "## High Priority Topics",
+    "## Medium Priority Topics",
+    "## Low Priority Topics",
+    "## Not Interested",
+    "### High Priority Topics",
+    "### Group",
+    "# Title",
+    "## Other",
+    "  ## High Priority Topics  ",
+    "text ## Low Priority Topics",
+    "- bullet",
+    "* star",
+    "  - indented",
+    "-",
+    "```",
+    "",
+    "   ",
+    "plain",
+)
+
+
+@pytest.mark.parametrize("seed", range(300))
+def test_the_walk_equals_both_replaced_parsers_on_random_texts(seed: int) -> None:
+    rng = random.Random(seed)
+    separator = rng.choice(["\n", "\r\n"])
+    lines = [
+        rng.choice(_FUZZ_LINES) + f" {rng.randrange(4)}" * rng.randrange(2)
+        for _ in range(rng.randrange(1, 14))
+    ]
+    text = separator.join(lines) + rng.choice(["", separator])
+
+    assert parse_context(text).topics() == _regex_topics(text), repr(text)
+    assert check_context_md(text) == _line_walk_check(text), repr(text)

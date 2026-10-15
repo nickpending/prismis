@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
+from prismis_daemon.api import app, get_storage
 from prismis_daemon.config import Config
 from prismis_daemon.defaults import DEFAULT_CONTEXT_MD
 from prismis_daemon.evaluator import ContentEvaluator
@@ -22,7 +24,7 @@ from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
 
-from conftest import configure_local_services, message_text
+from conftest import TEST_API_KEY, configure_local_services, message_text
 
 _READABLE = (
     "Researchers at the university published a new study this week examining "
@@ -187,3 +189,51 @@ def test_a_missing_context_md_scores_with_the_default_context(
     assert len(prompts) == 1
     assert DEFAULT_CONTEXT_MD in prompts[0]
     assert "Quantum widget research" not in prompts[0]
+
+
+def test_context_suggest_reads_context_md_as_it_is_on_disk(
+    test_db: Path,
+    isolated_xdg_env: Path,
+    local_pipeline_stub: str,
+    stub_requests: list[dict[str, Any]],
+) -> None:
+    """
+    INVARIANT: POST /api/context sends the analyzer the context.md on disk when the
+               request arrives, through the real get_config dependency
+    BREAKS: a dependency that cached its Config would leave :context suggest proposing
+            against a file the user has since edited, until the daemon restarts
+    """
+    configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), local_pipeline_stub)
+    context_path = isolated_xdg_env / "context.md"
+    context_path.write_text(_FIRST_CONTEXT)
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://news.example.com/feed", "rss", "News")
+    content_id = storage.add_content(
+        ContentItem(
+            source_id=source_id,
+            external_id="flagged",
+            title="Flagged",
+            url="https://news.example.com/flagged",
+            content=_READABLE,
+        )
+    )
+    assert content_id is not None
+    storage.update_content_status(content_id, user_feedback="up")
+    client = TestClient(app)
+    context_path.write_text(_SECOND_CONTEXT)
+
+    async def override_get_storage():  # type: ignore[no-untyped-def]
+        yield storage
+
+    app.dependency_overrides[get_storage] = override_get_storage
+    try:
+        response = client.post("/api/context", headers={"X-API-Key": TEST_API_KEY})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    assert len(stub_requests) == 1
+    prompt = message_text(stub_requests[0], "user") + message_text(
+        stub_requests[0], "system"
+    )
+    assert _NEW_BULLET.removeprefix("- ") in prompt

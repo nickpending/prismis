@@ -1,0 +1,222 @@
+{
+  "impacted": [
+    {
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "role": "The get_feedback_statistics method counts topics_upvoted and topics_downvoted from each voted item's matched_interests and builds for_llm_context from the top five of each list; this is where a vote becomes a liked or disliked topic."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/analysis.py",
+      "role": "get_learned_preferences is the one fetch of for_llm_context for the evaluator, gated only on min_votes=5 total; all three evaluator callers go through it."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/context_auto_updater.py",
+      "role": "ContextAutoUpdater feeds the raw topics_upvoted and topics_downvoted lists to an LLM told to demote downvoted topics and writes its output over context.md; check_context_md already parses context.md into its ## sections."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/evaluator.py",
+      "role": "Appends the learned-preferences string to the system prompt as flat 'User prefers' / 'User dislikes' statements under a prose 'SUPPLEMENT (not override)' line."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/orchestrator.py",
+      "role": "run_once fetches learned preferences once per cycle and threads them to every item's evaluation; it holds self.config.context."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/refetch.py",
+      "role": "run_refetch fetches learned preferences the same way for re-analysed items, and carries the dry-run cost estimate a re-score can reuse."
+    },
+    {
+      "path": "cli/src/cli/analyze.py",
+      "role": "The repair command fetches learned preferences through the same helper and already builds a Config."
+    },
+    {
+      "path": "daemon/tests/unit/test_storage_feedback_stats_unit.py",
+      "role": "Existing tests of get_feedback_statistics' dict shape and time filter; the new evidence and context-precedence tests sit beside them."
+    }
+  ],
+  "constraints": [
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "line": 2554,
+      "text": "topics_downvoted is counted in its own loop, separate from topics_upvoted at line 2530, with no comparison between the two counts for one topic."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "line": 2580,
+      "text": "Any topic with one downvote enters the top-five 'User dislikes' list, and a topic can sit in both 'User prefers' and 'User dislikes' in the same string."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/analysis.py",
+      "line": 51,
+      "text": "The only evidence bar is total_votes < min_votes (5) across all topics; after that, no per-topic count is required."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/evaluator.py",
+      "line": 141,
+      "text": "Learned preferences are told to 'SUPPLEMENT (not override)' the context in prose only; nothing in code limits what they say."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "line": 1,
+      "text": "Measured 2026-10-15 (issue #96 comment): re-evaluating 100 items since 2026-10-08 gave 80% null live, 30% with only the 'User dislikes' part removed, 35% with no learned preferences, 71% with the pre-b6c3f70 prompt and 75% with the pre-Agentic context."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "line": 1,
+      "text": "The dislike list is the cause of the drop, and the liked list is not harmful: likes without dislikes scored slightly better than no learned preferences."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "line": 1,
+      "text": "cerebro has 25 votes in total (24 up, 1 down); the single downvote's three matched_interests are all High-section bullets that also carry 10 to 11 upvotes each."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "line": 1,
+      "text": "Real vote data cannot calibrate a minimum downvote count: there is one downvote to learn from."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "line": 1,
+      "text": "Of 7,344 matched_interests labels since 2026-08-15, 3,745 are exact context bullets, 3,266 are ### group headings (252 of them differing only in case), 248 are bullets without their parenthetical, 33 are bullet fragments or prefixes, and 52 match no context line."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "line": 1,
+      "text": "A label resolves to its context line, and so to its ## section, for 99.3% of labels when matched case-insensitively, with parentheticals and extra spaces dropped, against both bullets and ### headings, falling back to bullet prefix or fragment."
+    },
+    {
+      "tag": "RULE",
+      "path": "docs/work/learned-prefs/problem.json",
+      "line": 1,
+      "text": "A learned dislike can never name a topic from the context's High or Medium sections, enforced in code."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "docs/work/learned-prefs/problem.json",
+      "line": 1,
+      "text": "A label that resolves to no context line cannot be shown to sit outside High and Medium, so emitting it as a dislike could break the rule; the rule holds only if an unresolved label is never emitted as a dislike."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/context_auto_updater.py",
+      "line": 303,
+      "text": "The auto-updater prompt says 'Downvoted topics: Demote (HIGH→MED, MED→LOW→Not Interested)', and its topic lists come straight from get_feedback_statistics at line 257."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/context_auto_updater.py",
+      "line": 456,
+      "text": "The LLM's output is written over context.md after a validation that checks only that the three required headings, a '- ' bullet and no code fence are present; nothing checks which topics moved."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/config.py",
+      "line": 390,
+      "text": "auto_update_enabled defaults to True, so every user gets the auto-updater unless they turn it off; cerebro has it on, last ran 2026-09-26T05:42Z (only added --- wrappers) and is next due about 2026-10-26."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "daemon/src/prismis_daemon/context_auto_updater.py",
+      "line": 303,
+      "text": "A fix confined to for_llm_context leaves the auto-updater able to demote a High topic on the same one downvote, which breaks the decided rule that explicit context outranks learned preferences, through a rewrite of the context itself."
+    },
+    {
+      "tag": "RULE",
+      "path": "docs/FEEDBACK_LOOP_SPEC.md",
+      "line": 3,
+      "text": "The feedback loop's stated vision is that votes evolve context.md automatically with no manual editing, so the auto-updater is intended behavior to make safe, not a stray feature."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/schema.sql",
+      "line": 113,
+      "text": "A trigger sets content.updated_at on every update to a row, and the content table has no column recording when a vote was cast."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "line": 2550,
+      "text": "The since_days window filters votes on c.updated_at; on cerebro every voted row from 2026-09-30 shares updated_at 21:40:16Z from one bulk write, while the downvote was cast 2026-09-29T20:03:59Z per the obs log."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "line": 2550,
+      "text": "Keying the window on vote time needs a new column and a migration through _MIGRATIONS in database.py, with no exact vote time for existing votes."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/api.py",
+      "line": 1821,
+      "text": "GET /api/feedback/statistics returns get_feedback_statistics' dict unchanged, including the raw topic lists and for_llm_context."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/orchestrator.py",
+      "line": 588,
+      "text": "Every evaluator caller (orchestrator line 588, refetch.py line 338, cli analyze.py line 133) gets learned preferences through get_learned_preferences and has a Config in scope, so the context's sections are available where the gate runs."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/refetch.py",
+      "line": 324,
+      "text": "run_refetch's dry run multiplies upper_bound_cost_estimate by the selected count; no command re-scores already-readable items, and b6c3f70's re-score of 841 items was an ad hoc script."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "cerebro:~/.local/share/prismis/observability",
+      "line": 1,
+      "text": "Evaluate calls cost a median $0.00063 and p99 $0.0043 on cerebro; the OpenRouter account had about $1.02 of $150 credit left on 2026-10-15 and returned 402 in_flight_budget_exhausted under 8 parallel calls."
+    }
+  ],
+  "adrs": {
+    "scanned": 0,
+    "binding": []
+  },
+  "related": {
+    "query": "gh issue list --state all --search \"feedback OR preference OR context.md OR vote\" --limit 20",
+    "issues": [
+      {
+        "number": 97,
+        "why": "Sibling split from this work: detects an unprioritized-share jump; its done-when replays the Sep 30 step this fix removes."
+      },
+      {
+        "number": 57,
+        "why": "Closed vote-integrity bug (a PATCH without user_feedback cleared votes); the vote write path it fixed is the input this work reads."
+      },
+      {
+        "number": 46,
+        "why": "Multi-context profiles would give each profile its own High/Medium sections; the context-precedence gate should take the context as an argument rather than read one global file."
+      }
+    ]
+  },
+  "reuse": [
+    {
+      "path": "daemon/src/prismis_daemon/context_auto_updater.py",
+      "what": "check_context_md's line walk that assigns each bullet to its ## section, treating ### groups as part of the section above, for resolving labels to sections."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/analysis.py",
+      "what": "get_learned_preferences as the single gate every evaluator caller already goes through."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/refetch.py",
+      "what": "run_refetch's dry-run and per-item outcome pattern, and upper_bound_cost_estimate, for the re-score."
+    },
+    {
+      "path": "daemon/tests/unit/test_storage_feedback_stats_unit.py",
+      "what": "Its test_db fixture and seeding of voted content for the new evidence and precedence tests."
+    }
+  ],
+  "open": []
+}

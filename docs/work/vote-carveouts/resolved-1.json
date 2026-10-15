@@ -1,0 +1,5 @@
+{
+  "question": "How is a carve-out represented and applied: as a deterministic step after the evaluator that demotes items close (by stored embedding) to the downvoted ones, as a natural-language exclusion line written into context.md under the category and read by the evaluator, or both?",
+  "answer": "Both, in sequence: embedding similarity finds a cluster of two or more downvoted items and an LLM names it, and the carve-out lives as a visible, editable line in context.md's Not Interested section scoped to that slice, proposed with a preview of the items it would hit and a dry-run re-score of its blast radius before it is written.",
+  "by": "operator"
+}

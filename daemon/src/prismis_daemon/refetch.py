@@ -116,15 +116,17 @@ def _iter_events(base_dir: Path) -> list[dict[str, Any]]:
     return events
 
 
-def upper_bound_cost_estimate(base_dir: Path) -> float:
+def upper_bound_cost_estimate(
+    base_dir: Path, actions: tuple[str, ...] = _COST_ACTIONS
+) -> float:
     """Upper-bound per-item LLM cost (SC-3): the summed 99th-percentile real cost
-    of a summarize, evaluate and classify_kind call across every observability
-    file in `base_dir`. A median is not a bound: items a refetch recovers are the
+    of one call per action in `actions` (by default a summarize, evaluate and
+    classify_kind call) across every observability file in `base_dir`. A median is not a bound: items a refetch recovers are the
     long ones (a full transcript), and the 2026-09-30 youtube backfill cost $0.0077
     per item against a $0.0030 median. An action with no successful, priced call
     on record contributes 0, so an unpriced service reports a $0 floor.
     """
-    costs: dict[str, list[float]] = {action: [] for action in _COST_ACTIONS}
+    costs: dict[str, list[float]] = {action: [] for action in actions}
     for entry in _iter_events(base_dir):
         if (
             entry.get("event") == "llm.call"

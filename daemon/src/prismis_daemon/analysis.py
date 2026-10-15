@@ -90,6 +90,17 @@ def title_only_reason(
     return None
 
 
+def evaluation_fields(evaluation: ContentEvaluation) -> dict[str, Any]:
+    """The analysis keys an evaluation owns -- the one producer, shared by the
+    full pass (build_llm_analysis) and `analyze priority`, which re-evaluates
+    without re-summarizing."""
+    return {
+        "matched_interests": evaluation.matched_interests,
+        "priority_reasoning": evaluation.reasoning,
+        "preference_influenced": evaluation.preference_influenced,
+    }
+
+
 def build_llm_analysis(
     summary_result: ContentSummary,
     evaluation: ContentEvaluation,
@@ -125,9 +136,7 @@ def build_llm_analysis(
         "quotes": summary_result.quotes,
         "tools": summary_result.tools,
         "urls": summary_result.urls,
-        "matched_interests": evaluation.matched_interests,
-        "priority_reasoning": evaluation.reasoning,
-        "preference_influenced": evaluation.preference_influenced,
+        **evaluation_fields(evaluation),
         "metadata": summary_result.metadata,
         "title_only": reason is not None,
         "title_only_reason": reason,

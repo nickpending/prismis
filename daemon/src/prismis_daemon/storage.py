@@ -659,6 +659,31 @@ class Storage:
             self.conn.rollback()
             raise sqlite3.Error(f"Failed to update analysis: {e}") from e
 
+    def update_priority(
+        self, content_id: str, priority: str | None, analysis: dict
+    ) -> bool:
+        """Write a re-evaluation: the priority column and the full analysis JSON
+        (caller merges the new evaluation keys into the stored analysis) in one
+        commit, so a row never carries one evaluation's priority beside another's
+        matched_interests.
+
+        Returns:
+            True if a row was updated, False if no row matched.
+
+        Raises:
+            sqlite3.Error: on write failure
+        """
+        try:
+            cursor = self.conn.execute(
+                "UPDATE content SET priority = ?, analysis = ?, updated_at = ? WHERE id = ?",
+                (priority, json.dumps(analysis), utc_now_iso(), content_id),
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            raise sqlite3.Error(f"Failed to update priority: {e}") from e
+
     def get_existing_external_ids(self, source_id: str) -> set[str]:
         """Get all external_ids for a source to enable bulk deduplication filtering.
 
@@ -2165,25 +2190,49 @@ class Storage:
             sqlite3.Error: If database operation fails
         """
         try:
-            where_sql = """WHERE c.archived_at IS NULL
-                             AND c.summary IS NOT NULL
-                             AND c.summary != ''
-                             AND json_type(c.analysis, '$.kind_confidence') IS NULL"""
-            params: list[Any] = []
-            if since_days is not None:
-                where_sql += " AND datetime(c.fetched_at) >= datetime('now', ?)"
-                params.append(f"-{since_days} days")
-            where_sql += " ORDER BY c.fetched_at DESC LIMIT ?"
-            params.append(limit)
-
-            return self._query_joined_content(
-                where_sql, params, omit=("interesting_override", "user_feedback")
+            return self._analysed_content(
+                "json_type(c.analysis, '$.kind_confidence') IS NULL", limit, since_days
             )
-
         except sqlite3.Error as e:
             raise sqlite3.Error(
                 f"Failed to get content needing kind classification: {e}"
             ) from e
+
+    def get_content_for_rescore(
+        self, limit: int, since_days: int
+    ) -> list[dict[str, Any]]:
+        """Get already-analysed, unarchived items fetched within the last
+        `since_days` days, newest fetched_at first, at most `limit` -- the items
+        `analyze priority` re-evaluates against the current context.
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        try:
+            return self._analysed_content(None, limit, since_days)
+        except sqlite3.Error as e:
+            raise sqlite3.Error(f"Failed to get content for rescore: {e}") from e
+
+    def _analysed_content(
+        self, condition: str | None, limit: int, since_days: int | None
+    ) -> list[dict[str, Any]]:
+        """Unarchived items carrying a summary, matching `condition` when given,
+        fetched within the last `since_days` days when given, newest fetched_at
+        first, at most `limit`."""
+        where_sql = """WHERE c.archived_at IS NULL
+                         AND c.summary IS NOT NULL
+                         AND c.summary != ''"""
+        if condition:
+            where_sql += f" AND {condition}"
+        params: list[Any] = []
+        if since_days is not None:
+            where_sql += " AND datetime(c.fetched_at) >= datetime('now', ?)"
+            params.append(f"-{since_days} days")
+        where_sql += " ORDER BY c.fetched_at DESC LIMIT ?"
+        params.append(limit)
+        return self._query_joined_content(
+            where_sql, params, omit=("interesting_override", "user_feedback")
+        )
 
     def archive_old_content(self, config: dict[str, Any]) -> int:
         """Archive content based on priority-aware aging windows.

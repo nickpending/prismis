@@ -792,3 +792,204 @@ def test_repair_stores_the_model_verdict_as_the_reason(local_env: Path) -> None:
     assert stored is not None
     assert stored["analysis"]["title_only_reason"] == "model:not_substantive"
     assert stored["analysis"]["title_only"] is True
+
+
+# ---------------------------------------------------------------------------
+# `analyze priority` (gh #96): re-evaluate stored items against the current context
+# without re-summarizing; learned preferences only with learn_from_votes on.
+# ---------------------------------------------------------------------------
+
+_HIGH_EVAL: dict[str, Any] = {
+    "priority": "high",
+    "matched_interests": ["fresh topic"],
+    "reasoning": "matches fresh topic",
+}
+
+
+def _record_complete(payload: dict[str, Any], calls: list[dict[str, Any]]):
+    def _fake(**kwargs: str) -> MagicMock:
+        calls.append(kwargs)
+        return _fake_complete_result(payload)
+
+    return _fake
+
+
+def _rescore_seed(storage: Storage) -> dict[str, str]:
+    """One in-window item with a stale null score, read and favorited; one fetched
+    30 days ago; one in-window but archived."""
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
+    stale = {
+        "reading_summary": "keep me",
+        "kind": "release",
+        "kind_confidence": 0.9,
+        "matched_interests": [],
+        "priority_reasoning": "user dislikes this topic",
+        "preference_influenced": True,
+    }
+    ids = {
+        "in_window": _seed(storage, source_id, title="In Window", analysis=dict(stale)),
+        "old": _seed(
+            storage,
+            source_id,
+            title="Old",
+            analysis=dict(stale),
+            fetched_at=datetime.now(UTC) - timedelta(days=30),
+        ),
+        "archived": _seed(storage, source_id, title="Archived", analysis=dict(stale)),
+    }
+    storage.update_content_status(ids["in_window"], read=True, favorited=True)
+    storage.conn.execute(
+        "UPDATE content SET archived_at = ? WHERE id = ?",
+        (datetime.now(UTC).isoformat(), ids["archived"]),
+    )
+    storage.conn.commit()
+    return ids
+
+
+def test_priority_rescores_only_unarchived_items_in_the_window_and_keeps_the_rest(
+    local_env: Path,
+) -> None:
+    """
+    INVARIANT: each unarchived analysed item fetched within --since-days gets its
+               priority column and its evaluation keys replaced; its summary, kind,
+               read and favorited are kept; items outside the window or archived
+               are not evaluated at all
+    BREAKS: writing only the analysis JSON leaves the priority column at the
+            poisoned null; selecting by anything wider spends a call per old or
+            archived item
+    """
+    storage = Storage(local_env)
+    ids = _rescore_seed(storage)
+    storage.close()
+    calls: list[dict[str, Any]] = []
+
+    with patch(_PATCH_COMPLETE, side_effect=_record_complete(_HIGH_EVAL, calls)):  # claudex-guard: allow-mock
+        result = runner.invoke(analyze_app, ["priority", "--since-days", "15", "--force"])
+
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1, "only the in-window, unarchived item is evaluated"
+    reread = Storage(local_env)
+    item = reread.get_content_by_id(ids["in_window"])
+    old = reread.get_content_by_id(ids["old"])
+    archived = reread.get_content_by_id(ids["archived"])
+    reread.close()
+    assert item is not None and old is not None and archived is not None
+    assert item["priority"] == "high"
+    assert item["analysis"]["matched_interests"] == ["fresh topic"]
+    assert item["analysis"]["priority_reasoning"] == "matches fresh topic"
+    assert item["analysis"]["preference_influenced"] is False
+    assert item["analysis"]["reading_summary"] == "keep me"
+    assert item["analysis"]["kind"] == "release"
+    assert item["summary"] == "A short summary of the item."
+    assert item["read"] and item["favorited"]
+    for untouched in (old, archived):
+        assert untouched["priority"] is None
+        assert untouched["analysis"]["priority_reasoning"] == "user dislikes this topic"
+    assert "none → high: 1" in result.output
+
+
+def test_priority_dry_run_counts_and_prices_without_calling_or_writing(
+    local_env: Path,
+) -> None:
+    """
+    INVARIANT: --dry-run prints the selected count and a cost bound and changes nothing
+    BREAKS: a dry run that evaluates spends the money it was meant to price
+    """
+    storage = Storage(local_env)
+    ids = _rescore_seed(storage)
+    storage.close()
+    calls: list[dict[str, Any]] = []
+
+    with patch(_PATCH_COMPLETE, side_effect=_record_complete(_HIGH_EVAL, calls)):  # claudex-guard: allow-mock
+        result = runner.invoke(analyze_app, ["priority", "--since-days", "15", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == []
+    assert "1 items to re-score" in result.output
+    assert "Estimated cost: at most $" in result.output
+    reread = Storage(local_env)
+    item = reread.get_content_by_id(ids["in_window"])
+    reread.close()
+    assert item is not None and item["priority"] is None
+
+
+@pytest.mark.parametrize(
+    "learn_from_votes", [True, False], ids=["learning-on", "learning-off-by-default"]
+)
+def test_priority_sends_learned_preferences_only_when_learning_is_on(
+    local_env: Path, learn_from_votes: bool
+) -> None:
+    """
+    INVARIANT: with the shipped template the re-score's evaluator prompt carries no
+               learned preferences, whatever the votes -- the re-score exists to undo
+               them (gh #96); with learn_from_votes on, they are sent
+    BREAKS: the command fetching learned preferences regardless of the switch
+            re-poisons every item it was run to fix
+    """
+    if learn_from_votes:
+        config_path = Path(os.environ["XDG_CONFIG_HOME"]) / "prismis" / "config.toml"
+        text = config_path.read_text()
+        assert text.count("learn_from_votes = false\n") == 1, "template switch moved"
+        config_path.write_text(
+            text.replace("learn_from_votes = false\n", "learn_from_votes = true\n")
+        )
+    storage = Storage(local_env)
+    ids = _rescore_seed(storage)
+    source_id = storage.add_source("https://votes.example.com/rss", "rss", "Votes")
+    for i in range(5):
+        voted = _seed(
+            storage,
+            source_id,
+            title=f"Voted {i}",
+            analysis={"matched_interests": ["voted topic"]},
+            fetched_at=datetime.now(UTC) - timedelta(days=40),
+        )
+        storage.update_content_status(voted, user_feedback="down")
+    storage.close()
+    calls: list[dict[str, Any]] = []
+
+    with patch(_PATCH_COMPLETE, side_effect=_record_complete(_HIGH_EVAL, calls)):  # claudex-guard: allow-mock
+        result = runner.invoke(analyze_app, ["priority", "--since-days", "15", "--force"])
+
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+    assert ("LEARNED USER PREFERENCES" in calls[0]["system_prompt"]) is learn_from_votes
+    reread = Storage(local_env)
+    item = reread.get_content_by_id(ids["in_window"])
+    reread.close()
+    assert item is not None
+    assert item["analysis"]["preference_influenced"] is learn_from_votes
+
+
+def test_priority_keeps_an_items_old_score_when_its_evaluation_fails(
+    local_env: Path,
+) -> None:
+    """
+    INVARIANT: a failed evaluation leaves that item's priority and analysis as they
+               were, the run continues and exits 0, and the failure is counted
+    BREAKS: one bad reply aborts the batch, or a failed item is written as null
+    """
+    storage = Storage(local_env)
+    ids = _rescore_seed(storage)
+    source_id = storage.add_source("https://feeds2.example.com/rss", "rss", "Feed 2")
+    second = _seed(storage, source_id, title="Second In Window", analysis={"kind": "x"})
+    storage.close()
+
+    def _fail_for_in_window(**kwargs: str) -> MagicMock:
+        if "Title: In Window" in kwargs["prompt"]:
+            raise RuntimeError("provider exploded")
+        return _fake_complete_result(_HIGH_EVAL)
+
+    with patch(_PATCH_COMPLETE, side_effect=_fail_for_in_window):  # claudex-guard: allow-mock
+        result = runner.invoke(analyze_app, ["priority", "--since-days", "15", "--force"])
+
+    assert result.exit_code == 0, result.output
+    reread = Storage(local_env)
+    failed_item = reread.get_content_by_id(ids["in_window"])
+    other = reread.get_content_by_id(second)
+    reread.close()
+    assert failed_item is not None and other is not None
+    assert failed_item["priority"] is None
+    assert failed_item["analysis"]["priority_reasoning"] == "user dislikes this topic"
+    assert other["priority"] == "high"
+    assert "Failed: 1 items (scores kept)" in result.output

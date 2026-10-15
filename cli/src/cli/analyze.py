@@ -400,3 +400,136 @@ def kinds(
     except Exception as e:
         console.print(f"[red]✗ Error: {e}[/red]")
         raise typer.Exit(1) from e
+
+
+@app.command(name="priority")
+def priority(
+    since_days: int = typer.Option(
+        ..., "--since-days", help="Re-score items fetched in the last N days"
+    ),
+    limit: int = typer.Option(100, "--limit", "-n", help="Maximum items to re-score"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Count the items and estimate the cost; change nothing"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip confirmation prompt"
+    ),
+) -> None:
+    """Re-evaluate the priority of already-analysed items against the current context.
+
+    For when scoring itself went wrong (a bad prompt, a poisoned learned preference,
+    gh #96) or context.md changed: each unarchived item with a summary fetched in the
+    last --since-days days (newest first, at most --limit) is evaluated again, and its
+    priority, matched_interests, priority_reasoning and preference_influenced are
+    replaced. The summary, kind and every other field are kept, and so are read,
+    favorited and votes. Learned preferences apply only with [context]
+    learn_from_votes on, the same as the daemon.
+    """
+    _check_local_mode("analyze priority")
+    try:
+        from rich.markup import escape
+
+        from prismis_daemon.analysis import evaluation_fields, get_learned_preferences
+        from prismis_daemon.config import Config
+        from prismis_daemon.evaluator import ContentEvaluator
+        from prismis_daemon.observability import get_logger as get_obs_logger
+        from prismis_daemon.observability import log as obs_log
+        from prismis_daemon.refetch import upper_bound_cost_estimate
+        from prismis_daemon.storage import Storage
+
+        config = Config.from_file()
+        with Storage() as storage:
+            items = storage.get_content_for_rescore(limit=limit, since_days=since_days)
+            if not items:
+                console.print(
+                    f"[green]✓ No analysed items fetched in the last {since_days} days[/green]"
+                )
+                return
+
+            total = len(items)
+            per_item = upper_bound_cost_estimate(
+                get_obs_logger().base_dir, actions=("evaluate",)
+            )
+            console.print(
+                f"[bold]{total} items to re-score[/bold] (fetched in the last {since_days} days)"
+            )
+            console.print(
+                f"[dim]Estimated cost: at most ${per_item * total:.2f} "
+                f"(99th-percentile evaluate cost ${per_item:.5f} per item)[/dim]"
+            )
+            if dry_run:
+                return
+            if not force and not Confirm.ask(f"Re-score {total} items?", default=False):
+                console.print("[yellow]Aborted[/yellow]")
+                return
+
+            learned_preferences, total_votes = get_learned_preferences(
+                storage, enabled=config.learn_from_votes
+            )
+            if learned_preferences:
+                console.print(
+                    f"[dim]🧠 Using learned preferences from {total_votes} votes (last 30 days)[/dim]"
+                )
+
+            evaluator = ContentEvaluator(config.llm_light_service)
+            start_time = time.time()
+            obs_log("cli.priority.start", source="cli", items=total, since_days=since_days)
+
+            transitions: dict[tuple[str, str], int] = {}
+            failed = 0
+            for idx, item in enumerate(items, 1):
+                old = item.get("priority") or "none"
+                try:
+                    evaluation = evaluator.evaluate_content(
+                        content=item.get("content") or "",
+                        title=item["title"],
+                        url=item["url"],
+                        context=config.context,
+                        learned_preferences=learned_preferences,
+                    )
+                except Exception as e:
+                    # Per-item boundary: a failed call keeps the item's old score.
+                    logger.warning("Re-score failed for %s", item["title"], exc_info=True)
+                    console.print(f"[{idx}/{total}] [red]✗ Failed: {escape(str(e))}[/red]")
+                    failed += 1
+                    continue
+
+                new_priority = evaluation.priority.value if evaluation.priority else None
+                new = new_priority or "none"
+                analysis = dict(item.get("analysis") or {})
+                analysis.update(evaluation_fields(evaluation))
+                storage.update_priority(item["id"], new_priority, analysis)
+                obs_log(
+                    "cli.priority.item", source="cli", content_id=item["id"], old=old, new=new
+                )
+                transitions[(old, new)] = transitions.get((old, new), 0) + 1
+                if old != new:
+                    console.print(f"[{idx}/{total}] {old} → {new}: {escape(item['title'])}")
+
+            changed = sum(n for (o, n2), n in transitions.items() if o != n2)
+            obs_log(
+                "cli.priority.complete",
+                source="cli",
+                duration_ms=int((time.time() - start_time) * 1000),
+                rescored=total - failed,
+                changed=changed,
+                failed=failed,
+            )
+
+            console.print("\n[bold]Re-score Complete[/bold]")
+            console.print(f"  ✓ Re-scored: [green]{total - failed}[/green] items")
+            console.print(f"  Changed: [cyan]{changed}[/cyan]")
+            for (o, n2), n in sorted(transitions.items(), key=lambda kv: -kv[1]):
+                if o != n2:
+                    console.print(f"    {o} → {n2}: {n}")
+            if failed > 0:
+                console.print(f"  ✗ Failed: [red]{failed}[/red] items (scores kept)")
+            if config.llm_deep_service and any(n2 == "high" and o != "high" for o, n2 in transitions):
+                console.print(
+                    "[dim]Newly HIGH items have no deep extraction yet: "
+                    "run 'prismis-cli extract --priority high'[/dim]"
+                )
+
+    except Exception as e:
+        console.print(f"[red]✗ Error: {e}[/red]")
+        raise typer.Exit(1) from e

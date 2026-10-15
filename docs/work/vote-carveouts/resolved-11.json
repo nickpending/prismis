@@ -1,0 +1,1 @@
+{"question": "Can a rejected slice be proposed again when new downvotes, not in the rejected proposal's evidence, extend it?", "answer": "Yes, only on new evidence: a rejected slice is proposed again when at least two downvotes that were not in the rejected proposal's evidence form it again, and the new proposal shows the earlier rejection and its date.", "by": "operator"}

@@ -1,0 +1,20 @@
+{
+  "what": "Replace prismis's per-topic vote model with carve-outs: repeated downvotes on items prismis matched to a category the user asked for carve a named, narrow slice out of that category (for example 'AI-agent incident news' inside 'LLM-driven security tools'), never lowering the category itself; the feature is opt-in or user-triggered, and every carve-out and its change over time is visible to the user without them having to manage it.",
+  "why": "Today a vote is credited to the evaluator's own matched_interests, so a downvote that disputed one match on cerebro was learned as 'dislikes LLM-driven security tools' and dropped the user's core interests (unprioritized share ~55% to ~81%, issue #96). The vote model is now switched off (edc637a, [context] learn_from_votes) and the scores re-scored (f339776, 53% unprioritized afterwards), so votes are recorded and do nothing. Downvotes are a precision signal the user wants used: in rudy's words, 'its a precision metric and not meant to maintain the altitude of what I like but to carve out within those categories (if they were matched to what I dont want to see)'.",
+  "decided": [
+    "A downvote is a precision signal against a match inside a category the user asked for; it carves a slice out of that category and never demotes, removes or dislikes the category itself.",
+    "One downvote is never enough: a carve-out needs more than one downvote in the same slice.",
+    "The feature is optional or user-triggered, not automatic by default.",
+    "The user can always see what has been carved out and how it changed over time, without having to manage it.",
+    "Votes stay recorded whatever the switch; nothing learned from votes reaches scoring while [context] learn_from_votes is off.",
+    "The re-score of the items scored under the poisoned preferences is done (cerebro, 1,918 items, 2026-10-15) and is not part of this work."
+  ],
+  "open": [
+    "How is a carve-out represented and applied: as a deterministic step after the evaluator that demotes items close (by stored embedding) to the downvoted ones, as a natural-language exclusion line written into context.md under the category and read by the evaluator, or both?",
+    "What triggers a carve-out: a user-run command or TUI action that proposes carve-outs from accumulated downvotes for the user to accept (the shape of `:context suggest`), or an opt-in automatic step that applies them and records each change?",
+    "Where does the history of carve-outs live so the user can always see the changes over time: in context.md and its backups, in a record the daemon keeps, or surfaced in the TUI and web?",
+    "What counts as the same slice for the 'more than one downvote' rule: an embedding-similarity radius around downvoted items, the same matched category plus similarity, or a cluster a model names?",
+    "What happens to the current learned-preferences injection and the context auto-updater: are they removed, or kept behind learn_from_votes alongside the new mechanism?",
+    "Do upvotes play any part, given they mostly repeat High topics the user already wrote?"
+  ]
+}

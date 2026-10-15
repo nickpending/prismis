@@ -25,7 +25,7 @@ Turn downvotes into what the user means by them, a precision cut inside a catego
 
 5. Naming. The light service is given the evidence items' titles and summaries and the category, and returns a short name and one Not Interested line that names the slice inside the category (for example 'AI-agent incident news: agents leaking data or acting rogue, within AI security topics'). The reply is validated: one line, bounded length, no heading, fence or newline.
 
-6. Preview and impact. The preview is the unarchived items from the last 30 days within the radius of any evidence item by raw cosine similarity, found with the vec_content KNN that storage.search_content already runs, queried with each evidence item's stored vector. Impact is measured before the proposal is stored: the preview items and up to 20 other prioritized items in the same category are re-evaluated against context.md with the candidate line added under Not Interested, in memory only, and the proposal records how many preview items would go to null and how many non-preview items of the category would, the second number being the over-reach the user is shown. Each proposal's evaluate calls (at most about 40) are logged with their cost.
+6. Preview and impact. The preview is the unarchived items from the last 30 days within the radius of any evidence item by raw cosine similarity, found with the vec_content KNN that storage.search_content already runs, queried with each evidence item's stored vector. Impact is measured before anything is shown, in memory only: the preview items and up to 20 other prioritized items in the same category are each scored twice against context.md as it is and twice with the candidate line added under Not Interested. An item counts as nulled by the line only when both runs without it give a priority and both runs with it give null, which keeps the evaluator's run-to-run variance (7 of 20 control items changed level in the 2026-10-15 check) out of the number. The row records the preview hits, the over-reach (control items nulled by the line), the raw counts and the calls spent (about 80 evaluate calls, roughly $0.05). A candidate is shown only when its line nulls at least half of the preview items that scored a priority without it; otherwise the line is named once more with the preview items as further examples, and the candidate is dropped and logged if it still falls short, because a line named from one item nulled 0 of its 11 slice items in that check.
 
 7. Accept, reject, remove. GET /api/carveouts lists every row with its status and dates; POST /api/carveouts/{id}/accept re-reads context.md, backs it up, inserts the line under '## Not Interested' in a '### Carved out from your votes' group (created when absent), validates the file with check_context_md, writes it, marks the row accepted, and re-scores the proposal's preview items against the file just written; /reject marks it rejected; /remove deletes exactly that line from context.md, marks the row removed, and re-scores the unarchived items scored since acceptance that lie within the radius of the carve-out's evidence. The re-scores reuse the evaluation path analyze priority uses, and their count and cost are recorded on the row. The TUI shows a count of pending proposals and a carve-outs view (pending first, then the history) with accept, reject and remove keys; the web view lists the same.
 
@@ -35,7 +35,6 @@ Turn downvotes into what the user means by them, a precision cut inside a catego
 
 - A downvote never lowers, removes or dislikes a context.md category: no vote reaches scoring except through a carve-out line the user accepted.
 - A carve-out is proposed only from two or more downvoted items that share a resolved category and lie within carveout_radius of each other, with no upvoted item within the radius of any of them.
-- Every proposal shows the items it would hit and the measured number of same-category items outside the preview that it would push to null, before the user decides.
 - Nothing is written to context.md without the user accepting the specific proposal; rejecting or removing is one action.
 - Every carve-out ever proposed stays in the carveouts table with its status and dates, and the TUI and web show that history.
 - Each fetch cycle scores against context.md as it is on disk at the start of the cycle.
@@ -43,6 +42,8 @@ Turn downvotes into what the user means by them, a precision cut inside a catego
 - Accepting a carve-out re-scores its preview items and removing one re-scores the items scored since acceptance within its radius, so the stored priorities match context.md as soon as the user decides.
 - A rejected slice comes back only on at least two downvotes that were not in the rejected proposal's evidence, and says when it was rejected before.
 - Slice membership and the preview use raw embedding similarity, and context.md is parsed by one shared walk.
+- Every proposal shows the items it would hit and how many same-category items outside them its line pushes to null, counted only where two runs without the line give a priority and two runs with it give null.
+- A proposal whose line nulls fewer than half of its prioritized preview items is never shown.
 
 ## Sacrifices
 
@@ -52,7 +53,7 @@ Turn downvotes into what the user means by them, a precision cut inside a catego
 - The 0.50 radius rests on one measured downvote and will be wrong for some slices until more downvotes calibrate it; the preview is what catches it.
 - Impact is measured once, at proposal time, on a sample; an accepted line can still behave differently on items scored later, which #97's drift check is the guard for.
 - Manual edits to context.md are not part of the carve-out history.
-- Each proposal costs up to about 40 evaluate calls (about $0.03 at cerebro's median).
+- Each proposal costs about 80 evaluate calls (roughly $0.05 at cerebro's median), plus one or two naming calls, spent by the daemon on its own once learn_from_votes is on.
 
 ## Risk
 

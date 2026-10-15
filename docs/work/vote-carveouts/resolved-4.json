@@ -1,0 +1,6 @@
+{
+  "question": "What counts as the same slice for the 'more than one downvote' rule: an embedding-similarity radius around downvoted items, the same matched category plus similarity, or a cluster a model names?",
+  "answer": "Downvoted items that share a matched category and lie within a cosine-similarity radius of each other, the radius a config value starting at 0.50 (the midpoint of cerebro's one measured gap: carve cluster 0.52-0.62, nearest upvote 0.46) and recalibrated as downvotes accrue; the model only names a slice that similarity already found, and the acceptance preview catches a radius that reaches too wide.",
+  "by": "evidence",
+  "evidence": {"path": "docs/work/vote-carveouts/problem.json", "line": 5}
+}

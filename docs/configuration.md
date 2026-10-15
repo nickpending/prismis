@@ -14,9 +14,14 @@ failure.
 `~/.config/prismis/context.md` is what every item is scored against: plain markdown with High,
 Medium and Low priority topic sections. `prismis-cli context bootstrap` prints an interview prompt
 that produces one. Over time, `:context suggest` in the TUI proposes edits from the items you
-upvoted, and the `[context]` section can apply them automatically once enough votes accumulate
-(`auto_update_enabled`, `auto_update_min_votes`, `auto_update_interval_days`), keeping
-`backup_count` backups.
+upvoted; you decide what goes in.
+
+Votes do nothing on their own unless `[context] learn_from_votes = true`, and it is off by default.
+Turned on, it feeds learned preferences into scoring and lets `auto_update_enabled` rewrite
+context.md once enough votes accumulate (`auto_update_min_votes`, `auto_update_interval_days`),
+keeping `backup_count` backups. It is off because the current model credits a vote to the topics
+an item matched, so downvoting one post can teach a dislike of a whole topic you asked for; see
+issue #96.
 
 ## LLM services
 

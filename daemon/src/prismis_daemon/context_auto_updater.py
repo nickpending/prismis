@@ -103,8 +103,9 @@ class ContextAutoUpdater:
         Returns:
             Tuple of (should_update, reason)
         """
-        # Check if enabled
-        if not self.config.context_auto_update_enabled:
+        if not self.config.context_auto_update_active:
+            if not self.config.learn_from_votes:
+                return False, "Learning from votes is off ([context] learn_from_votes)"
             return False, "Auto-update disabled in config"
 
         # Check if enough time has passed

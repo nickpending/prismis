@@ -582,19 +582,32 @@ def _repair_llm_side_effect() -> list[MagicMock]:
     ]
 
 
+@pytest.mark.parametrize(
+    "learn_from_votes", [True, False], ids=["learning-on", "learning-off-by-default"]
+)
 def test_repair_includes_preference_influenced_and_passes_learned_preferences_to_evaluator(
-    local_env: Path,
+    local_env: Path, learn_from_votes: bool
 ) -> None:
     """
-    SC-10: with >=5 recent feedback votes, repair fetches learned preferences and
-    threads them into evaluate_content -- proven by the stored analysis carrying
-    preference_influenced=True, a flag ContentEvaluator only sets when it actually
-    received a non-empty learned_preferences argument (evaluator.py's
-    evaluate_content, not something the fake LLM response itself supplies).
+    SC-10: with >=5 recent feedback votes and [context] learn_from_votes on, repair
+    fetches learned preferences and threads them into evaluate_content -- proven by
+    the stored analysis carrying preference_influenced=True, a flag ContentEvaluator
+    only sets when it actually received a non-empty learned_preferences argument
+    (evaluator.py's evaluate_content, not something the fake LLM response itself
+    supplies). With the shipped template (learning off, #96) the same votes reach
+    nothing.
     BREAKS: repair building its own analysis dict inline (its pre-cluster-13 shape)
-    never threads learned_preferences into evaluate_content, so
-    preference_influenced stays False even with plenty of recent votes.
+    never threads learned_preferences into evaluate_content, so the learning-on row
+    stores False; repair ignoring the switch stores True on the learning-off row.
     """
+    if learn_from_votes:
+        config_path = Path(os.environ["XDG_CONFIG_HOME"]) / "prismis" / "config.toml"
+        text = config_path.read_text()
+        assert text.count("learn_from_votes = false\n") == 1, "template switch moved"
+        config_path.write_text(
+            text.replace("learn_from_votes = false\n", "learn_from_votes = true\n")
+        )
+
     storage = Storage(local_env)
     source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
 
@@ -620,7 +633,9 @@ def test_repair_includes_preference_influenced_and_passes_learned_preferences_to
     reread.close()
 
     assert stored is not None
-    assert stored["analysis"]["preference_influenced"] is True, stored["analysis"]
+    assert stored["analysis"]["preference_influenced"] is learn_from_votes, stored[
+        "analysis"
+    ]
 
 
 def test_repair_still_writes_preference_influenced_false_when_no_learned_preferences(

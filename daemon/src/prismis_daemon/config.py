@@ -162,6 +162,18 @@ class Config:
     # through `load_services`, so a hand-built Config need not carry them.
     services: dict[str, ServiceConfig] = field(default_factory=dict)
 
+    # [context] learn_from_votes: the one switch for everything votes do on their own
+    # -- learned preferences in the evaluator and the context.md auto-updater. A new
+    # key, so every install written before #96 is off: the old template wrote
+    # auto_update_enabled = true for everyone, and votes are credited to the
+    # evaluator's own matched_interests, which taught "dislikes" of declared topics.
+    learn_from_votes: bool = False
+
+    @property
+    def context_auto_update_active(self) -> bool:
+        """Whether the auto-updater may rewrite context.md: both switches on."""
+        return self.learn_from_votes and self.context_auto_update_enabled
+
     @property
     def has_reddit_credentials(self) -> bool:
         """Whether both Reddit credentials hold a value Reddit could accept.
@@ -387,7 +399,7 @@ class Config:
                 archival_low_unread=archival["windows"]["low_unread"],
                 archival_low_read=archival["windows"]["low_read"],
                 context_auto_update_enabled=context_config.get(
-                    "auto_update_enabled", True
+                    "auto_update_enabled", False
                 ),
                 context_auto_update_interval_days=context_config.get(
                     "auto_update_interval_days", 30
@@ -396,6 +408,7 @@ class Config:
                     "auto_update_min_votes", 5
                 ),
                 context_backup_count=context_config.get("backup_count", 10),
+                learn_from_votes=context_config.get("learn_from_votes", False),
             )
         except KeyError as e:
             raise ValueError(f"Missing required config field: {e}") from e

@@ -582,10 +582,13 @@ class DaemonOrchestrator:
         }
 
         # Fetch learned preferences for LLM evaluation (003-light-preference-learning)
-        # Only activates if user has provided at least 5 votes in the last 30 days
+        # Only activates with [context] learn_from_votes on and at least 5 votes in
+        # the last 30 days
         learned_preferences = None
         try:
-            learned_preferences, total_votes = get_learned_preferences(self.storage)
+            learned_preferences, total_votes = get_learned_preferences(
+                self.storage, enabled=self.config.learn_from_votes
+            )
             if learned_preferences:
                 self.console.print(
                     f"🧠 Using learned preferences from {total_votes} votes (last 30 days)"

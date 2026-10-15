@@ -129,7 +129,9 @@ def _updater_over_a_broken_vote_query(
         )
         conn.execute("ALTER TABLE content DROP COLUMN summary")
     config = make_config(
-        context_auto_update_enabled=True, context_auto_update_min_votes=1
+        learn_from_votes=True,
+        context_auto_update_enabled=True,
+        context_auto_update_min_votes=1,
     )
     return ContextAutoUpdater(config, storage)
 

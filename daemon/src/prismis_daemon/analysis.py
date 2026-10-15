@@ -31,21 +31,25 @@ from .summarizer import ContentSummary
 
 
 def get_learned_preferences(
-    storage: Storage, since_days: int = 30, min_votes: int = 5
+    storage: Storage, *, enabled: bool, since_days: int = 30, min_votes: int = 5
 ) -> tuple[str | None, int]:
     """Fetch the learned-preferences context string for LLM evaluation.
 
     Args:
         storage: Storage instance to read feedback statistics from
+        enabled: The caller's config.learn_from_votes; keyword-only with no
+            default so no caller can reach the votes without naming the switch
         since_days: Lookback window for feedback statistics
         min_votes: Minimum total votes in the window before preferences apply
 
     Returns:
         (learned_preferences, total_votes) -- learned_preferences is
         storage.get_feedback_statistics(since_days)'s for_llm_context field,
-        or None when fewer than min_votes votes exist in the window;
-        total_votes is always returned so a caller can report it.
+        or None when learning is off or fewer than min_votes votes exist in the
+        window; total_votes is 0 when learning is off (no query is made).
     """
+    if not enabled:
+        return None, 0
     feedback_stats = storage.get_feedback_statistics(since_days=since_days)
     total_votes = feedback_stats.get("totals", {}).get("total_votes", 0)
     if total_votes < min_votes:

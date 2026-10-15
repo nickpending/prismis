@@ -127,10 +127,13 @@ def repair(
 
             # Fetch learned preferences for LLM evaluation (003-light-preference-learning),
             # the same helper and threshold the daemon pipeline uses
-            # (orchestrator.run_once): only activates with >=5 votes in the last 30 days.
+            # (orchestrator.run_once): only activates with [context] learn_from_votes on
+            # and >=5 votes in the last 30 days.
             learned_preferences = None
             try:
-                learned_preferences, total_votes = get_learned_preferences(storage)
+                learned_preferences, total_votes = get_learned_preferences(
+                    storage, enabled=config.learn_from_votes
+                )
                 if learned_preferences:
                     console.print(
                         f"[dim]🧠 Using learned preferences from {total_votes} votes (last 30 days)[/dim]"

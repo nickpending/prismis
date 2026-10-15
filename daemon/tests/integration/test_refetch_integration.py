@@ -13,6 +13,7 @@ this suite uses.
 
 from __future__ import annotations
 
+import dataclasses
 import http.server
 import json as jsonlib
 import os
@@ -431,28 +432,38 @@ def _seed_upvote_with_topic(
     storage.update_content_status(content_id, user_feedback="up")
 
 
+@pytest.mark.parametrize(
+    "learn_from_votes", [True, False], ids=["learning-on", "learning-off-by-default"]
+)
 def test_refetch_sources_learned_preferences_like_run_once_does(
-    test_db: Path, isolated_xdg_env: Path, local_pipeline_stub: str, article_server: _ArticleServer
+    test_db: Path,
+    isolated_xdg_env: Path,
+    local_pipeline_stub: str,
+    article_server: _ArticleServer,
+    learn_from_votes: bool,
 ) -> None:
     """
     SC-2 (review finding F-2-1): a recovered item is evaluated with the
     user's learned preferences, sourced the same way run_once does --
-    analysis.get_learned_preferences(self.storage) -- not with None. Proved
-    by the evaluator's own preference_influenced flag, which ContentEvaluator
-    sets to True only when a truthy learned_preferences string reached
-    evaluate_content, and is stored verbatim by build_llm_analysis.
+    analysis.get_learned_preferences(self.storage, enabled=...) -- and only
+    when [context] learn_from_votes is on (#96). Proved by the evaluator's own
+    preference_influenced flag, which ContentEvaluator sets to True only when
+    a truthy learned_preferences string reached evaluate_content, and is
+    stored verbatim by build_llm_analysis.
     BREAKS: _refetch_one calling analyze_and_store_item with no third
-    argument (defaulting to None) stores preference_influenced: False here,
-    silently diverging from the one analysis path SC-1 established.
+    argument stores False on the learning-on row; refetch ignoring the
+    switch stores True on the shipped template's learning-off row.
     """
     config = _real_config(local_pipeline_stub)
+    if learn_from_votes:
+        config = dataclasses.replace(config, learn_from_votes=True)
     storage = Storage(test_db)
     orchestrator = _build_orchestrator(config, storage)
 
     feedback_source_id = storage.add_source(
         "https://feeds.example.com/feedback-source", "rss", "Feedback Source"
     )
-    # get_learned_preferences requires >= 5 votes in the last 30 days
+    # With learning on, get_learned_preferences requires >= 5 votes in the last 30 days
     # (analysis.py's own min_votes default) before it returns anything.
     for i in range(5):
         _seed_upvote_with_topic(
@@ -480,7 +491,7 @@ def test_refetch_sources_learned_preferences_like_run_once_does(
     ).fetchone()
     recovered = storage.get_content_by_id(recovered_row["id"])
     assert recovered is not None
-    assert recovered["analysis"]["preference_influenced"] is True
+    assert recovered["analysis"]["preference_influenced"] is learn_from_votes
 
 
 # ---------------------------------------------------------------------------

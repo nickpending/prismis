@@ -335,7 +335,9 @@ def run_refetch(
     # a lookup failure falls back to None rather than failing the run.
     learned_preferences = None
     try:
-        learned_preferences, total_votes = get_learned_preferences(orchestrator.storage)
+        learned_preferences, total_votes = get_learned_preferences(
+            orchestrator.storage, enabled=orchestrator.config.learn_from_votes
+        )
         if learned_preferences:
             obs_log(
                 "refetch.learned_preferences",

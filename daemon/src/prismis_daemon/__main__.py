@@ -118,7 +118,7 @@ def build_scheduler(
     )
 
     # Add context auto-update job (runs daily, checks internally if update is needed)
-    if config.context_auto_update_enabled:
+    if config.context_auto_update_active:
         scheduler.add_job(
             func=run_context_update_sync,
             args=(config, storage),
@@ -132,6 +132,10 @@ def build_scheduler(
         )
         console.print(
             f"[dim]Context auto-update enabled (every {config.context_auto_update_interval_days} days, min {config.context_auto_update_min_votes} votes)[/dim]"
+        )
+    if not config.learn_from_votes:
+        console.print(
+            "[dim]Learning from votes is off: votes are recorded, not applied ([context] learn_from_votes)[/dim]"
         )
 
     return scheduler, interval_msg

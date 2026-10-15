@@ -1,0 +1,6 @@
+{
+  "question": "What happens to the current learned-preferences injection and the context auto-updater: are they removed, or kept behind learn_from_votes alongside the new mechanism?",
+  "answer": "Both are removed: the learned-preferences injection credits votes per topic, which the decided rule (a downvote never dislikes or demotes a category) forbids, and the auto-updater writes context.md without acceptance, which the trigger decision forbids; learn_from_votes becomes the switch for carve-out proposals.",
+  "by": "evidence",
+  "evidence": {"path": "docs/work/vote-carveouts/problem.json", "line": 5}
+}

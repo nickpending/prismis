@@ -1,0 +1,5 @@
+{
+  "question": "What triggers a carve-out: a user-run command or TUI action that proposes carve-outs from accumulated downvotes for the user to accept (the shape of `:context suggest`), or an opt-in automatic step that applies them and records each change?",
+  "answer": "The daemon proposes automatically: when two or more downvotes form a slice it queues a proposal (name, preview of the items it would hit, dry-run impact) that the TUI and web surface, and the user accepts or rejects it with one key; nothing reaches context.md without acceptance.",
+  "by": "operator"
+}

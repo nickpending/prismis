@@ -1,0 +1,6 @@
+{
+  "question": "Is docs/FEEDBACK_LOOP_SPEC.md's fully automatic vision retired in favour of the optional, always-visible model, so the spec is rewritten as part of this work?",
+  "answer": "Yes: the decided model is optional and acceptance-gated, so the spec's 'context.md evolves automatically, no manual editing' vision is retired and the spec is rewritten in the same work to describe carve-out proposals, acceptance and their history.",
+  "by": "evidence",
+  "evidence": {"path": "docs/work/vote-carveouts/problem.json", "line": 7}
+}

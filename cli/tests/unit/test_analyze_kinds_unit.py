@@ -966,8 +966,11 @@ def test_priority_keeps_an_items_old_score_when_its_evaluation_fails(
 ) -> None:
     """
     INVARIANT: a failed evaluation leaves that item's priority and analysis as they
-               were, the run continues and exits 0, and the failure is counted
-    BREAKS: one bad reply aborts the batch, or a failed item is written as null
+               were, the run continues, the failure is counted, and the exit code
+               is 1 so a caller can tell an incomplete run from a complete one
+    BREAKS: one bad reply aborts the batch, a failed item is written as null, or a
+            run where every call failed (a missing API key) exits 0 -- as the first
+            cerebro run did, 1,812 of 1,812 failed
     """
     storage = Storage(local_env)
     ids = _rescore_seed(storage)
@@ -983,7 +986,8 @@ def test_priority_keeps_an_items_old_score_when_its_evaluation_fails(
     with patch(_PATCH_COMPLETE, side_effect=_fail_for_in_window):  # claudex-guard: allow-mock
         result = runner.invoke(analyze_app, ["priority", "--since-days", "15", "--force"])
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output
+    assert "Error" not in result.output, "the exit is not reported as a second error"
     reread = Storage(local_env)
     failed_item = reread.get_content_by_id(ids["in_window"])
     other = reread.get_content_by_id(second)

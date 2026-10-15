@@ -6,6 +6,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.prompt import Confirm
 
 from .remote import is_remote_mode
@@ -426,9 +427,8 @@ def priority(
     learn_from_votes on, the same as the daemon.
     """
     _check_local_mode("analyze priority")
+    failed = 0
     try:
-        from rich.markup import escape
-
         from prismis_daemon.analysis import evaluation_fields, get_learned_preferences
         from prismis_daemon.config import Config
         from prismis_daemon.evaluator import ContentEvaluator
@@ -476,7 +476,6 @@ def priority(
             obs_log("cli.priority.start", source="cli", items=total, since_days=since_days)
 
             transitions: dict[tuple[str, str], int] = {}
-            failed = 0
             for idx, item in enumerate(items, 1):
                 old = item.get("priority") or "none"
                 try:
@@ -531,5 +530,9 @@ def priority(
                 )
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
+    # Outside the try: typer.Exit subclasses RuntimeError, and the except above
+    # would report it as a second error.
+    if failed:
+        raise typer.Exit(1)

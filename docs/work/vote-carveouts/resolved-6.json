@@ -1,0 +1,6 @@
+{
+  "question": "Do upvotes play any part, given they mostly repeat High topics the user already wrote?",
+  "answer": "Upvotes bound carve-outs and are not learned as likes: an upvoted item within a proposed slice's radius vetoes or narrows the slice, so a carve-out never cuts what the user marked as wanted, and upvotes keep feeding the existing :context suggest gap path unchanged.",
+  "by": "evidence",
+  "evidence": {"path": "docs/work/vote-carveouts/ground.json", "line": 61}
+}

@@ -1,0 +1,101 @@
+{
+  "workOrder": "vote-carveouts",
+  "what": "J1 of the carve-out design: retire per-topic vote learning and the context.md auto-updater, make every fetch cycle score against context.md as it is on disk, and give context.md one shared parser that verify, the context analyzer and the coming carve-outs all use.",
+  "why": "The design is docs/work/vote-carveouts/design.md. Per-topic learning credited a downvote to the evaluator's own matched_interests and took cerebro's unprioritized share from ~55% to ~81% (#96); it is switched off behind learn_from_votes but still in the code, and the auto-updater would rewrite context.md from the same counts. Separately, the daemon scores with the context.md it read at startup, so the user's own :context edit does nothing until a restart, and accepted carve-outs (J2) would not apply either.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "a daemon orchestrator built from a sealed config whose context.md lists a High topic, and one item fetched per cycle through the real run_once path with the LLM answered by the local stub",
+      "when": "context.md on disk is rewritten with a new High bullet between two run_once cycles, with no restart",
+      "then": "The evaluator's user prompt in the second cycle contains the new bullet and the first cycle's did not, observed in the requests the stub received. Against today's code, which scores with the context Config read at startup, the second cycle's prompt lacks the bullet and the test fails; it passes on the fix."
+    },
+    {
+      "id": "C2",
+      "given": "the same orchestrator after one cycle that read context.md successfully",
+      "when": "context.md cannot be read at the start of the next cycle (removed read permission)",
+      "then": "The cycle logs the read failure with its traceback, still scores its items with the context.md text it last read successfully, and completes; a missing context.md is handled as Config.from_file handles it at startup (the default context)."
+    },
+    {
+      "id": "C3",
+      "given": "a database holding cerebro's vote pattern (five upvotes and one downvote on items whose matched_interests are High bullets) and a config with learn_from_votes = true",
+      "when": "an item is evaluated through each of run_once, run_refetch, `prismis-cli analyze repair` and `prismis-cli analyze priority`",
+      "then": "No system prompt sent to the provider contains a learned-preferences block, the stored analysis carries no preference_influenced key, and analysis.get_learned_preferences, the evaluator's learned_preferences parameter and get_feedback_statistics' for_llm_context no longer exist (an import or call of any of them fails); each path is asserted through its own entry point, and the test fails against today's code on the learn_from_votes = true row."
+    },
+    {
+      "id": "C4",
+      "given": "a config.toml from before this change, with [context] auto_update_enabled = true, auto_update_interval_days, auto_update_min_votes, backup_count and learn_from_votes = true, and votes enough to have qualified the old auto-updater",
+      "when": "the config is loaded and the daemon's scheduler is built",
+      "then": "The config loads without error, no context-update job is registered, the context_auto_updater module no longer exists, and nothing in the daemon writes context.md; the shipped template carries learn_from_votes and no auto_update_* or backup_count keys."
+    },
+    {
+      "id": "C5",
+      "given": "context.md texts with ## sections, ### groups holding bullets, a bullet directly under a section, a code fence and a missing required section",
+      "when": "verify's context check, check_context_md and the context analyzer read them",
+      "then": "All three read context.md through one walk in one module (check_context_md and the section constants move there from context_auto_updater.py), context_analyzer's _parse_context_sections is gone, and the analyzer's high, medium and low topic lists equal what today's regex parser returns for the same texts, including bullets inside ### groups; check_context_md's problems and counts are unchanged from today for every text."
+    },
+    {
+      "id": "C6",
+      "given": "a database with up and down votes",
+      "when": "GET /api/feedback/statistics is called",
+      "then": "It still returns totals, by_source, topics_upvoted, topics_downvoted and time_period with today's values, and returns no for_llm_context key."
+    },
+    {
+      "id": "C7",
+      "given": "the repository's docs",
+      "when": "they are read after the change",
+      "then": "docs/configuration.md describes learn_from_votes as the switch for carve-out proposals (not yet built) and no longer describes auto-update keys, and docs/architecture names no context auto-updater or learned-preferences injection; docs/FEEDBACK_LOOP_SPEC.md is left for J3."
+    }
+  ],
+  "issues": [],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "Upvotes are no longer learned as likes; they bound carve-outs and keep feeding :context suggest."
+    },
+    {
+      "kind": "cost",
+      "summary": "The automatic context.md rewrite and the feedback-loop spec's 'no manual context editing' vision are gone."
+    },
+    {
+      "kind": "cost",
+      "summary": "A downvoted item with no embedding or whose labels resolve to no context line cannot contribute to a carve-out."
+    },
+    {
+      "kind": "cost",
+      "summary": "The 0.50 radius rests on one measured downvote and will be wrong for some slices until more downvotes calibrate it; the preview is what catches it."
+    },
+    {
+      "kind": "cost",
+      "summary": "Impact is measured once, at proposal time, on a sample; an accepted line can still behave differently on items scored later, which #97's drift check is the guard for."
+    },
+    {
+      "kind": "cost",
+      "summary": "Manual edits to context.md are not part of the carve-out history."
+    },
+    {
+      "kind": "cost",
+      "summary": "Each proposal costs about 80 evaluate calls (roughly $0.05 at cerebro's median), plus one or two naming calls, spent by the daemon on its own once learn_from_votes is on."
+    },
+    {
+      "kind": "cost",
+      "summary": "Containment of a carve-out line named from two or more downvotes is unproven until cerebro has a second downvote; the first real proposal's measured impact is the first test."
+    },
+    {
+      "kind": "cost",
+      "summary": "gpt-5.4-nano's scores vary run to run (7 of 20 control items changed level in the 2026-10-15 check); carve-out impact counts only two-run agreement, and the variance itself is not addressed here."
+    }
+  ],
+  "stakes": [
+    "A downvote never lowers, removes or dislikes a context.md category: no vote reaches scoring except through a carve-out line the user accepted.",
+    "A carve-out is proposed only from two or more downvoted items that share a resolved category and lie within carveout_radius of each other, with no upvoted item within the radius of any of them.",
+    "Nothing is written to context.md without the user accepting the specific proposal; rejecting or removing is one action.",
+    "Every carve-out ever proposed stays in the carveouts table with its status and dates, and the TUI and web show that history.",
+    "Each fetch cycle scores against context.md as it is on disk at the start of the cycle.",
+    "With learn_from_votes off, the default, the daemon proposes nothing and votes only accumulate.",
+    "Accepting a carve-out re-scores its preview items and removing one re-scores the items scored since acceptance within its radius, so the stored priorities match context.md as soon as the user decides.",
+    "A rejected slice comes back only on at least two downvotes that were not in the rejected proposal's evidence, and says when it was rejected before.",
+    "Slice membership and the preview use raw embedding similarity, and context.md is parsed by one shared walk.",
+    "Every proposal shows the items it would hit and how many same-category items outside them its line pushes to null, counted only where two runs without the line give a priority and two runs with it give null.",
+    "A proposal whose line nulls fewer than half of its prioritized preview items is never shown."
+  ]
+}

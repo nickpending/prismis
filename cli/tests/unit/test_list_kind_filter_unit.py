@@ -176,13 +176,13 @@ class _ListEntriesHandler(http.server.BaseHTTPRequestHandler):
                         "title": "A Release Item",
                         "priority": "high",
                         "kind": "release",
-                        "published": "2026-01-01 00:00",
+                        "published_at": "2026-01-01T00:00:00Z",
                     },
                     {
                         "id": "22222222-aaaa-bbbb-cccc-000000000002",
                         "title": "An Unclassified Item",
                         "priority": "low",
-                        "published": "2026-01-02 00:00",
+                        "published_at": "2026-01-02T00:00:00Z",
                     },
                 ]
             },
@@ -290,6 +290,20 @@ def test_list_command_displays_item_kind(list_entries_probe: str) -> None:
         f"expected the classified item's kind 'release' in the table, got: "
         f"{result.output!r}"
     )
+
+
+def test_list_command_shows_each_items_published_date(list_entries_probe: str) -> None:
+    """
+    INVARIANT: The Published column shows each item's published_at, the field the
+    API sends, as YYYY-MM-DD HH:MM.
+    BREAKS: reading a 'published' key the API never sends leaves every row at
+    'N/A', which is what `prismis-cli list` showed on cerebro until this test.
+    """
+    result = runner.invoke(_app, [])
+
+    assert result.exit_code == 0, result.output
+    assert "2026-01-01 00:00" in result.output, result.output
+    assert "2026-01-02 00:00" in result.output, result.output
 
 
 def test_list_command_shows_dash_for_unclassified_item(

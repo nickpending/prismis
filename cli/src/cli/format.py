@@ -1,5 +1,7 @@
 """Shared display formatting for CLI table output."""
 
+from datetime import datetime
+
 
 def format_priority(priority_val: str) -> str:
     """Wrap a priority label in the Rich color markup `list` and `search` share.
@@ -33,3 +35,18 @@ def format_kind(kind_val: str | None) -> str:
         `kind_val` unchanged when it is truthy, otherwise `"-"`.
     """
     return kind_val if kind_val else "-"
+
+
+def format_published(published_at: str | None) -> str:
+    """Render an item's `published_at` (RFC3339, as the API sends it) for a table.
+
+    Returns:
+        "YYYY-MM-DD HH:MM" in the timestamp's own offset, "N/A" when there is none,
+        or the value unchanged when it does not parse.
+    """
+    if not published_at:
+        return "N/A"
+    try:
+        return datetime.fromisoformat(published_at).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return published_at

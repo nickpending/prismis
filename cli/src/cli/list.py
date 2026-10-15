@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .api_client import APIClient
-from .format import format_kind, format_priority
+from .format import format_kind, format_priority, format_published
 
 console = Console()
 
@@ -128,8 +128,7 @@ def list(
             # Format kind (unclassified items carry no kind; show a dash)
             kind_display = format_kind(entry.get("kind"))
 
-            # Format published date (already formatted from API)
-            published = entry.get("published", "N/A")
+            published = format_published(entry.get("published_at"))
 
             # Title-only rows carry the same marker the TUI and web show
             note = "title only" if entry.get("title_only") else ""

@@ -1,0 +1,154 @@
+{
+  "impacted": [
+    {
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "role": "Holds the votes (content.user_feedback), the per-topic aggregation in get_feedback_statistics that this replaces, the item embeddings (embeddings table and vec_content) and search_content's vector MATCH a similarity carve-out would query."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/evaluator.py",
+      "role": "Scores each item against context.md; already enforces 'Not Interested' topics as priority null, and still accepts the learned-preferences block that learn_from_votes now gates."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/orchestrator.py",
+      "role": "analyze_and_store_item evaluates, stores, then embeds; a carve-out applied at scoring time needs the item's embedding before the priority is final."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/context_analyzer.py",
+      "role": "ContextAnalyzer.analyze_flagged_items is the existing user-triggered path from votes to proposed context.md changes (upvotes only today)."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/context_auto_updater.py",
+      "role": "The automatic votes-to-context.md rewriter now gated by learn_from_votes; its backup_context keeps timestamped copies of context.md, the only history of context changes today."
+    },
+    {
+      "path": "tui/internal/ui/operations/context.go",
+      "role": "The TUI's :context suggest copies proposals to the clipboard and :context edit opens context.md in $EDITOR; the user applies changes by hand."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/api.py",
+      "role": "POST /api/context/suggest drives ContextAnalyzer; GET /api/feedback/statistics exposes the per-topic counts."
+    }
+  ],
+  "constraints": [
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/evaluator.py",
+      "line": 120,
+      "text": "The evaluator prompt already makes 'Not Interested' topics return priority null, so an exclusion written into context.md is applied by existing scoring with no new code path."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "daemon/src/prismis_daemon/evaluator.py",
+      "line": 120,
+      "text": "gpt-5.4-nano applies prompt lines literally (b6c3f70, and the #96 dislike list), so a carve-out written as prose risks being read wider than the slice it names; a carve-out applied by prose needs its own measured check that the category's other items keep their priority."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/orchestrator.py",
+      "line": 161,
+      "text": "analyze_and_store_item calls evaluate_content before create_or_update_content, and generates the embedding from the summary only after storing (around the 'Indexed for semantic search' print)."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "line": 1929,
+      "text": "search_content already runs a vec_content MATCH over the stored 384-dimension item embeddings, the primitive a nearest-downvoted-item check would reuse."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "line": 1,
+      "text": "Measured 2026-10-15: the one downvoted item's nearest neighbors (cosine 0.52-0.62) are a coherent 'AI agents behaving badly' incident-news cluster, most scored High; the closest upvoted item is at 0.46."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "line": 1,
+      "text": "With one downvote on record, real data cannot calibrate a similarity radius or show that a cluster generalizes; the 'more than one downvote in the slice' rule has no observed instance yet."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/context_analyzer.py",
+      "line": 26,
+      "text": "analyze_flagged_items reads upvoted items and asks an LLM for topics to add, validated per suggestion; it never reads downvotes."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "tui/internal/ui/operations/context.go",
+      "line": 116,
+      "text": "The TUI copies context suggestions to the clipboard; nothing writes them into context.md, records that they were accepted, or keeps a history of what changed."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/context_auto_updater.py",
+      "line": 139,
+      "text": "backup_context writes timestamped full copies of context.md (backup_count, default 10) before the auto-updater overwrites it; there is no diff, no record of why a line changed, and nothing shows the history to the user."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "daemon/src/prismis_daemon/config.py",
+      "line": 173,
+      "text": "learn_from_votes gates both the evaluator's learned preferences and the auto-updater (context_auto_update_active); votes keep being recorded while it is off."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "docs/FEEDBACK_LOOP_SPEC.md",
+      "line": 3,
+      "text": "The earlier feedback-loop spec's vision is 'context.md evolves automatically ... No manual context editing required', with user effort limited to voting."
+    },
+    {
+      "tag": "INFERENCE",
+      "path": "docs/FEEDBACK_LOOP_SPEC.md",
+      "line": 3,
+      "text": "rudy's 2026-10-15 direction (optional or user-triggered, always visible) supersedes the spec's fully automatic loop, so the spec misdescribes intent once this ships and needs updating with it."
+    },
+    {
+      "tag": "OBSERVED",
+      "path": "docs/work/vote-carveouts/problem.json",
+      "line": 1,
+      "text": "Prior art: Feedly Leo's 'Less like this' corrects the match ('Not about <topic>') rather than disliking the topic, and its mute filters preview the matching articles before saving; scrutable recommenders (arXiv 2402.05810, MoRe) keep the learned profile as editable natural language the user can read and change."
+    }
+  ],
+  "adrs": {
+    "scanned": 0,
+    "binding": []
+  },
+  "related": {
+    "query": "gh issue list --state open --search \"context OR vote OR feedback OR interest\" --limit 15",
+    "issues": [
+      {
+        "number": 97,
+        "why": "Drift detection; a carve-out that over-applies would show as the same unprioritized-share jump, so #97 is the guard on this feature too."
+      },
+      {
+        "number": 46,
+        "why": "Multi-context profiles; carve-outs belong to a context, so their storage should not assume one global context.md."
+      }
+    ]
+  },
+  "reuse": [
+    {
+      "path": "daemon/src/prismis_daemon/evaluator.py",
+      "what": "The existing 'Not Interested' rule, if a carve-out is written into context.md."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/storage.py",
+      "what": "search_content's vec_content MATCH and the stored item embeddings, if a carve-out is applied by similarity."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/context_analyzer.py",
+      "what": "The user-triggered propose-and-validate flow, extended from upvotes to downvote clusters."
+    },
+    {
+      "path": "daemon/src/prismis_daemon/context_auto_updater.py",
+      "what": "backup_context and check_context_md for writing context.md safely."
+    },
+    {
+      "path": "cli/src/cli/analyze.py",
+      "what": "The analyze priority command, to re-score items after a carve-out is accepted."
+    }
+  ],
+  "open": [
+    "Is docs/FEEDBACK_LOOP_SPEC.md's fully automatic vision retired in favour of the optional, always-visible model, so the spec is rewritten as part of this work?"
+  ]
+}

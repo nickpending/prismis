@@ -26,9 +26,6 @@ class ContentEvaluation:
     priority: PriorityLevel | None  # Can be None for unprioritized content
     matched_interests: list[str]
     reasoning: str | None = None
-    preference_influenced: bool = (
-        False  # True if learned preferences affected evaluation
-    )
 
 
 class ContentEvaluator:
@@ -50,7 +47,6 @@ class ContentEvaluator:
         title: str,
         url: str,
         context: str,
-        learned_preferences: str | None = None,
     ) -> ContentEvaluation:
         """Evaluate content relevance against user context.
 
@@ -59,25 +55,16 @@ class ContentEvaluator:
             title: Title of the content
             url: URL of the content
             context: User's personal context for evaluation
-            learned_preferences: Optional learned preferences from user feedback (for_llm_context)
 
         Returns:
             ContentEvaluation with priority level and matched interests
         """
         logger.debug(f"Evaluating content '{title[:50]}...' against user context")
-        if learned_preferences:
-            logger.debug("Including learned preferences in evaluation")
 
         try:
-            messages = self._build_evaluation_prompt(
-                content, title, url, context, learned_preferences
-            )
+            messages = self._build_evaluation_prompt(content, title, url, context)
             response = self._call_llm(messages)
-            evaluation = self._parse_evaluation_response(response)
-            # Mark as preference-influenced if learned preferences were used
-            if learned_preferences:
-                evaluation.preference_influenced = True
-            return evaluation
+            return self._parse_evaluation_response(response)
         except Exception as e:
             logger.error(f"Content evaluation failed: {e}", exc_info=True)
             # Re-raise to stop processing completely per requirements
@@ -89,7 +76,6 @@ class ContentEvaluator:
         title: str,
         url: str,
         context: str,
-        learned_preferences: str | None = None,
     ) -> list[dict[str, str]]:
         """Build the evaluation prompt for the LLM.
 
@@ -98,7 +84,6 @@ class ContentEvaluator:
             title: Title of the content
             url: URL of the content
             context: User's personal context
-            learned_preferences: Optional learned preferences from user feedback
 
         Returns:
             List of messages for the LLM
@@ -131,16 +116,6 @@ Examples:
 - BJJ training video → priority: "low", matched_interests: ["Brazilian Jiu-Jitsu training approaches"]
 - Basic password management article → priority: null, matched_interests: [] (matches Not Interested)"""
 
-        # Inject learned preferences if available (from user feedback history)
-        if learned_preferences:
-            system_prompt += f"""
-
-LEARNED USER PREFERENCES (from recent feedback):
-{learned_preferences}
-
-Use these learned preferences to SUPPLEMENT (not override) the user's context above.
-If content matches topics the user has upvoted, consider boosting priority slightly.
-If content matches topics the user has downvoted, consider lowering priority."""
         bounded = bound_content(content)
 
         user_prompt = f"""User's Personal Context:

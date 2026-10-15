@@ -13,7 +13,7 @@ reconciled_at: 63b9bfb39d2adc238ebd82f893cd28d2d3f37e1c
 - **Summarizer** — LLM content summarization with structured insights.
 - **Evaluator** — LLM content prioritization against user interests.
 - **Deep Extractor** — Second-tier LLM synthesis for HIGH items; low-signal sources excluded.
-- **Context System** — User interest profile, auto-updated from feedback.
+- **Context System** — User interest profile (context.md), re-read every fetch cycle; suggested topics from upvotes.
 - **LLM Client** — Direct openai-SDK client for every daemon LLM call.
 - **Kind Classifier** — Optional ten-kind item tagging via OpenRouter Decisions; fail-open.
 - **Circuit Breaker** — Service-keyed quota protection for LLM calls.

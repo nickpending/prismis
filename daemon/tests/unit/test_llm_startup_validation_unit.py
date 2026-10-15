@@ -65,10 +65,6 @@ low_unread = 7
 low_read = 30
 
 [context]
-auto_update_enabled = false
-auto_update_interval_days = 7
-auto_update_min_votes = 5
-backup_count = 3
 """
 
 # Dual-service config — both light and deep configured
@@ -109,10 +105,6 @@ low_unread = 7
 low_read = 30
 
 [context]
-auto_update_enabled = false
-auto_update_interval_days = 7
-auto_update_min_votes = 5
-backup_count = 3
 """
 
 # Kind-service config — light and kind configured (gh #82, SC-2)
@@ -153,10 +145,6 @@ low_unread = 7
 low_read = 30
 
 [context]
-auto_update_enabled = false
-auto_update_interval_days = 7
-auto_update_min_votes = 5
-backup_count = 3
 """
 
 # Light, deep and kind all configured — for the combined warning-wording test
@@ -198,10 +186,6 @@ low_unread = 7
 low_read = 30
 
 [context]
-auto_update_enabled = false
-auto_update_interval_days = 7
-auto_update_min_votes = 5
-backup_count = 3
 """
 
 
@@ -312,10 +296,6 @@ low_unread = 7
 low_read = 30
 
 [context]
-auto_update_enabled = false
-auto_update_interval_days = 7
-auto_update_min_votes = 5
-backup_count = 3
 """
     temp_dir, config_path = _create_config_dir(old_format_config)
 

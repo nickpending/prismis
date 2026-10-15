@@ -183,11 +183,6 @@ def create_api_client_with_config(
         archival_medium_read=full_config.archival_medium_read,
         archival_low_unread=full_config.archival_low_unread,
         archival_low_read=full_config.archival_low_read,
-        # Context auto-update settings
-        context_auto_update_enabled=full_config.context_auto_update_enabled,
-        context_auto_update_interval_days=full_config.context_auto_update_interval_days,
-        context_auto_update_min_votes=full_config.context_auto_update_min_votes,
-        context_backup_count=full_config.context_backup_count,
         # Audio settings
         audio_provider=full_config.audio_provider,
         audio_voice=full_config.audio_voice,

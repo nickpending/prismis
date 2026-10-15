@@ -2,8 +2,7 @@
 
 Invariant protected:
   - a defect is never turned into the value a genuine empty result produces: a prune
-    count that cannot be read is a 500, not 0; a vote query that cannot run is an
-    "Error", not "No voted articles found"; an evaluation reply that cannot be parsed
+    count that cannot be read is a 500, not 0; an evaluation reply that cannot be parsed
     fails the item, not "no priority"; an archival or backfill that cannot run raises,
     not a zero count
   - the fetch cycle's isolation boundaries (one source, one item) keep the cycle going
@@ -30,7 +29,6 @@ from fastapi.testclient import TestClient
 from prismis_daemon.api import app
 from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.config import Config
-from prismis_daemon.context_auto_updater import ContextAutoUpdater
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.models import ContentItem
 from prismis_daemon.notifier import Notifier
@@ -97,86 +95,6 @@ def test_storage_count_unprioritized_raises_the_database_error(test_db: Path) ->
 
     with pytest.raises(sqlite3.Error):
         storage.count_unprioritized()
-
-
-# --- SC-6: the context auto-updater -----------------------------------------------------
-
-
-def _updater_over_a_broken_vote_query(
-    test_db: Path, isolated_xdg_env: Path
-) -> ContextAutoUpdater:
-    """An updater that is due to run, with enough votes, whose vote query cannot run.
-
-    Dropping `content.summary` (a column only get_content_by_feedback selects) leaves
-    get_feedback_statistics working, so the failure lands exactly in
-    `_get_voted_articles`.
-    """
-    storage = Storage(test_db)
-    source_id = storage.add_source("https://example.com/feed.xml", "rss", "Feed")
-    content_id = add_new_content(
-        storage,
-        ContentItem(
-            source_id=source_id,
-            external_id="voted-1",
-            title="Voted",
-            url="https://example.com/voted",
-            content=_READABLE,
-        ),
-    )
-    with sqlite3.connect(test_db) as conn:
-        conn.execute(
-            "UPDATE content SET user_feedback = 'up' WHERE id = ?", (content_id,)
-        )
-        conn.execute("ALTER TABLE content DROP COLUMN summary")
-    config = make_config(
-        learn_from_votes=True,
-        context_auto_update_enabled=True,
-        context_auto_update_min_votes=1,
-    )
-    return ContextAutoUpdater(config, storage)
-
-
-def test_update_returns_an_error_when_the_vote_query_fails(
-    test_db: Path,
-    isolated_xdg_env: Path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """
-    INVARIANT: a vote query that cannot run is (False, "Error: ...") with the traceback
-               logged, never (False, "No voted articles found")
-    BREAKS: _get_voted_articles returns [] on any storage error, so a broken database
-            reads as "nobody voted" and the context is never updated, silently
-    """
-    updater = _updater_over_a_broken_vote_query(test_db, isolated_xdg_env)
-
-    with caplog.at_level(logging.WARNING):
-        ok, message = updater.update()
-
-    assert ok is False
-    assert message.startswith("Error:"), message
-    assert "No voted articles found" not in message
-    failure = [
-        r
-        for r in caplog.records
-        if r.levelno >= logging.ERROR and r.exc_info and "summary" in str(r.exc_info[1])
-    ]
-    assert failure, "the traceback of the real failure must be logged"
-
-
-def test_update_with_no_votes_still_says_no_voted_articles(
-    test_db: Path, isolated_xdg_env: Path
-) -> None:
-    """
-    INVARIANT: a database with no votes is still "No voted articles found"
-    BREAKS: the fix over-reaches and a genuine empty result reads as an error
-    """
-    storage = Storage(test_db)
-    config = make_config(
-        context_auto_update_enabled=True, context_auto_update_min_votes=1
-    )
-    updater = ContextAutoUpdater(config, storage)
-
-    assert updater._get_voted_articles() == []
 
 
 # --- SC-7: an evaluation reply that cannot be parsed -------------------------------------

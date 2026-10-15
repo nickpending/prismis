@@ -83,15 +83,9 @@ low_unread = 14
 low_read = 7
 
 [context]
-# Let votes act on their own: learned preferences in scoring, and the auto-update
-# below. Off while voting is redesigned (#96): a vote is credited to the topics
-# an item matched, so downvoting one post taught a dislike of a whole topic.
+# Propose context.md carve-outs from your downvotes. Off: votes are recorded and
+# nothing else happens. Nothing is written to context.md without your accepting it.
 learn_from_votes = false
-# Rewrite context.md from votes (needs learn_from_votes)
-auto_update_enabled = false
-auto_update_interval_days = 30  # How often to run auto-update
-auto_update_min_votes = 5  # Minimum votes before auto-updating
-backup_count = 10  # Number of context.md backups to keep
 """
 
 DEFAULT_CONTEXT_MD = """# Personal Context for Prismis

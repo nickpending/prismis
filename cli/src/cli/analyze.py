@@ -111,11 +111,7 @@ def repair(
                 console.print(f"[dim]Estimated cost: ${cost_estimate:.2f}[/dim]\n")
 
             # Lazy import heavy LLM dependencies (only when actually repairing)
-            from prismis_daemon.analysis import (
-                build_llm_analysis,
-                content_basis,
-                get_learned_preferences,
-            )
+            from prismis_daemon.analysis import build_llm_analysis, content_basis
             from prismis_daemon.config import Config
             from prismis_daemon.evaluator import ContentEvaluator
             from prismis_daemon.observability import log as obs_log
@@ -125,27 +121,6 @@ def repair(
             config = Config.from_file()
             summarizer = ContentSummarizer(config.llm_light_service)
             evaluator = ContentEvaluator(config.llm_light_service)
-
-            # Fetch learned preferences for LLM evaluation (003-light-preference-learning),
-            # the same helper and threshold the daemon pipeline uses
-            # (orchestrator.run_once): only activates with [context] learn_from_votes on
-            # and >=5 votes in the last 30 days.
-            learned_preferences = None
-            try:
-                learned_preferences, total_votes = get_learned_preferences(
-                    storage, enabled=config.learn_from_votes
-                )
-                if learned_preferences:
-                    console.print(
-                        f"[dim]🧠 Using learned preferences from {total_votes} votes (last 30 days)[/dim]"
-                    )
-            except Exception as e:
-                # Not critical: repair proceeds without learned preferences.
-                logger.warning("Failed to fetch feedback statistics", exc_info=True)
-                obs_log(
-                    "cli.repair.feedback_statistics_failed", source="cli", error=str(e)
-                )
-                # Continue without learned preferences - not critical
 
             # Track repair operation start
             start_time = time.time()
@@ -199,12 +174,10 @@ def repair(
                         title=item["title"],
                         url=item["url"],
                         context=config.context,
-                        learned_preferences=learned_preferences,
                     )
 
                     # Step 3: Build analysis dict (same daemon-side helper the
-                    # pipeline uses -- includes preference_influenced, SC-10,
-                    # and title_only, SC-3)
+                    # pipeline uses -- includes title_only, SC-3)
                     stored_fetch_outcome = (item.get("analysis") or {}).get(
                         "fetch_outcome"
                     )
@@ -418,18 +391,16 @@ def priority(
 ) -> None:
     """Re-evaluate the priority of already-analysed items against the current context.
 
-    For when scoring itself went wrong (a bad prompt, a poisoned learned preference,
-    gh #96) or context.md changed: each unarchived item with a summary fetched in the
-    last --since-days days (newest first, at most --limit) is evaluated again, and its
-    priority, matched_interests, priority_reasoning and preference_influenced are
-    replaced. The summary, kind and every other field are kept, and so are read,
-    favorited and votes. Learned preferences apply only with [context]
-    learn_from_votes on, the same as the daemon.
+    For when scoring itself went wrong (a bad prompt, gh #96) or context.md changed:
+    each unarchived item with a summary fetched in the last --since-days days (newest
+    first, at most --limit) is evaluated again, and its priority, matched_interests
+    and priority_reasoning are replaced. The summary, kind and every other field are
+    kept, and so are read, favorited and votes.
     """
     _check_local_mode("analyze priority")
     failed = 0
     try:
-        from prismis_daemon.analysis import evaluation_fields, get_learned_preferences
+        from prismis_daemon.analysis import evaluation_fields
         from prismis_daemon.config import Config
         from prismis_daemon.evaluator import ContentEvaluator
         from prismis_daemon.observability import get_logger as get_obs_logger
@@ -463,14 +434,6 @@ def priority(
                 console.print("[yellow]Aborted[/yellow]")
                 return
 
-            learned_preferences, total_votes = get_learned_preferences(
-                storage, enabled=config.learn_from_votes
-            )
-            if learned_preferences:
-                console.print(
-                    f"[dim]🧠 Using learned preferences from {total_votes} votes (last 30 days)[/dim]"
-                )
-
             evaluator = ContentEvaluator(config.llm_light_service)
             start_time = time.time()
             obs_log("cli.priority.start", source="cli", items=total, since_days=since_days)
@@ -484,7 +447,6 @@ def priority(
                         title=item["title"],
                         url=item["url"],
                         context=config.context,
-                        learned_preferences=learned_preferences,
                     )
                 except Exception as e:
                     # Per-item boundary: a failed call keeps the item's old score.
@@ -497,6 +459,8 @@ def priority(
                 new = new_priority or "none"
                 analysis = dict(item.get("analysis") or {})
                 analysis.update(evaluation_fields(evaluation))
+                # Retired by the removal of vote learning: nothing writes it any more.
+                analysis.pop("preference_influenced", None)
                 storage.update_priority(item["id"], new_priority, analysis)
                 obs_log(
                     "cli.priority.item", source="cli", content_id=item["id"], old=old, new=new

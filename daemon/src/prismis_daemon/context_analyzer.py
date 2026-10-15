@@ -1,10 +1,10 @@
 """Context analysis with LLM to suggest topics for user's context.md."""
 
 import logging
-import re
 from typing import Any
 
 from .llm_call import build_messages, call_llm_with_circuit_breaker
+from .context_parser import parse_context
 from .llm_client import extract_json
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,9 @@ class ContextAnalyzer:
 
         try:
             # Parse existing topics from context
-            existing_topics = self._parse_context_sections(context_text)
+            if not context_text:
+                logger.warning("Empty context.md provided")
+            existing_topics = parse_context(context_text).topics()
 
             # Build prompt with flagged items and existing topics
             messages = self._build_prompt(flagged_items, existing_topics)
@@ -79,66 +81,6 @@ class ContextAnalyzer:
             logger.error(f"Context analysis failed: {e}", exc_info=True)
             # Re-raise to stop processing completely per requirements
             raise
-
-    def _parse_context_sections(self, context_text: str) -> dict[str, list[str]]:
-        """Parse context.md to extract existing topics by section.
-
-        Args:
-            context_text: Content of context.md file
-
-        Returns:
-            Dict with keys "high", "medium", "low", each containing list of topics
-        """
-        sections: dict[str, list[str]] = {"high": [], "medium": [], "low": []}
-
-        if not context_text:
-            logger.warning("Empty context.md provided")
-            return sections
-
-        # Split by section headers
-        high_match = re.search(
-            r"## High Priority Topics\s*\n(.*?)(?=\n## |\Z)", context_text, re.DOTALL
-        )
-        medium_match = re.search(
-            r"## Medium Priority Topics\s*\n(.*?)(?=\n## |\Z)", context_text, re.DOTALL
-        )
-        low_match = re.search(
-            r"## Low Priority Topics\s*\n(.*?)(?=\n## |\Z)", context_text, re.DOTALL
-        )
-
-        # Extract bullet points from each section
-        if high_match:
-            sections["high"] = self._extract_topics(high_match.group(1))
-        if medium_match:
-            sections["medium"] = self._extract_topics(medium_match.group(1))
-        if low_match:
-            sections["low"] = self._extract_topics(low_match.group(1))
-
-        logger.debug(
-            f"Parsed context sections: {len(sections['high'])} high, "
-            f"{len(sections['medium'])} medium, {len(sections['low'])} low"
-        )
-
-        return sections
-
-    def _extract_topics(self, section_text: str) -> list[str]:
-        """Extract topic strings from a section's text.
-
-        Args:
-            section_text: Text content of a section
-
-        Returns:
-            List of topic strings
-        """
-        topics = []
-        for line in section_text.split("\n"):
-            line = line.strip()
-            # Match bullet points (- topic text)
-            if line.startswith("- "):
-                topic = line[2:].strip()
-                if topic:
-                    topics.append(topic)
-        return topics
 
     def _build_prompt(
         self, flagged_items: list[dict[str, Any]], existing_topics: dict[str, list[str]]

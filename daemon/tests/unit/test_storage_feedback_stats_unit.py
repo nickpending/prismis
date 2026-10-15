@@ -28,7 +28,6 @@ _EXPECTED_KEYS = {
     "by_source",
     "topics_upvoted",
     "topics_downvoted",
-    "for_llm_context",
     "time_period",
 }
 
@@ -124,10 +123,10 @@ def test_sc17_no_fstring_sql_interpolation_of_since_days() -> None:
 def test_sc18_dict_shape_since_days_30(test_db: Path) -> None:
     """
     INVARIANT: get_feedback_statistics(since_days=30) returns dict with expected keys.
-    BREAKS: Callers (orchestrator, context_auto_updater, API) fail to parse response.
+    BREAKS: Callers (API, :context suggest) fail to parse response.
 
     Seed 1 upvote row with updated_at within 30 days (default CURRENT_TIMESTAMP).
-    Assert returned dict has all 6 expected top-level keys.
+    Assert returned dict has exactly the 5 expected top-level keys (no for_llm_context).
     Assert totals sub-dict has expected shape with upvotes >= 1.
     Assert time_period == "last 30 days".
     """

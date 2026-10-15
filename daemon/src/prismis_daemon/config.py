@@ -1,5 +1,6 @@
 """Configuration loading from TOML and context.md files."""
 
+import logging
 import os
 import tomllib
 from dataclasses import dataclass, field
@@ -7,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from .defaults import DEFAULT_CONTEXT_MD
+
+logger = logging.getLogger(__name__)
 
 # Absent credentials and refused credentials are two different answers that send the
 # operator to two different places. This message covers only the first.
@@ -83,6 +86,17 @@ def load_services(config_path: Path | None = None) -> dict[str, ServiceConfig]:
         raise ValueError(f"Failed to parse config file {path}: {e}") from e
 
 
+def read_context_text(context_file: Path) -> str:
+    """Read context.md. A missing file is the default context; an existing one that
+    cannot be read raises ValueError, never a silent fall back to the default."""
+    if not context_file.exists():
+        return DEFAULT_CONTEXT_MD
+    try:
+        return context_file.read_text()
+    except (OSError, UnicodeDecodeError) as e:
+        raise ValueError(f"Failed to read context file {context_file}: {e}") from e
+
+
 @dataclass
 class Config:
     """Configuration dataclass with validation.
@@ -127,12 +141,6 @@ class Config:
     archival_low_unread: int
     archival_low_read: int
 
-    # Context auto-update settings
-    context_auto_update_enabled: bool
-    context_auto_update_interval_days: int
-    context_auto_update_min_votes: int
-    context_backup_count: int
-
     # Optional fields with defaults must come last
     # Audio settings (uses lspeak for all TTS)
     audio_provider: str = "system"  # system (free, native TTS) or elevenlabs
@@ -162,17 +170,13 @@ class Config:
     # through `load_services`, so a hand-built Config need not carry them.
     services: dict[str, ServiceConfig] = field(default_factory=dict)
 
-    # [context] learn_from_votes: the one switch for everything votes do on their own
-    # -- learned preferences in the evaluator and the context.md auto-updater. A new
-    # key, so every install written before #96 is off: the old template wrote
-    # auto_update_enabled = true for everyone, and votes are credited to the
-    # evaluator's own matched_interests, which taught "dislikes" of declared topics.
+    # [context] learn_from_votes: the switch for carve-out proposals from downvotes.
+    # Off, the default, votes are recorded and nothing else happens.
     learn_from_votes: bool = False
 
-    @property
-    def context_auto_update_active(self) -> bool:
-        """Whether the auto-updater may rewrite context.md: both switches on."""
-        return self.learn_from_votes and self.context_auto_update_enabled
+    # Where context.md lives, set by `from_file`. The orchestrator re-reads it at the
+    # start of every cycle; None (a hand-built Config) means `context` is final.
+    context_path: Path | None = None
 
     @property
     def has_reddit_credentials(self) -> bool:
@@ -271,20 +275,6 @@ class Config:
                     f"{field_name} must be positive (or None to disable), got {window}"
                 )
 
-        # Validate context auto-update settings
-        if not 1 <= self.context_auto_update_interval_days <= 365:
-            raise ValueError(
-                f"context_auto_update_interval_days must be between 1 and 365, got {self.context_auto_update_interval_days}"
-            )
-        if not 1 <= self.context_auto_update_min_votes <= 1000:
-            raise ValueError(
-                f"context_auto_update_min_votes must be between 1 and 1000, got {self.context_auto_update_min_votes}"
-            )
-        if not 1 <= self.context_backup_count <= 100:
-            raise ValueError(
-                f"context_backup_count must be between 1 and 100, got {self.context_backup_count}"
-            )
-
     @classmethod
     def from_file(cls, config_path: Path | None = None) -> "Config":
         """Load configuration from TOML file.
@@ -325,19 +315,25 @@ class Config:
         archival = config_dict.get("archival", {})
         context_config = config_dict.get("context", {})
 
-        # Load context markdown
         context_file = config_path.parent / "context.md"
-        if context_file.exists():
-            # An existing context.md that cannot be read is an error, not a reason to
-            # evaluate against the default context. A missing file is the default.
-            try:
-                context_content = context_file.read_text()
-            except (OSError, UnicodeDecodeError) as e:
-                raise ValueError(
-                    f"Failed to read context file {context_file}: {e}"
-                ) from e
-        else:
-            context_content = DEFAULT_CONTEXT_MD
+        context_content = read_context_text(context_file)
+
+        retired = sorted(
+            key
+            for key in (
+                "auto_update_enabled",
+                "auto_update_interval_days",
+                "auto_update_min_votes",
+                "backup_count",
+            )
+            if key in context_config
+        )
+        if retired:
+            logger.warning(
+                "config.toml [context] keys %s are ignored: the context.md auto-updater "
+                "was removed. Delete them.",
+                ", ".join(retired),
+            )
 
         # Helper function to expand environment variables
         def expand_env_var(value: str) -> str:
@@ -398,17 +394,8 @@ class Config:
                 archival_medium_read=archival["windows"]["medium_read"],
                 archival_low_unread=archival["windows"]["low_unread"],
                 archival_low_read=archival["windows"]["low_read"],
-                context_auto_update_enabled=context_config.get(
-                    "auto_update_enabled", False
-                ),
-                context_auto_update_interval_days=context_config.get(
-                    "auto_update_interval_days", 30
-                ),
-                context_auto_update_min_votes=context_config.get(
-                    "auto_update_min_votes", 5
-                ),
-                context_backup_count=context_config.get("backup_count", 10),
                 learn_from_votes=context_config.get("learn_from_votes", False),
+                context_path=context_file,
             )
         except KeyError as e:
             raise ValueError(f"Missing required config field: {e}") from e

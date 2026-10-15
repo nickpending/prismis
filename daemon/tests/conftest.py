@@ -668,7 +668,22 @@ def llm_recorder(
 
 
 @pytest.fixture
-def local_pipeline_stub(llm_recorder: LlmRecorder | None) -> Iterator[str]:
+def stub_requests() -> list[dict[str, Any]]:
+    """The chat-completion request bodies `local_pipeline_stub` receives, in arrival
+    order. A test that must show what reached the provider asks for this fixture next to
+    the stub; both resolve to the one list."""
+    return []
+
+
+def message_text(request: dict[str, Any], role: str) -> str:
+    """The text of the first `role` message in one stub request."""
+    return next(m["content"] for m in request["messages"] if m["role"] == role)
+
+
+@pytest.fixture
+def local_pipeline_stub(
+    llm_recorder: LlmRecorder | None, stub_requests: list[dict[str, Any]]
+) -> Iterator[str]:
     """A local HTTP server standing in for both third parties the chain touches.
 
     Yields the base URL. Serves `/feed.xml` (link 1), an OpenAI-shaped
@@ -754,6 +769,7 @@ def local_pipeline_stub(llm_recorder: LlmRecorder | None) -> Iterator[str]:
                 return
             length = int(self.headers.get("Content-Length", "0"))
             raw_body = self.rfile.read(length)
+            stub_requests.append(_json.loads(raw_body))
             delay = _REQUEST_DELAY_PATTERN.search(
                 raw_body.decode("utf-8", errors="ignore")
             )

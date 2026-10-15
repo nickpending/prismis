@@ -19,7 +19,7 @@ from cli.context import (
     CONTEXT_EXAMPLE_END,
     OUTPUT_SPEC_MARKER,
 )
-from prismis_daemon.context_auto_updater import REQUIRED_CONTEXT_SECTIONS
+from prismis_daemon.context_parser import REQUIRED_CONTEXT_SECTIONS
 
 CLI_SRC = Path(__file__).resolve().parents[2] / "src"
 

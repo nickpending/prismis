@@ -60,10 +60,6 @@ low_unread = 7
 low_read = 30
 
 [context]
-auto_update_enabled = false
-auto_update_interval_days = 7
-auto_update_min_votes = 5
-backup_count = 3
 """
 
 

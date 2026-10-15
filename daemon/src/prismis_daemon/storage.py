@@ -981,7 +981,6 @@ class Storage:
         "metrics",
         "metadata",
         "matched_interests",
-        "preference_influenced",
     )
 
     # Rows pulled off the list cursor per fetch: few round trips, yet a full view of
@@ -2491,7 +2490,6 @@ class Storage:
     def get_feedback_statistics(self, since_days: int | None = None) -> dict[str, Any]:
         """Get user feedback statistics aggregated by source and topic.
 
-        Provides aggregated feedback data for preference learning (003).
         Includes per-source vote counts, ratios, and extracted topics.
 
         Args:
@@ -2503,7 +2501,7 @@ class Storage:
             - by_source: Per-source breakdown with ratios
             - topics_upvoted: Topics from upvoted content (from analysis.matched_interests)
             - topics_downvoted: Topics from downvoted content
-            - for_llm_context: Pre-formatted summary for prompt injection
+            - time_period: The window the counts cover
 
         Raises:
             sqlite3.Error: If database operation fails
@@ -2621,35 +2619,6 @@ class Storage:
                 topics_downvoted.items(), key=lambda x: x[1], reverse=True
             )
 
-            # Build LLM context summary (for 003)
-            llm_context_parts = []
-            if sorted_upvoted:
-                top_liked = [t[0] for t in sorted_upvoted[:5]]
-                llm_context_parts.append(f"User prefers: {', '.join(top_liked)}")
-            if sorted_downvoted:
-                top_disliked = [t[0] for t in sorted_downvoted[:5]]
-                llm_context_parts.append(f"User dislikes: {', '.join(top_disliked)}")
-
-            # Add source preferences
-            trusted_sources = [
-                s["source_name"]
-                for s in by_source
-                if s["upvote_ratio"] >= 0.7 and s["total"] >= 2
-            ]
-            untrusted_sources = [
-                s["source_name"]
-                for s in by_source
-                if s["upvote_ratio"] <= 0.3 and s["total"] >= 2
-            ]
-            if trusted_sources:
-                llm_context_parts.append(
-                    f"Trusted sources: {', '.join(trusted_sources[:3])}"
-                )
-            if untrusted_sources:
-                llm_context_parts.append(
-                    f"Less trusted sources: {', '.join(untrusted_sources[:3])}"
-                )
-
             return {
                 "totals": {
                     "upvotes": totals_row[0] or 0,
@@ -2663,9 +2632,6 @@ class Storage:
                 "topics_downvoted": [
                     {"topic": t[0], "count": t[1]} for t in sorted_downvoted
                 ],
-                "for_llm_context": " | ".join(llm_context_parts)
-                if llm_context_parts
-                else None,
                 "time_period": f"last {since_days} days" if since_days else "all time",
             }
 

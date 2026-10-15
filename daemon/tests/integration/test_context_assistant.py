@@ -21,6 +21,7 @@ from prismis_daemon.circuit_breaker import (
 )
 from prismis_daemon.config import Config
 from prismis_daemon.context_analyzer import ContextAnalyzer
+from prismis_daemon.context_parser import parse_context
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage
 from conftest import TEST_API_KEY, add_new_content
@@ -426,9 +427,6 @@ def test_FAILURE_malformed_context_md_graceful(
     FAILURE: Malformed context.md with problematic patterns
     GRACEFUL: Must not crash, should proceed with empty existing_topics
     """
-    # Create analyzer with llm-core service name (new API)
-    analyzer = ContextAnalyzer(full_config.llm_light_service)
-
     # Test various malformed context.md contents
     malformed_contexts = [
         "",  # Empty
@@ -440,7 +438,7 @@ def test_FAILURE_malformed_context_md_graceful(
 
     for malformed in malformed_contexts:
         # Should not crash, should parse as empty topics
-        existing_topics = analyzer._parse_context_sections(malformed)
+        existing_topics = parse_context(malformed).topics()
 
         # Verify returns empty dict, not crash
         assert isinstance(existing_topics, dict)

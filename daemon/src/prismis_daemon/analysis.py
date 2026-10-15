@@ -3,19 +3,9 @@
 dedup-triage.md's cluster 13: cli/analyze.py's `repair` command and
 orchestrator.py's `fetch_source_content` each hand-built the same seven
 summary_result fields plus two evaluation fields into an analysis dict, and
-had drifted apart -- repair's dict omitted `preference_influenced` and never
-passed learned preferences into the evaluator at all. This module is the one
-home for that dict; the merge-with-existing-analysis step (which differs in
-width between the two callers) stays with each caller, not here.
-
-Fixing the second drift (repair now passes learned preferences to the
-evaluator, matching orchestrator.run_once) means both callers now also need
-the same "at least min_votes recent votes" gate on
-Storage.get_feedback_statistics -- get_learned_preferences below is that one
-mechanical fetch, so this fix does not itself become a new clone between
-orchestrator.py and analyze.py. Each caller keeps its own logging/error
-handling around the call, which is why it returns total_votes too rather than
-printing anything itself.
+had drifted apart. This module is the one home for that dict; the
+merge-with-existing-analysis step (which differs in width between the two
+callers) stays with each caller, not here.
 """
 
 from typing import Any
@@ -26,35 +16,7 @@ from .readability import (
     is_discussion_basis,
     readability_failure,
 )
-from .storage import Storage
 from .summarizer import ContentSummary
-
-
-def get_learned_preferences(
-    storage: Storage, *, enabled: bool, since_days: int = 30, min_votes: int = 5
-) -> tuple[str | None, int]:
-    """Fetch the learned-preferences context string for LLM evaluation.
-
-    Args:
-        storage: Storage instance to read feedback statistics from
-        enabled: The caller's config.learn_from_votes; keyword-only with no
-            default so no caller can reach the votes without naming the switch
-        since_days: Lookback window for feedback statistics
-        min_votes: Minimum total votes in the window before preferences apply
-
-    Returns:
-        (learned_preferences, total_votes) -- learned_preferences is
-        storage.get_feedback_statistics(since_days)'s for_llm_context field,
-        or None when learning is off or fewer than min_votes votes exist in the
-        window; total_votes is 0 when learning is off (no query is made).
-    """
-    if not enabled:
-        return None, 0
-    feedback_stats = storage.get_feedback_statistics(since_days=since_days)
-    total_votes = feedback_stats.get("totals", {}).get("total_votes", 0)
-    if total_votes < min_votes:
-        return None, total_votes
-    return feedback_stats.get("for_llm_context"), total_votes
 
 
 def content_basis(content: str | None) -> str | None:
@@ -97,7 +59,6 @@ def evaluation_fields(evaluation: ContentEvaluation) -> dict[str, Any]:
     return {
         "matched_interests": evaluation.matched_interests,
         "priority_reasoning": evaluation.reasoning,
-        "preference_influenced": evaluation.preference_influenced,
     }
 
 
@@ -120,9 +81,7 @@ def build_llm_analysis(
 
     Returns:
         The analysis dict both the daemon pipeline and `analyze repair` store.
-        Always includes `preference_influenced` from `evaluation` -- the
-        daemon pipeline always did; `analyze repair` previously did not,
-        which this consolidation fixes (SC-10). Always includes `title_only`,
+        Always includes `title_only`,
         true when `title_only_reason` yields a reason (gh #80), and
         `title_only_reason` (None when readable and substantive). Records
         `content_basis` = "discussion" when the readable text is the discussion

@@ -1,23 +1,29 @@
-"""#96: votes act on their own only when [context] learn_from_votes is on.
+"""#96: votes never reach scoring as learned preferences, and nothing rewrites context.md.
 
-Learned preferences credit each vote to the evaluator's own matched_interests, so one
-downvote on a post scored High taught "User dislikes: <the High topics it matched>"
-and cerebro's unprioritized share went from ~55% to ~81%. Until voting is redesigned,
-neither the evaluator nor the context.md auto-updater acts on votes unless the user
-turns learn_from_votes on -- including installs whose config.toml the old template
-wrote with auto_update_enabled = true.
+Learned preferences credited each vote to the evaluator's own matched_interests, so one
+downvote on a post scored High taught "User dislikes: <the High topics it matched>" and
+cerebro's unprioritized share went from ~55% to ~81%. The learned-preferences block and
+the context.md auto-updater are gone; learn_from_votes is now the switch for carve-out
+proposals, which are not built yet, so turning it on changes nothing the daemon sends.
 """
 
 import dataclasses
+import importlib.util
+import inspect
+import logging
 import os
+from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 from rich.console import Console
 
+from prismis_daemon import analysis, evaluator as evaluator_module
 from prismis_daemon.__main__ import build_scheduler
+from prismis_daemon.api import app, get_storage
 from prismis_daemon.config import Config
-from prismis_daemon.context_auto_updater import ContextAutoUpdater
 from prismis_daemon.defaults import DEFAULT_CONFIG_TOML
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.models import ContentItem
@@ -27,7 +33,12 @@ from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
 from prismis_daemon.verify_chain import build_orchestrator
 
-from conftest import TEST_API_KEY, add_new_content, configure_local_services
+from conftest import (
+    TEST_API_KEY,
+    add_new_content,
+    configure_local_services,
+    message_text,
+)
 
 _HIGH_TOPICS = [
     "LLM-driven security tools",
@@ -40,6 +51,10 @@ _READABLE = (
     "long-term outcomes across a decade of patient records, finding a pattern "
     "that held even after controlling for age, income, and health history."
 )
+
+# What the retired block put into an evaluator's system prompt, and the strings its
+# for_llm_context summary was built from.
+_LEARNED_MARKERS = ("LEARNED USER PREFERENCES", "User dislikes", "User prefers")
 
 
 class _NoItems:
@@ -75,22 +90,26 @@ def _seed_cerebro_votes(storage: Storage) -> None:
         storage.update_content_status(content_id, user_feedback=vote)
 
 
+def _system_prompts(requests: list[dict[str, Any]]) -> list[str]:
+    return [message_text(request, "system") for request in requests]
+
+
 @pytest.mark.parametrize(
     "learn_from_votes", [True, False], ids=["learning-on", "learning-off-by-default"]
 )
-def test_the_daemon_cycle_scores_without_votes_unless_learning_is_on(
+def test_run_once_sends_no_learned_preferences_whatever_the_switch(
     test_db: Path,
     isolated_xdg_env: Path,
     local_pipeline_stub: str,
+    stub_requests: list[dict[str, Any]],
     learn_from_votes: bool,
 ) -> None:
     """
-    INVARIANT: with the shipped template, run_once evaluates new items with no learned
-               preferences, whatever the votes; with learn_from_votes on, they reach
-               the evaluator
-    BREAKS: run_once fetching learned preferences regardless of the switch stores
-            preference_influenced True on the learning-off row, which is how one
-            downvote reached every evaluation on cerebro
+    INVARIANT: run_once evaluates a new item with no learned-preferences block in any
+               system prompt and stores no preference_influenced key, with cerebro's
+               votes in the database and learn_from_votes on or off
+    BREAKS: the learning-on row sends "User dislikes: <High topics>" to the evaluator,
+            which is how one downvote reached every evaluation on cerebro
     """
     configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), local_pipeline_stub)
     config = Config.from_file()
@@ -124,43 +143,139 @@ def test_the_daemon_cycle_scores_without_votes_unless_learning_is_on(
     stats = orchestrator.run_once()
 
     assert stats["total_new"] == 1, stats["errors"]
+    systems = _system_prompts(stub_requests)
+    assert any("evaluates articles" in s for s in systems), "the evaluator was reached"
+    for system in systems:
+        for marker in _LEARNED_MARKERS:
+            assert marker not in system
     row = storage.conn.execute(
         "SELECT id FROM content WHERE external_id = 'new-item'"
     ).fetchone()
     stored = storage.get_content_by_id(row["id"])
     assert stored is not None
-    assert stored["analysis"]["preference_influenced"] is learn_from_votes
+    assert "preference_influenced" not in stored["analysis"]
 
 
-def test_a_config_written_before_96_does_not_rewrite_context_from_votes(
-    test_db: Path, isolated_xdg_env: Path
+def test_the_learned_preferences_machinery_no_longer_exists() -> None:
+    """An import or call of any piece of it fails."""
+    assert not hasattr(analysis, "get_learned_preferences")
+    assert (
+        "learned_preferences"
+        not in inspect.signature(ContentEvaluator.evaluate_content).parameters
+    )
+    assert (
+        "learned_preferences"
+        not in inspect.signature(ContentEvaluator._build_evaluation_prompt).parameters
+    )
+    assert "preference_influenced" not in {
+        f.name for f in dataclasses.fields(evaluator_module.ContentEvaluation)
+    }
+    with pytest.raises(AttributeError):
+        getattr(analysis, "get_learned_preferences")  # noqa: B009
+
+
+def test_feedback_statistics_endpoint_keeps_its_counts_and_drops_the_prompt_summary(
+    test_db: Path,
 ) -> None:
     """
-    INVARIANT: a config.toml from the old template (auto_update_enabled = true, no
-               learn_from_votes key) neither schedules nor runs the context.md
-               auto-updater, with enough votes to qualify
-    BREAKS: honouring auto_update_enabled alone leaves every existing install --
-            cerebro included -- rewriting context.md from the same per-topic counts
-            that taught the dislike
+    INVARIANT: GET /api/feedback/statistics still returns totals, by_source,
+               topics_upvoted, topics_downvoted and time_period with the values the
+               votes give, and no for_llm_context key
+    BREAKS: removing the summary by dropping the whole statistics query would take
+            :context suggest's inputs with it
     """
-    template = DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY)
-    assert template.count("learn_from_votes = false\n") == 1, "template switch moved"
-    assert template.count("auto_update_enabled = false\n") == 1, "template switch moved"
-    pre_96 = template.replace("learn_from_votes = false\n", "").replace(
-        "auto_update_enabled = false\n", "auto_update_enabled = true\n"
-    )
-    config_path = Path(os.environ["XDG_CONFIG_HOME"]) / "prismis" / "config.toml"
-    config_path.write_text(pre_96)
-    config = Config.from_file()
     storage = Storage(test_db)
     _seed_cerebro_votes(storage)
 
-    should, reason = ContextAutoUpdater(config, storage).should_update()
-    scheduler, _ = build_scheduler(
-        config, build_orchestrator(config, storage, Console(quiet=True)), storage
-    )
+    def override_get_storage() -> Generator[Storage]:
+        yield storage
 
-    assert should is False, reason
-    assert "learn_from_votes" in reason, reason
-    assert scheduler.get_job("context_auto_update") is None
-    assert scheduler.get_job("fetch_and_analyze") is not None, "the scheduler was built"
+    app.dependency_overrides[get_storage] = override_get_storage
+    try:
+        response = TestClient(app).get(
+            "/api/feedback/statistics?since_days=30",
+            headers={"X-API-Key": TEST_API_KEY},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert set(data) == {
+        "totals",
+        "by_source",
+        "topics_upvoted",
+        "topics_downvoted",
+        "time_period",
+    }
+    assert data["totals"] == {"upvotes": 5, "downvotes": 1, "total_votes": 6}
+    assert data["time_period"] == "last 30 days"
+    assert data["topics_upvoted"] == [{"topic": t, "count": 5} for t in _HIGH_TOPICS]
+    assert data["topics_downvoted"] == [{"topic": t, "count": 1} for t in _HIGH_TOPICS]
+    assert data["by_source"][0]["source_name"] == "Votes"
+    assert data["by_source"][0]["upvotes"] == 5
+    assert data["by_source"][0]["downvotes"] == 1
+
+
+def test_a_config_written_before_this_change_loads_and_nothing_rewrites_context(
+    test_db: Path,
+    isolated_xdg_env: Path,
+    local_pipeline_stub: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """
+    INVARIANT: a config.toml with the auto-update keys and learn_from_votes = true loads,
+               registers no context-update job, and no context.md rewrite or backup
+               happens with enough votes to have qualified the old auto-updater
+    BREAKS: honouring the old keys would rewrite context.md from the per-topic counts
+            that taught the dislike; refusing them would stop every existing install
+            from starting
+    """
+    template = DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY)
+    assert template.count("learn_from_votes = false\n") == 1, "template switch moved"
+    assert "auto_update" not in template and "backup_count" not in template
+    config_path = isolated_xdg_env / "config.toml"
+    config_path.write_text(
+        template.replace(
+            "learn_from_votes = false\n",
+            "learn_from_votes = true\nauto_update_enabled = true\n"
+            "auto_update_interval_days = 7\nauto_update_min_votes = 5\n"
+            "backup_count = 3\n",
+        )
+    )
+    configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), local_pipeline_stub)
+    context_path = isolated_xdg_env / "context.md"
+    before = context_path.read_text()
+
+    with caplog.at_level(logging.WARNING, logger="prismis_daemon.config"):
+        config = Config.from_file()
+    storage = Storage(test_db)
+    _seed_cerebro_votes(storage)
+    orchestrator = build_orchestrator(config, storage, Console(quiet=True))
+    scheduler, _ = build_scheduler(config, orchestrator, storage)
+    orchestrator.run_once()
+
+    assert config.learn_from_votes is True
+    assert any("auto_update_enabled" in r.message for r in caplog.records)
+    job_ids = {job.id for job in scheduler.get_jobs()}
+    assert "fetch_and_analyze" in job_ids, "the scheduler was built"
+    assert not [j for j in job_ids if "context" in j], job_ids
+    assert importlib.util.find_spec("prismis_daemon.context_auto_updater") is None
+    assert context_path.read_text() == before
+    assert not (isolated_xdg_env / "context_backups").exists()
+    assert not (isolated_xdg_env / ".context_last_update").exists()
+
+
+def test_the_shipped_template_carries_learn_from_votes_and_no_auto_update_keys() -> (
+    None
+):
+    template = DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY)
+
+    assert template.count("learn_from_votes = false\n") == 1
+    for retired in (
+        "auto_update_enabled",
+        "auto_update_interval_days",
+        "auto_update_min_votes",
+        "backup_count",
+    ):
+        assert retired not in template

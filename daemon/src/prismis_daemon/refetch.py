@@ -36,7 +36,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .analysis import get_learned_preferences, title_only_reason
+from .analysis import title_only_reason
 from .article_extractor import extract_article
 from .hackernews import find_story_id, is_item_link
 from .models import ContentItem
@@ -240,7 +240,6 @@ def _reextract_item(
 def _refetch_one(
     orchestrator: DaemonOrchestrator,
     row: dict[str, Any],
-    learned_preferences: str | None,
 ) -> RefetchOutcome:
     """Re-extract, and where it recovers re-analyse, one selected row.
 
@@ -255,9 +254,7 @@ def _refetch_one(
 
         if is_readable(item.content):
             source = {"type": row["source_type"], "name": row.get("source_name") or ""}
-            result = orchestrator.analyze_and_store_item(
-                item, source, learned_preferences
-            )
+            result = orchestrator.analyze_and_store_item(item, source)
             if result is None:
                 return RefetchOutcome(
                     external_id, title, "failed", "summarization returned nothing"
@@ -331,30 +328,12 @@ def run_refetch(
             estimated_cost=per_item_cost * len(rows),
         )
 
-    # Sourced once per run, exactly like run_once (orchestrator.py's own
-    # cycle), and threaded into every item's analyze_and_store_item call --
-    # the same path fetch_source_content takes it through. Not critical:
-    # a lookup failure falls back to None rather than failing the run.
-    learned_preferences = None
-    try:
-        learned_preferences, total_votes = get_learned_preferences(
-            orchestrator.storage, enabled=orchestrator.config.learn_from_votes
-        )
-        if learned_preferences:
-            obs_log(
-                "refetch.learned_preferences",
-                source_type=source_type,
-                total_votes=total_votes,
-            )
-    except Exception as e:
-        logger.warning(f"Failed to fetch feedback statistics: {e}", exc_info=True)
-
     run_id = str(uuid.uuid4())
     set_run_id(run_id)
     try:
         outcomes = []
         for row in rows:
-            outcome = _refetch_one(orchestrator, row, learned_preferences)
+            outcome = _refetch_one(orchestrator, row)
             outcomes.append(outcome)
             obs_log(
                 "refetch.item",

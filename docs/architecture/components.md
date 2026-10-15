@@ -16,7 +16,7 @@ Registry of all system components. Each entry links to a detail doc when the com
 ## Daemon
 
 **Purpose:** Python daemon that fetches content from multiple sources, summarizes and evaluates it via LLM, stores results in SQLite, and serves a REST API.
-**Key files:** `daemon/src/prismis_daemon/` — orchestrator.py (`analyze_and_store_item(item, source, learned_preferences)` is the one per-item summarize/evaluate/kind/deep-extract-gate/store/embed path, shared by the fetch loop and refetch.py; fetch loop + deep-extract gate + optional kind-classify step after the light pass), summarizer.py, evaluator.py, deep_extractor.py, storage.py, api.py (`/audio` now mounted unconditionally with `StaticFiles(..., check_dir=False)` — the route table no longer depends on the audio dir existing at import time), config.py (incl. `deep_extract_exclude` field and `llm_kind_service`), defaults.py (config template defaults, incl. `deep_extract_exclude = ["reddit"]`), __main__.py (`refetch --type youtube|rss|reddit [--limit N] [--dry-run]` command delegating to refetch.py, exit 1 if any item failed on a real run; `_load_ambient_env()` loads `~/.config/prismis/.env` explicitly from the Typer callback instead of at module import; the background API-server task from `asyncio.create_task()` is now held in `api_task` and awaited — bounded 0.5s — on shutdown, since an unreferenced task is only weakly held by the event loop and can be GC'd mid-flight)
+**Key files:** `daemon/src/prismis_daemon/` — orchestrator.py (`analyze_and_store_item(item, source)` is the one per-item summarize/evaluate/kind/deep-extract-gate/store/embed path, shared by the fetch loop and refetch.py; fetch loop + deep-extract gate + optional kind-classify step after the light pass), summarizer.py, evaluator.py, deep_extractor.py, storage.py, api.py (`/audio` now mounted unconditionally with `StaticFiles(..., check_dir=False)` — the route table no longer depends on the audio dir existing at import time), config.py (incl. `deep_extract_exclude` field and `llm_kind_service`), defaults.py (config template defaults, incl. `deep_extract_exclude = ["reddit"]`), __main__.py (`refetch --type youtube|rss|reddit [--limit N] [--dry-run]` command delegating to refetch.py, exit 1 if any item failed on a real run; `_load_ambient_env()` loads `~/.config/prismis/.env` explicitly from the Typer callback instead of at module import; the background API-server task from `asyncio.create_task()` is now held in `api_task` and awaited — bounded 0.5s — on shutdown, since an unreferenced task is only weakly held by the event loop and can be GC'd mid-flight)
 **Connections:** Depends on the openai Python SDK directly for all LLM calls, via the daemon's own `llm_client.py` (see boundaries.md). LLM provider keys come from environment variables. TUI and CLI connect via REST API (api.py) and shared SQLite DB.
 **Detail:** [components/daemon.md](components/daemon.md)
 
@@ -31,7 +31,7 @@ Registry of all system components. Each entry links to a detail doc when the com
 ## Summarizer
 
 **Purpose:** LLM-powered content summarization producing structured summaries with insights and patterns.
-**Key files:** `daemon/src/prismis_daemon/summarizer.py`, `llm_call.py` (shared `call_llm_with_circuit_breaker`/`build_messages`), `analysis.py` (`build_llm_analysis`, `get_learned_preferences`)
+**Key files:** `daemon/src/prismis_daemon/summarizer.py`, `llm_call.py` (shared `call_llm_with_circuit_breaker`/`build_messages`), `analysis.py` (`build_llm_analysis`)
 **Connections:** Receives service_name from __main__.py. Calls llm_client.complete() through `llm_call.call_llm_with_circuit_breaker`, the one home for the breaker check, cost extraction and obs logging that Summarizer, Evaluator and Context System share (Context System previously skipped the breaker check). No longer generates or stores `analysis.entities` tags (drop-entity-tags); the summary prompt names each section once (`## Takeaways` is last, appears exactly once, #88). `analysis.build_llm_analysis` is the single analysis-dict builder for the orchestrator and `prismis-cli analyze repair`, and stamps `title_only` from `readability.is_readable`. Uses circuit_breaker for quota protection. Logs via observability.
 
 ## Evaluator
@@ -48,9 +48,9 @@ Registry of all system components. Each entry links to a detail doc when the com
 
 ## Context System
 
-**Purpose:** User interest profile (context.md) and LLM-driven auto-update from feedback patterns.
-**Key files:** `daemon/src/prismis_daemon/context_analyzer.py`, `context_auto_updater.py`
-**Connections:** context_analyzer suggests new topics from flagged items; its LLM call now goes through `llm_call.call_llm_with_circuit_breaker`, so it refuses calls while its service circuit is open. context_auto_updater runs on daily schedule via APScheduler.
+**Purpose:** User interest profile (context.md): suggested topics from upvoted items, one shared parser, and a per-cycle re-read so scoring follows the file on disk.
+**Key files:** `daemon/src/prismis_daemon/context_analyzer.py`, `context_parser.py`
+**Connections:** context_analyzer suggests new topics from flagged items; its LLM call now goes through `llm_call.call_llm_with_circuit_breaker`, so it refuses calls while its service circuit is open. context_parser.py holds the one walk over context.md (`parse_context`), `check_context_md` and the section constants; `verify`, `check_context_md` and the analyzer all read the file through it. `DaemonOrchestrator.refresh_context` re-reads context.md at the start of each `run_once` cycle and keeps the last text read when the read fails. Nothing in the daemon writes context.md after first-run setup.
 
 ## LLM Client
 
@@ -129,7 +129,7 @@ Registry of all system components. Each entry links to a detail doc when the com
 
 **Purpose:** JSONL event-tracking logger for daemon operations.
 **Key files:** `daemon/src/prismis_daemon/observability.py` (`ObservabilityLogger` class + module-level `get_logger()` / `log(event, **metadata)` helpers; uses `fcntl` for append-safe writes; base dir now resolves under `XDG_DATA_HOME` — was hardcoded to `Path.home()/.local/share`, the one module in the daemon that didn't follow `database.py`'s pattern, until wo-verify-chain fixed it; `set_run_id(str | None)` / `get_run_id()` hold a process-scoped global that `log()` stamps onto every event as `run_id` while set — additive to the event shape, absent entirely (not even `null`) when unset, so the long-running daemon process, which never calls `set_run_id`, is byte-for-byte unaffected; `reset_logger()` discards the cached global logger so a test that re-points `XDG_DATA_HOME` gets a re-resolved base dir)
-**Connections:** Cross-cutting — used by `__main__.py`, api.py, orchestrator.py, storage.py, summarizer.py, evaluator.py, deep_extractor.py, circuit_breaker.py, context_analyzer.py, context_auto_updater.py, embeddings.py, notifier.py. `verify_chain.py` is the first (and, per the 2026-05-18 audit in decisions.md, still the only) reader of the JSONL it writes. The "Logs via observability" connections noted on Summarizer/Evaluator/etc. resolve here.
+**Connections:** Cross-cutting — used by `__main__.py`, api.py, orchestrator.py, storage.py, summarizer.py, evaluator.py, deep_extractor.py, circuit_breaker.py, context_analyzer.py, context_parser.py, embeddings.py, notifier.py. `verify_chain.py` is the first (and, per the 2026-05-18 audit in decisions.md, still the only) reader of the JSONL it writes. The "Logs via observability" connections noted on Summarizer/Evaluator/etc. resolve here.
 
 ## Source Validator
 

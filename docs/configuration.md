@@ -16,12 +16,15 @@ Medium and Low priority topic sections. `prismis-cli context bootstrap` prints a
 that produces one. Over time, `:context suggest` in the TUI proposes edits from the items you
 upvoted; you decide what goes in.
 
-Votes do nothing on their own unless `[context] learn_from_votes = true`, and it is off by default.
-Turned on, it feeds learned preferences into scoring and lets `auto_update_enabled` rewrite
-context.md once enough votes accumulate (`auto_update_min_votes`, `auto_update_interval_days`),
-keeping `backup_count` backups. It is off because the current model credits a vote to the topics
-an item matched, so downvoting one post can teach a dislike of a whole topic you asked for; see
-issue #96.
+The daemon reads context.md again at the start of every fetch cycle, so an edit applies to the next
+cycle without a restart. If the file cannot be read, the cycle logs why and scores with the text it
+last read; a missing file is the default context.
+
+A vote never changes how items are scored and never changes context.md. `[context] learn_from_votes`
+is the switch for carve-out proposals: when it is on, the daemon proposes context.md lines from
+your downvotes, and nothing is written until you accept the specific proposal. Carve-outs are not
+built yet, so the switch does nothing today. It is off by default, and votes only accumulate.
+Other keys left under `[context]` from older releases are ignored with a logged note; delete them.
 
 ## LLM services
 

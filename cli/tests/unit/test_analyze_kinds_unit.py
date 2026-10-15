@@ -19,10 +19,10 @@ Protects:
   kind_service is configured (naming kind_service) or when run in remote mode
   (naming local mode the way `analyze repair`'s own `_check_local_mode` does).
 - SC-10: `analyze repair` builds its analysis dict through the same daemon-side
-  helper (build_llm_analysis) the fetch pipeline uses, and now passes learned
-  preferences into the evaluator the same way orchestrator.run_once does --
-  proven by preference_influenced appearing in the stored analysis, True when
-  enough recent feedback exists and False (not absent) when it does not.
+  helper (build_llm_analysis) the fetch pipeline uses.
+- vote-carveouts C3: neither `analyze repair` nor `analyze priority` sends a
+  learned-preferences block to the provider or stores a preference_influenced key,
+  with cerebro's vote pattern in the database and learn_from_votes on or off.
 
 Per constitution Principle I (daemon/tests/unit/test_no_internal_mocks_unit.py),
 submit_decision (kind_classifier's decisions-endpoint boundary) and
@@ -582,94 +582,85 @@ def _repair_llm_side_effect() -> list[MagicMock]:
     ]
 
 
+_LEARNED_MARKERS = ("LEARNED USER PREFERENCES", "User dislikes", "User prefers")
+
+
+def _enable_learn_from_votes() -> None:
+    config_path = Path(os.environ["XDG_CONFIG_HOME"]) / "prismis" / "config.toml"
+    text = config_path.read_text()
+    assert text.count("learn_from_votes = false\n") == 1, "template switch moved"
+    config_path.write_text(
+        text.replace("learn_from_votes = false\n", "learn_from_votes = true\n")
+    )
+
+
+def _seed_cerebro_votes(storage: Storage, source_id: str) -> None:
+    """Five upvotes and one downvote on items whose matched_interests are a High bullet,
+    all recent: enough to have qualified the retired learned-preferences gate."""
+    for i in range(6):
+        voted_id = _seed(
+            storage,
+            source_id,
+            title=f"Voted Item {i}",
+            analysis={"matched_interests": ["a high bullet"]},
+        )
+        storage.update_content_status(
+            voted_id, user_feedback="up" if i < 5 else "down"
+        )
+
+
+def _answer_by_prompt(calls: list[dict[str, Any]]):
+    """A complete() stand-in that records each call and answers the evaluator's prompt
+    with an evaluation and every other prompt with a summary."""
+
+    def _fake(**kwargs: str) -> MagicMock:
+        calls.append(kwargs)
+        is_evaluator = "evaluates articles" in kwargs["system_prompt"]
+        return _fake_complete_result(_EVAL_PAYLOAD if is_evaluator else _SUMMARY_PAYLOAD)
+
+    return _fake
+
+
 @pytest.mark.parametrize(
     "learn_from_votes", [True, False], ids=["learning-on", "learning-off-by-default"]
 )
-def test_repair_includes_preference_influenced_and_passes_learned_preferences_to_evaluator(
+def test_repair_sends_no_learned_preferences_and_stores_no_preference_flag(
     local_env: Path, learn_from_votes: bool
 ) -> None:
     """
-    SC-10: with >=5 recent feedback votes and [context] learn_from_votes on, repair
-    fetches learned preferences and threads them into evaluate_content -- proven by
-    the stored analysis carrying preference_influenced=True, a flag ContentEvaluator
-    only sets when it actually received a non-empty learned_preferences argument
-    (evaluator.py's evaluate_content, not something the fake LLM response itself
-    supplies). With the shipped template (learning off, #96) the same votes reach
-    nothing.
-    BREAKS: repair building its own analysis dict inline (its pre-cluster-13 shape)
-    never threads learned_preferences into evaluate_content, so the learning-on row
-    stores False; repair ignoring the switch stores True on the learning-off row.
+    C3: with cerebro's vote pattern in the database, repair's evaluator prompt carries
+    no learned-preferences block and the stored analysis has no preference_influenced
+    key, with learn_from_votes on or off. Entered through the `repair` command; read
+    from what reached the provider boundary and the stored row.
+    BREAKS: repair fetching learned preferences when the switch is on sends "User
+    dislikes: a high bullet" to the evaluator and stores preference_influenced.
     """
     if learn_from_votes:
-        config_path = Path(os.environ["XDG_CONFIG_HOME"]) / "prismis" / "config.toml"
-        text = config_path.read_text()
-        assert text.count("learn_from_votes = false\n") == 1, "template switch moved"
-        config_path.write_text(
-            text.replace("learn_from_votes = false\n", "learn_from_votes = true\n")
-        )
-
+        _enable_learn_from_votes()
     storage = Storage(local_env)
     source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
-
-    # 5 votes in the last 30 days crosses get_learned_preferences' min_votes.
-    for i in range(5):
-        voted_id = _seed(storage, source_id, title=f"Voted Item {i}")
-        storage.update_content_status(voted_id, user_feedback="up")
-
+    _seed_cerebro_votes(storage, source_id)
     target_id = _seed(
         storage, source_id, title="Needs Repair", summary=None, analysis=None
     )
     storage.close()
+    calls: list[dict[str, Any]] = []
 
     with patch(
-        _PATCH_COMPLETE, side_effect=_repair_llm_side_effect()
+        _PATCH_COMPLETE, side_effect=_answer_by_prompt(calls)
     ):  # claudex-guard: allow-mock
         result = runner.invoke(analyze_app, ["repair", "--force", "--limit", "1"])
 
     assert result.exit_code == 0, result.output
-
+    assert any("evaluates articles" in c["system_prompt"] for c in calls)
+    for call in calls:
+        for marker in _LEARNED_MARKERS:
+            assert marker not in call["system_prompt"]
     reread = Storage(local_env)
     stored = reread.get_content_by_id(target_id)
     reread.close()
-
     assert stored is not None
-    assert stored["analysis"]["preference_influenced"] is learn_from_votes, stored[
-        "analysis"
-    ]
-
-
-def test_repair_still_writes_preference_influenced_false_when_no_learned_preferences(
-    local_env: Path,
-) -> None:
-    """
-    SC-10: with no recent feedback votes, repair's stored analysis still carries
-    the preference_influenced key (as False) -- the fetch pipeline always writes
-    this key, and matching that shape is cluster 13's fix, not swapping one
-    omission (no key) for another (a key present only sometimes).
-    BREAKS: repair reverting to its pre-fix narrower dict drops the key entirely
-    instead of writing it as False.
-    """
-    storage = Storage(local_env)
-    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
-    target_id = _seed(
-        storage, source_id, title="Needs Repair Too", summary=None, analysis=None
-    )
-    storage.close()
-
-    with patch(
-        _PATCH_COMPLETE, side_effect=_repair_llm_side_effect()
-    ):  # claudex-guard: allow-mock
-        result = runner.invoke(analyze_app, ["repair", "--force", "--limit", "1"])
-
-    assert result.exit_code == 0, result.output
-
-    reread = Storage(local_env)
-    stored = reread.get_content_by_id(target_id)
-    reread.close()
-
-    assert stored is not None
-    assert "preference_influenced" in stored["analysis"], stored["analysis"]
-    assert stored["analysis"]["preference_influenced"] is False, stored["analysis"]
+    assert "preference_influenced" not in stored["analysis"], stored["analysis"]
 
 
 # ---------------------------------------------------------------------------
@@ -796,7 +787,7 @@ def test_repair_stores_the_model_verdict_as_the_reason(local_env: Path) -> None:
 
 # ---------------------------------------------------------------------------
 # `analyze priority` (gh #96): re-evaluate stored items against the current context
-# without re-summarizing; learned preferences only with learn_from_votes on.
+# without re-summarizing; no vote reaches the evaluator.
 # ---------------------------------------------------------------------------
 
 _HIGH_EVAL: dict[str, Any] = {
@@ -877,7 +868,7 @@ def test_priority_rescores_only_unarchived_items_in_the_window_and_keeps_the_res
     assert item["priority"] == "high"
     assert item["analysis"]["matched_interests"] == ["fresh topic"]
     assert item["analysis"]["priority_reasoning"] == "matches fresh topic"
-    assert item["analysis"]["preference_influenced"] is False
+    assert "preference_influenced" not in item["analysis"], "the stale key is dropped"
     assert item["analysis"]["reading_summary"] == "keep me"
     assert item["analysis"]["kind"] == "release"
     assert item["summary"] == "A short summary of the item."
@@ -916,35 +907,22 @@ def test_priority_dry_run_counts_and_prices_without_calling_or_writing(
 @pytest.mark.parametrize(
     "learn_from_votes", [True, False], ids=["learning-on", "learning-off-by-default"]
 )
-def test_priority_sends_learned_preferences_only_when_learning_is_on(
+def test_priority_sends_no_learned_preferences_whatever_the_switch(
     local_env: Path, learn_from_votes: bool
 ) -> None:
     """
-    INVARIANT: with the shipped template the re-score's evaluator prompt carries no
-               learned preferences, whatever the votes -- the re-score exists to undo
-               them (gh #96); with learn_from_votes on, they are sent
-    BREAKS: the command fetching learned preferences regardless of the switch
-            re-poisons every item it was run to fix
+    INVARIANT: the re-score's evaluator prompt carries no learned-preferences block and
+               the stored analysis no preference_influenced key, with cerebro's vote
+               pattern in the database and learn_from_votes on or off
+    BREAKS: the command fetching learned preferences when the switch is on re-poisons
+            every item it was run to fix (gh #96)
     """
     if learn_from_votes:
-        config_path = Path(os.environ["XDG_CONFIG_HOME"]) / "prismis" / "config.toml"
-        text = config_path.read_text()
-        assert text.count("learn_from_votes = false\n") == 1, "template switch moved"
-        config_path.write_text(
-            text.replace("learn_from_votes = false\n", "learn_from_votes = true\n")
-        )
+        _enable_learn_from_votes()
     storage = Storage(local_env)
     ids = _rescore_seed(storage)
     source_id = storage.add_source("https://votes.example.com/rss", "rss", "Votes")
-    for i in range(5):
-        voted = _seed(
-            storage,
-            source_id,
-            title=f"Voted {i}",
-            analysis={"matched_interests": ["voted topic"]},
-            fetched_at=datetime.now(UTC) - timedelta(days=40),
-        )
-        storage.update_content_status(voted, user_feedback="down")
+    _seed_cerebro_votes(storage, source_id)
     storage.close()
     calls: list[dict[str, Any]] = []
 
@@ -952,13 +930,15 @@ def test_priority_sends_learned_preferences_only_when_learning_is_on(
         result = runner.invoke(analyze_app, ["priority", "--since-days", "15", "--force"])
 
     assert result.exit_code == 0, result.output
-    assert len(calls) == 1
-    assert ("LEARNED USER PREFERENCES" in calls[0]["system_prompt"]) is learn_from_votes
+    assert len(calls) >= 1
+    for call in calls:
+        for marker in _LEARNED_MARKERS:
+            assert marker not in call["system_prompt"]
     reread = Storage(local_env)
     item = reread.get_content_by_id(ids["in_window"])
     reread.close()
     assert item is not None
-    assert item["analysis"]["preference_influenced"] is learn_from_votes
+    assert "preference_influenced" not in item["analysis"]
 
 
 def test_priority_keeps_an_items_old_score_when_its_evaluation_fails(

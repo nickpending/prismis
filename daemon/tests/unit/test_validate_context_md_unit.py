@@ -1,27 +1,29 @@
-"""The context.md validator and the saved-file check share REQUIRED_CONTEXT_SECTIONS.
+"""check_context_md and the context analyzer read context.md through one walk.
 
 Success criteria covered: SC-3 (check_context_md on a missing section, a fence line and
-the prompt's output shape), SC-4 (the auto-updater validates against the constant).
+the prompt's output shape), C5 of vote-carveouts (one walk in one module; the analyzer's
+topic lists equal what the regex parser it replaced returned, check_context_md's problems
+and counts equal what the earlier line walk returned).
 """
 
 import importlib.util
+import os
+import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from prismis_daemon import context_auto_updater
-from prismis_daemon.context_auto_updater import (
+from prismis_daemon.context_analyzer import ContextAnalyzer
+from prismis_daemon.context_parser import (
+    CONTEXT_COUNTED_SECTIONS,
     REQUIRED_CONTEXT_SECTIONS,
-    ContextAutoUpdater,
     check_context_md,
+    parse_context,
 )
-from prismis_daemon.storage import Storage
+from conftest import LOCAL_LIGHT_SERVICE, configure_local_services
 
-from conftest import make_config
-
-_CONTEXT_PY = (
-    Path(__file__).resolve().parents[3] / "cli" / "src" / "cli" / "context.py"
-)
+_CONTEXT_PY = Path(__file__).resolve().parents[3] / "cli" / "src" / "cli" / "context.py"
 
 _GOOD = """# Context
 
@@ -54,65 +56,11 @@ def _prompt_example_block() -> str:
     return prompt[start : prompt.index(module.CONTEXT_EXAMPLE_END)].strip() + "\n"
 
 
-@pytest.fixture
-def updater(test_db: Path) -> ContextAutoUpdater:
-    return ContextAutoUpdater(make_config(), Storage(test_db))
-
-
 def test_required_sections_are_the_three_the_validator_always_demanded() -> None:
     assert REQUIRED_CONTEXT_SECTIONS == (
         "## High Priority Topics",
         "## Medium Priority Topics",
         "## Low Priority Topics",
-    )
-
-
-def test_validator_accepts_a_well_formed_context(updater: ContextAutoUpdater) -> None:
-    assert updater._validate_context_md(_GOOD) == (True, "Valid")
-
-
-@pytest.mark.parametrize("section", REQUIRED_CONTEXT_SECTIONS)
-def test_validator_names_each_missing_required_section(
-    updater: ContextAutoUpdater, section: str
-) -> None:
-    assert updater._validate_context_md(_GOOD.replace(section, "")) == (
-        False,
-        f"Missing required section: {section}",
-    )
-
-
-def test_validator_still_rejects_short_bulletless_and_fenced_content(
-    updater: ContextAutoUpdater,
-) -> None:
-    headings = "\n".join(REQUIRED_CONTEXT_SECTIONS)
-    assert updater._validate_context_md(headings) == (
-        False,
-        f"Content too short ({len(headings)} chars)",
-    )
-    padded = headings + "\n" + "x" * 100
-    assert updater._validate_context_md(padded) == (False, "No bullet points found")
-    assert updater._validate_context_md(_GOOD + "```\n") == (
-        False,
-        "Contains code blocks (should be pure markdown)",
-    )
-
-
-def test_validator_follows_the_constant(
-    updater: ContextAutoUpdater, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A section dropped from the constant stops being required; one added is enforced."""
-    dropped = REQUIRED_CONTEXT_SECTIONS[1:]
-    monkeypatch.setattr(context_auto_updater, "REQUIRED_CONTEXT_SECTIONS", dropped)
-    assert updater._validate_context_md(_GOOD.replace(REQUIRED_CONTEXT_SECTIONS[0], ""))[0]
-
-    monkeypatch.setattr(
-        context_auto_updater,
-        "REQUIRED_CONTEXT_SECTIONS",
-        (*REQUIRED_CONTEXT_SECTIONS, "## Extra Section"),
-    )
-    assert updater._validate_context_md(_GOOD) == (
-        False,
-        "Missing required section: ## Extra Section",
     )
 
 
@@ -203,3 +151,108 @@ def test_a_new_level_two_heading_ends_the_section() -> None:
     )
 
     assert counts["## High Priority Topics"] == 1
+
+
+# --- C5: one walk, equal to the two parsers it replaced -------------------------------
+
+
+def _regex_topics(context_text: str) -> dict[str, list[str]]:
+    """The analyzer's regex parser as it stood before the shared walk: the reference."""
+    sections: dict[str, list[str]] = {"high": [], "medium": [], "low": []}
+    for key, name in (
+        ("high", "High"),
+        ("medium", "Medium"),
+        ("low", "Low"),
+    ):
+        match = re.search(
+            rf"## {name} Priority Topics\s*\n(.*?)(?=\n## |\Z)",
+            context_text,
+            re.DOTALL,
+        )
+        if match:
+            for line in match.group(1).split("\n"):
+                line = line.strip()
+                if line.startswith("- ") and line[2:].strip():
+                    sections[key].append(line[2:].strip())
+    return sections
+
+
+def _line_walk_check(content: str) -> tuple[list[str], dict[str, int]]:
+    """check_context_md as it stood before the shared walk: the reference."""
+    problems = [
+        f"missing required section: {section}"
+        for section in REQUIRED_CONTEXT_SECTIONS
+        if section not in content
+    ]
+    counts = dict.fromkeys(CONTEXT_COUNTED_SECTIONS, 0)
+    current: str | None = None
+    for number, line in enumerate(content.splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            problems.append(f"code fence on line {number}: {stripped}")
+        elif stripped.startswith("#"):
+            if len(stripped) - len(stripped.lstrip("#")) <= 2:
+                current = stripped if stripped in counts else None
+        elif current is not None and stripped.startswith(("- ", "* ")):
+            counts[current] += 1
+    return problems, counts
+
+
+_DIRECT_BULLET = (
+    "## High Priority Topics\n- directly under the section\n"
+    "### Group\n- under a group\n"
+    "## Medium Priority Topics\n- medium one\n"
+    "## Low Priority Topics\n"
+)
+_FENCED = "```markdown\n" + _GOOD + "```\n"
+_MISSING_LOW = _GOOD.replace("## Low Priority Topics", "")
+_FENCE_INSIDE = (
+    "## High Priority Topics\n- one\n```\n- inside the fence\n```\n"
+    "## Medium Priority Topics\n## Low Priority Topics\n"
+)
+_MIXED_MARKERS = (
+    "## High Priority Topics\n- dash\n* star\n-\n- \n  - indented\n"
+    "## Medium Priority Topics\n## Low Priority Topics\n"
+)
+_TEXTS = {
+    "well-formed": _GOOD,
+    "grouped": _GROUPED,
+    "bullet-directly-under-section": _DIRECT_BULLET,
+    "code-fence": _FENCED,
+    "fence-inside-section": _FENCE_INSIDE,
+    "missing-required-section": _MISSING_LOW,
+    "mixed-markers": _MIXED_MARKERS,
+    "empty": "",
+}
+
+
+@pytest.mark.parametrize("text", _TEXTS.values(), ids=_TEXTS.keys())
+def test_analyzer_topics_equal_what_the_regex_parser_returned(text: str) -> None:
+    assert parse_context(text).topics() == _regex_topics(text)
+
+
+@pytest.mark.parametrize("text", _TEXTS.values(), ids=_TEXTS.keys())
+def test_check_context_md_problems_and_counts_are_unchanged(text: str) -> None:
+    assert check_context_md(text) == _line_walk_check(text)
+
+
+def test_the_analyzer_reads_a_grouped_context_through_the_shared_walk(
+    local_pipeline_stub: str, stub_requests: list[dict[str, Any]]
+) -> None:
+    """Entered through the analyzer's public method, over the local LLM stub: the
+    bullets inside ### groups reach the request the stub received."""
+    configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), local_pipeline_stub)
+
+    ContextAnalyzer(LOCAL_LIGHT_SERVICE).analyze_flagged_items(
+        [{"title": "t", "summary": "s"}], _GROUPED
+    )
+
+    assert len(stub_requests) == 1
+    prompt = " ".join(m["content"] for m in stub_requests[0]["messages"])
+    assert "LLM-driven vulnerability discovery" in prompt
+    assert "Recon automation" in prompt
+
+
+def test_the_old_per_module_parsers_are_gone() -> None:
+    assert not hasattr(ContextAnalyzer, "_parse_context_sections")
+    assert importlib.util.find_spec("prismis_daemon.context_auto_updater") is None

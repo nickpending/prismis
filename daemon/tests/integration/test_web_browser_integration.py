@@ -189,7 +189,7 @@ def seeded_ids(live_web_app: str, test_db: Path) -> dict[str, str]:
     )
     add("h2", "high", read=True, analysis={"kind": "tutorial"})
     add("h3", "high", analysis={"matched_interests": ["a", "b"]})
-    add("m1", "medium", analysis={"preference_influenced": True})
+    add("m1", "medium")
     add("m2", "medium", read=True)
     add("l1", "low")
     add(

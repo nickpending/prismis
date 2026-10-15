@@ -21,7 +21,7 @@ from rich.console import Console
 
 from . import kind_classifier, llm_client
 from .config import Config, default_config_path
-from .context_auto_updater import check_context_md, run_context_update
+from .context_parser import check_context_md
 from .database import init_db
 from .defaults import ensure_config
 from .evaluator import ContentEvaluator
@@ -116,27 +116,6 @@ def build_scheduler(
         replace_existing=True,
         max_instances=1,
     )
-
-    # Add context auto-update job (runs daily, checks internally if update is needed)
-    if config.context_auto_update_active:
-        scheduler.add_job(
-            func=run_context_update_sync,
-            args=(config, storage),
-            trigger=IntervalTrigger(
-                days=1
-            ),  # Check daily, actual update based on config interval
-            id="context_auto_update",
-            name="Auto-update context.md from feedback",
-            replace_existing=True,
-            max_instances=1,
-        )
-        console.print(
-            f"[dim]Context auto-update enabled (every {config.context_auto_update_interval_days} days, min {config.context_auto_update_min_votes} votes)[/dim]"
-        )
-    if not config.learn_from_votes:
-        console.print(
-            "[dim]Learning from votes is off: votes are recorded, not applied (\\[context] learn_from_votes)[/dim]"
-        )
 
     return scheduler, interval_msg
 
@@ -342,17 +321,6 @@ def run_observability_cleanup_sync() -> None:
         console.print(f"[green]Removed {removed} old observability files[/green]\n")
     else:
         console.print("[dim]No old files to remove[/dim]\n")
-
-
-def run_context_update_sync(config: Config, storage: Storage) -> None:
-    """Synchronous wrapper for context auto-update job."""
-    from datetime import datetime
-
-    console.print(
-        f"\n[blue]📝 Checking context auto-update at {datetime.now().strftime('%H:%M:%S')}[/blue]"
-    )
-
-    run_context_update(config, storage)
 
 
 def _load_ambient_env() -> None:

@@ -53,7 +53,7 @@ Architectural decisions and their rationale. Most recent first.
 
 **Context:** Hacker News stubs, Reddit link posts, and YouTube items without transcripts reached the LLM with no real content, so summaries and priorities were guesses that looked like analysis.
 **Choice:** One shape-based `readability.is_readable` check; Reddit link posts fetch the linked article via the shared extractor; unreadable items get `analysis.title_only = true`, skip deep extraction, show a marker in TUI/web, and are re-admitted when a later fetch is readable. Fetchers skip re-extraction for items already stored readably. Related the same period: kind filters apply before limits in search and entries (search-kind-filter), `GET /api/kinds` (web-kind #84), kind-service health check (#82), `analyze kinds` backfill (#83), entity tags dropped from summarizer/storage/UI (drop-entity-tags), and duplicated code consolidated into `llm_call.py`, `analysis.py` and shared storage/TUI helpers (dedup).
-**Why:** Honest labelling beats fabricated analysis; no length floor because short genuine content exists; the shared helpers stop copies drifting (context_analyzer had no breaker check, repair omitted preference_influenced).
+**Why:** Honest labelling beats fabricated analysis; no length floor because short genuine content exists; the shared helpers stop copies drifting (context_analyzer had no breaker check, repair had drifted from the daemon pipeline).
 
 ## [2026-09-28]: Content kind is classified by Jev through OpenRouter's Decisions endpoint, optional and fail-open (content-kind, #77)
 
@@ -111,7 +111,7 @@ Architectural decisions and their rationale. Most recent first.
 
 ## [2026-09-14]: PATCH /api/entries/{id} gates on `model_fields_set`, not `hasattr` (#57)
 
-**Context:** `update_content` decided whether the caller had sent `user_feedback` with `hasattr(request, "user_feedback")`. `user_feedback` is a declared Pydantic field, so it is always present as an attribute on the model instance and `hasattr` is unconditionally `True` — the check could never see "field omitted." Every PATCH that omitted the field therefore passed `None` through, which Storage's `"__NOT_PROVIDED__"` sentinel does not match, so the omitted case took the "caller explicitly sent null" branch and wrote `user_feedback = NULL`. The daemon's own web UI mark-read control sends `{"read": true}` alone (`static/index.html`), so reading an item you had voted on silently erased the vote — the shape 15 up / 0 down across ~35k items actually was, and it starves the feedback-driven context auto-update loop, which requires ≥5 votes in 30 days before the orchestrator injects preferences into the LLM context.
+**Context:** `update_content` decided whether the caller had sent `user_feedback` with `hasattr(request, "user_feedback")`. `user_feedback` is a declared Pydantic field, so it is always present as an attribute on the model instance and `hasattr` is unconditionally `True` — the check could never see "field omitted." Every PATCH that omitted the field therefore passed `None` through, which Storage's `"__NOT_PROVIDED__"` sentinel does not match, so the omitted case took the "caller explicitly sent null" branch and wrote `user_feedback = NULL`. The daemon's own web UI mark-read control sends `{"read": true}` alone (`static/index.html`), so reading an item you had voted on silently erased the vote — the shape 15 up / 0 down across ~35k items actually was, and every vote-driven feature reads those votes.
 **Choice:** Gate on `"user_feedback" in request.model_fields_set` instead — Pydantic populates `model_fields_set` with only the keys the caller actually sent, which is the distinction the code's own comment already claimed to make. Two regression tests added at `daemon/tests/integration/test_api_integration.py`: one PATCHing `{"read": true}` alone after a vote asserts the vote survives; a second PATCHing `{"user_feedback": null}` explicitly asserts the vote still clears, so the fix does not overcorrect into making un-voting impossible.
 **Why:** P16 (root cause, not symptom) — `hasattr` was structurally incapable of the distinction the code needed; `model_fields_set` is Pydantic's own mechanism for exactly this. The fix is a one-line gate change plus a pair of tests proving both directions (omitted preserves, explicit-null clears) rather than only the direction that was broken.
 
@@ -408,6 +408,6 @@ Rationale: empty consumer set closes CONCERN[2] without code change. INV-OBS-1 h
 
 ## Config context fields use .get() with defaults
 
-**Context:** Config.from_file() used bare dict access for [context] section fields. Users with configs predating the context auto-update feature crashed on startup.
+**Context:** Config.from_file() used bare dict access for [context] section fields. Users with configs predating the [context] section crashed on startup.
 **Choice:** Use .get() with sensible defaults for all context config fields.
 **Why:** Backwards compatibility. Config migration shouldn't require updating every existing config file for optional features.

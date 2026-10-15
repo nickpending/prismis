@@ -26,7 +26,6 @@ LIST_KEYS = {
     "metrics",
     "metadata",
     "matched_interests",
-    "preference_influenced",
 }
 
 
@@ -202,7 +201,6 @@ def test_list_view_has_no_content_and_cuts_analysis_to_list_keys(
         "metrics": {"a": 1},
         "metadata": {"k": "v"},
         "matched_interests": ["ai"],
-        "preference_influenced": False,
     }
     assert row["has_deep_extraction"] is True
     # absent keys are omitted, not null-filled

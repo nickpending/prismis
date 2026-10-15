@@ -65,10 +65,6 @@ low_unread = 14
 low_read = 7
 
 [context]
-auto_update_enabled = false
-auto_update_interval_days = 30
-auto_update_min_votes = 5
-backup_count = 10
 """
 
 # Post-migration: [llm] section uses new `light_service =` key

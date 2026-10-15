@@ -21,6 +21,7 @@ import sys
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch  # claudex-guard: allow-mock
 
 import pytest
@@ -435,24 +436,21 @@ def _seed_upvote_with_topic(
 @pytest.mark.parametrize(
     "learn_from_votes", [True, False], ids=["learning-on", "learning-off-by-default"]
 )
-def test_refetch_sources_learned_preferences_like_run_once_does(
+def test_refetch_sends_no_learned_preferences_whatever_the_switch(
     test_db: Path,
     isolated_xdg_env: Path,
     local_pipeline_stub: str,
+    stub_requests: list[dict[str, Any]],
     article_server: _ArticleServer,
     learn_from_votes: bool,
 ) -> None:
     """
-    SC-2 (review finding F-2-1): a recovered item is evaluated with the
-    user's learned preferences, sourced the same way run_once does --
-    analysis.get_learned_preferences(self.storage, enabled=...) -- and only
-    when [context] learn_from_votes is on (#96). Proved by the evaluator's own
-    preference_influenced flag, which ContentEvaluator sets to True only when
-    a truthy learned_preferences string reached evaluate_content, and is
-    stored verbatim by build_llm_analysis.
-    BREAKS: _refetch_one calling analyze_and_store_item with no third
-    argument stores False on the learning-on row; refetch ignoring the
-    switch stores True on the shipped template's learning-off row.
+    SC-2 / vote-carveouts C3: a recovered item is evaluated with no learned-preferences
+    block in any system prompt and stored with no preference_influenced key, with
+    cerebro's vote pattern in the database and learn_from_votes on or off. Entered
+    through run_refetch; read from the requests the stub received and the stored row.
+    BREAKS: refetch fetching learned preferences when the switch is on sends "User
+    dislikes: <the downvoted item's topics>" in the evaluator's system prompt.
     """
     config = _real_config(local_pipeline_stub)
     if learn_from_votes:
@@ -463,12 +461,23 @@ def test_refetch_sources_learned_preferences_like_run_once_does(
     feedback_source_id = storage.add_source(
         "https://feeds.example.com/feedback-source", "rss", "Feedback Source"
     )
-    # With learning on, get_learned_preferences requires >= 5 votes in the last 30 days
-    # (analysis.py's own min_votes default) before it returns anything.
+    # cerebro's pattern: five upvotes and one downvote on items matching a High bullet.
     for i in range(5):
         _seed_upvote_with_topic(
             storage, feedback_source_id, f"upvoted-{i}", "security tooling"
         )
+    downvoted_id = storage.add_content(
+        ContentItem(
+            source_id=feedback_source_id,
+            external_id="downvoted-0",
+            title="Article downvoted-0",
+            url="https://example.com/downvoted-0",
+            content="Feedback seed content.",
+            analysis={"matched_interests": ["security tooling"]},
+        )
+    )
+    assert downvoted_id is not None
+    storage.update_content_status(downvoted_id, user_feedback="down")
 
     rss_source_id = storage.add_source(
         "https://feeds.example.com/rss", "rss", "Test Feed"
@@ -491,7 +500,15 @@ def test_refetch_sources_learned_preferences_like_run_once_does(
     ).fetchone()
     recovered = storage.get_content_by_id(recovered_row["id"])
     assert recovered is not None
-    assert recovered["analysis"]["preference_influenced"] is learn_from_votes
+    assert "preference_influenced" not in recovered["analysis"]
+    systems = [
+        next(m["content"] for m in r["messages"] if m["role"] == "system")
+        for r in stub_requests
+    ]
+    assert any("evaluates articles" in system for system in systems)
+    for system in systems:
+        for marker in ("LEARNED USER PREFERENCES", "User dislikes", "User prefers"):
+            assert marker not in system
 
 
 # ---------------------------------------------------------------------------

@@ -44,10 +44,6 @@ low_unread = 14
 low_read = 7
 
 [context]
-auto_update_enabled = false
-auto_update_interval_days = 30
-auto_update_min_votes = 5
-backup_count = 10
 """
 
 
@@ -133,10 +129,6 @@ low_unread = 14
 low_read = 7
 
 [context]
-auto_update_enabled = false
-auto_update_interval_days = 30
-auto_update_min_votes = 5
-backup_count = 10
 """
     with tempfile.TemporaryDirectory() as tmpdir:
         config_path = _write_config(tmpdir, old_format_toml)

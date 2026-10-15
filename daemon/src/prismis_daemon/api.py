@@ -1804,11 +1804,10 @@ async def get_feedback_statistics(
 ) -> dict:
     """Get user feedback statistics aggregated by source and topic.
 
-    Returns feedback patterns for preference learning:
+    Returns:
     - Overall vote totals
     - Per-source upvote/downvote counts and ratios
     - Topics extracted from upvoted/downvoted content
-    - Pre-formatted summary for LLM prompt injection
 
     Args:
         since_days: Optional limit to feedback within N days (None = all time)

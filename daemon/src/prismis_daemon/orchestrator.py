@@ -6,8 +6,8 @@ from typing import Any
 
 from rich.console import Console
 
-from .analysis import build_llm_analysis, content_basis, get_learned_preferences
-from .config import Config
+from .analysis import build_llm_analysis, content_basis
+from .config import Config, read_context_text
 from .deep_extractor import ContentDeepExtractor
 from .embeddings import Embedder
 from .evaluator import ContentEvaluator
@@ -74,6 +74,24 @@ class DaemonOrchestrator:
         self.embedder = embedder or Embedder()
         self.deep_extractor = deep_extractor
         self.kind_classifier = kind_classifier
+        # The context.md text scoring uses: the startup copy until a cycle re-reads it.
+        self.context = config.context
+
+    def refresh_context(self) -> None:
+        """Re-read context.md from disk so this cycle scores against it as it is now.
+
+        A read failure is logged with its traceback and the text read last time stays in
+        use; a missing file is the default context, as `Config.from_file` has it. A
+        Config with no `context_path` has nothing to re-read.
+        """
+        if self.config.context_path is None:
+            return
+        try:
+            self.context = read_context_text(self.config.context_path)
+        except ValueError:
+            logger.exception(
+                "Could not re-read context.md; scoring with the text last read"
+            )
 
     @staticmethod
     def _should_deep_extract(
@@ -108,7 +126,6 @@ class DaemonOrchestrator:
         self,
         item: ContentItem,
         source: dict[str, Any],
-        learned_preferences: str | None = None,
     ) -> dict[str, Any] | None:
         """Summarize, evaluate and store one item; return what was stored.
 
@@ -126,7 +143,6 @@ class DaemonOrchestrator:
             item: ContentItem with content, title, url and any fetcher
                 analysis (e.g. metrics) already set.
             source: Source dict with at least "type" and "name".
-            learned_preferences: Optional learned preferences for the evaluator.
 
         Returns:
             None if summarization returned nothing (nothing was stored,
@@ -162,8 +178,7 @@ class DaemonOrchestrator:
             content=item.content or "",
             title=item.title,
             url=item.url,
-            context=self.config.context,
-            learned_preferences=learned_preferences,
+            context=self.context,
         )
 
         llm_analysis = build_llm_analysis(
@@ -301,7 +316,6 @@ class DaemonOrchestrator:
         self,
         source: dict[str, Any],
         force_refetch: bool = False,
-        learned_preferences: str | None = None,
     ) -> dict[str, Any]:
         """Fetch and process content from a single source with deduplication.
 
@@ -312,7 +326,6 @@ class DaemonOrchestrator:
         Args:
             source: Source dict with id, url, name, type
             force_refetch: If True, process all items regardless of existence
-            learned_preferences: Optional learned preferences from user feedback for LLM
 
         Returns:
             Dict with processing stats: items_fetched, items_processed, items_new, items_updated, new_high_priority_items
@@ -495,9 +508,7 @@ class DaemonOrchestrator:
                     # with fetcher metrics, kind classification, the
                     # deep-extraction gate, storage and embedding all live in
                     # one method shared with refetch (SC-1).
-                    result = self.analyze_and_store_item(
-                        item, source, learned_preferences
-                    )
+                    result = self.analyze_and_store_item(item, source)
                     if result is None:
                         # Skip if summarization failed
                         continue
@@ -581,21 +592,8 @@ class DaemonOrchestrator:
             "new_high_priority_items": [],  # Aggregate new HIGH priority items
         }
 
-        # Fetch learned preferences for LLM evaluation (003-light-preference-learning)
-        # Only activates with [context] learn_from_votes on and at least 5 votes in
-        # the last 30 days
-        learned_preferences = None
-        try:
-            learned_preferences, total_votes = get_learned_preferences(
-                self.storage, enabled=self.config.learn_from_votes
-            )
-            if learned_preferences:
-                self.console.print(
-                    f"🧠 Using learned preferences from {total_votes} votes (last 30 days)"
-                )
-        except Exception as e:
-            logger.warning(f"Failed to fetch feedback statistics: {e}", exc_info=True)
-            # Continue without learned preferences - not critical
+        # Score this cycle against context.md as it is on disk now.
+        self.refresh_context()
 
         # Get active sources
         self.console.print("📡 Getting active sources...")
@@ -620,9 +618,7 @@ class DaemonOrchestrator:
 
             try:
                 # Use the new fetch_source_content method with deduplication
-                source_stats = self.fetch_source_content(
-                    source, force_refetch, learned_preferences
-                )
+                source_stats = self.fetch_source_content(source, force_refetch)
 
                 # Aggregate stats
                 stats["total_items"] += source_stats["items_fetched"]
@@ -714,7 +710,12 @@ class DaemonOrchestrator:
             # fetcher's: a fresh analysis without it means the article is now present,
             # so a stored one must not survive.
             for key, value in existing_analysis.items():
-                if key not in merged and key not in ("metrics", "content_basis"):
+                if key not in merged and key not in (
+                    "metrics",
+                    "content_basis",
+                    # Retired by the removal of vote learning: nothing writes it any more.
+                    "preference_influenced",
+                ):
                     merged[key] = value
                     logger.debug(f"Preserved existing analysis field: {key}")
 

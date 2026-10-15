@@ -1,33 +1,120 @@
 {
   "scrutiny": [
-    {"test": "0 purpose", "failureCase": "Shipping vote learning that makes scoring less accurate, as #96's per-topic model did. docs/IDEA.md makes prismis a prioritized feed for the user and their agents; carve-outs only remove what the user confirmed and measured, and retiring per-topic learning removes the cause of the 81% null share.", "result": "held"},
-    {"test": "1 owner decides", "failureCase": "Adding a second rule for exclusions beside the evaluator's. evaluator.py:120 owns 'Not Interested -> null' and the design writes into that section instead of inventing a new scoring path.", "result": "held"},
-    {"test": "2 evidence noun", "failureCase": "Measuring slice closeness with search_content's relevance score, which blends similarity (0.80) with priority and source authority (storage.py search_content docstring); a High item would look closer than it is. The radius must be raw vector similarity.", "result": "changed"},
-    {"test": "3 degradation", "failureCase": "Losing recall by removing learned likes: the 2026-10-15 test put likes-only at 30% null against 35% with no learned preferences on 100 items, a gap inside run-to-run noise (9% of re-scored items flipped between runs); stated as a sacrifice.", "result": "held"},
-    {"test": "4 reuse", "failureCase": "Building a second vector index; the design reuses vec_content and the stored item embeddings, and the KNN search_content already runs takes a raw query vector, so a stored item's vector can be the query.", "result": "held"},
-    {"test": "5 verified on the running system", "failureCase": "Trusting that a scoped Not Interested line stays inside its slice with gpt-5.4-nano; untested on cerebro so far. The design measures it per proposal before anything is written, so a bad line is shown, not applied.", "result": "held"},
-    {"test": "6 assumptions", "failureCase": "Assuming labels resolve to context lines (measured 99.3% on cerebro, 7,344 labels) and that stored embeddings are of summary plus synthesis (orchestrator.py analyze_and_store_item), both read this session.", "result": "held"},
-    {"test": "7 consumers", "failureCase": "Removing code something still uses. Enumerated with grep: get_learned_preferences (orchestrator, refetch, cli analyze), for_llm_context (analysis.py, API passthrough), ContextAutoUpdater and auto_update_* (__main__.py, config.py, defaults.py, docs/configuration.md, docs/architecture/*), check_context_md and section constants (__main__.py verify), preference_influenced (static/index.html badge reads === true, so old items keep their badge).", "result": "held"},
-    {"test": "8 shape", "failureCase": "A knob where structure could hold it: carveout_radius is a calibration value with one sample behind it, so a config value is the honest shape; 'never written without acceptance' is structural, since only the accept endpoint writes.", "result": "held"},
-    {"test": "9 six months", "failureCase": "The radius constant and the label-resolution heuristic drift as context.md's format or the embedding model changes; the preview and impact numbers show the drift on the next proposal.", "result": "held"},
-    {"test": "10 reversibility", "failureCase": "A one-way change on unearned confidence: the carveouts table is additive, the removals are a revert, and accepted lines are plain context.md text the user can delete.", "result": "held"},
-    {"test": "11 class", "failureCase": "Fixing context.md reload for carve-outs only: the startup snapshot also ignores the user's own :context edit until restart (orchestrator.py uses self.config.context; Config read once in __main__.py). Reading per cycle fixes the class for every edit.", "result": "held"},
-    {"test": "12 new state", "failureCase": "Statuses nobody needs: proposed, accepted, rejected, removed are each forced by the decided history and the accept, reject and remove actions.", "result": "held"},
-    {"test": "13 fact twice", "failureCase": "A third context.md parser: check_context_md walks sections and context_analyzer.py has its own _parse_context_sections; label resolution must use one shared walk, and the analyzer should use it too.", "result": "changed"},
-    {"test": "14 prose vs gate", "failureCase": "Relying on the model to stay inside the slice; the impact measurement is the gate, and acceptance is required by code.", "result": "held"},
-    {"test": "15 model vs code", "failureCase": "Letting a model group the slice; grouping is code (shared category plus cosine), and the model only names a group code found.", "result": "held"},
-    {"test": "16 second home", "failureCase": "Restating the Not Interested rule; the design writes into the section and leaves the rule in evaluator.py.", "result": "held"},
-    {"test": "17 matching own text", "failureCase": "Finding accepted lines in context.md by matching prose; remove deletes the exact line text the row stores, which prismis itself wrote, under its own ### group.", "result": "held"},
-    {"test": "18 cause", "failureCase": "Repairing #96's effects only; the cause, votes credited per topic and fed to the prompt, is removed.", "result": "held"},
-    {"test": "19 direct observation", "failureCase": "Inferring a carve-out's effect from similarity; impact is measured by re-evaluating real items with the candidate line.", "result": "held"},
-    {"test": "20 one real use", "failureCase": "Walking an accept: the preview items keep the priority they were scored with, so the user accepts and still sees them; walking a remove: items the line pushed to null stay null. Accept and remove must re-score the items the carve-out affects.", "result": "changed"}
+    {
+      "test": "0 purpose",
+      "failureCase": "Shipping vote learning that makes scoring less accurate, as #96's per-topic model did. docs/IDEA.md makes prismis a prioritized feed for the user and their agents; carve-outs only remove what the user confirmed and measured, and retiring per-topic learning removes the cause of the 81% null share.",
+      "result": "held"
+    },
+    {
+      "test": "1 owner decides",
+      "failureCase": "Adding a second rule for exclusions beside the evaluator's. evaluator.py:120 owns 'Not Interested -> null' and the design writes into that section instead of inventing a new scoring path.",
+      "result": "held"
+    },
+    {
+      "test": "2 evidence noun",
+      "failureCase": "Measuring slice closeness with search_content's relevance score, which blends similarity (0.80) with priority and source authority (storage.py search_content docstring); a High item would look closer than it is. The radius must be raw vector similarity.",
+      "result": "held"
+    },
+    {
+      "test": "3 degradation",
+      "failureCase": "Losing recall by removing learned likes: the 2026-10-15 test put likes-only at 30% null against 35% with no learned preferences on 100 items, a gap inside run-to-run noise (9% of re-scored items flipped between runs); stated as a sacrifice.",
+      "result": "held"
+    },
+    {
+      "test": "4 reuse",
+      "failureCase": "Building a second vector index; the design reuses vec_content and the stored item embeddings, and the KNN search_content already runs takes a raw query vector, so a stored item's vector can be the query.",
+      "result": "held"
+    },
+    {
+      "test": "5 verified on the running system",
+      "failureCase": "Trusting a scoped Not Interested line to stay inside its slice untested. Ran it on cerebro 2026-10-15 (81 calls): a line named from the one downvote was so narrow it nulled 0 of the 11 slice items, and of 20 same-category control items it 'nulled' 3 unrelated ones while 7 others changed level, which a Not Interested line cannot cause; a single with/without comparison cannot separate the line's effect from the evaluator's run-to-run variance, so the impact number as designed is not trustworthy.",
+      "result": "changed"
+    },
+    {
+      "test": "6 assumptions",
+      "failureCase": "Assuming labels resolve to context lines (measured 99.3% on cerebro, 7,344 labels) and that stored embeddings are of summary plus synthesis (orchestrator.py analyze_and_store_item), both read this session.",
+      "result": "held"
+    },
+    {
+      "test": "7 consumers",
+      "failureCase": "Removing code something still uses. Enumerated with grep: get_learned_preferences (orchestrator, refetch, cli analyze), for_llm_context (analysis.py, API passthrough), ContextAutoUpdater and auto_update_* (__main__.py, config.py, defaults.py, docs/configuration.md, docs/architecture/*), check_context_md and section constants (__main__.py verify), preference_influenced (static/index.html badge reads === true, so old items keep their badge).",
+      "result": "held"
+    },
+    {
+      "test": "8 shape",
+      "failureCase": "A knob where structure could hold it: carveout_radius is a calibration value with one sample behind it, so a config value is the honest shape; 'never written without acceptance' is structural, since only the accept endpoint writes.",
+      "result": "held"
+    },
+    {
+      "test": "9 six months",
+      "failureCase": "The radius constant and the label-resolution heuristic drift as context.md's format or the embedding model changes; the preview and impact numbers show the drift on the next proposal.",
+      "result": "held"
+    },
+    {
+      "test": "10 reversibility",
+      "failureCase": "A one-way change on unearned confidence: the carveouts table is additive, the removals are a revert, and accepted lines are plain context.md text the user can delete.",
+      "result": "held"
+    },
+    {
+      "test": "11 class",
+      "failureCase": "Fixing context.md reload for carve-outs only: the startup snapshot also ignores the user's own :context edit until restart (orchestrator.py uses self.config.context; Config read once in __main__.py). Reading per cycle fixes the class for every edit.",
+      "result": "held"
+    },
+    {
+      "test": "12 new state",
+      "failureCase": "Statuses nobody needs: proposed, accepted, rejected, removed are each forced by the decided history and the accept, reject and remove actions.",
+      "result": "held"
+    },
+    {
+      "test": "13 fact twice",
+      "failureCase": "A third context.md parser: check_context_md walks sections and context_analyzer.py has its own _parse_context_sections; label resolution must use one shared walk, and the analyzer should use it too.",
+      "result": "held"
+    },
+    {
+      "test": "14 prose vs gate",
+      "failureCase": "Relying on the model to stay inside the slice; the impact measurement is the gate, and acceptance is required by code.",
+      "result": "held"
+    },
+    {
+      "test": "15 model vs code",
+      "failureCase": "Letting a model group the slice; grouping is code (shared category plus cosine), and the model only names a group code found.",
+      "result": "held"
+    },
+    {
+      "test": "16 second home",
+      "failureCase": "Restating the Not Interested rule; the design writes into the section and leaves the rule in evaluator.py.",
+      "result": "held"
+    },
+    {
+      "test": "17 matching own text",
+      "failureCase": "Finding accepted lines in context.md by matching prose; remove deletes the exact line text the row stores, which prismis itself wrote, under its own ### group.",
+      "result": "held"
+    },
+    {
+      "test": "18 cause",
+      "failureCase": "Repairing #96's effects only; the cause, votes credited per topic and fed to the prompt, is removed.",
+      "result": "held"
+    },
+    {
+      "test": "19 direct observation",
+      "failureCase": "Inferring a carve-out's effect from similarity; impact is measured by re-evaluating real items with the candidate line.",
+      "result": "held"
+    },
+    {
+      "test": "20 one real use",
+      "failureCase": "Walking an accept: the preview items keep the priority they were scored with, so the user accepts and still sees them; walking a remove: items the line pushed to null stay null. Accept and remove must re-score the items the carve-out affects.",
+      "result": "held"
+    }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "question": "Accept the carve-out design, after a containment check on cerebro?",
+      "answer": "Run the check first; it showed the impact measurement cannot tell the line's effect from evaluator variance and that a single-item line carves nothing, so the design goes back for those two."
+    }
+  ],
   "verdict": "redesign",
   "carried": [
-    "Does the slice radius use raw vector similarity between stored embeddings rather than search_content's blended relevance score?",
-    "Does label-to-section resolution use one shared context.md walk, with context_analyzer's _parse_context_sections replaced by it?",
-    "Do accept and remove re-score the items the carve-out affects (its preview items on accept; items scored since acceptance within the radius of its evidence on remove)?",
-    "Can a rejected slice be proposed again when new downvotes, not in the rejected proposal's evidence, extend it?"
+    "How does a proposal's impact measurement separate the line's effect from the evaluator's run-to-run variance, given the 2026-10-15 cerebro check saw 7 of 20 control items change priority level with a line that can only null?",
+    "Is a proposal whose line nulls none of its own preview items shown to the user at all, given a line named from one item nulled 0 of its 11 slice items?"
   ]
 }

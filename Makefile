@@ -301,7 +301,7 @@ test: ## Run the full verification gate (the same script CI runs)
 	bash .specify/verify.sh
 
 .PHONY: release
-release: ## Cut a release: make release VERSION=X.Y.Z (bump, relock, verify, commit, tag, push)
+release: ## Cut a release: make release VERSION=X.Y.Z (bump, relock, verify, commit, tag, push, publish notes)
 	@./scripts/release.sh "$(VERSION)"
 
 .PHONY: clean

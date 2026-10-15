@@ -7,9 +7,13 @@
 #   - a valid version sets both pyproject versions, relocks both units, runs the gate,
 #     commits, makes an annotated tag and pushes main then the tag;
 #   - a failing gate stops before any commit, and a rejected push exits non-zero;
+#   - the real release_notes.py writes the notes and they are handed to `gh release create`
+#     for the new tag, and a failing publish exits non-zero after the push;
 #   - RELEASE_VERIFY_CMD is ignored unless RELEASE_TEST is set, so the real gate path runs.
-# The real gate is replaced by RELEASE_VERIFY_CMD (honoured only under RELEASE_TEST); the
-# repos carry two dependency-free units so `uv lock` runs for real. macOS bash 3.2 safe.
+# The real gate is replaced by RELEASE_VERIFY_CMD (honoured only under RELEASE_TEST), and
+# `gh`, the one external service a release reaches, by a stub first on PATH that records
+# its calls; the repos carry two dependency-free units so `uv lock` runs for real. macOS
+# bash 3.2 safe.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -20,6 +24,22 @@ FAIL=0
 fail() { echo "FAIL: $1"; [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/  | /'; FAIL=1; }
 ok() { echo "OK: $1"; }
 
+# The gh stub logs "<clone> <args>" to GH_LOG, copies the --notes-file it was handed to
+# GH_NOTES_DIR/<clone>.md, and exits 1 when GH_FAIL is set.
+mkdir -p "$WORK/bin" "$WORK/published"
+cat >"$WORK/bin/gh" <<'STUB'
+#!/bin/sh
+printf '%s %s\n' "$(basename "$PWD")" "$*" >>"$GH_LOG"
+[ -n "${GH_FAIL:-}" ] && exit 1
+while [ $# -gt 0 ]; do
+  [ "$1" = "--notes-file" ] && cp "$2" "$GH_NOTES_DIR/$(basename "$PWD").md"
+  shift
+done
+exit 0
+STUB
+chmod +x "$WORK/bin/gh"
+export PATH="$WORK/bin:$PATH" GH_LOG="$WORK/gh.log" GH_NOTES_DIR="$WORK/published"
+
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 
@@ -29,9 +49,10 @@ mk_remote() {
   local bare="$WORK/$1.git" seed="$WORK/$1-seed"
   git init -q --bare -b main "$bare"
   git init -q -b main "$seed"
-  mkdir -p "$seed/scripts" "$seed/.specify" "$seed/daemon" "$seed/cli"
+  mkdir -p "$seed/scripts" "$seed/.specify" "$seed/daemon" "$seed/cli" "$seed/packaging/homebrew"
   cp "$ROOT/Makefile" "$seed/Makefile"
   cp "$ROOT/scripts/release.sh" "$seed/scripts/release.sh"
+  cp "$ROOT/packaging/homebrew/release_notes.py" "$seed/packaging/homebrew/release_notes.py"
   printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../real-gate-ran"\n' >"$seed/.specify/verify.sh"
   chmod +x "$seed/scripts/release.sh" "$seed/.specify/verify.sh"
   for u in daemon cli; do
@@ -96,8 +117,11 @@ mk_clone r1 remotetag
 git -C "$WORK/r1.git" tag v1.2.4 main
 refused "an existing tag on origin is refused" "$WORK/remotetag" "1.2.4"
 
-# Valid release.
+# Valid release, with one change since the seed for the notes to carry.
 mk_clone r1 good
+printf 'x\n' >"$WORK/good/change.txt"
+git -C "$WORK/good" add change.txt
+git -C "$WORK/good" commit -q -m "api: make it work"
 out="$(cd "$WORK/good" && RELEASE_TEST=1 RELEASE_VERIFY_CMD='touch gate-stub-ran' make release VERSION=1.2.3 2>&1)" \
   || { fail "a valid release exited non-zero" "$out"; }
 G="$WORK/good"
@@ -113,6 +137,11 @@ if grep -q 'version = "1.2.3"' "$G/daemon/uv.lock" && grep -q 'version = "1.2.3"
   && ok "origin main holds the release commit" || fail "origin main does not hold the release commit"
 [ "$(git -C "$WORK/r1.git" rev-parse 'v1.2.3^{commit}' 2>/dev/null)" = "$(git -C "$G" rev-parse HEAD)" ] \
   && ok "origin holds v1.2.3 at the release commit" || fail "origin does not hold v1.2.3"
+grep -qE '^good release create v1\.2\.3 --title v1\.2\.3 --notes-file \S+ --verify-tag$' "$GH_LOG" \
+  && ok "the notes are published as the v1.2.3 release" || fail "gh release create was not called for v1.2.3" "$(cat "$GH_LOG" 2>/dev/null)"
+if grep -q '^- api: make it work ' "$WORK/published/good.md" && ! grep -q 'Release v1.2.3' "$WORK/published/good.md"; then
+  ok "the published notes list the change and not the release commit"
+else fail "the published notes are wrong" "$(cat "$WORK/published/good.md" 2>/dev/null)"; fi
 
 # The gate override is ignored without RELEASE_TEST: the stub verify.sh must run instead.
 mk_clone r1 noflag
@@ -150,6 +179,15 @@ rc=0
 out="$(cd "$WORK/tagrejected" && RELEASE_TEST=1 RELEASE_VERIFY_CMD=true make release VERSION=1.2.3 2>&1)" || rc=$?
 if [ "$rc" -ne 0 ] && [ "$(git -C "$WORK/r4.git" rev-parse main)" = "$(git -C "$WORK/tagrejected" rev-parse HEAD)" ]; then
   ok "a rejected tag push exits non-zero after main was pushed"; else fail "rejected tag push not caught" "$out"; fi
+
+# A failing publish exits non-zero after main and the tag are pushed, and says how to retry.
+mk_remote r5
+mk_clone r5 ghfail
+rc=0
+out="$(cd "$WORK/ghfail" && GH_FAIL=1 RELEASE_TEST=1 RELEASE_VERIFY_CMD=true make release VERSION=1.2.3 2>&1)" || rc=$?
+if [ "$rc" -ne 0 ] && [ "$(git -C "$WORK/r5.git" rev-parse 'v1.2.3^{commit}' 2>/dev/null)" = "$(git -C "$WORK/ghfail" rev-parse HEAD)" ] \
+   && printf '%s' "$out" | grep -q 'publishing the release notes failed; main and v1.2.3 are pushed (retry: gh release create'; then
+  ok "a failing publish exits non-zero after the push and names the retry"; else fail "failing publish not caught" "$out"; fi
 
 [ "$FAIL" -eq 0 ] || { echo "make release test: FAIL"; exit 1; }
 echo "make release test: PASS"

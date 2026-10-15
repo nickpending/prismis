@@ -27,8 +27,8 @@
     },
     {
       "test": "5 verified on the running system",
-      "failureCase": "Trusting a scoped Not Interested line to stay inside its slice untested. Ran it on cerebro 2026-10-15 (81 calls): a line named from the one downvote was so narrow it nulled 0 of the 11 slice items, and of 20 same-category control items it 'nulled' 3 unrelated ones while 7 others changed level, which a Not Interested line cannot cause; a single with/without comparison cannot separate the line's effect from the evaluator's run-to-run variance, so the impact number as designed is not trustworthy.",
-      "result": "changed"
+      "failureCase": "Trusting a carve-out line to stay inside its slice untested. The 2026-10-15 cerebro check (81 calls) showed a single with/without comparison cannot separate the line from evaluator variance and that a one-item line carves nothing; the design now counts a hit only on two-run agreement and drops lines that null under half their preview, and measures every proposal on real items before it is shown. Containment of a line named from 2+ downvotes stays unproven until cerebro has a second downvote.",
+      "result": "held"
     },
     {
       "test": "6 assumptions",
@@ -109,12 +109,22 @@
   "decisions": [
     {
       "question": "Accept the carve-out design, after a containment check on cerebro?",
-      "answer": "Run the check first; it showed the impact measurement cannot tell the line's effect from evaluator variance and that a single-item line carves nothing, so the design goes back for those two."
+      "answer": "Ran the check; it showed the impact measurement could not separate the line from evaluator variance and that a one-item line carves nothing, so the design took a redesign round for both."
+    },
+    {
+      "question": "Accept the round-3 design and build J1 (retire per-topic learning and the auto-updater, re-read context.md every cycle, one shared context.md parser) first?",
+      "answer": "Accept, build J1; J2 (carve-out store, finder, naming, impact, API, accept/reject/remove) and J3 (TUI and web views, spec rewrite) follow as their own work orders, and #96 stays open until J3."
     }
   ],
-  "verdict": "redesign",
+  "verdict": "accept",
   "carried": [
-    "How does a proposal's impact measurement separate the line's effect from the evaluator's run-to-run variance, given the 2026-10-15 cerebro check saw 7 of 20 control items change priority level with a line that can only null?",
-    "Is a proposal whose line nulls none of its own preview items shown to the user at all, given a line named from one item nulled 0 of its 11 slice items?"
+    {
+      "kind": "cost",
+      "summary": "Containment of a carve-out line named from two or more downvotes is unproven until cerebro has a second downvote; the first real proposal's measured impact is the first test."
+    },
+    {
+      "kind": "cost",
+      "summary": "gpt-5.4-nano's scores vary run to run (7 of 20 control items changed level in the 2026-10-15 check); carve-out impact counts only two-run agreement, and the variance itself is not addressed here."
+    }
   ]
 }

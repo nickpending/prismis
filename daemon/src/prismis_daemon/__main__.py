@@ -135,7 +135,7 @@ def build_scheduler(
         )
     if not config.learn_from_votes:
         console.print(
-            "[dim]Learning from votes is off: votes are recorded, not applied ([context] learn_from_votes)[/dim]"
+            "[dim]Learning from votes is off: votes are recorded, not applied (\\[context] learn_from_votes)[/dim]"
         )
 
     return scheduler, interval_msg

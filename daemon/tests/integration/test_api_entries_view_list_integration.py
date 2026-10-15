@@ -141,27 +141,41 @@ def test_default_view_keeps_content_and_full_analysis(seeded) -> None:  # type: 
         assert items["classified"]["has_deep_extraction"] is False
 
 
-def test_compact_keeps_its_field_set(seeded) -> None:  # type: ignore[no-untyped-def]
-    client, _ = seeded
+def test_compact_carries_only_its_kept_fields(seeded, test_db: Path) -> None:  # type: ignore[no-untyped-def]
+    """
+    INVARIANT: a compact entry carries only the fields compact keeps, so it never
+               claims a value for a field it dropped
+    BREAKS: rebuilding the filtered dict through ContentItemModel fills every dropped
+            field with its default, so a read, favorited item reports read: false
+            and favorited: false to every agent using --compact (#95)
+    """
+    client, ids = seeded
+    storage = Storage(test_db)
+    storage.update_content_status(ids["classified"], read=True, favorited=True)
+    storage.close()
+
     response = client.get("/api/entries?compact=true", headers=HEADERS)
+
     assert response.status_code == 200, response.text
-    items = {i["title"]: i for i in response.json()["data"]["items"]}
-    item = items["Item classified"]
-    populated = {k for k, v in item.items() if v not in (None, False, [])}
-    assert populated <= {
+    item = {i["title"]: i for i in response.json()["data"]["items"]}["Item classified"]
+    assert set(item) <= {
         "id",
         "title",
         "url",
         "priority",
         "kind",
         "title_only",
+        "title_only_reason",
         "published_at",
         "source_name",
         "summary",
-    }
-    assert item["content"] is None
-    assert item["analysis"] is None
+        "duplicate_count",
+        "duplicate_sources",
+    }, sorted(item)
+    for dropped in ("read", "favorited", "interesting_override", "content", "analysis"):
+        assert dropped not in item, f"compact claims {dropped}={item.get(dropped)!r}"
     assert item["kind"] == "news"
+    assert item["summary"] == "summary classified"
 
 
 def test_kind_filter_applies_before_limit_in_list_view(seeded) -> None:  # type: ignore[no-untyped-def]

@@ -205,9 +205,47 @@ def test_compact_mode_includes_kind(search_client: TestClient) -> None:
     items = response.json()["data"]["items"]
     assert len(items) == 1
     assert items[0]["kind"] == "release"
-    # Fields the compact_fields set excludes still exist on the wire (every
-    # ContentItemModel field is dumped) but are cleared to their default -- the
-    # compact_fields filtering runs on the raw dict *before* ContentItemModel
-    # construction, not on the final wire shape.
-    assert items[0]["content"] is None
-    assert items[0]["analysis"] is None
+    assert "content" not in items[0]
+    assert "analysis" not in items[0]
+
+
+def test_compact_search_carries_only_its_kept_fields(
+    search_client: TestClient, kind_populated_search_storage: Storage
+) -> None:
+    """
+    INVARIANT: a compact search result carries only the fields compact keeps, so it
+               never claims a value for a field it dropped
+    BREAKS: rebuilding the filtered dict through ContentItemModel fills every dropped
+            field with its default, so a read, favorited item reports read: false
+            and favorited: false (#95)
+    """
+    row = kind_populated_search_storage.conn.execute(
+        "SELECT id FROM content WHERE external_id = 'release-1'"
+    ).fetchone()
+    kind_populated_search_storage.update_content_status(
+        row["id"], read=True, favorited=True
+    )
+
+    response = search_client.get(
+        "/api/search?q=test&min_score=0.0&kind=release&compact=true",
+        headers={"X-API-Key": TEST_API_KEY},
+    )
+
+    assert response.status_code == 200, response.text
+    item = response.json()["data"]["items"][0]
+    assert set(item) <= {
+        "id",
+        "title",
+        "url",
+        "priority",
+        "kind",
+        "title_only",
+        "title_only_reason",
+        "relevance_score",
+        "published_at",
+        "source_name",
+        "summary",
+    }, sorted(item)
+    for dropped in ("read", "favorited", "interesting_override", "content", "analysis"):
+        assert dropped not in item, f"compact claims {dropped}={item.get(dropped)!r}"
+    assert item["title"] == "Item release-1"

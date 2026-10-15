@@ -155,6 +155,16 @@ def _previous_body(storage: Storage, q: dict[str, Any]) -> bytes:
         mode="json",
         exclude={"data": {"items": {"__all__": {"content"}}}} if view == "list" else None,
     )
+    if compact:
+        # #95: a compact item carries only the fields it kept, not default-filled ones.
+        body["data"]["items"] = [
+            ContentItemModel(**i).model_dump(
+                mode="json",
+                exclude={"content"} if view == "list" else None,
+                exclude_unset=True,
+            )
+            for i in items
+        ]
     return json.dumps(
         body, ensure_ascii=False, allow_nan=False, separators=(",", ":")
     ).encode("utf-8")

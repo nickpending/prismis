@@ -248,8 +248,10 @@ Get content items with filtering.
   near-duplicates, which fills `duplicate_count` and `duplicate_sources`
 - `view` (string, default: `full`): `full` returns every field including `content` and the whole
   `analysis`; `list` omits `content` and cuts `analysis` to the keys a list needs
-- `compact` (boolean, default: false): Compact format for LLM consumption (excludes content and
-  analysis)
+- `compact` (boolean, default: false): Compact format for LLM consumption. Each item carries only
+  `id`, `title`, `url`, `priority`, `kind`, `title_only`, `title_only_reason`, `published_at`,
+  `source_name`, `summary`, `duplicate_count` and `duplicate_sources`; every other field
+  (including `read`, `favorited`, `content` and `analysis`) is absent, not defaulted
 
 **Response** (`view=list`):
 ```json
@@ -448,8 +450,10 @@ Search content using semantic similarity (embeddings). Results are ranked by
 - `min_score` (number 0.0–1.0, default: 0.1): Minimum `relevance_score`; the default filters
   near-zero noise, and `0.0` disables the filter
 - `source` (string, optional): Filter by source name (case-insensitive substring)
-- `compact` (boolean, default: false): Compact format for LLM consumption (excludes content and
-  analysis)
+- `compact` (boolean, default: false): Compact format for LLM consumption. Each item carries only
+  `id`, `title`, `url`, `priority`, `kind`, `title_only`, `title_only_reason`, `relevance_score`,
+  `published_at`, `source_name` and `summary`; every other field (including `read`, `favorited`,
+  `content` and `analysis`) is absent, not defaulted
 - `kind` (string, optional): Filter by kind(s). Single value (`release`) or
   comma-separated (`release,question`), from the ten kinds declared in
   `kind_classifier.KINDS`. An unknown kind returns a 422 naming the valid kinds --

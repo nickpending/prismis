@@ -846,8 +846,9 @@ async def resume_source(
         raise _server_error("Failed to resume source", e) from e
 
 
-# Fields a compact entry keeps.
-_ENTRIES_COMPACT_FIELDS = frozenset(
+# Fields a compact item keeps, and the only ones it carries: compact responses dump
+# with exclude_unset, so a dropped field is absent rather than default-filled (#95).
+_COMPACT_FIELDS = frozenset(
     {
         "id",
         "title",
@@ -859,10 +860,10 @@ _ENTRIES_COMPACT_FIELDS = frozenset(
         "published_at",
         "source_name",
         "summary",
-        "duplicate_count",
-        "duplicate_sources",
     }
 )
+_ENTRIES_COMPACT_FIELDS = _COMPACT_FIELDS | {"duplicate_count", "duplicate_sources"}
+_SEARCH_COMPACT_FIELDS = _COMPACT_FIELDS | {"relevance_score"}
 
 
 def _json_text(value: dict[str, Any]) -> str:
@@ -911,7 +912,9 @@ async def _stream_entries(
             # INV-API-TS-4: route through Pydantic model so @field_serializer fires
             # on every datetime field.
             text = _json_text(
-                ContentItemModel(**item).model_dump(mode="json", exclude=exclude)
+                ContentItemModel(**item).model_dump(
+                    mode="json", exclude=exclude, exclude_unset=compact
+                )
             )
             yield text if first else "," + text
             first = False
@@ -1235,21 +1238,8 @@ async def semantic_search(
 
         # Filter to compact fields if requested
         if compact:
-            compact_fields = {
-                "id",
-                "title",
-                "url",
-                "priority",
-                "kind",
-                "title_only",
-                "title_only_reason",
-                "relevance_score",
-                "published_at",
-                "source_name",
-                "summary",
-            }
             results = [
-                {k: v for k, v in item.items() if k in compact_fields}
+                {k: v for k, v in item.items() if k in _SEARCH_COMPACT_FIELDS}
                 for item in results
             ]
 
@@ -1271,7 +1261,7 @@ async def semantic_search(
                     "compact": compact,
                 },
             ),
-        ).model_dump(mode="json")
+        ).model_dump(mode="json", exclude_unset=compact)
 
     except Exception as e:
         raise _server_error("Failed to search content", e) from e

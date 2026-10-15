@@ -2,6 +2,7 @@
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from .api_client import APIClient
 
@@ -57,7 +58,7 @@ def extract(
             view="list",
         )
     except RuntimeError as e:
-        console.print(f"[red]Failed to list entries: {e}[/red]")
+        console.print(f"[red]Failed to list entries: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
     # The list view carries no full analysis to look deep_extraction up in; the
@@ -87,7 +88,7 @@ def extract(
             console.print("  [green]ok[/green]")
         except RuntimeError as e:
             failed += 1
-            console.print(f"  [red]failed: {e}[/red]")
+            console.print(f"  [red]failed: {escape(str(e))}[/red]")
 
     console.print(f"\n[bold]Done: {succeeded} extracted, {failed} failed[/bold]")
 

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .config import Config
@@ -652,7 +653,7 @@ def execute_chain(
         try:
             config = Config.from_file()
         except (ValueError, OSError) as e:
-            console.print(f"[red]✗ config: {e}[/red]")
+            console.print(f"[red]✗ config: {escape(str(e))}[/red]")
             return 1, []
 
         if full:

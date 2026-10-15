@@ -6,6 +6,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.prompt import Confirm
 
 from .remote import is_remote_mode
@@ -74,7 +75,7 @@ def status() -> None:
             )
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -253,7 +254,7 @@ def repair(
                 except Exception as e:
                     # Per-item boundary: one item's failure never stops the repair.
                     logger.warning("Repair failed for %s", item["title"], exc_info=True)
-                    console.print(f"  [red]✗ Failed: {e}[/red]")
+                    console.print(f"  [red]✗ Failed: {escape(str(e))}[/red]")
                     failed += 1
 
             # Track repair operation complete
@@ -277,7 +278,7 @@ def repair(
                 console.print(f"  ✗ Failed: [red]{failed}[/red] items")
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -362,7 +363,7 @@ def kinds(
                     logger.warning(
                         "Kind classification failed for %s", item["title"], exc_info=True
                     )
-                    console.print(f"  [red]✗ Failed: {e}[/red]")
+                    console.print(f"  [red]✗ Failed: {escape(str(e))}[/red]")
                     failed += 1
                     continue
 
@@ -398,5 +399,5 @@ def kinds(
                 console.print(f"  ✗ Failed: [red]{failed}[/red] items")
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e

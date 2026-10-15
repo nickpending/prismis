@@ -18,6 +18,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
 from rich.console import Console
+from rich.markup import escape
 
 from . import kind_classifier, llm_client
 from .config import Config, default_config_path
@@ -279,7 +280,7 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
     except Exception as e:
         # Process boundary: report, record the traceback, exit non-zero.
         logger.exception("Scheduler run failed")
-        console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
+        console.print(f"[bold red]❌ Fatal error: {escape(str(e))}[/bold red]")
         sys.exit(1)
     finally:
         # Ensure scheduler is stopped even on error path
@@ -418,10 +419,10 @@ def validate_llm_config(config: Config) -> None:
         else:
             console.print("[dim]Kind service: not configured[/dim]")
     except ValueError as e:
-        console.print(f"[bold red]❌ LLM configuration error: {e}[/bold red]")
+        console.print(f"[bold red]❌ LLM configuration error: {escape(str(e))}[/bold red]")
         sys.exit(1)
     except (llm_client.ConfigError, openai.OpenAIError) as e:
-        console.print(f"[bold red]❌ LLM connection failed: {e}[/bold red]")
+        console.print(f"[bold red]❌ LLM connection failed: {escape(str(e))}[/bold red]")
         console.print(
             "[yellow]💡 Check the services tables in ~/.config/prismis/config.toml and that the "
             "api_key environment variables they name are set (OPENROUTER_API_KEY for the default).[/yellow]"
@@ -468,7 +469,7 @@ def main(
         except Exception as e:
             # Startup boundary: report, record the traceback, exit non-zero.
             logger.exception("Daemon startup failed")
-            console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
+            console.print(f"[bold red]❌ Fatal error: {escape(str(e))}[/bold red]")
             sys.exit(1)
         if once:
             console.print(
@@ -492,7 +493,7 @@ def main(
             except Exception as e:
                 # --once boundary: report, record the traceback, exit non-zero.
                 logger.exception("Daemon --once run failed")
-                console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
+                console.print(f"[bold red]❌ Fatal error: {escape(str(e))}[/bold red]")
                 sys.exit(1)
         else:
             mode = "test mode (5 second intervals)" if test_mode else "scheduler mode"
@@ -579,8 +580,6 @@ def migrate_config() -> None:
     """
     import re
     import tomllib
-
-    from rich.markup import escape
 
     config_home = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
     prismis_config_path = Path(config_home) / "prismis" / "config.toml"
@@ -801,7 +800,7 @@ def verify(
         config = Config.from_file()  # also runs validate()
         console.print("[green]✓ config valid[/green]")
     except (ValueError, OSError) as e:
-        console.print(f"[red]✗ config: {e}[/red]")
+        console.print(f"[red]✗ config: {escape(str(e))}[/red]")
         sys.exit(1)  # can't continue without config
 
     # 2. Light service
@@ -812,7 +811,7 @@ def verify(
         )
     except (llm_client.ConfigError, openai.OpenAIError) as e:
         console.print(
-            f"[red]✗ light service unreachable ({config.llm_light_service}): {e}[/red]"
+            f"[red]✗ light service unreachable ({config.llm_light_service}): {escape(str(e))}[/red]"
         )
         failures += 1
 
@@ -827,7 +826,7 @@ def verify(
             )
         except (llm_client.ConfigError, openai.OpenAIError) as e:
             console.print(
-                f"[red]✗ deep service unreachable ({config.llm_deep_service}): {e}[/red]"
+                f"[red]✗ deep service unreachable ({config.llm_deep_service}): {escape(str(e))}[/red]"
             )
             failures += 1
 
@@ -844,7 +843,7 @@ def verify(
             )
         except (llm_client.ConfigError, ValueError, httpx.HTTPError) as e:
             console.print(
-                f"[red]✗ kind service unreachable ({config.llm_kind_service}): {e}[/red]"
+                f"[red]✗ kind service unreachable ({config.llm_kind_service}): {escape(str(e))}[/red]"
             )
             failures += 1
 
@@ -860,7 +859,7 @@ def verify(
             )
             failures += 1
     except (sqlite3.Error, OSError) as e:
-        console.print(f"[red]✗ sources check failed: {e}[/red]")
+        console.print(f"[red]✗ sources check failed: {escape(str(e))}[/red]")
         failures += 1
 
     # 6. Saved context.md. Read the file directly: Config.from_file falls back to the
@@ -875,7 +874,7 @@ def verify(
         )
         failures += 1
     except (OSError, UnicodeDecodeError) as e:
-        console.print(f"[red]✗ context.md unreadable at {context_path}: {e}[/red]")
+        console.print(f"[red]✗ context.md unreadable at {context_path}: {escape(str(e))}[/red]")
         failures += 1
     else:
         problems, counts = check_context_md(context_text)

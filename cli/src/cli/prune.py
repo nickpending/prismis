@@ -2,6 +2,7 @@
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.prompt import Confirm
 from typing import Optional
 import re
@@ -67,7 +68,7 @@ def count(
                     f"🔍 Counting unprioritized items older than {days} days..."
                 )
             except ValueError as e:
-                console.print(f"[red]✗ {e}[/red]")
+                console.print(f"[red]✗ {escape(str(e))}[/red]")
                 raise typer.Exit(1) from e
         else:
             console.print("🔍 Counting all unprioritized items...")
@@ -88,7 +89,7 @@ def count(
         # exit is caught below and reported a second time as "Error: 1".
         raise
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -114,7 +115,7 @@ def delete(
             try:
                 days = parse_age(age)
             except ValueError as e:
-                console.print(f"[red]✗ {e}[/red]")
+                console.print(f"[red]✗ {escape(str(e))}[/red]")
                 raise typer.Exit(1) from e
 
         # First get count
@@ -148,7 +149,7 @@ def delete(
         # exit is caught below and reported a second time as "Error: 1".
         raise
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -196,5 +197,5 @@ def cleanup(
         )
 
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e

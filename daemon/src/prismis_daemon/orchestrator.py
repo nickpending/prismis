@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from rich.console import Console
+from rich.markup import escape
 
 from .analysis import build_llm_analysis, content_basis, get_learned_preferences
 from .config import Config
@@ -200,7 +201,7 @@ class DaemonOrchestrator:
                 )
                 logger.warning(kind_classify_failure, exc_info=True)
                 self.console.print(
-                    f"       ⚠️  Kind classification failed: {e}",
+                    f"       ⚠️  Kind classification failed: {escape(str(e))}",
                     style="yellow",
                 )
                 # Do NOT re-raise — pipeline continues without a kind (INV-002)
@@ -253,7 +254,7 @@ class DaemonOrchestrator:
                 deep_extract_failure = f"Deep extraction failed for '{item.title}': {e}"
                 logger.warning(deep_extract_failure, exc_info=True)
                 self.console.print(
-                    f"       ⚠️  Deep extraction failed: {e}",
+                    f"       ⚠️  Deep extraction failed: {escape(str(e))}",
                     style="yellow",
                 )
                 # Do NOT re-raise — pipeline continues with light summary only (INV-002)
@@ -789,7 +790,7 @@ class DaemonOrchestrator:
                     f"Failed embedding for '{item['title']}': {e}", exc_info=True
                 )
                 self.console.print(
-                    f"[yellow]⚠ Failed embedding for '{item['title']}': {e}[/yellow]"
+                    f"[yellow]⚠ Failed embedding for '{item['title']}': {escape(str(e))}[/yellow]"
                 )
                 failed += 1
 

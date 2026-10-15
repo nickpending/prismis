@@ -2,6 +2,7 @@
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from .api_client import APIClient
 
@@ -33,5 +34,5 @@ def status() -> None:
         console.print(f"  LOW read: {windows['low_read']} days\n")
 
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e

@@ -1,0 +1,6 @@
+{
+  "question": "Where does the history of carve-outs live so the user can always see the changes over time: in context.md and its backups, in a record the daemon keeps, or surfaced in the TUI and web?",
+  "answer": "In the daemon's own record of carve-out proposals (proposed, accepted, rejected, removed, each with its date, name, the downvoted items behind it and its measured impact), shown in the TUI and web where proposals surface; context.md holds only the current accepted lines and its backups stay as file safety, not as the history.",
+  "by": "evidence",
+  "evidence": {"path": "daemon/src/prismis_daemon/context_auto_updater.py", "line": 139}
+}

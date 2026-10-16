@@ -19,7 +19,7 @@
       "id": "C3",
       "given": "a window with fewer than 20 items, or fewer than 14 qualifying daily windows of history",
       "when": "the check runs",
-      "then": "It is stored and logged as not judged, with the reason naming which minimum was not met, and is not flagged; it is never stored as an unflagged judgement."
+      "then": "It is stored and logged as not judged, with the reason naming which minimum was not met; it is never stored as an unflagged judgement. With no standing flag it is not flagged; while the latest check is flagged, it keeps that flag and its pinned baseline, because clearing is a judgement a thin window cannot make (cerebro's fixture has a 23-hour outage after 2026-10-04T17:00Z, and C1 must hold through it)."
     },
     {
       "id": "C4",

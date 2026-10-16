@@ -1,0 +1,84 @@
+{
+  "workOrder": "drift-check",
+  "what": "J1 of the drift check: each daemon cycle computes and stores a drift check (trailing-24-hour unprioritized share against the median of the previous 28 daily shares, flag at +threshold, pinned baseline and a half-threshold clear line while flagged), logs it, and exposes the latest through GET /api/drift and `prismis-daemon verify`, proven by a replay of cerebro's real history.",
+  "why": "The design is docs/work/drift-check/shape/design.md. From 2026-09-30T17:00Z cerebro's unprioritized share went from ~55% to ~81% (#96) and nothing in prismis noticed for two weeks; a model swap, prompt or context edit, or an over-applying carve-out would look the same. The replay fixture daemon/tests/fixtures/drift/cerebro_hourly_counts.json holds cerebro's hourly item and null-priority counts from before the 2026-10-15 re-score, which rewrote the poisoned scores in the live database.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "a database seeded from daemon/tests/fixtures/drift/cerebro_hourly_counts.json, one content row per counted item at its hour, with a null priority for the counted null ones",
+      "when": "the drift check runs at every 2-hour mark from 2026-01-20T00:00Z to 2026-10-15T12:00Z, each check stored before the next runs, with the default threshold",
+      "then": "No check before 2026-09-30T17:00Z is flagged; the first flagged check is at or before 2026-10-01T17:00Z; and every check from that first flag to 2026-10-15T12:00Z stays flagged. Against a check that recomputes its baseline while flagged, or clears at the full threshold, the 'stays flagged' assertion fails on this data."
+    },
+    {
+      "id": "C2",
+      "given": "a flagged latest check with baseline B and threshold T",
+      "when": "the next check runs on a window whose share is S",
+      "then": "It uses B, not a recomputed baseline; it stays flagged while S - B >= T/2 and clears when S - B < T/2; an unflagged latest check recomputes the baseline and flags only when S - B >= T."
+    },
+    {
+      "id": "C3",
+      "given": "a window with fewer than 20 items, or fewer than 14 qualifying daily windows of history",
+      "when": "the check runs",
+      "then": "It is stored and logged as not judged, with the reason naming which minimum was not met, and is not flagged; it is never stored as an unflagged judgement."
+    },
+    {
+      "id": "C4",
+      "given": "the daemon's real run_once path with a fetcher returning one item and the LLM answered by the local stub",
+      "when": "a cycle completes",
+      "then": "Exactly one new drift_checks row exists for that cycle with checked_at, window item and null counts, share, baseline, deviation, threshold, flagged and reason, and an obs_log drift.check event carries the same values; a failure inside the check is logged with its traceback and does not fail the cycle."
+    },
+    {
+      "id": "C5",
+      "given": "a database with no drift checks, and one whose latest check is flagged",
+      "when": "GET /api/drift and `prismis-daemon verify` are called",
+      "then": "The API returns null data for the first and the latest check's fields for the second; verify prints the latest check's share, baseline and decision and marks a flagged one, and says no check has run yet for the first."
+    },
+    {
+      "id": "C6",
+      "given": "config.toml with [drift] threshold set, and one without a [drift] section",
+      "when": "the config loads",
+      "then": "The check uses the configured threshold, or 0.20 when unset; a threshold outside (0, 1) is refused at load naming the key; the shipped template documents the key."
+    },
+    {
+      "id": "C7",
+      "given": "an existing database from before this change",
+      "when": "the daemon starts",
+      "then": "The migration adds the drift_checks table additively, leaves every existing row unchanged, and a fresh database built from schema.sql has the same table."
+    }
+  ],
+  "issues": [],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "The threshold is set from one user's nine months; normal weekend source-mix swings reached +0.176 against the +0.20 threshold, so another user's mix may need a different value, which is why it is a config value and every deviation is recorded."
+    },
+    {
+      "kind": "cost",
+      "summary": "A regression smaller than 20 points, or one that builds gradually enough to move the 28-day baseline before it crosses the threshold, is not flagged."
+    },
+    {
+      "kind": "cost",
+      "summary": "No push notification: the desktop notifier cannot reach a Linux-hosted daemon's user, and adding a push service is out of this work."
+    },
+    {
+      "kind": "cost",
+      "summary": "Detection is on the share of null priorities only; a regression that shifts HIGH to MEDIUM without changing nulls is not seen."
+    },
+    {
+      "kind": "cost",
+      "summary": "The +0.20 threshold rests on one user's nine months; normal weekend swings reached +0.176 there, so it is a config value and every check records its deviation."
+    },
+    {
+      "kind": "cost",
+      "summary": "The TUI header and web status bar warning are job 2 of this design, built under their own work order; this job exposes the state they will read."
+    }
+  ],
+  "stakes": [
+    "Every daemon cycle records one drift check with the measured share, the baseline, the deviation and the decision, including why it did not judge when items or history are too few.",
+    "The check flags when the trailing-24-hour unprioritized share is at least the configured threshold (default 0.20) above the median of the previous 28 daily shares, with at least 20 items in the window and 14 qualifying baseline windows.",
+    "Replaying cerebro's 2026-01-05..2026-10-04 counts, the check raises no flag before 2026-09-30T17:00Z, raises one no later than 2026-10-01T17:00Z, and keeps it through 2026-10-04.",
+    "The latest check is readable through GET /api/drift and `prismis-daemon verify`.",
+    "While the latest check is flagged, the TUI header and the web status bar say so with the measured and usual shares, and the warning clears when a later check stops flagging.",
+    "While flagged, the check compares against the baseline it flagged with and clears only below that baseline plus half the threshold, so a persisting regression is neither absorbed into a recomputed baseline nor flapping."
+  ]
+}

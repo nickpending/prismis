@@ -1031,3 +1031,53 @@ func TestGetContextSuggestionsUsesOwnTimeout(t *testing.T) {
 		t.Errorf("unexpected suggested topics: %+v", resp.SuggestedTopics)
 	}
 }
+
+// A PATCH that clears a vote must carry user_feedback as an explicit null: the
+// daemon changes the vote only when the key is present in the body (so that a
+// read-only update cannot erase a vote), and encoding/json drops a nil pointer
+// under omitempty, which made the TUI's clear send {} and change nothing.
+func TestUpdateContentRequest_UserFeedbackEncoding(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+	cases := []struct {
+		name     string
+		request  ContentUpdateRequest
+		wantKey  bool
+		wantJSON string
+	}{
+		{"clear sends null", ContentUpdateRequest{UserFeedback: strPtr("")}, true, "null"},
+		{"up sends up", ContentUpdateRequest{UserFeedback: strPtr("up")}, true, `"up"`},
+		{"down sends down", ContentUpdateRequest{UserFeedback: strPtr("down")}, true, `"down"`},
+		{"read-only omits the key", ContentUpdateRequest{Read: func() *bool { b := true; return &b }()}, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var body map[string]json.RawMessage
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				raw, _ := io.ReadAll(r.Body)
+				if err := json.Unmarshal(raw, &body); err != nil {
+					t.Errorf("body is not a JSON object: %q", raw)
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"success":true,"message":"updated"}`))
+			}))
+			defer server.Close()
+
+			client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+			if _, err := client.UpdateContent("content-1", tc.request); err != nil {
+				t.Fatalf("UpdateContent failed: %v", err)
+			}
+			got, present := body["user_feedback"]
+			if present != tc.wantKey {
+				t.Fatalf("user_feedback present=%v, want %v (body keys: %v)", present, tc.wantKey, body)
+			}
+			if tc.wantKey && string(got) != tc.wantJSON {
+				t.Errorf("user_feedback = %s, want %s", got, tc.wantJSON)
+			}
+			if tc.request.Read != nil {
+				if _, ok := body["read"]; !ok {
+					t.Errorf("read missing from a read-only update: %v", body)
+				}
+			}
+		})
+	}
+}

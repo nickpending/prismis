@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nickpending/prismis/internal/config"
+	"github.com/nickpending/prismis/internal/db"
 )
 
 // globalRemoteURL stores the remote URL set via --remote flag
@@ -560,6 +561,31 @@ func (c *APIClient) GetSources() (*SourceListResponse, error) {
 	}
 
 	return &sourceList, nil
+}
+
+// GetDrift retrieves the daemon's latest drift check. Before the first check has run
+// the daemon answers data null, which is a nil check and no error; an error always
+// comes with a nil check.
+func (c *APIClient) GetDrift() (*db.DriftCheck, error) {
+	status, body, err := c.doRequest("GET", "/api/drift", nil, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := authFailedIfForbidden(status); err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, apiErrorOrStatus(status, body)
+	}
+
+	apiResp, err := parseEnvelope[*db.DriftCheck](body)
+	if err != nil {
+		return nil, err
+	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+	}
+	return apiResp.Data, nil
 }
 
 // ContentUpdateRequest represents a request to update content properties.

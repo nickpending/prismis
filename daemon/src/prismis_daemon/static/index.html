@@ -131,6 +131,12 @@
             font-size: 13px;
         }
 
+        .status-drift {
+            color: #FFAA00;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
         .refresh-info {
             flex-basis: 100%;
             font-size: 11px;
@@ -1091,6 +1097,7 @@
                 this.countdownInterval = null;
                 this.isLoading = false;
                 this.isOffline = false;
+                this.drift = null;
                 this.retryAttempts = 0;
                 this.maxRetryAttempts = 3;
                 this.isGeneratingAudio = false;
@@ -1281,6 +1288,33 @@
                 this.startAutoRefresh();
             }
 
+            // The latest drift check, held for updateStatus. Any failure clears it: a
+            // drift read never blocks or alters the feed.
+            async loadDrift() {
+                this.drift = null;
+                try {
+                    const response = await fetch('/api/drift', {
+                        headers: { 'X-API-Key': this.apiKey }
+                    });
+                    if (!response.ok) return;
+                    const body = await response.json();
+                    this.drift = body.success ? body.data : null;
+                } catch (error) {
+                    console.error('Failed to load drift check:', error);
+                }
+            }
+
+            driftWarning() {
+                const check = this.drift;
+                if (!check || !check.flagged) return null;
+                const pct = (v) => `${Math.round(v * 100)}%`;
+                const measured = check.share == null
+                    ? 'too few items to measure'
+                    : `${pct(check.share)} of the last 24 hours' items are unprioritized`;
+                const usual = check.baseline == null ? '?' : pct(check.baseline);
+                return `\u26A0 Drift: ${measured}, usual is ${usual}`;
+            }
+
             async loadContent() {
                 if (this.isLoading) return;
 
@@ -1342,6 +1376,7 @@
                     // Server already filtered to 24h and prioritized items (high,medium,low)
                     this.content = data.data.items || [];
                     this.cachedContent = [...this.content]; // Cache successful response
+                    await this.loadDrift();
                     this.renderContent();
                     this.updateStatus();
 
@@ -1947,13 +1982,16 @@
                     span.textContent = text;
                     return span;
                 };
-                statusInfo.replaceChildren(
+                const spans = [
                     part('status-total', `${total} items`),
                     part('status-count badge-high', `${high} high`),
                     part('status-count badge-medium', `${medium} medium`),
                     part('status-count badge-low', `${low} low`),
                     part('status-unread', `${unread} unread`)
-                );
+                ];
+                const warning = this.driftWarning();
+                if (warning) spans.push(part('status-drift', warning));
+                statusInfo.replaceChildren(...spans);
             }
 
             startAutoRefresh() {

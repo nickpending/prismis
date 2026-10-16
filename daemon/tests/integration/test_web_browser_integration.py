@@ -576,6 +576,105 @@ def test_offline_status_is_plain_text_and_filter_tab_rules_are_gone(
     assert any("status-count" in s for s in selectors), "stylesheet was not read"
 
 
+# --------------------------------------------------------------------------- drift warning
+
+
+FLAGGED_TEXT = "⚠ Drift: 62% of the last 24 hours' items are unprioritized, usual is 54%"
+THIN_TEXT = "⚠ Drift: too few items to measure, usual is ?"
+
+
+def _store_drift(
+    test_db: Path,
+    *,
+    flagged: bool,
+    share: float | None,
+    baseline: float | None,
+) -> None:
+    Storage(test_db).insert_drift_check(
+        {
+            "checked_at": datetime.now(UTC).isoformat(),
+            "window_items": 40,
+            "window_null": 25,
+            "share": share,
+            "baseline": baseline,
+            "baseline_windows": 7,
+            "deviation": None if share is None or baseline is None else share - baseline,
+            "threshold": 0.2,
+            "flagged": flagged,
+            "reason": None,
+        }
+    )
+
+
+def _refresh(page: Page) -> None:
+    page.evaluate("window.prismisApp.loadContent()")
+
+
+def test_flagged_drift_check_adds_one_warning_span_beside_the_counts(
+    pages: PageFactory, test_db: Path
+) -> None:
+    """
+    INVARIANT: a flagged latest drift check puts exactly one .status-drift span in
+               #statusInfo with the daemon's console wording, the thin-window wording
+               when share and baseline are null, and leaves the other spans' text alone
+    BREAKS: a scoring regression stays invisible in the feed the user is reading
+    """
+    _store_drift(test_db, flagged=True, share=0.62, baseline=0.54)
+    page = pages.open()
+    _loaded(page)
+    drift = page.locator("#statusInfo .status-drift")
+    expect(drift).to_have_text(FLAGGED_TEXT)
+    assert drift.count() == 1
+    expect(page.locator("#statusInfo .status-total")).to_have_text(f"{TOTAL} items")
+    expect(page.locator("#statusInfo .badge-high")).to_have_text(f"{HIGH} high")
+    expect(page.locator("#statusInfo .status-unread")).to_have_text(f"{UNREAD} unread")
+
+    _store_drift(test_db, flagged=True, share=None, baseline=None)
+    _refresh(page)
+    expect(drift).to_have_text(THIN_TEXT)
+    assert page.locator("#statusInfo .status-drift").count() == 1
+
+
+def test_drift_warning_clears_when_no_longer_flagged_or_unreadable(
+    pages: PageFactory, test_db: Path
+) -> None:
+    """
+    INVARIANT: the warning is gone after the refresh following an unflagged check, and
+               is absent with no check at all and when GET /api/drift answers 500; the
+               offline status bar keeps zero children
+    BREAKS: a stale warning outlives the regression it reported, or a drift failure
+            breaks the feed
+    """
+    no_check = pages.open()
+    _loaded(no_check)
+    assert no_check.locator("#statusInfo .status-drift").count() == 0
+
+    _store_drift(test_db, flagged=True, share=0.62, baseline=0.54)
+    page = pages.open()
+    expect(page.locator("#statusInfo .status-drift")).to_have_text(FLAGGED_TEXT)
+
+    _store_drift(test_db, flagged=False, share=0.5, baseline=0.54)
+    _refresh(page)
+    expect(page.locator("#statusInfo .status-unread")).to_have_text(f"{UNREAD} unread")
+    assert page.locator("#statusInfo .status-drift").count() == 0
+
+    _store_drift(test_db, flagged=True, share=0.62, baseline=0.54)
+    _refresh(page)
+    expect(page.locator("#statusInfo .status-drift")).to_have_text(FLAGGED_TEXT)
+    page.route(
+        "**/api/drift",
+        lambda route: route.fulfill(
+            status=500, content_type="application/json", body='{"detail":"boom"}'
+        ),
+    )
+    _refresh(page)
+    expect(page.locator("#statusInfo .status-total")).to_have_text(f"{TOTAL} items")
+    assert page.locator("#statusInfo .status-drift").count() == 0
+
+    page.evaluate("window.prismisApp.updateOfflineStatus()")
+    assert page.locator("#statusInfo").evaluate("e => e.children.length") == 0
+
+
 # --------------------------------------------------------------------------- layout
 
 

@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -564,6 +565,50 @@ func CountUpvotedItems() (int, error) {
 	}
 
 	return count, nil
+}
+
+// DriftCheck is one drift_checks row: the daemon's measure of how much of the last 24
+// hours' items came out unprioritized against its usual level. Share and Baseline are nil
+// when the check did not judge. The json tags decode GET /api/drift's data.
+type DriftCheck struct {
+	CheckedAt string   `json:"checked_at"`
+	Share     *float64 `json:"share"`
+	Baseline  *float64 `json:"baseline"`
+	Flagged   bool     `json:"flagged"`
+	Reason    *string  `json:"reason"`
+}
+
+// LatestDriftCheck returns the highest-id drift_checks row, or (nil, nil) when the table
+// is empty. A query failure is an error, so "no check yet" and "could not read" stay
+// distinguishable.
+func LatestDriftCheck() (*DriftCheck, error) {
+	db, err := GetDB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	var check DriftCheck
+	var share, baseline sql.NullFloat64
+	var reason sql.NullString
+	err = db.QueryRow(
+		"SELECT checked_at, share, baseline, flagged, reason FROM drift_checks ORDER BY id DESC LIMIT 1",
+	).Scan(&check.CheckedAt, &share, &baseline, &check.Flagged, &reason)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read latest drift check: %w", err)
+	}
+	if share.Valid {
+		check.Share = &share.Float64
+	}
+	if baseline.Valid {
+		check.Baseline = &baseline.Float64
+	}
+	if reason.Valid {
+		check.Reason = &reason.String
+	}
+	return &check, nil
 }
 
 // GetDistinctKinds returns the sorted, deduplicated set of kind values present in

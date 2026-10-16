@@ -35,6 +35,7 @@ type Model struct {
 	height            int            // Terminal height
 	showUnprioritized bool           // Show items with null/empty priority (default false)
 	hiddenCount       int            // Count of hidden unprioritized items
+	drift             *db.DriftCheck // Latest drift check from the last item reload (nil = none or unreadable)
 	// View state fields for header display
 	showAll         bool     // Show all items vs unread only (default false - unread only)
 	showArchived    bool     // Show archived items only (default false - exclude archived)
@@ -88,9 +89,11 @@ type itemsLoadedMsg struct {
 	hiddenCount    int      // Count of unprioritized items that were filtered out
 	availableKinds []string // Kind values present in the data, for the kind filter cycle
 	err            error
-	preserveCursor bool   // If true, try to preserve cursor position
-	targetItemID   string // Item ID to position cursor on (if preserveCursor is true)
-	isAutoRefresh  bool   // If true, this was triggered by auto-refresh timer
+	driftRead      bool           // True when this load read the latest drift check; false leaves the held one alone
+	drift          *db.DriftCheck // The check that read returned (nil = none or unreadable)
+	preserveCursor bool           // If true, try to preserve cursor position
+	targetItemID   string         // Item ID to position cursor on (if preserveCursor is true)
+	isAutoRefresh  bool           // If true, this was triggered by auto-refresh timer
 	// Remote mode fields
 	allItems    []db.ContentItem // Unfiltered items for caching (remote mode only)
 	updateCache bool             // If true, update cache and lastSync
@@ -870,6 +873,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.items = msg.items
 			m.hiddenCount = msg.hiddenCount
 			m.availableKinds = msg.availableKinds
+			if msg.driftRead {
+				m.drift = msg.drift
+			}
 
 			// The saved kind is judged once, against the first data that loads: a kind the
 			// data no longer holds falls back to all, and the list reloads under it.
@@ -1255,9 +1261,31 @@ func fetchItemsWithState(m Model, refreshData bool) tea.Cmd {
 			items:          applyFiltersClientSide(allItems, m),
 			hiddenCount:    countHiddenUnprioritized(allItems, m),
 			availableKinds: kinds,
+			driftRead:      true,
+			drift:          localDrift(),
 			err:            nil,
 		}
 	}
+}
+
+// localDrift reads the latest drift check from the local database. A read error is no
+// check: the feed loads and renders as it does without drift.
+func localDrift() *db.DriftCheck {
+	check, err := db.LatestDriftCheck()
+	if err != nil {
+		return nil
+	}
+	return check
+}
+
+// remoteDrift reads the latest drift check from GET /api/drift. A read error is no
+// check, for the same reason as localDrift.
+func remoteDrift(client *api.APIClient) *db.DriftCheck {
+	check, err := client.GetDrift()
+	if err != nil {
+		return nil
+	}
+	return check
 }
 
 // buildRefreshCmd returns a tea.Cmd that reloads items and preserves the
@@ -1293,6 +1321,8 @@ func (m *Model) buildRefreshCmd(isAutoRefresh bool) tea.Cmd {
 					items:          applyFiltersClientSide(allItems, *m),
 					hiddenCount:    countHiddenUnprioritized(allItems, *m),
 					availableKinds: kinds,
+					driftRead:      true,
+					drift:          localDrift(),
 					err:            nil,
 				}
 			}
@@ -1408,6 +1438,8 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 		updateCache:    true,
 		newLastSync:    newestFetchedAt,
 		mergedIDs:      mergedIDs,
+		driftRead:      true,
+		drift:          remoteDrift(client),
 		err:            nil,
 	}
 }

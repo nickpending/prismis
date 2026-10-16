@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/nickpending/prismis/internal/db"
@@ -86,6 +87,24 @@ func buildViewStateString(m Model) string {
 	return strings.Join(states, " | ")
 }
 
+// driftWarningText is the header's drift line, or "" when there is no flagged check.
+// The wording matches the daemon's console line and the web status bar: a missing
+// share reads "too few items to measure" and a missing baseline "?".
+func driftWarningText(check *db.DriftCheck) string {
+	if check == nil || !check.Flagged {
+		return ""
+	}
+	measured := "too few items to measure"
+	if check.Share != nil {
+		measured = fmt.Sprintf("%.0f%% of the last 24 hours' items are unprioritized", *check.Share*100)
+	}
+	usual := "?"
+	if check.Baseline != nil {
+		usual = fmt.Sprintf("%.0f%%", *check.Baseline*100)
+	}
+	return fmt.Sprintf("⚠ Drift: %s, usual is %s", measured, usual)
+}
+
 // RenderList renders the feed view with clean cyber styling
 func RenderList(m Model) string {
 	// Use defaults if WindowSizeMsg hasn't arrived yet
@@ -121,6 +140,14 @@ func RenderList(m Model) string {
 	stateTimeString := fmt.Sprintf("%s  ◆ %s ", stateString, timeString) // Add space for right padding
 	availableWidth := width - len(title) - len(stateTimeString)
 
+	// While the latest drift check is flagged, the warning sits between the title and
+	// the state segment on this same line; the gradient render truncates on the right.
+	warning := ""
+	if text := driftWarningText(m.drift); text != "" {
+		warning = "  " + text
+		availableWidth -= utf8.RuneCountInString(warning)
+	}
+
 	var spacing string
 	if availableWidth > 0 {
 		spacing = strings.Repeat(" ", availableWidth)
@@ -129,7 +156,7 @@ func RenderList(m Model) string {
 	}
 
 	// Combine all parts to full width
-	headerContent := fmt.Sprintf("%s%s%s", title, spacing, stateTimeString)
+	headerContent := fmt.Sprintf("%s%s%s%s", title, warning, spacing, stateTimeString)
 
 	// Create gradient background for the full width header (no additional styling)
 	header := RenderWithGradientBackground(headerContent, width, string(theme.Cyan), string(theme.VibrantPurple))

@@ -1,0 +1,75 @@
+{
+  "workOrder": "drift-warning",
+  "what": "J2 of the drift check: while the daemon's latest drift check is flagged, the TUI header and the web status bar carry one warning line naming the measured and usual unprioritized shares (with the thin-window wording when either is missing), read from GET /api/drift in remote mode and from drift_checks in local mode on the same refresh that reloads items, and the line is gone on the first refresh after a check stops flagging; unflagged, both surfaces render exactly what they render today.",
+  "why": "The design is docs/work/drift-warning/design.md. J1 (v0.3.5) detects a scoring regression within a day but records it in a table, a log event, GET /api/drift and verify, none of which the user has open while reading; #97's failure was the user finding the regression by eye two weeks late, and this is the half that puts the flag in the feed. The warning text matches the daemon's own console line (orchestrator.py's _record_drift_check): '⚠ Drift: <share>% of the last 24 hours' items are unprioritized, usual is <baseline>%', with 'too few items to measure' for a missing share and '?' for a missing baseline.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "the real app serving the web page over a database whose latest drift_checks row is flagged with share 0.62 and baseline 0.54, and a second database whose latest row is flagged with share and baseline null (a flag carried through a thin window)",
+      "when": "the page loads in Chromium",
+      "then": "#statusInfo holds exactly one .status-drift span reading '⚠ Drift: 62% of the last 24 hours' items are unprioritized, usual is 54%' for the first, and '⚠ Drift: too few items to measure, usual is ?' for the second, beside the existing total, priority and unread spans, which keep their text."
+    },
+    {
+      "id": "C2",
+      "given": "the web page showing the warning, then a later unflagged drift_checks row stored; and separately a database with no drift_checks row, and a daemon whose GET /api/drift answers 500",
+      "when": "loadContent runs again (the 30-second refresh or a manual refresh), or the page loads in the latter two cases",
+      "then": "no .status-drift span exists in #statusInfo in any of the three cases, the feed and the other status spans render as they do today, and the offline status bar still has zero children."
+    },
+    {
+      "id": "C3",
+      "given": "a Model in remote mode against a real HTTP server answering GET /api/drift with a flagged check (share 0.62, baseline 0.54), with an unflagged check, with data null, with a thin-window flagged check (share and baseline null), and with a 500",
+      "when": "the refresh that reloads items runs (buildRefreshCmd and the initial load) and the list view renders",
+      "then": "for the flagged check the header line contains '⚠ Drift: 62% of the last 24 hours' items are unprioritized, usual is 54%' left of the view-state and clock segment on the same single line, the thin-window check shows 'too few items to measure' and '?', and the rendered view has the same number of rows as today; for unflagged, null and 500 the header is byte-identical to today's and the items still load (a drift error never sets itemsLoadedMsg.err)."
+    },
+    {
+      "id": "C4",
+      "given": "a real SQLite database built from the daemon's schema with drift_checks holding a flagged latest row (plus an older unflagged one), and one with an empty drift_checks table",
+      "when": "the TUI's local-mode refresh runs",
+      "then": "db.LatestDriftCheck returns the highest-id row with Flagged true and nullable share and baseline for the first, and nil with no error for the second, distinguishable from a query error; and the list view's header shows the warning for the first and today's header for the second."
+    },
+    {
+      "id": "C5",
+      "given": "a TUI (remote or local) rendering the warning from a flagged check",
+      "when": "a later unflagged check becomes the latest and the next refresh runs",
+      "then": "the header no longer contains the warning and is byte-identical to today's header."
+    },
+    {
+      "id": "C6",
+      "given": "the api package's GetDrift against servers answering data null, a flagged check, 403 and 500",
+      "when": "it is called",
+      "then": "null data returns a nil check and no error, the flagged check decodes to a db.DriftCheck with Flagged true and the nullable fields set, 403 returns the client's auth-failed error, and 500 returns an error; a nil check and an error are never the same value."
+    }
+  ],
+  "issues": [
+    97
+  ],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "The warning is only as current as the surface's own refresh: 30 s on the web, the TUI's auto-refresh interval or a manual refresh in the TUI; nothing pushes it."
+    },
+    {
+      "kind": "cost",
+      "summary": "The TUI shows the warning only in the list view's header; the reader and other views do not repeat it."
+    },
+    {
+      "kind": "cost",
+      "summary": "No link from the warning to the check's history; the deviation and threshold stay in GET /api/drift and verify."
+    },
+    {
+      "kind": "cost",
+      "summary": "The warning text is rendered three times, in the daemon's console line, the web JS and the TUI Go, from the same fields; each surface's test pins the wording, and a change to it must touch all three."
+    },
+    {
+      "kind": "cost",
+      "summary": "On a terminal narrower than the header text, a flagged header truncates the view state and clock on the right; the warning survives and the layout keeps its five rows."
+    }
+  ],
+  "stakes": [
+    "While the latest drift check is flagged, the TUI header and the web status bar show one warning line naming the measured and usual unprioritized shares, with the thin-window wording when the share or baseline is missing.",
+    "The warning clears on the first refresh after a later check stops flagging, on both surfaces.",
+    "The TUI reads the latest check from GET /api/drift in remote mode and from the drift_checks table in local mode, on the same refresh that reloads items.",
+    "A missing or failed drift read never blocks or alters the feed: no check, an unflagged check and a read error all render no warning.",
+    "Unflagged, both surfaces render exactly what they render today."
+  ]
+}

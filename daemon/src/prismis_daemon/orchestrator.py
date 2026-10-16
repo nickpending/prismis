@@ -9,6 +9,7 @@ from rich.console import Console
 from .analysis import build_llm_analysis, content_basis
 from .config import Config, read_context_text
 from .deep_extractor import ContentDeepExtractor
+from .drift import run_drift_check
 from .embeddings import Embedder
 from .evaluator import ContentEvaluator
 from .kind_classifier import KindClassifier
@@ -671,6 +672,8 @@ class DaemonOrchestrator:
         if force_refetch:
             self.console.print("🔄 Force refetch was enabled")
 
+        self._record_drift_check()
+
         # Log cycle complete
         duration_ms = int((time.time() - start_time) * 1000)
         obs_log(
@@ -685,6 +688,23 @@ class DaemonOrchestrator:
         )
 
         return stats
+
+    def _record_drift_check(self) -> None:
+        """Run, store and log this cycle's drift check; say so when it flags.
+
+        Cycle boundary: a failure of the check is logged with its traceback and never
+        fails the cycle that already fetched and scored its items.
+        """
+        try:
+            check = run_drift_check(self.storage, self.config.drift_threshold)
+        except Exception:
+            logger.exception("Drift check failed")
+            return
+        if check.flagged:
+            self.console.print(
+                f"[bold yellow]⚠ Drift: {check.share:.0%} of the last 24 hours' items "
+                f"are unprioritized, usual is {check.baseline:.0%}[/bold yellow]"
+            )
 
     def _merge_analysis(self, existing_analysis: dict, llm_analysis: dict) -> dict:
         """Merge existing fetcher analysis with new LLM analysis.

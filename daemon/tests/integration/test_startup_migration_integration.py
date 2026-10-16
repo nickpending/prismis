@@ -26,6 +26,7 @@ from typer.testing import CliRunner
 
 from conftest import configure_local_services
 from prismis_daemon.__main__ import app
+from prismis_daemon.database import _MIGRATIONS
 
 # The provider boundary: the stub serves chat completions and the feed but not the
 # model list that llm_client.health_check reads, so the startup health check is answered
@@ -121,7 +122,7 @@ def test_startup_once_migrates_naive_database_before_first_fetch(
         result = CliRunner().invoke(app, ["--once"])
 
     assert result.exit_code == 0, result.output
-    assert _scalar(db, "PRAGMA user_version") == 1
+    assert _scalar(db, "PRAGMA user_version") == len(_MIGRATIONS)
     assert _naive_cells(db) == []
 
     fetched_rows = _scalar(db, "SELECT COUNT(*) FROM content WHERE id != 'old-1'")

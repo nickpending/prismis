@@ -354,6 +354,45 @@ The running daemon's version, shown in the web UI header. Requires the API key;
 
 ---
 
+### Drift Check
+
+**`GET /api/drift`**
+
+The latest drift check. Each daemon cycle compares the share of items created in the
+last 24 hours that have no priority with the median of the 28 daily shares before it,
+and flags when the share is at least `[drift] threshold` (default 0.20) above that
+median. While flagged, the check keeps the baseline it flagged with and clears only
+when the share falls below that baseline plus half the threshold. Requires the API key.
+
+`data` is `null` before the first check has run.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Drift check retrieved",
+  "data": {
+    "id": 412,
+    "checked_at": "2026-10-04T12:00:00+00:00",
+    "window_items": 93,
+    "window_null": 75,
+    "share": 0.806,
+    "baseline": 0.552,
+    "baseline_windows": 28,
+    "deviation": 0.254,
+    "threshold": 0.2,
+    "flagged": true,
+    "reason": null
+  }
+}
+```
+
+A check that did not judge (fewer than 20 items in the window, or fewer than 14
+qualifying daily windows of history) has `flagged: false`, `deviation: null`, and a
+`reason` naming the minimum that was not met.
+
+---
+
 ### Update Entry Status
 
 **`PATCH /api/entries/{content_id}`**

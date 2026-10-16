@@ -1126,6 +1126,29 @@ async def get_version() -> dict:
     }
 
 
+@app.get("/api/drift", dependencies=[Depends(verify_api_key)])
+async def get_drift(storage: Storage = Depends(get_storage)) -> dict:
+    """Get the latest drift check: the last 24 hours' unprioritized share against
+    its usual level, and whether it flagged.
+
+    Returns:
+        JSON response whose data is the latest check's fields (checked_at,
+        window_items, window_null, share, baseline, baseline_windows, deviation,
+        threshold, flagged, reason), or null before the first check has run.
+    """
+    try:
+        check = storage.latest_drift_check()
+        return {
+            "success": True,
+            "message": "Drift check retrieved"
+            if check
+            else "No drift check has run yet",
+            "data": check,
+        }
+    except Exception as e:
+        raise _server_error("Failed to get drift check", e) from e
+
+
 @app.get("/api/kinds", dependencies=[Depends(verify_api_key)])
 async def get_kinds(
     since_hours: int | None = Query(

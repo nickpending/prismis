@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from conftest import add_new_content
+from prismis_daemon.drift import run_drift_check
 from prismis_daemon.models import ContentItem
 from prismis_daemon.storage import Storage, utc_now_iso
 
@@ -116,6 +117,8 @@ def _exercise_every_write_path(storage: Storage) -> None:
     storage.update_content_status(second, user_feedback="up")
     check()
     storage.add_embedding(first, [0.1] * 384, "model-x")
+    check()
+    run_drift_check(storage, 0.20)
     check()
 
     # Backdate so archive_old_content selects the low-priority item.

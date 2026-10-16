@@ -94,6 +94,22 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_content USING vec0(
 
 CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
 
+-- Drift checks: one row per daemon cycle, never updated. share/baseline/deviation
+-- are NULL when the check did not judge; reason then says which minimum was not met.
+CREATE TABLE IF NOT EXISTS drift_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    checked_at TEXT NOT NULL,  -- ISO 8601 with +00:00
+    window_items INTEGER NOT NULL,  -- items created in the trailing 24 hours
+    window_null INTEGER NOT NULL,  -- of those, items with a null priority
+    share REAL,
+    baseline REAL,
+    baseline_windows INTEGER NOT NULL,  -- qualifying daily windows behind the baseline
+    deviation REAL,
+    threshold REAL NOT NULL,
+    flagged INTEGER NOT NULL CHECK(flagged IN (0, 1)),
+    reason TEXT
+);
+
 -- Triggers to update updated_at timestamps
 CREATE TRIGGER IF NOT EXISTS update_sources_timestamp
 AFTER UPDATE ON sources

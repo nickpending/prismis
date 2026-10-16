@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 import sqlite_vec
 
-from prismis_daemon.database import init_db
+from prismis_daemon.database import _MIGRATIONS, init_db
 
 OLD_SCHEMA = (
     Path(__file__).parent.parent / "fixtures" / "schema_before_tz.sql"
@@ -214,7 +214,7 @@ def test_migration_converts_every_naive_timestamp_and_keeps_updated_at(
     assert published["c3"] == AWARE
     assert published["c4"] is None
 
-    assert _user_version(db) == 1
+    assert _user_version(db) == len(_MIGRATIONS)
 
 
 def test_migration_writes_backup_with_pre_migration_content(tmp_path: Path) -> None:
@@ -280,7 +280,7 @@ def test_migration_second_run_changes_nothing(tmp_path: Path) -> None:
 
     init_db(db)
 
-    assert _user_version(db) == 1
+    assert _user_version(db) == len(_MIGRATIONS)
     assert not _backup(db).exists(), "a second run must not take a second backup"
     assert _dump(db) == after_first
 
@@ -294,7 +294,7 @@ def test_migration_fresh_database_is_stamped_without_backup(tmp_path: Path) -> N
 
     init_db(db)
 
-    assert _user_version(db) == 1
+    assert _user_version(db) == len(_MIGRATIONS)
     assert not _backup(db).exists()
 
 
@@ -355,7 +355,7 @@ def test_migration_stale_backup_is_kept_and_a_fresh_one_taken(tmp_path: Path) ->
     conn.close()
     init_db(db)
 
-    assert _user_version(db) == 1
+    assert _user_version(db) == len(_MIGRATIONS)
     conn = _connect(_backup(db))
     try:
         assert conn.execute(

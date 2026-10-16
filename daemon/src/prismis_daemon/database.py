@@ -98,9 +98,37 @@ def _migrate_1_tz_aware_timestamps(conn: sqlite3.Connection) -> None:
         )
 
 
+_DRIFT_CHECKS_DDL = """
+CREATE TABLE IF NOT EXISTS drift_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    checked_at TEXT NOT NULL,
+    window_items INTEGER NOT NULL,
+    window_null INTEGER NOT NULL,
+    share REAL,
+    baseline REAL,
+    baseline_windows INTEGER NOT NULL,
+    deviation REAL,
+    threshold REAL NOT NULL,
+    flagged INTEGER NOT NULL CHECK(flagged IN (0, 1)),
+    reason TEXT
+)
+"""
+
+
+def _migrate_2_drift_checks(conn: sqlite3.Connection) -> None:
+    """Add the drift_checks table. Additive: no existing row or table is touched.
+
+    schema.sql runs before the migrations and already creates the table, so on a
+    started database this is a guard and the version bump; it carries the DDL itself so
+    the migration stands on its own.
+    """
+    conn.execute(_DRIFT_CHECKS_DDL)
+
+
 # Numbered migrations: entry N takes a database from user_version N-1 to N.
 _MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _migrate_1_tz_aware_timestamps,
+    _migrate_2_drift_checks,
 ]
 
 

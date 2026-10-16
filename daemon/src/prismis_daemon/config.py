@@ -174,6 +174,10 @@ class Config:
     # Off, the default, votes are recorded and nothing else happens.
     learn_from_votes: bool = False
 
+    # [drift] threshold: how far above its usual level (0-1, as a share) the last 24
+    # hours' unprioritized share must sit to flag a drift check. 0.20 when unset.
+    drift_threshold: float = 0.20
+
     # Where context.md lives, set by `from_file`. The orchestrator re-reads it at the
     # start of every cycle; None (a hand-built Config) means `context` is final.
     context_path: Path | None = None
@@ -256,6 +260,18 @@ class Config:
                 f"hackernews_max_comments must be >= 0 (0 means unlimited), got {self.hackernews_max_comments}"
             )
 
+        # Validate drift_threshold: a share difference, so strictly inside (0, 1).
+        # bool is an int subclass and TOML true would otherwise read as 1.
+        if (
+            isinstance(self.drift_threshold, bool)
+            or not isinstance(self.drift_threshold, int | float)
+            or not 0 < self.drift_threshold < 1
+        ):
+            raise ValueError(
+                f"[drift] threshold must be greater than 0 and less than 1, "
+                f"got {self.drift_threshold!r}"
+            )
+
         # Warn if Reddit credentials are not set (don't fail validation)
         if not self.has_reddit_credentials:
             print(
@@ -314,6 +330,7 @@ class Config:
         audio = config_dict.get("audio", {})
         archival = config_dict.get("archival", {})
         context_config = config_dict.get("context", {})
+        drift = config_dict.get("drift", {})
 
         context_file = config_path.parent / "context.md"
         context_content = read_context_text(context_file)
@@ -394,6 +411,7 @@ class Config:
                 archival_medium_read=archival["windows"]["medium_read"],
                 archival_low_unread=archival["windows"]["low_unread"],
                 archival_low_read=archival["windows"]["low_read"],
+                drift_threshold=drift.get("threshold", 0.20),
                 learn_from_votes=context_config.get("learn_from_votes", False),
                 context_path=context_file,
             )

@@ -720,6 +720,25 @@ def migrate_config() -> None:
     )
 
 
+def _print_drift_line(check: dict | None) -> None:
+    """Print verify's drift line: the latest check's share, baseline and decision."""
+    if check is None:
+        console.print("[yellow]○ drift: no check has run yet[/yellow]")
+        return
+    when = check["checked_at"]
+    if check["reason"] is not None:
+        console.print(f"[yellow]○ drift ({when}): {check['reason']}[/yellow]")
+        return
+    detail = (
+        f"share {check['share']:.0%}, baseline {check['baseline']:.0%}, "
+        f"deviation {check['deviation']:+.0%}, threshold {check['threshold']:.0%}"
+    )
+    if check["flagged"]:
+        console.print(f"[bold red]⚠ drift FLAGGED ({when}): {detail}[/bold red]")
+    else:
+        console.print(f"[green]✓ drift ok ({when}): {detail}[/green]")
+
+
 @app.command()
 def verify(
     # Annotated form, not `x: bool = typer.Option(...)`: the latter leaves an OptionInfo
@@ -856,6 +875,13 @@ def verify(
                 f"{heading.removeprefix('## ')}: {n}" for heading, n in counts.items()
             )
             console.print(f"[green]✓ context.md valid ({summary})[/green]")
+
+    # 7. Latest drift check. A measurement, not a setup check: a flagged one is marked
+    # but never counts toward failures.
+    try:
+        _print_drift_line(Storage().latest_drift_check())
+    except (sqlite3.Error, OSError) as e:
+        console.print(f"[yellow]○ drift: could not read the latest check: {e}[/yellow]")
 
     # Roll-up
     if failures == 0:

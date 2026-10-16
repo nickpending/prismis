@@ -27,7 +27,7 @@ from prismis_daemon import llm_client
 from prismis_daemon.__main__ import verify
 from prismis_daemon.storage import Storage
 
-from conftest import unreachable_service_error
+from conftest import strip_ansi, unreachable_service_error
 
 # External API boundary -- llm_client.health_check is a third-party network call.
 # Patched where verify() looks it up (module attribute, not the imported symbol) --
@@ -675,3 +675,102 @@ def test_verify_fails_when_context_file_is_absent(monkeypatch, test_db, capsys) 
 
     assert code == 1
     assert "context.md not found" in out
+
+
+# --- Drift line (drift-check work order, C5) -----------------------------------
+
+
+def _store_drift_check(test_db: Path, **overrides: object) -> None:
+    check = {
+        "checked_at": "2026-10-04T12:00:00+00:00",
+        "window_items": 100,
+        "window_null": 81,
+        "share": 0.81,
+        "baseline": 0.55,
+        "baseline_windows": 28,
+        "deviation": 0.26,
+        "threshold": 0.20,
+        "flagged": True,
+        "reason": None,
+    }
+    check.update(overrides)
+    Storage(test_db).insert_drift_check(check)
+
+
+def _run_verify_for_drift(monkeypatch, test_db, capsys) -> tuple[int, str]:
+    tmpdir, _ = _make_config_dir(_LIGHT_ONLY_CONFIG)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmpdir))
+    _seed_source(test_db)
+    with patch(_HEALTH_CHECK_MOCK, return_value=None):
+        with pytest.raises(SystemExit) as exc_info:
+            verify()
+    return int(str(exc_info.value.code)), strip_ansi(capsys.readouterr().out)
+
+
+def test_verify_says_no_drift_check_has_run_yet(monkeypatch, test_db, capsys) -> None:
+    """
+    INVARIANT: with no stored check, verify says so and still passes
+    BREAKS: a fresh install shows a blank or a crash where the drift line belongs
+    """
+    code, out = _run_verify_for_drift(monkeypatch, test_db, capsys)
+
+    assert code == 0
+    assert "drift: no check has run yet" in out
+
+
+def test_verify_marks_a_flagged_check_with_its_shares_but_does_not_fail(
+    monkeypatch, test_db, capsys
+) -> None:
+    """
+    INVARIANT: a flagged latest check is printed with its share, baseline and decision
+               and marked; it is a measurement, so the exit code stays 0
+    BREAKS: the operator is not told scoring has gone quiet, or a healthy install is
+            reported as broken because its scoring drifted
+    """
+    _store_drift_check(test_db)
+
+    code, out = _run_verify_for_drift(monkeypatch, test_db, capsys)
+
+    assert code == 0
+    assert "drift FLAGGED" in out
+    assert "share 81%" in out
+    assert "baseline 55%" in out
+
+
+def test_verify_does_not_mark_an_unflagged_check(monkeypatch, test_db, capsys) -> None:
+    """
+    INVARIANT: an unflagged latest check is printed with its shares and no flag mark
+    BREAKS: every verify run cries wolf
+    """
+    _store_drift_check(
+        test_db, share=0.56, baseline=0.55, deviation=0.01, flagged=False
+    )
+
+    code, out = _run_verify_for_drift(monkeypatch, test_db, capsys)
+
+    assert code == 0
+    assert "drift ok" in out and "share 56%" in out and "baseline 55%" in out
+    assert "FLAGGED" not in out
+
+
+def test_verify_reports_why_the_latest_check_did_not_judge(
+    monkeypatch, test_db, capsys
+) -> None:
+    """
+    INVARIANT: a check that did not judge is printed with its reason, not as a pass
+    BREAKS: a quiet system reads as a verified-healthy one
+    """
+    _store_drift_check(
+        test_db,
+        share=None,
+        baseline=None,
+        deviation=None,
+        flagged=False,
+        reason="not judged: window holds 3 items, fewer than the 20 needed",
+    )
+
+    code, out = _run_verify_for_drift(monkeypatch, test_db, capsys)
+
+    assert code == 0
+    assert "not judged: window holds 3 items" in out
+    assert "drift ok" not in out

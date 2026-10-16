@@ -1738,6 +1738,91 @@ class Storage:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get latest content for source: {e}") from e
 
+    def drift_window_counts(
+        self, end: datetime, windows: int
+    ) -> list[tuple[int, int]]:
+        """Item and null-priority counts for consecutive 24-hour windows ending at `end`.
+
+        Window 0 is the trailing 24 hours, (end - 24h, end]; window k is the 24 hours
+        before window k-1. Counts every item by created_at, archived or not, so a later
+        archival never changes what an earlier window held.
+
+        Args:
+            end: The instant the newest window ends at.
+            windows: How many windows to count (window 0 included).
+
+        Returns:
+            One (items, null_priority_items) pair per window, newest first, zeros for
+            a window with no items.
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        end_epoch = int(end.timestamp())
+        span = windows * 86400
+        # created_at is ISO 8601 with an offset, so strftime('%s') reads it to whole
+        # epoch seconds; a row at second t sits in window (end - t) / 86400, integer
+        # division. The text comparison, a day wider than the span each side, is only
+        # a cheap prefilter so the strftime work runs on the few rows near the span.
+        margin = timedelta(days=1)
+        lo = (datetime.fromtimestamp(end_epoch - span, UTC) - margin).isoformat()
+        hi = (datetime.fromtimestamp(end_epoch, UTC) + margin).isoformat()
+        rows = self.conn.execute(
+            """
+            SELECT (:end - CAST(strftime('%s', created_at) AS INTEGER)) / 86400,
+                   COUNT(*), SUM(priority IS NULL)
+            FROM content
+            WHERE created_at > :lo AND created_at < :hi
+              AND CAST(strftime('%s', created_at) AS INTEGER) > :end - :span
+              AND CAST(strftime('%s', created_at) AS INTEGER) <= :end
+            GROUP BY 1
+            """,
+            {"end": end_epoch, "span": span, "lo": lo, "hi": hi},
+        ).fetchall()
+        counts = [(0, 0)] * windows
+        for window, items, nulls in rows:
+            counts[window] = (items, nulls)
+        return counts
+
+    def insert_drift_check(self, check: dict[str, Any]) -> None:
+        """Store one drift check row. Rows are never updated.
+
+        Args:
+            check: The drift_checks columns by name (the fields of a DriftCheck).
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        self.conn.execute(
+            """
+            INSERT INTO drift_checks (
+                checked_at, window_items, window_null, share, baseline,
+                baseline_windows, deviation, threshold, flagged, reason
+            )
+            VALUES (
+                :checked_at, :window_items, :window_null, :share, :baseline,
+                :baseline_windows, :deviation, :threshold, :flagged, :reason
+            )
+            """,
+            {**check, "flagged": int(check["flagged"])},
+        )
+        self.conn.commit()
+
+    def latest_drift_check(self) -> dict[str, Any] | None:
+        """The most recently stored drift check, or None before the first.
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        row = self.conn.execute(
+            "SELECT * FROM drift_checks ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
+        check = dict(row)
+        check["flagged"] = bool(check["flagged"])
+        return check
+
     def count_unprioritized(self, days: int | None = None) -> int:
         """Count unprioritized content items, optionally filtered by age.
 

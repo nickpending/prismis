@@ -86,6 +86,12 @@ low_read = 7
 # Propose context.md carve-outs from your downvotes. Off: votes are recorded and
 # nothing else happens. Nothing is written to context.md without your accepting it.
 learn_from_votes = false
+
+[drift]
+# Every cycle compares the unprioritized share of the last 24 hours with its usual
+# level (the median of the 28 days before). The check flags when the share is at least
+# this far above usual: 0.20 = 20 percentage points. Raise it if quiet weekends flag.
+# threshold = 0.20
 """
 
 DEFAULT_CONTEXT_MD = """# Personal Context for Prismis

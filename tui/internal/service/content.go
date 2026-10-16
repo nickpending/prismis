@@ -94,16 +94,10 @@ func SetUserFeedback(contentID string, vote string) error {
 		return err
 	}
 
-	// Use nil for empty string to clear the vote
-	var votePtr *string
-	if vote == "" {
-		votePtr = nil
-	} else {
-		votePtr = &vote
-	}
-
+	// "" clears: the request encodes it as an explicit null, which the daemon
+	// needs to see before it will drop a vote.
 	request := api.ContentUpdateRequest{
-		UserFeedback: votePtr,
+		UserFeedback: &vote,
 	}
 
 	_, err := globalContentService.client.UpdateContent(contentID, request)

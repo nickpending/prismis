@@ -562,12 +562,39 @@ func (c *APIClient) GetSources() (*SourceListResponse, error) {
 	return &sourceList, nil
 }
 
-// ContentUpdateRequest represents a request to update content properties
+// ContentUpdateRequest represents a request to update content properties.
+// A nil field is left out of the PATCH body and the daemon leaves it as it is.
+// UserFeedback follows the TUI's vote convention: "up", "down", or "" to clear.
 type ContentUpdateRequest struct {
-	Read                *bool   `json:"read,omitempty"`
-	Favorited           *bool   `json:"favorited,omitempty"`
-	InterestingOverride *bool   `json:"interesting_override,omitempty"`
-	UserFeedback        *string `json:"user_feedback,omitempty"`
+	Read                *bool
+	Favorited           *bool
+	InterestingOverride *bool
+	UserFeedback        *string
+}
+
+// MarshalJSON writes only the fields that were set. A clear ("") goes out as an
+// explicit null: the daemon changes the vote only when the key is present, so a
+// read-only update cannot erase a vote, and omitempty would drop a nil pointer and
+// turn a clear into a no-op.
+func (r ContentUpdateRequest) MarshalJSON() ([]byte, error) {
+	body := map[string]any{}
+	if r.Read != nil {
+		body["read"] = *r.Read
+	}
+	if r.Favorited != nil {
+		body["favorited"] = *r.Favorited
+	}
+	if r.InterestingOverride != nil {
+		body["interesting_override"] = *r.InterestingOverride
+	}
+	if r.UserFeedback != nil {
+		if *r.UserFeedback == "" {
+			body["user_feedback"] = nil
+		} else {
+			body["user_feedback"] = *r.UserFeedback
+		}
+	}
+	return json.Marshal(body)
 }
 
 // UpdateContent updates content properties (read/favorited status)

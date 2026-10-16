@@ -697,14 +697,19 @@ class DaemonOrchestrator:
         """
         try:
             check = run_drift_check(self.storage, self.config.drift_threshold)
+            if check.flagged:
+                # A flag carried through a window too thin to judge has no share.
+                measured = (
+                    "too few items to measure"
+                    if check.share is None
+                    else f"{check.share:.0%} of the last 24 hours' items are unprioritized"
+                )
+                usual = "?" if check.baseline is None else f"{check.baseline:.0%}"
+                self.console.print(
+                    f"[bold yellow]⚠ Drift: {measured}, usual is {usual}[/bold yellow]"
+                )
         except Exception:
             logger.exception("Drift check failed")
-            return
-        if check.flagged:
-            self.console.print(
-                f"[bold yellow]⚠ Drift: {check.share:.0%} of the last 24 hours' items "
-                f"are unprioritized, usual is {check.baseline:.0%}[/bold yellow]"
-            )
 
     def _merge_analysis(self, existing_analysis: dict, llm_analysis: dict) -> dict:
         """Merge existing fetcher analysis with new LLM analysis.

@@ -753,6 +753,30 @@ def test_verify_does_not_mark_an_unflagged_check(monkeypatch, test_db, capsys) -
     assert "FLAGGED" not in out
 
 
+def test_verify_marks_a_flag_kept_through_a_check_that_did_not_judge(
+    monkeypatch, test_db, capsys
+) -> None:
+    """
+    INVARIANT: a flagged check that did not judge (flag carried through a thin window)
+               is marked FLAGGED with its reason and baseline, not printed as a plain
+               not-judged line
+    BREAKS: verify shows a quiet yellow line while the warning is still standing
+    """
+    _store_drift_check(
+        test_db,
+        share=None,
+        deviation=None,
+        reason="not judged: window holds 0 items, fewer than the 20 needed",
+    )
+
+    code, out = _run_verify_for_drift(monkeypatch, test_db, capsys)
+
+    assert code == 0
+    assert "drift FLAGGED" in out
+    assert "window holds 0 items" in " ".join(out.split())  # Rich wraps lines
+    assert "baseline 55%" in out
+
+
 def test_verify_reports_why_the_latest_check_did_not_judge(
     monkeypatch, test_db, capsys
 ) -> None:

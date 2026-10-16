@@ -133,6 +133,45 @@ def test_a_cycle_stores_exactly_one_drift_check_and_logs_the_same_values(
     assert count == 2
 
 
+def test_a_flagged_check_meeting_an_empty_window_keeps_the_flag_and_the_cycle_completes(
+    orchestrator: DaemonOrchestrator, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    INVARIANT: a standing flag met by a window with no items (an outage) is carried
+               with no share, and the cycle still returns its stats with no drift
+               failure logged
+    BREAKS: the console line formats a missing share and fails the cycle exactly when
+            the daemon has been down
+    """
+    orchestrator.storage.insert_drift_check(
+        {
+            "checked_at": "2026-01-01T00:00:00+00:00",
+            "window_items": 100,
+            "window_null": 80,
+            "share": 0.8,
+            "baseline": 0.5,
+            "baseline_windows": 28,
+            "deviation": 0.3,
+            "threshold": 0.20,
+            "flagged": True,
+            "reason": None,
+        }
+    )
+    orchestrator.reddit_fetcher = _NoItems()
+
+    with caplog.at_level(logging.ERROR):
+        stats = orchestrator.run_once()
+
+    assert stats["errors"] == []
+    latest = orchestrator.storage.latest_drift_check()
+    assert latest is not None
+    assert latest["id"] == 2
+    assert latest["flagged"] is True
+    assert latest["share"] is None
+    assert latest["baseline"] == 0.5
+    assert [r for r in caplog.records if r.exc_info and "Drift check" in r.message] == []
+
+
 def test_a_drift_check_that_fails_is_logged_with_its_traceback_and_the_cycle_completes(
     orchestrator: DaemonOrchestrator, caplog: pytest.LogCaptureFixture
 ) -> None:

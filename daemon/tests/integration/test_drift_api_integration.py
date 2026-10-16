@@ -88,6 +88,32 @@ def test_latest_flagged_check_is_returned_with_its_fields(storage: Storage) -> N
     assert data["reason"] is None
 
 
+def test_a_flag_kept_through_an_empty_window_is_returned_flagged_with_its_reason(
+    storage: Storage,
+) -> None:
+    """
+    INVARIANT: after a flagged check, a check on an empty window is returned flagged,
+               share null, baseline carried, reason saying it did not judge
+    BREAKS: a client drawing its warning from this clears it during an outage
+    """
+    for day in range(1, 15):
+        _seed_day(storage, NOW - timedelta(days=day), 30, 15, f"h{day}")
+    _seed_day(storage, NOW, 30, 24, "today")
+    run_drift_check(storage, 0.20, now=NOW)
+    later = NOW + timedelta(days=3)
+    run_drift_check(storage, 0.20, now=later)
+
+    response = TestClient(app).get("/api/drift", headers={"X-API-Key": TEST_API_KEY})
+
+    data = response.json()["data"]
+    assert data["checked_at"] == later.isoformat()
+    assert data["flagged"] is True
+    assert data["share"] is None
+    assert data["deviation"] is None
+    assert data["baseline"] == pytest.approx(0.5)
+    assert data["reason"].startswith("not judged")
+
+
 def test_the_newest_check_is_the_one_returned(storage: Storage) -> None:
     """
     INVARIANT: with several checks stored the endpoint returns the most recent

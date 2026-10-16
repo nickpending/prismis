@@ -727,7 +727,13 @@ def _print_drift_line(check: dict | None) -> None:
         return
     when = check["checked_at"]
     if check["reason"] is not None:
-        console.print(f"[yellow]○ drift ({when}): {check['reason']}[/yellow]")
+        if check["flagged"]:
+            console.print(
+                f"[bold red]⚠ drift FLAGGED ({when}), flag kept: {check['reason']}"
+                f" (baseline {check['baseline']:.0%})[/bold red]"
+            )
+        else:
+            console.print(f"[yellow]○ drift ({when}): {check['reason']}[/yellow]")
         return
     detail = (
         f"share {check['share']:.0%}, baseline {check['baseline']:.0%}, "

@@ -24,6 +24,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from rich.console import Console
+from rich.markup import escape
 
 from . import __version__
 from .api_errors import (
@@ -1482,7 +1483,7 @@ async def extract_entry(
                 "Embedding regen failed for %s", content_id, exc_info=True
             )
             console.print(
-                f"[yellow]Embedding regen failed for {content_id}: {e}[/yellow]"
+                f"[yellow]Embedding regen failed for {content_id}: {escape(str(e))}[/yellow]"
             )
 
         return {

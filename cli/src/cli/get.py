@@ -107,5 +107,5 @@ def get(
         if output_json:
             typer.echo(f"Error: {e}", err=True)
         else:
-            console.print(f"[red]✗ Error: {e}[/red]")
+            console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e

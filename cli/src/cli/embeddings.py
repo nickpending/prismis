@@ -4,6 +4,7 @@ import logging
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .remote import is_remote_mode
@@ -47,7 +48,7 @@ def cleanup() -> None:
             console.print(f"[green]✓ Cleaned up {count} orphaned vector(s)[/green]")
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -89,7 +90,7 @@ def status() -> None:
             console.print("  [green]✓ All items indexed[/green]\n")
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -165,7 +166,7 @@ def generate() -> None:
                                 exc_info=True,
                             )
                             console.print(
-                                f"[yellow]⚠ Failed to generate embedding for '{item['title']}': {e}[/yellow]"
+                                f"[yellow]⚠ Failed to generate embedding for '{item['title']}': {escape(str(e))}[/yellow]"
                             )
                             failed += 1
 
@@ -183,5 +184,5 @@ def generate() -> None:
                 console.print(f"  ✗ Failed: [red]{failed}[/red] items")
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e

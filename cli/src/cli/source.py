@@ -3,6 +3,7 @@
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .api_client import APIClient
@@ -133,7 +134,7 @@ def add(
         if output_json:
             typer.echo(f"Error: {e}", err=True)
         else:
-            console.print(f"[red]❌ Failed to add source:[/red] {str(e)}")
+            console.print(f"[red]❌ Failed to add source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 
@@ -179,7 +180,7 @@ def list_sources(
         if output_json:
             typer.echo(f"Error: {e}", err=True)
         else:
-            console.print(f"[red]❌ Failed to list sources:[/red] {str(e)}")
+            console.print(f"[red]❌ Failed to list sources:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 
@@ -225,14 +226,14 @@ def remove(
                 f"[green]✅ Removed source:[/green] {source_to_remove['name'] or 'Unnamed'}"
             )
         except RuntimeError as e:
-            console.print(f"[red]❌ Failed to remove source:[/red] {str(e)}")
+            console.print(f"[red]❌ Failed to remove source:[/red] {escape(str(e))}")
             raise typer.Exit(1) from e
 
     except (typer.Exit, typer.Abort):
         # Abort (Ctrl-C or EOF at the confirm prompt) is an Exception too; click reports it.
         raise
     except Exception as e:
-        console.print(f"[red]❌ Failed to remove source:[/red] {str(e)}")
+        console.print(f"[red]❌ Failed to remove source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 
@@ -249,7 +250,7 @@ def pause(
     except typer.Exit:
         raise
     except Exception as e:
-        console.print(f"[red]❌ Failed to pause source:[/red] {str(e)}")
+        console.print(f"[red]❌ Failed to pause source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 
@@ -266,7 +267,7 @@ def resume(
     except typer.Exit:
         raise
     except Exception as e:
-        console.print(f"[red]❌ Failed to resume source:[/red] {str(e)}")
+        console.print(f"[red]❌ Failed to resume source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 
@@ -284,7 +285,7 @@ def edit(
     except typer.Exit:
         raise
     except Exception as e:
-        console.print(f"[red]❌ Failed to edit source:[/red] {str(e)}")
+        console.print(f"[red]❌ Failed to edit source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 

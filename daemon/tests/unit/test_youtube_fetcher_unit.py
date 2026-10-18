@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from prismis_daemon.fetchers.youtube import YouTubeFetcher
 from prismis_daemon.models import ContentItem
@@ -549,24 +550,24 @@ def test_published_at_uses_the_exact_upload_timestamp_when_yt_dlp_gives_one() ->
     extraction also returns `timestamp`, the exact upload second; the item takes it
     when present and falls back to the day only when it is missing."""
     fetcher = YouTubeFetcher()
-    video = {
+    video: dict[str, Any] = {
         **_video_fixture(),
         "upload_date": "20261018",
         "timestamp": 1792339227,  # 2026-10-18T16:00:27+00:00
     }
 
     exact = fetcher._handle_missing_transcript(video, "source-1")
-    assert exact.published_at is not None
+    assert exact is not None and exact.published_at is not None
     assert exact.published_at.isoformat() == "2026-10-18T16:00:27+00:00"
 
     item = fetcher._to_content_item(
-        video, "a transcript", "source-1", {"outcome": "extracted", "detail": None}
+        video, "a transcript", "source-1", {"outcome": "extracted", "detail": ""}
     )
     assert item.published_at is not None
     assert item.published_at.isoformat() == "2026-10-18T16:00:27+00:00"
 
-    day_only = fetcher._handle_missing_transcript(
-        {**video, "timestamp": None}, "source-1"
-    )
-    assert day_only.published_at is not None
+    without_timestamp: dict[str, Any] = dict(video)
+    without_timestamp["timestamp"] = None
+    day_only = fetcher._handle_missing_transcript(without_timestamp, "source-1")
+    assert day_only is not None and day_only.published_at is not None
     assert day_only.published_at.isoformat() == "2026-10-18T00:00:00+00:00"

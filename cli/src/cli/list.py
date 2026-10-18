@@ -4,6 +4,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .api_client import APIClient
@@ -67,7 +68,7 @@ def list(
             if output_json:
                 typer.echo(f"Error: {message}", err=True)
             else:
-                console.print(f"[red]✗ Error: {message}[/red]")
+                console.print(f"[red]✗ Error: {escape(str(message))}[/red]")
             raise typer.Exit(1)
 
         # Map flags to API parameter
@@ -140,7 +141,7 @@ def list(
         # Display table
         console.print("\n")
         console.print(table)
-        console.print(f"\n[dim]Showing {len(entries)} entries[/dim]\n")
+        console.print(f"\n[dim]Showing {escape(str(len(entries)))} entries[/dim]\n")
 
     except typer.Exit:
         # click's Exit subclasses RuntimeError; without this the command's own
@@ -150,5 +151,5 @@ def list(
         if output_json:
             typer.echo(f"Error: {e}", err=True)
         else:
-            console.print(f"[red]✗ Error: {e}[/red]")
+            console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e

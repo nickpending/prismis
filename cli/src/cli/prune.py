@@ -2,6 +2,7 @@
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.prompt import Confirm
 from typing import Optional
 import re
@@ -67,7 +68,7 @@ def count(
                     f"🔍 Counting unprioritized items older than {days} days..."
                 )
             except ValueError as e:
-                console.print(f"[red]✗ {e}[/red]")
+                console.print(f"[red]✗ {escape(str(e))}[/red]")
                 raise typer.Exit(1) from e
         else:
             console.print("🔍 Counting all unprioritized items...")
@@ -80,7 +81,7 @@ def count(
         else:
             age_text = f" older than {days} days" if days else ""
             console.print(
-                f"📊 Found [bold yellow]{count}[/bold yellow] unprioritized items{age_text}"
+                f"📊 Found [bold yellow]{escape(str(count))}[/bold yellow] unprioritized items{escape(str(age_text))}"
             )
 
     except typer.Exit:
@@ -88,7 +89,7 @@ def count(
         # exit is caught below and reported a second time as "Error: 1".
         raise
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -114,7 +115,7 @@ def delete(
             try:
                 days = parse_age(age)
             except ValueError as e:
-                console.print(f"[red]✗ {e}[/red]")
+                console.print(f"[red]✗ {escape(str(e))}[/red]")
                 raise typer.Exit(1) from e
 
         # First get count
@@ -127,7 +128,7 @@ def delete(
         # Show what will be deleted
         age_text = f" older than {days} days" if days else ""
         console.print(
-            f"⚠️  Found [bold red]{count}[/bold red] unprioritized items{age_text}"
+            f"⚠️  Found [bold red]{escape(str(count))}[/bold red] unprioritized items{escape(str(age_text))}"
         )
 
         # Confirm unless forced
@@ -141,14 +142,14 @@ def delete(
         result = client.prune_unprioritized(days)
 
         deleted_count = result.get("deleted", 0)
-        console.print(f"✅ Deleted [bold green]{deleted_count}[/bold green] items")
+        console.print(f"✅ Deleted [bold green]{escape(str(deleted_count))}[/bold green] items")
 
     except typer.Exit:
         # click's Exit subclasses RuntimeError; without this the command's own
         # exit is caught below and reported a second time as "Error: 1".
         raise
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -177,7 +178,7 @@ def cleanup(
 
         # Show what will be deleted
         console.print(
-            f"⚠️  Found [bold red]{count}[/bold red] unprioritized items older than {days} days"
+            f"⚠️  Found [bold red]{escape(str(count))}[/bold red] unprioritized items older than {escape(str(days))} days"
         )
 
         # Confirm unless forced
@@ -192,9 +193,9 @@ def cleanup(
 
         deleted_count = result.get("deleted", 0)
         console.print(
-            f"✅ Cleaned up [bold green]{deleted_count}[/bold green] old items"
+            f"✅ Cleaned up [bold green]{escape(str(deleted_count))}[/bold green] old items"
         )
 
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e

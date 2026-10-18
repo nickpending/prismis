@@ -2,6 +2,7 @@
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .api_client import APIClient
@@ -57,7 +58,7 @@ def search(
             if output_json:
                 typer.echo(f"Error: {message}", err=True)
             else:
-                console.print(f"[red]✗ Error: {message}[/red]")
+                console.print(f"[red]✗ Error: {escape(str(message))}[/red]")
             raise typer.Exit(1)
 
         # Search content
@@ -79,7 +80,7 @@ def search(
             return
 
         if not results:
-            console.print(f"[yellow]No results found for '{query}'[/yellow]")
+            console.print(f"[yellow]No results found for '{escape(str(query))}'[/yellow]")
             return
 
         # Create table for results
@@ -128,7 +129,7 @@ def search(
         console.print("\n")
         console.print(table)
         console.print(
-            f"\n[dim]Found {len(results)} result{'s' if len(results) != 1 else ''} for '{query}'[/dim]\n"
+            f"\n[dim]Found {escape(str(len(results)))} result{escape(str('s' if len(results) != 1 else ''))} for '{escape(str(query))}'[/dim]\n"
         )
 
     except typer.Exit:
@@ -139,5 +140,5 @@ def search(
         if output_json:
             typer.echo(f"Error: {e}", err=True)
         else:
-            console.print(f"[red]✗ Error: {e}[/red]")
+            console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e

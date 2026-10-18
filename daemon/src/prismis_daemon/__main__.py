@@ -18,6 +18,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
 from rich.console import Console
+from rich.markup import escape
 
 from . import kind_classifier, llm_client
 from .config import Config, default_config_path
@@ -210,7 +211,7 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
         # Start scheduler
         scheduler.start()
         console.print(
-            f"[green]✅ Scheduler started - will fetch content every {interval_msg}[/green]"
+            f"[green]✅ Scheduler started - will fetch content every {escape(str(interval_msg))}[/green]"
         )
 
         # Start API server
@@ -236,7 +237,7 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
         # mid-flight and take the API server down with it.
         api_task = asyncio.create_task(api_server.serve())
         console.print(
-            f"[green]✅ API server running on http://{config.api_host}:8989[/green]"
+            f"[green]✅ API server running on http://{escape(str(config.api_host))}:8989[/green]"
         )
         console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
@@ -258,7 +259,7 @@ async def run_scheduler(config: Config, test_mode: bool = False) -> None:
     except Exception as e:
         # Process boundary: report, record the traceback, exit non-zero.
         logger.exception("Scheduler run failed")
-        console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
+        console.print(f"[bold red]❌ Fatal error: {escape(str(e))}[/bold red]")
         sys.exit(1)
     finally:
         # Ensure scheduler is stopped even on error path
@@ -271,12 +272,12 @@ def run_orchestrator_sync(orchestrator: DaemonOrchestrator) -> None:
     from datetime import datetime
 
     console.print(
-        f"\n[blue]⏰ Running scheduled fetch at {datetime.now().strftime('%H:%M:%S')}[/blue]"
+        f"\n[blue]⏰ Running scheduled fetch at {escape(str(datetime.now().strftime('%H:%M:%S')))}[/blue]"
     )
     stats = orchestrator.run_once()
     if stats["total_items"] > 0:
         console.print(
-            f"[green]Completed: {stats['total_analyzed']} items analyzed[/green]\n"
+            f"[green]Completed: {escape(str(stats['total_analyzed']))} items analyzed[/green]\n"
         )
     else:
         console.print("[dim]No new items found[/dim]\n")
@@ -287,11 +288,11 @@ def run_archival_job_sync(orchestrator: DaemonOrchestrator) -> None:
     from datetime import datetime
 
     console.print(
-        f"\n[blue]📦 Running archival policy at {datetime.now().strftime('%H:%M:%S')}[/blue]"
+        f"\n[blue]📦 Running archival policy at {escape(str(datetime.now().strftime('%H:%M:%S')))}[/blue]"
     )
     stats = orchestrator.run_archival_policy()
     if stats["archived_count"] > 0:
-        console.print(f"[green]Archived {stats['archived_count']} items[/green]\n")
+        console.print(f"[green]Archived {escape(str(stats['archived_count']))} items[/green]\n")
 
 
 def run_embedding_backfill_sync(orchestrator: DaemonOrchestrator) -> None:
@@ -299,12 +300,12 @@ def run_embedding_backfill_sync(orchestrator: DaemonOrchestrator) -> None:
     from datetime import datetime
 
     console.print(
-        f"\n[blue]🔗 Running embedding backfill at {datetime.now().strftime('%H:%M:%S')}[/blue]"
+        f"\n[blue]🔗 Running embedding backfill at {escape(str(datetime.now().strftime('%H:%M:%S')))}[/blue]"
     )
     stats = orchestrator.backfill_embeddings(limit=50)
     if stats["processed"] > 0:
         console.print(
-            f"[green]Indexed {stats['processed']} stragglers ({stats['failed']} failed)[/green]\n"
+            f"[green]Indexed {escape(str(stats['processed']))} stragglers ({escape(str(stats['failed']))} failed)[/green]\n"
         )
 
 
@@ -313,12 +314,12 @@ def run_observability_cleanup_sync() -> None:
     from datetime import datetime
 
     console.print(
-        f"\n[blue]🗑️  Running observability cleanup at {datetime.now().strftime('%H:%M:%S')}[/blue]"
+        f"\n[blue]🗑️  Running observability cleanup at {escape(str(datetime.now().strftime('%H:%M:%S')))}[/blue]"
     )
     obs_logger = get_obs_logger()
     removed = obs_logger.cleanup_old_files(retention_days=30)
     if removed > 0:
-        console.print(f"[green]Removed {removed} old observability files[/green]\n")
+        console.print(f"[green]Removed {escape(str(removed))} old observability files[/green]\n")
     else:
         console.print("[dim]No old files to remove[/dim]\n")
 
@@ -359,15 +360,15 @@ def validate_llm_config(config: Config) -> None:
             config.llm_light_service, config.llm_deep_service, config.llm_kind_service
         )
         console.print(
-            f"[green]✅ Light service: {config.llm_light_service} ({result['light']})[/green]"
+            f"[green]✅ Light service: {escape(str(config.llm_light_service))} ({escape(str(result['light']))})[/green]"
         )
         if result["deep"] == "ok":
             console.print(
-                f"[green]✅ Deep service: {config.llm_deep_service} ({result['deep']})[/green]"
+                f"[green]✅ Deep service: {escape(str(config.llm_deep_service))} ({escape(str(result['deep']))})[/green]"
             )
         elif result["deep"] == "unreachable":
             console.print(
-                f"[yellow]⚠️  Deep service: {config.llm_deep_service} unreachable — "
+                f"[yellow]⚠️  Deep service: {escape(str(config.llm_deep_service))} unreachable — "
                 f"deep extraction will fail per item: the item keeps its light "
                 f"summary and the failure is counted in deep_extract_failures[/yellow]"
             )
@@ -375,21 +376,21 @@ def validate_llm_config(config: Config) -> None:
             console.print("[dim]Deep service: not configured[/dim]")
         if result["kind"] == "ok":
             console.print(
-                f"[green]✅ Kind service: {config.llm_kind_service} ({result['kind']})[/green]"
+                f"[green]✅ Kind service: {escape(str(config.llm_kind_service))} ({escape(str(result['kind']))})[/green]"
             )
         elif result["kind"] == "unreachable":
             console.print(
-                f"[yellow]⚠️  Kind service: {config.llm_kind_service} unreachable — "
+                f"[yellow]⚠️  Kind service: {escape(str(config.llm_kind_service))} unreachable — "
                 f"items are stored without a kind and the failure is counted in "
                 f"kind_classify_failures[/yellow]"
             )
         else:
             console.print("[dim]Kind service: not configured[/dim]")
     except ValueError as e:
-        console.print(f"[bold red]❌ LLM configuration error: {e}[/bold red]")
+        console.print(f"[bold red]❌ LLM configuration error: {escape(str(e))}[/bold red]")
         sys.exit(1)
     except (llm_client.ConfigError, openai.OpenAIError) as e:
-        console.print(f"[bold red]❌ LLM connection failed: {e}[/bold red]")
+        console.print(f"[bold red]❌ LLM connection failed: {escape(str(e))}[/bold red]")
         console.print(
             "[yellow]💡 Check the services tables in ~/.config/prismis/config.toml and that the "
             "api_key environment variables they name are set (OPENROUTER_API_KEY for the default).[/yellow]"
@@ -436,7 +437,7 @@ def main(
         except Exception as e:
             # Startup boundary: report, record the traceback, exit non-zero.
             logger.exception("Daemon startup failed")
-            console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
+            console.print(f"[bold red]❌ Fatal error: {escape(str(e))}[/bold red]")
             sys.exit(1)
         if once:
             console.print(
@@ -460,11 +461,11 @@ def main(
             except Exception as e:
                 # --once boundary: report, record the traceback, exit non-zero.
                 logger.exception("Daemon --once run failed")
-                console.print(f"[bold red]❌ Fatal error: {e}[/bold red]")
+                console.print(f"[bold red]❌ Fatal error: {escape(str(e))}[/bold red]")
                 sys.exit(1)
         else:
             mode = "test mode (5 second intervals)" if test_mode else "scheduler mode"
-            console.print(f"[bold blue]Starting Prismis daemon ({mode})[/bold blue]")
+            console.print(f"[bold blue]Starting Prismis daemon ({escape(str(mode))})[/bold blue]")
 
             # Run the scheduler with already validated config
             asyncio.run(run_scheduler(config, test_mode=test_mode))
@@ -526,7 +527,7 @@ def _write_migrated(
     stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
     backup = config_path.with_name(f"{config_path.name}.bak-{stamp}")
     shutil.copy2(config_path, backup)
-    console.print(f"[dim]Backed up {config_path} to {backup}[/dim]")
+    console.print(f"[dim]Backed up {escape(str(config_path))} to {escape(str(backup))}[/dim]")
 
     if not new_text.endswith("\n"):
         new_text += "\n"
@@ -548,14 +549,12 @@ def migrate_config() -> None:
     import re
     import tomllib
 
-    from rich.markup import escape
-
     config_home = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
     prismis_config_path = Path(config_home) / "prismis" / "config.toml"
 
     if not prismis_config_path.exists():
         console.print(
-            f"[bold red]Config file not found: {prismis_config_path}[/bold red]"
+            f"[bold red]Config file not found: {escape(str(prismis_config_path))}[/bold red]"
         )
         sys.exit(1)
 
@@ -589,7 +588,7 @@ def migrate_config() -> None:
                 if old_api_key:
                     console.print(
                         "[yellow]The old \\[llm] api_key value was not copied. "
-                        f"Set {fields['api_key'][4:]} in the environment or "
+                        f"Set {escape(str(fields['api_key'][4:]))} in the environment or "
                         "~/.config/prismis/.env.[/yellow]"
                     )
 
@@ -603,7 +602,7 @@ def migrate_config() -> None:
             prismis_config_path, new_text, [_toml_table(service_name, fields)], console
         )
         console.print(
-            f"[green]Updated {prismis_config_path}: added "
+            f"[green]Updated {escape(str(prismis_config_path))}: added "
             f"{escape(f'[services.{service_name}]')}[/green]"
         )
         console.print(
@@ -687,14 +686,14 @@ def migrate_config() -> None:
                 var = _key_env_var(key_name if isinstance(key_name, str) and key_name else name)
                 console.print(
                     f"[yellow]Service {escape(name)}: no provider found for its key; "
-                    f"assumed {var}. Edit api_key if that is wrong.[/yellow]"
+                    f"assumed {escape(str(var))}. Edit api_key if that is wrong.[/yellow]"
                 )
             fields["api_key"] = f"env:{var}"
         left = sorted(set(entry) - _SERVICE_FIELDS_HANDLED)
         if left:
             console.print(
                 f"[yellow]Service {escape(name)}: fields not carried over: "
-                f"{', '.join(left)}[/yellow]"
+                f"{escape(str(', '.join(left)))}[/yellow]"
             )
         tables.append(_toml_table(name, fields))
 
@@ -703,15 +702,15 @@ def migrate_config() -> None:
         for table in tables:
             console.print(
                 f"[green]Added {escape(table.splitlines()[0])} to "
-                f"{prismis_config_path}[/green]"
+                f"{escape(str(prismis_config_path))}[/green]"
             )
         if renamed:
             console.print("[green]Renamed \\[llm] service to light_service[/green]")
 
     if missing:
         console.print(
-            f"[bold red]Not found in the retired service file: {', '.join(missing)}. "
-            f"Define a services table for each in {prismis_config_path} "
+            f"[bold red]Not found in the retired service file: {escape(str(', '.join(missing)))}. "
+            f"Define a services table for each in {escape(str(prismis_config_path))} "
             f'(base_url, model, api_key = "env:NAME").[/bold red]'
         )
         sys.exit(1)
@@ -729,20 +728,20 @@ def _print_drift_line(check: dict | None) -> None:
     if check["reason"] is not None:
         if check["flagged"]:
             console.print(
-                f"[bold red]⚠ drift FLAGGED ({when}), flag kept: {check['reason']}"
-                f" (baseline {check['baseline']:.0%})[/bold red]"
+                f"[bold red]⚠ drift FLAGGED ({escape(str(when))}), flag kept: {escape(str(check['reason']))}"
+                f" (baseline {escape(f"{check['baseline']:.0%}")})[/bold red]"
             )
         else:
-            console.print(f"[yellow]○ drift ({when}): {check['reason']}[/yellow]")
+            console.print(f"[yellow]○ drift ({escape(str(when))}): {escape(str(check['reason']))}[/yellow]")
         return
     detail = (
         f"share {check['share']:.0%}, baseline {check['baseline']:.0%}, "
         f"deviation {check['deviation']:+.0%}, threshold {check['threshold']:.0%}"
     )
     if check["flagged"]:
-        console.print(f"[bold red]⚠ drift FLAGGED ({when}): {detail}[/bold red]")
+        console.print(f"[bold red]⚠ drift FLAGGED ({escape(str(when))}): {escape(str(detail))}[/bold red]")
     else:
-        console.print(f"[green]✓ drift ok ({when}): {detail}[/green]")
+        console.print(f"[green]✓ drift ok ({escape(str(when))}): {escape(str(detail))}[/green]")
 
 
 @app.command()
@@ -783,7 +782,7 @@ def verify(
             console.print("[red]✗ --chain requires --source <url>[/red]")
             sys.exit(1)
         if source_type not in VALID_SOURCE_TYPES:
-            console.print(f"[red]✗ invalid --type: {source_type}[/red]")
+            console.print(f"[red]✗ invalid --type: {escape(str(source_type))}[/red]")
             sys.exit(1)
         sys.exit(run_chain(source, source_type, full, console))
 
@@ -794,18 +793,18 @@ def verify(
         config = Config.from_file()  # also runs validate()
         console.print("[green]✓ config valid[/green]")
     except (ValueError, OSError) as e:
-        console.print(f"[red]✗ config: {e}[/red]")
+        console.print(f"[red]✗ config: {escape(str(e))}[/red]")
         sys.exit(1)  # can't continue without config
 
     # 2. Light service
     try:
         llm_client.health_check(service=config.llm_light_service)
         console.print(
-            f"[green]✓ light service reachable ({config.llm_light_service})[/green]"
+            f"[green]✓ light service reachable ({escape(str(config.llm_light_service))})[/green]"
         )
     except (llm_client.ConfigError, openai.OpenAIError) as e:
         console.print(
-            f"[red]✗ light service unreachable ({config.llm_light_service}): {e}[/red]"
+            f"[red]✗ light service unreachable ({escape(str(config.llm_light_service))}): {escape(str(e))}[/red]"
         )
         failures += 1
 
@@ -816,11 +815,11 @@ def verify(
         try:
             llm_client.health_check(service=config.llm_deep_service)
             console.print(
-                f"[green]✓ deep service reachable ({config.llm_deep_service})[/green]"
+                f"[green]✓ deep service reachable ({escape(str(config.llm_deep_service))})[/green]"
             )
         except (llm_client.ConfigError, openai.OpenAIError) as e:
             console.print(
-                f"[red]✗ deep service unreachable ({config.llm_deep_service}): {e}[/red]"
+                f"[red]✗ deep service unreachable ({escape(str(config.llm_deep_service))}): {escape(str(e))}[/red]"
             )
             failures += 1
 
@@ -833,11 +832,11 @@ def verify(
         try:
             kind_classifier.health_check(service=config.llm_kind_service)
             console.print(
-                f"[green]✓ kind service reachable ({config.llm_kind_service})[/green]"
+                f"[green]✓ kind service reachable ({escape(str(config.llm_kind_service))})[/green]"
             )
         except (llm_client.ConfigError, ValueError, httpx.HTTPError) as e:
             console.print(
-                f"[red]✗ kind service unreachable ({config.llm_kind_service}): {e}[/red]"
+                f"[red]✗ kind service unreachable ({escape(str(config.llm_kind_service))}): {escape(str(e))}[/red]"
             )
             failures += 1
 
@@ -846,14 +845,14 @@ def verify(
         storage = Storage()
         sources = storage.get_active_sources()
         if sources:
-            console.print(f"[green]✓ {len(sources)} active source(s)[/green]")
+            console.print(f"[green]✓ {escape(str(len(sources)))} active source(s)[/green]")
         else:
             console.print(
                 "[red]✗ no active sources (add with 'prismis-cli source add <url>')[/red]"
             )
             failures += 1
     except (sqlite3.Error, OSError) as e:
-        console.print(f"[red]✗ sources check failed: {e}[/red]")
+        console.print(f"[red]✗ sources check failed: {escape(str(e))}[/red]")
         failures += 1
 
     # 6. Saved context.md. Read the file directly: Config.from_file falls back to the
@@ -863,31 +862,31 @@ def verify(
         context_text = context_path.read_text()
     except FileNotFoundError:
         console.print(
-            f"[red]✗ context.md not found at {context_path} "
+            f"[red]✗ context.md not found at {escape(str(context_path))} "
             "(create it with 'prismis-cli context bootstrap')[/red]"
         )
         failures += 1
     except (OSError, UnicodeDecodeError) as e:
-        console.print(f"[red]✗ context.md unreadable at {context_path}: {e}[/red]")
+        console.print(f"[red]✗ context.md unreadable at {escape(str(context_path))}: {escape(str(e))}[/red]")
         failures += 1
     else:
         problems, counts = check_context_md(context_text)
         if problems:
             for problem in problems:
-                console.print(f"[red]✗ context.md: {problem}[/red]")
+                console.print(f"[red]✗ context.md: {escape(str(problem))}[/red]")
             failures += 1
         else:
             summary = ", ".join(
                 f"{heading.removeprefix('## ')}: {n}" for heading, n in counts.items()
             )
-            console.print(f"[green]✓ context.md valid ({summary})[/green]")
+            console.print(f"[green]✓ context.md valid ({escape(str(summary))})[/green]")
 
     # 7. Latest drift check. A measurement, not a setup check: a flagged one is marked
     # but never counts toward failures.
     try:
         _print_drift_line(Storage().latest_drift_check())
     except (sqlite3.Error, OSError) as e:
-        console.print(f"[yellow]○ drift: could not read the latest check: {e}[/yellow]")
+        console.print(f"[yellow]○ drift: could not read the latest check: {escape(str(e))}[/yellow]")
 
     # Roll-up
     if failures == 0:
@@ -895,7 +894,7 @@ def verify(
         sys.exit(0)
     else:
         console.print(
-            f"\n[bold red]verify: FAIL ({failures} check(s) failed)[/bold red]"
+            f"\n[bold red]verify: FAIL ({escape(str(failures))} check(s) failed)[/bold red]"
         )
         sys.exit(1)
 
@@ -970,7 +969,7 @@ def refetch(
 
     if source_type not in REFETCH_TYPES:
         console.print(
-            f"[red]✗ invalid --type: {source_type} (expected one of {REFETCH_TYPES})[/red]"
+            f"[red]✗ invalid --type: {escape(str(source_type))} (expected one of {escape(str(REFETCH_TYPES))})[/red]"
         )
         sys.exit(1)
 

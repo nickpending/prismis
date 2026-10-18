@@ -2,6 +2,7 @@
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from .api_client import APIClient
 
@@ -30,19 +31,19 @@ def extract(
     """
     if priority not in ("high", "medium", "low", "all"):
         console.print(
-            f"[red]Invalid --priority '{priority}' (expected high/medium/low/all)[/red]"
+            f"[red]Invalid --priority '{escape(str(priority))}' (expected high/medium/low/all)[/red]"
         )
         raise typer.Exit(1)
 
     if limit < 1:
         console.print(
-            f"[green]No items need extraction for priority={priority}[/green]"
+            f"[green]No items need extraction for priority={escape(str(priority))}[/green]"
         )
         return
 
     if limit > 3333:
         console.print(
-            f"[red]--limit {limit} exceeds maximum (3333). "
+            f"[red]--limit {escape(str(limit))} exceeds maximum (3333). "
             "The server caps /api/entries at 10000 items and the CLI fetches "
             "3x --limit as candidates, so the effective ceiling is 10000 / 3 = 3333.[/red]"
         )
@@ -57,7 +58,7 @@ def extract(
             view="list",
         )
     except RuntimeError as e:
-        console.print(f"[red]Failed to list entries: {e}[/red]")
+        console.print(f"[red]Failed to list entries: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
     # The list view carries no full analysis to look deep_extraction up in; the
@@ -68,12 +69,12 @@ def extract(
 
     if not pending:
         console.print(
-            f"[green]No items need extraction for priority={priority}[/green]"
+            f"[green]No items need extraction for priority={escape(str(priority))}[/green]"
         )
         return
 
     console.print(
-        f"[bold]Extracting {len(pending)} items (priority={priority})...[/bold]\n"
+        f"[bold]Extracting {escape(str(len(pending)))} items (priority={escape(str(priority))})...[/bold]\n"
     )
 
     succeeded = 0
@@ -87,9 +88,9 @@ def extract(
             console.print("  [green]ok[/green]")
         except RuntimeError as e:
             failed += 1
-            console.print(f"  [red]failed: {e}[/red]")
+            console.print(f"  [red]failed: {escape(str(e))}[/red]")
 
-    console.print(f"\n[bold]Done: {succeeded} extracted, {failed} failed[/bold]")
+    console.print(f"\n[bold]Done: {escape(str(succeeded))} extracted, {escape(str(failed))} failed[/bold]")
 
 
 if __name__ == "__main__":

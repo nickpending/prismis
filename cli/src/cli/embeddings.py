@@ -4,6 +4,7 @@ import logging
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .remote import is_remote_mode
@@ -19,7 +20,7 @@ def _check_local_mode(command: str) -> None:
     """Check if running in remote mode and exit with guidance."""
     if is_remote_mode():
         console.print(
-            f"[yellow]'{command}' requires local daemon access.[/yellow]\n"
+            f"[yellow]'{escape(str(command))}' requires local daemon access.[/yellow]\n"
             "[dim]Run this command on the server where the daemon is installed.[/dim]"
         )
         raise typer.Exit(1)
@@ -44,10 +45,10 @@ def cleanup() -> None:
         if count == 0:
             console.print("[green]✓ No orphaned vectors found[/green]")
         else:
-            console.print(f"[green]✓ Cleaned up {count} orphaned vector(s)[/green]")
+            console.print(f"[green]✓ Cleaned up {escape(str(count))} orphaned vector(s)[/green]")
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -74,13 +75,13 @@ def status() -> None:
         percentage = int((indexed / total) * 100) if total > 0 else 0
         console.print("\n[bold]Semantic Search Index Status:[/bold]")
         console.print(
-            f"  Indexed: [green]{indexed}/{total}[/green] items ({percentage}%)"
+            f"  Indexed: [green]{escape(str(indexed))}/{escape(str(total))}[/green] items ({escape(str(percentage))}%)"
         )
 
         if indexed < total:
             missing = total - indexed
             console.print(
-                f"  Missing: [yellow]{missing}[/yellow] items need embeddings\n"
+                f"  Missing: [yellow]{escape(str(missing))}[/yellow] items need embeddings\n"
             )
             console.print(
                 "[dim]Run 'prismis-cli embeddings generate' to index remaining items[/dim]"
@@ -89,7 +90,7 @@ def status() -> None:
             console.print("  [green]✓ All items indexed[/green]\n")
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -113,7 +114,7 @@ def generate() -> None:
                 return
 
             console.print(
-                f"[bold]Generating embeddings for {total_missing} items...[/bold]"
+                f"[bold]Generating embeddings for {escape(str(total_missing))} items...[/bold]"
             )
             console.print("[dim]This may take 10-30 minutes for large datasets[/dim]\n")
 
@@ -165,7 +166,7 @@ def generate() -> None:
                                 exc_info=True,
                             )
                             console.print(
-                                f"[yellow]⚠ Failed to generate embedding for '{item['title']}': {e}[/yellow]"
+                                f"[yellow]⚠ Failed to generate embedding for '{escape(str(item['title']))}': {escape(str(e))}[/yellow]"
                             )
                             failed += 1
 
@@ -178,10 +179,10 @@ def generate() -> None:
 
             # Summary
             console.print("\n[bold]Generation Complete[/bold]")
-            console.print(f"  ✓ Generated: [green]{processed}[/green] embeddings")
+            console.print(f"  ✓ Generated: [green]{escape(str(processed))}[/green] embeddings")
             if failed > 0:
-                console.print(f"  ✗ Failed: [red]{failed}[/red] items")
+                console.print(f"  ✗ Failed: [red]{escape(str(failed))}[/red] items")
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e

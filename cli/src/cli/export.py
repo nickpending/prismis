@@ -7,6 +7,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from .api_client import APIClient
 
@@ -40,7 +41,7 @@ def export(
     """
     # Validate format
     if format not in ["json", "csv"]:
-        console.print(f"[red]✗ Invalid format '{format}'. Use 'json' or 'csv'[/red]")
+        console.print(f"[red]✗ Invalid format '{escape(str(format))}'. Use 'json' or 'csv'[/red]")
         raise typer.Exit(1)
 
     try:
@@ -90,5 +91,5 @@ def export(
                 writer.writerow(entry)
 
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e

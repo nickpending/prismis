@@ -3,6 +3,7 @@
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .api_client import APIClient
@@ -94,7 +95,7 @@ def add(
 
         # Use API to add source (includes validation)
         if not output_json:
-            console.print(f"[yellow]Adding {source_type} source...[/yellow]")
+            console.print(f"[yellow]Adding {escape(str(source_type))} source...[/yellow]")
 
         try:
             api_client = APIClient()
@@ -116,16 +117,16 @@ def add(
                 typer.echo(f"Error: {error_msg}", err=True)
             else:
                 if "validation failed" in error_msg.lower():
-                    console.print(f"[red]❌ Validation failed:[/red] {error_msg}")
+                    console.print(f"[red]❌ Validation failed:[/red] {escape(str(error_msg))}")
                 else:
-                    console.print(f"[red]❌ API error:[/red] {error_msg}")
+                    console.print(f"[red]❌ API error:[/red] {escape(str(error_msg))}")
             raise typer.Exit(1) from e
 
         # The daemon normalizes and names the source; show what it stored.
         response_name = result.get("name", name)
-        console.print(f"[green]✅ Added {source_type} source:[/green] {response_name}")
-        console.print(f"[dim]URL: {result.get('url', url)}[/dim]")
-        console.print(f"[dim]ID: {source_id}[/dim]")
+        console.print(f"[green]✅ Added {escape(str(source_type))} source:[/green] {escape(str(response_name))}")
+        console.print(f"[dim]URL: {escape(str(result.get('url', url)))}[/dim]")
+        console.print(f"[dim]ID: {escape(str(source_id))}[/dim]")
 
     except typer.Exit:
         raise
@@ -133,7 +134,7 @@ def add(
         if output_json:
             typer.echo(f"Error: {e}", err=True)
         else:
-            console.print(f"[red]❌ Failed to add source:[/red] {str(e)}")
+            console.print(f"[red]❌ Failed to add source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 
@@ -173,13 +174,13 @@ def list_sources(
             table.add_row(*format_source_row(source))
 
         console.print(table)
-        console.print(f"\n[dim]Total sources: {len(sources)}[/dim]")
+        console.print(f"\n[dim]Total sources: {escape(str(len(sources)))}[/dim]")
 
     except Exception as e:
         if output_json:
             typer.echo(f"Error: {e}", err=True)
         else:
-            console.print(f"[red]❌ Failed to list sources:[/red] {str(e)}")
+            console.print(f"[red]❌ Failed to list sources:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 
@@ -197,7 +198,7 @@ def remove(
         source_to_remove = find_source_by_id(sources, source_id)
 
         if not source_to_remove:
-            console.print(f"[red]❌ Source not found:[/red] {source_id}")
+            console.print(f"[red]❌ Source not found:[/red] {escape(str(source_id))}")
             raise typer.Exit(1)
 
         # Show what we're about to remove
@@ -222,17 +223,17 @@ def remove(
         try:
             api_client.remove_source(source_id)
             console.print(
-                f"[green]✅ Removed source:[/green] {source_to_remove['name'] or 'Unnamed'}"
+                f"[green]✅ Removed source:[/green] {escape(str(source_to_remove['name'] or 'Unnamed'))}"
             )
         except RuntimeError as e:
-            console.print(f"[red]❌ Failed to remove source:[/red] {str(e)}")
+            console.print(f"[red]❌ Failed to remove source:[/red] {escape(str(e))}")
             raise typer.Exit(1) from e
 
     except (typer.Exit, typer.Abort):
         # Abort (Ctrl-C or EOF at the confirm prompt) is an Exception too; click reports it.
         raise
     except Exception as e:
-        console.print(f"[red]❌ Failed to remove source:[/red] {str(e)}")
+        console.print(f"[red]❌ Failed to remove source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 
@@ -244,12 +245,12 @@ def pause(
     try:
         api_client = APIClient()
         api_client.pause_source(source_id)
-        console.print(f"[green]✅ Paused source:[/green] {source_id}")
+        console.print(f"[green]✅ Paused source:[/green] {escape(str(source_id))}")
 
     except typer.Exit:
         raise
     except Exception as e:
-        console.print(f"[red]❌ Failed to pause source:[/red] {str(e)}")
+        console.print(f"[red]❌ Failed to pause source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 
@@ -261,12 +262,12 @@ def resume(
     try:
         api_client = APIClient()
         api_client.resume_source(source_id)
-        console.print(f"[green]✅ Resumed source:[/green] {source_id}")
+        console.print(f"[green]✅ Resumed source:[/green] {escape(str(source_id))}")
 
     except typer.Exit:
         raise
     except Exception as e:
-        console.print(f"[red]❌ Failed to resume source:[/red] {str(e)}")
+        console.print(f"[red]❌ Failed to resume source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 
@@ -279,12 +280,12 @@ def edit(
     try:
         api_client = APIClient()
         api_client.edit_source(source_id, name)
-        console.print(f"[green]✅ Updated source name to:[/green] {name}")
+        console.print(f"[green]✅ Updated source name to:[/green] {escape(str(name))}")
 
     except typer.Exit:
         raise
     except Exception as e:
-        console.print(f"[red]❌ Failed to edit source:[/red] {str(e)}")
+        console.print(f"[red]❌ Failed to edit source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 

@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from rich.console import Console
+from rich.markup import escape
 
 from .analysis import build_llm_analysis, content_basis
 from .config import Config, read_context_text
@@ -172,7 +173,7 @@ class DaemonOrchestrator:
         mode = summary_result.metadata.get("summarization_mode", "standard")
         word_count = summary_result.metadata.get("word_count", 0)
         self.console.print(
-            f"       📝 Summarized with [cyan]{mode}[/cyan] mode ({word_count:,} words)"
+            f"       📝 Summarized with [cyan]{escape(str(mode))}[/cyan] mode ({escape(f"{word_count:,}")} words)"
         )
 
         evaluation = self.evaluator.evaluate_content(
@@ -557,7 +558,7 @@ class DaemonOrchestrator:
                     # Per-item boundary: one item's failure never stops the source.
                     error_msg = f"Failed to analyze item '{item.title}': {e}"
                     logger.exception(error_msg)
-                    self.console.print(f"    [red]{error_msg}[/red]")
+                    self.console.print(f"    [red]{escape(str(error_msg))}[/red]")
                     stats["errors"].append(error_msg)
 
             return stats
@@ -566,7 +567,7 @@ class DaemonOrchestrator:
             # Per-source fetch boundary: one source's failure never stops the cycle.
             error_msg = f"Failed to fetch from {source['url']}: {e}"
             logger.exception(error_msg)
-            self.console.print(f"  [red]{error_msg}[/red]")
+            self.console.print(f"  [red]{escape(str(error_msg))}[/red]")
             stats["errors"].append(error_msg)
             stats["fetch_error"] = str(e)
             return stats
@@ -614,7 +615,7 @@ class DaemonOrchestrator:
         # Process each source with deduplication
         for source_num, source in enumerate(sources, 1):
             self.console.print(
-                f"\n[bold cyan]Processing source {source_num}/{len(sources)}: {source['name'] or source['url']}[/bold cyan]"
+                f"\n[bold cyan]Processing source {escape(str(source_num))}/{escape(str(len(sources)))}: {escape(str(source['name'] or source['url']))}[/bold cyan]"
             )
 
             try:
@@ -650,7 +651,7 @@ class DaemonOrchestrator:
                 # Per-source boundary: one source's failure never stops the cycle.
                 error_msg = f"Failed to process source {source['url']}: {e}"
                 logger.exception(error_msg)
-                self.console.print(f"  [red]{error_msg}[/red]")
+                self.console.print(f"  [red]{escape(str(error_msg))}[/red]")
                 stats["errors"].append(error_msg)
                 # Update source fetch status (failure)
                 self.storage.update_source_fetch_status(source["id"], False, str(e))
@@ -706,7 +707,7 @@ class DaemonOrchestrator:
                 )
                 usual = "?" if check.baseline is None else f"{check.baseline:.0%}"
                 self.console.print(
-                    f"[bold yellow]⚠ Drift: {measured}, usual is {usual}[/bold yellow]"
+                    f"[bold yellow]⚠ Drift: {escape(str(measured))}, usual is {escape(str(usual))}[/bold yellow]"
                 )
         except Exception:
             logger.exception("Drift check failed")
@@ -769,7 +770,7 @@ class DaemonOrchestrator:
         count = self.storage.archive_old_content(archival_config)
 
         if count > 0:
-            self.console.print(f"[cyan]📦 Auto-archival: {count} items archived[/cyan]")
+            self.console.print(f"[cyan]📦 Auto-archival: {escape(str(count))} items archived[/cyan]")
 
         return {"archived_count": count}
 
@@ -815,13 +816,13 @@ class DaemonOrchestrator:
                     f"Failed embedding for '{item['title']}': {e}", exc_info=True
                 )
                 self.console.print(
-                    f"[yellow]⚠ Failed embedding for '{item['title']}': {e}[/yellow]"
+                    f"[yellow]⚠ Failed embedding for '{escape(str(item['title']))}': {escape(str(e))}[/yellow]"
                 )
                 failed += 1
 
         if processed > 0:
             self.console.print(
-                f"[cyan]🔗 Auto-indexed {processed} stragglers ({failed} failed)[/cyan]"
+                f"[cyan]🔗 Auto-indexed {escape(str(processed))} stragglers ({escape(str(failed))} failed)[/cyan]"
             )
 
         return {"processed": processed, "failed": failed}

@@ -26,7 +26,7 @@ def _check_local_mode(command: str) -> None:
     """Check if running in remote mode and exit with guidance."""
     if is_remote_mode():
         console.print(
-            f"[yellow]'{command}' requires local daemon access.[/yellow]\n"
+            f"[yellow]'{escape(str(command))}' requires local daemon access.[/yellow]\n"
             "[dim]Run this command on the server where the daemon is installed.[/dim]"
         )
         raise typer.Exit(1)
@@ -60,14 +60,14 @@ def status() -> None:
             console.print("  [green]✓ All items analyzed[/green]\n")
         else:
             console.print(
-                f"  Missing analysis: [yellow]{missing}/{total}[/yellow] items ({percentage}%)"
+                f"  Missing analysis: [yellow]{escape(str(missing))}/{escape(str(total))}[/yellow] items ({escape(str(percentage))}%)"
             )
 
             # Cost estimate
             cost_per_item = 0.02
             estimated_cost = missing * cost_per_item
             console.print(
-                f"  Estimated repair cost: [cyan]${estimated_cost:.2f}[/cyan] @ ${cost_per_item}/item\n"
+                f"  Estimated repair cost: [cyan]${escape(f"{estimated_cost:.2f}")}[/cyan] @ ${escape(str(cost_per_item))}/item\n"
             )
 
             console.print(
@@ -75,7 +75,7 @@ def status() -> None:
             )
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -104,11 +104,11 @@ def repair(
                 return
 
             total = len(items)
-            console.print(f"[bold]Found {total} items needing analysis[/bold]")
+            console.print(f"[bold]Found {escape(str(total))} items needing analysis[/bold]")
 
             if not force:
                 cost_estimate = total * 0.02
-                console.print(f"[dim]Estimated cost: ${cost_estimate:.2f}[/dim]\n")
+                console.print(f"[dim]Estimated cost: ${escape(f"{cost_estimate:.2f}")}[/dim]\n")
 
             # Lazy import heavy LLM dependencies (only when actually repairing)
             from prismis_daemon.analysis import build_llm_analysis, content_basis
@@ -132,8 +132,8 @@ def repair(
 
             for idx, item in enumerate(items, 1):
                 # Show item details
-                console.print(f"\n[bold][{idx}/{total}][/bold] {item['title']}")
-                console.print(f"  Source: [cyan]{item['source_name']}[/cyan]")
+                console.print(f"\n[bold][{escape(str(idx))}/{escape(str(total))}][/bold] {escape(str(item['title']))}")
+                console.print(f"  Source: [cyan]{escape(str(item['source_name']))}[/cyan]")
 
                 # Show current state
                 status_parts = []
@@ -143,7 +143,7 @@ def repair(
                     status_parts.append("no summary")
                 if not item["analysis"]:
                     status_parts.append("no analysis")
-                console.print(f"  Current: [yellow]{', '.join(status_parts)}[/yellow]")
+                console.print(f"  Current: [yellow]{escape(str(', '.join(status_parts)))}[/yellow]")
 
                 # Confirm before spending money
                 if not force:
@@ -219,7 +219,7 @@ def repair(
                         else summary_result.summary
                     )
                     console.print(
-                        f"  [green]✓ Analyzed: priority={priority_str.upper()}, summary={summary_preview}[/green]"
+                        f"  [green]✓ Analyzed: priority={escape(str(priority_str.upper()))}, summary={escape(str(summary_preview))}[/green]"
                     )
 
                     processed += 1
@@ -227,7 +227,7 @@ def repair(
                 except Exception as e:
                     # Per-item boundary: one item's failure never stops the repair.
                     logger.warning("Repair failed for %s", item["title"], exc_info=True)
-                    console.print(f"  [red]✗ Failed: {e}[/red]")
+                    console.print(f"  [red]✗ Failed: {escape(str(e))}[/red]")
                     failed += 1
 
             # Track repair operation complete
@@ -244,14 +244,14 @@ def repair(
 
             # Summary
             console.print("\n[bold]Repair Complete[/bold]")
-            console.print(f"  ✓ Repaired: [green]{processed}[/green] items")
+            console.print(f"  ✓ Repaired: [green]{escape(str(processed))}[/green] items")
             if skipped > 0:
-                console.print(f"  ⊙ Skipped: [yellow]{skipped}[/yellow] items")
+                console.print(f"  ⊙ Skipped: [yellow]{escape(str(skipped))}[/yellow] items")
             if failed > 0:
-                console.print(f"  ✗ Failed: [red]{failed}[/red] items")
+                console.print(f"  ✗ Failed: [red]{escape(str(failed))}[/red] items")
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -300,11 +300,11 @@ def kinds(
                 return
 
             total = len(items)
-            console.print(f"[bold]Found {total} items needing kind classification[/bold]")
+            console.print(f"[bold]Found {escape(str(total))} items needing kind classification[/bold]")
 
             if not force:
                 cost_estimate = total * _KIND_COST_PER_ITEM
-                console.print(f"[dim]Estimated cost: ${cost_estimate:.4f}[/dim]\n")
+                console.print(f"[dim]Estimated cost: ${escape(f"{cost_estimate:.4f}")}[/dim]\n")
                 if not Confirm.ask(f"Classify {total} items?", default=False):
                     console.print("[yellow]Aborted[/yellow]")
                     return
@@ -319,7 +319,7 @@ def kinds(
             failed = 0
 
             for idx, item in enumerate(items, 1):
-                console.print(f"\n[bold][{idx}/{total}][/bold] {item['title']}")
+                console.print(f"\n[bold][{escape(str(idx))}/{escape(str(total))}][/bold] {escape(str(item['title']))}")
                 analysis = item.get("analysis") or {}
 
                 try:
@@ -336,7 +336,7 @@ def kinds(
                     logger.warning(
                         "Kind classification failed for %s", item["title"], exc_info=True
                     )
-                    console.print(f"  [red]✗ Failed: {e}[/red]")
+                    console.print(f"  [red]✗ Failed: {escape(str(e))}[/red]")
                     failed += 1
                     continue
 
@@ -347,7 +347,7 @@ def kinds(
 
                 if result.kind is not None:
                     console.print(
-                        f"  [green]✓ {result.kind} ({result.confidence:.2f})[/green]"
+                        f"  [green]✓ {escape(str(result.kind))} ({escape(f"{result.confidence:.2f}")})[/green]"
                     )
                     classified += 1
                 else:
@@ -366,13 +366,13 @@ def kinds(
             )
 
             console.print("\n[bold]Kind Classification Complete[/bold]")
-            console.print(f"  ✓ Classified: [green]{classified}[/green] items")
-            console.print(f"  ⊙ Unclassified: [yellow]{unclassified}[/yellow] items")
+            console.print(f"  ✓ Classified: [green]{escape(str(classified))}[/green] items")
+            console.print(f"  ⊙ Unclassified: [yellow]{escape(str(unclassified))}[/yellow] items")
             if failed > 0:
-                console.print(f"  ✗ Failed: [red]{failed}[/red] items")
+                console.print(f"  ✗ Failed: [red]{escape(str(failed))}[/red] items")
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -413,7 +413,7 @@ def priority(
             items = storage.get_content_for_rescore(limit=limit, since_days=since_days)
             if not items:
                 console.print(
-                    f"[green]✓ No analysed items fetched in the last {since_days} days[/green]"
+                    f"[green]✓ No analysed items fetched in the last {escape(str(since_days))} days[/green]"
                 )
                 return
 
@@ -422,11 +422,11 @@ def priority(
                 get_obs_logger().base_dir, actions=("evaluate",)
             )
             console.print(
-                f"[bold]{total} items to re-score[/bold] (fetched in the last {since_days} days)"
+                f"[bold]{escape(str(total))} items to re-score[/bold] (fetched in the last {escape(str(since_days))} days)"
             )
             console.print(
-                f"[dim]Estimated cost: at most ${per_item * total:.2f} "
-                f"(99th-percentile evaluate cost ${per_item:.5f} per item)[/dim]"
+                f"[dim]Estimated cost: at most ${escape(f"{per_item * total:.2f}")} "
+                f"(99th-percentile evaluate cost ${escape(f"{per_item:.5f}")} per item)[/dim]"
             )
             if dry_run:
                 return
@@ -451,7 +451,7 @@ def priority(
                 except Exception as e:
                     # Per-item boundary: a failed call keeps the item's old score.
                     logger.warning("Re-score failed for %s", item["title"], exc_info=True)
-                    console.print(f"[{idx}/{total}] [red]✗ Failed: {escape(str(e))}[/red]")
+                    console.print(f"[{escape(str(idx))}/{escape(str(total))}] [red]✗ Failed: {escape(str(e))}[/red]")
                     failed += 1
                     continue
 
@@ -480,13 +480,13 @@ def priority(
             )
 
             console.print("\n[bold]Re-score Complete[/bold]")
-            console.print(f"  ✓ Re-scored: [green]{total - failed}[/green] items")
-            console.print(f"  Changed: [cyan]{changed}[/cyan]")
+            console.print(f"  ✓ Re-scored: [green]{escape(str(total - failed))}[/green] items")
+            console.print(f"  Changed: [cyan]{escape(str(changed))}[/cyan]")
             for (o, n2), n in sorted(transitions.items(), key=lambda kv: -kv[1]):
                 if o != n2:
                     console.print(f"    {o} → {n2}: {n}")
             if failed > 0:
-                console.print(f"  ✗ Failed: [red]{failed}[/red] items (scores kept)")
+                console.print(f"  ✗ Failed: [red]{escape(str(failed))}[/red] items (scores kept)")
             if config.llm_deep_service and any(n2 == "high" and o != "high" for o, n2 in transitions):
                 console.print(
                     "[dim]Newly HIGH items have no deep extraction yet: "

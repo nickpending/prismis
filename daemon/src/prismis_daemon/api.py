@@ -24,6 +24,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from rich.console import Console
+from rich.markup import escape
 
 from . import __version__
 from .api_errors import (
@@ -125,7 +126,7 @@ async def log_requests(request: Request, call_next) -> Response:
         # Include query parameters for debugging
         query_str = f"?{request.url.query}" if request.url.query else ""
         console.print(
-            f"[dim]   📡 API: {request.method} {request.url.path}{query_str} from {client_ip} → {response.status_code}{count_info} ({duration:.0f}ms)[/dim]"
+            f"[dim]   📡 API: {escape(str(request.method))} {escape(str(request.url.path))}{escape(str(query_str))} from {escape(str(client_ip))} → {escape(str(response.status_code))}{escape(str(count_info))} ({escape(f"{duration:.0f}")}ms)[/dim]"
         )
 
         # Log to observability system
@@ -1493,7 +1494,7 @@ async def extract_entry(
                 "Embedding regen failed for %s", content_id, exc_info=True
             )
             console.print(
-                f"[yellow]Embedding regen failed for {content_id}: {e}[/yellow]"
+                f"[yellow]Embedding regen failed for {escape(str(content_id))}: {escape(str(e))}[/yellow]"
             )
 
         return {

@@ -159,7 +159,7 @@ def generate(
 
         client = APIClient()
 
-        console.print(f"📊 Generating report for period: [bold]{period}[/bold]...")
+        console.print(f"📊 Generating report for period: [bold]{escape(str(period))}[/bold]...")
 
         items = client.get_content(since_hours=hours, view="list", limit=10000)
 
@@ -172,7 +172,7 @@ def generate(
         # Either save to file or print to console
         if output:
             output.write_text(report)
-            console.print(f"✅ Report saved to: [bold green]{output}[/bold green]")
+            console.print(f"✅ Report saved to: [bold green]{escape(str(output))}[/bold green]")
         else:
             # Print report to console
             console.print("\n" + report, markup=False, highlight=False, soft_wrap=True)
@@ -182,7 +182,7 @@ def generate(
         # exit is caught below and reported a second time as "Error: 1".
         raise
     except RuntimeError as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 

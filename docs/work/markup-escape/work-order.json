@@ -1,0 +1,66 @@
+{
+  "workOrder": "markup-escape",
+  "what": "Every interpolation inside a Rich markup string printed by the daemon or the CLI is wrapped in rich.markup.escape (escape(e) for strings, escape(str(x)) otherwise), so external text renders as written with its brackets; a guard test in the daemon suite parses both source trees and fails on any bare interpolation inside a markup print, naming file, line and expression; and the daemon's fatal and verify paths are proven to print the missing-[api] and outdated-[llm] config errors with the section name intact.",
+  "why": "The design is docs/work/markup-escape/design.md. Rich reads [name] inside a printed string as a style tag and drops it, so the one word a config fix hint hinges on vanishes ('Add  section to config.toml'), and a value carrying [/x] makes Rich raise MarkupError inside the error handler; shown this session against the repo's Rich 15.0.0. An AST count found 218 interpolations inside markup prints across daemon/src and cli/src, 7 escaped; titles, names, reasons and paths are external text as much as exceptions, so the class is every interpolation, not the 41 exception-named sites #98 counted. The guard follows daemon/tests/unit/test_no_internal_mocks_unit.py.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "a config.toml with no [api] section",
+      "when": "the daemon's startup path that prints 'Fatal error: {e}' runs through the real console into a capture, and separately `prismis-daemon verify` prints its 'config:' line for the same file",
+      "then": "Each rendered line contains the text 'Add [api] section' with the brackets; against today's code the brackets are absent and the test is red. A sibling with a [llm] section the loader calls outdated asserts 'Config [llm] section outdated' survives."
+    },
+    {
+      "id": "C2",
+      "given": "a value containing a closing tag, such as an exception whose text is 'bad [/red] value'",
+      "when": "it is printed by any of the daemon's fatal-path prints",
+      "then": "The line renders the text verbatim and no MarkupError is raised; against today's code Rich raises."
+    },
+    {
+      "id": "C3",
+      "given": "the daemon/src and cli/src trees as they stand after the change",
+      "when": "the guard test parses every .py file, finds each call to a .print attribute, and inspects each f-string argument whose literal parts contain a Rich markup tag",
+      "then": "Every FormattedValue in such an f-string is a call to escape, and the test passes with zero violations; the test's failure message lists each violation as path:line: expression."
+    },
+    {
+      "id": "C4",
+      "given": "a temporary tree holding one file with console.print(f\"[red]x {e}[/red]\") and one with console.print(f\"[red]x {escape(e)}[/red]\") and one with console.print(f\"plain {e}\")",
+      "when": "the guard's scan runs over that tree",
+      "then": "It reports exactly the first file's line and the expression e, and nothing for the escaped one or the untagged one, so the guard is shown to fire and to ignore what is not markup."
+    },
+    {
+      "id": "C5",
+      "given": "a markup print whose interpolated value is a count or a time, such as f\"[green]{escape(str(total))} items[/green]\"",
+      "when": "it renders",
+      "then": "The output text is unchanged from today's (escape leaves digits and colons alone) and the colour tags still apply; the CLI's existing tests that assert on printed words still pass."
+    },
+    {
+      "id": "C6",
+      "given": "the issue's own grep, grep -rnE 'print\\(\\s*f?\"[^\"]*\\{(e|exc|err|error|message|msg|reason|str\\(e\\))\\}' --include='*.py' daemon/src cli/src",
+      "when": "it is run after the change",
+      "then": "It finds zero sites, and the AST count of unescaped interpolations inside markup prints is zero; the 7 sites that already escaped are unchanged."
+    }
+  ],
+  "issues": [
+    98
+  ],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "Every markup print that interpolates a value grows an escape() call, 211 sites, which is churn with no behaviour change at the sites whose values never carried brackets."
+    },
+    {
+      "kind": "cost",
+      "summary": "Rich's escape leaves text that merely looks like a tag but is not one unchanged; a value containing a literal backslash before a bracket is rendered by Rich's own rules."
+    },
+    {
+      "kind": "cost",
+      "summary": "The guard reads f-strings only; a markup string built by concatenation or .format and then printed is outside its sight, as it is outside the pattern the codebase uses."
+    }
+  ],
+  "stakes": [
+    "Every interpolation inside a Rich markup string printed by the daemon or CLI is escaped, so external text renders as written, brackets included.",
+    "A new unescaped interpolation inside a markup print fails the daemon test suite, naming the file, line and expression.",
+    "The daemon's fatal path prints the missing-[api] config error with '[api]' intact, proven through the real console.",
+    "No print loses its colour tags: escaping applies to values, never to the template."
+  ]
+}

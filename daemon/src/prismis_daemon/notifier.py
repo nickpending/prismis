@@ -1,6 +1,7 @@
 """Desktop notification system for HIGH priority content."""
 
 import logging
+import shutil
 import subprocess
 import time
 from typing import Dict, Any, List, Optional
@@ -24,6 +25,9 @@ class Notifier:
         self.config = config or {}
         self.high_priority_only = self.config.get("high_priority_only", True)
         self.command = self.config.get("command", "terminal-notifier")
+        # A host without the command (a Linux daemon has no terminal-notifier) is told
+        # once, not once per cycle.
+        self._warned_missing_command = False
 
     def notify_new_content(self, items: List[Dict[str, Any]]) -> None:
         """Send desktop notification for new content items.
@@ -45,6 +49,22 @@ class Notifier:
                 count=0,
             )
             logger.debug("No HIGH priority items to notify about")
+            return
+
+        if shutil.which(self.command) is None:
+            obs_log(
+                "notification.send",
+                status="skipped",
+                reason="command_not_found",
+                command=self.command,
+                count=len(high_items),
+            )
+            if not self._warned_missing_command:
+                logger.warning(
+                    f"Notification command {self.command!r} is not installed; "
+                    "HIGH priority alerts are skipped until it is"
+                )
+                self._warned_missing_command = True
             return
 
         try:

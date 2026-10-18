@@ -66,27 +66,6 @@ def test_non_zero_exit_emits_error_event() -> None:
     assert isinstance(events[0]["duration_ms"], int)
 
 
-def test_unrunnable_command_emits_error_event_carrying_the_reason() -> None:
-    """
-    SC-5: the exception path (the command binary does not exist) is recorded too, and
-    is distinguishable from a non-zero exit by carrying the failure text.
-
-    BREAKS: the notifier's own except clause swallows the failure with only a warning,
-    which is what it did before this work.
-    """
-    run_id = str(uuid.uuid4())
-    set_run_id(run_id)
-
-    Notifier({"command": "prismis-no-such-notifier-binary"}).notify_new_content(
-        [_HIGH_ITEM]
-    )
-
-    events = _notification_events(run_id)
-    assert len(events) == 1
-    assert events[0]["status"] == "error"
-    assert "prismis-no-such-notifier-binary" in events[0]["error"]
-
-
 def test_nothing_high_priority_emits_skipped_event() -> None:
     """
     Principle II: "there was nothing to send" is its own answer, not a blank.
@@ -104,3 +83,34 @@ def test_nothing_high_priority_emits_skipped_event() -> None:
     assert events[0]["status"] == "skipped"
     assert events[0]["reason"] == "no_high_priority_items"
     assert events[0]["count"] == 0
+
+
+def test_missing_command_is_one_skipped_record_and_one_warning_not_a_traceback(
+    caplog,
+) -> None:
+    """
+    On a host without the notifier command (cerebro, a Linux daemon, has no
+    terminal-notifier) every cycle with a HIGH item logged a FileNotFoundError
+    traceback: 94 in one week, all saying the same thing. A command that is not
+    installed is a known condition, not a failure to diagnose: the record says
+    `skipped` with the reason, the log warns once naming the command, and later
+    cycles stay quiet.
+    BREAKS: a log that buries real failures under one repeated traceback.
+    """
+    run_id = str(uuid.uuid4())
+    set_run_id(run_id)
+    notifier = Notifier({"command": "prismis-notifier-that-does-not-exist-7f3a"})
+
+    with caplog.at_level("WARNING", logger="prismis_daemon.notifier"):
+        notifier.notify_new_content([_HIGH_ITEM])
+        notifier.notify_new_content([_HIGH_ITEM])
+
+    events = _notification_events(run_id)
+    assert [e["status"] for e in events] == ["skipped", "skipped"]
+    assert all(e["reason"] == "command_not_found" for e in events)
+    assert all(e["command"] == "prismis-notifier-that-does-not-exist-7f3a" for e in events)
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1, [r.getMessage() for r in warnings]
+    assert "prismis-notifier-that-does-not-exist-7f3a" in warnings[0].getMessage()
+    assert warnings[0].exc_info is None, "a missing command is not a traceback"

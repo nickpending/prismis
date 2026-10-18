@@ -50,17 +50,25 @@ class SourceValidator:
     Network requests have a 5-second timeout to prevent hanging.
     """
 
-    def __init__(self, config: Config | None = None) -> None:
+    def __init__(
+        self,
+        config: Config | None = None,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
         """Initialize the validator with default timeout settings.
 
         Args:
             config: Config carrying the Reddit credentials. Optional because rss,
                 youtube and file validation need none; without it the reddit path
                 reports itself unconfigured instead of the whole validator failing.
+            transport: The httpx transport the YouTube page lookup goes through; the
+                default is the network, a test hands in an `httpx.MockTransport` so
+                the real client, parser and error path run without YouTube.
         """
         self.timeout = 5.0  # 5 second timeout for all network requests
         self.user_agent = "Prismis/1.0 (Content Aggregator)"
         self.config = config
+        self._transport = transport
 
     def _redact(self, message: str) -> str:
         """Strip this validator's own credential values out of a message.
@@ -426,10 +434,56 @@ class SourceValidator:
                     None,
                 )
 
+            # A bare single-segment path (youtube.com/DwarkeshPatel) is YouTube's old
+            # custom channel URL, the form a browser bar hands over. Only the page
+            # says whether it is a channel: a channel page carries a canonical
+            # /channel/UC... link, youtube.com/feed or /results do not.
+            if re.fullmatch(r"/[A-Za-z0-9_.-]+/?", parsed.path):
+                return self._resolve_youtube_custom_url(url)
+
             return False, "Invalid YouTube channel URL format", None
 
         except ValueError as e:
             return False, self._redact(f"YouTube validation error: {str(e)}"), None
+
+    def _resolve_youtube_custom_url(
+        self, url: str
+    ) -> tuple[bool, str | None, dict | None]:
+        """Resolve a bare custom channel URL through its page's canonical link.
+
+        Returns the channel's @handle URL as `canonical_url` when the page names one,
+        else its /channel/UC... URL, so the stored source keeps the form every other
+        channel has. One plain GET, no YouTube API quota.
+        """
+        try:
+            # One client per lookup, closed on the way out: a client kept on the
+            # validator would leak a connection per request (the fd exhaustion of
+            # 566eeb0, in miniature).
+            with httpx.Client(
+                transport=self._transport,
+                timeout=self.timeout,
+                follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 (prismis source validator)"},
+            ) as client:
+                response = client.get(url)
+        except httpx.HTTPError as e:
+            return (
+                False,
+                self._redact(f"Could not reach YouTube to resolve the channel URL: {e}"),
+                None,
+            )
+        page = response.text
+        channel = re.search(
+            r'<link rel="canonical" href="(https://www\.youtube\.com/channel/UC[\w-]+)"',
+            page,
+        )
+        if channel is None:
+            return False, "Invalid YouTube channel URL format", None
+        handle = re.search(r'"vanityChannelUrl":"https?://www\.youtube\.com/(@[^"/]+)"', page)
+        canonical = (
+            f"https://www.youtube.com/{handle.group(1)}" if handle else channel.group(1)
+        )
+        return True, None, {"canonical_url": canonical}
 
     def _validate_file(self, url: str) -> tuple[bool, str | None, dict | None]:
         """Validate a file URL for text/markdown content.

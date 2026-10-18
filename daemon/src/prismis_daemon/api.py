@@ -572,6 +572,13 @@ async def add_source(
             validator, normalized_url, request.type
         )
 
+        # A bare YouTube custom URL validates through its page and comes back as the
+        # channel's @handle; store that form, the one every other channel has.
+        if metadata and metadata.get("canonical_url"):
+            normalized_url = metadata["canonical_url"]
+            if not request.name:
+                name = extract_name_from_url(normalized_url, request.type)
+
         # Use display name from metadata if available (e.g., for Reddit subreddits)
         if metadata and "display_name" in metadata:
             name = metadata["display_name"]
@@ -663,7 +670,11 @@ async def update_source(
             normalized_url = normalize_source_url(request.url, request.type)
 
             # Validate off the event loop — validate_source blocks on network
-            await _validate_source_with_timeout(validator, normalized_url, request.type)
+            metadata = await _validate_source_with_timeout(
+                validator, normalized_url, request.type
+            )
+            if metadata and metadata.get("canonical_url"):
+                normalized_url = metadata["canonical_url"]
 
             update_data["url"] = normalized_url
 

@@ -89,3 +89,38 @@ def test_update_rejects_a_playlist_id_without_changing_the_stored_source(
     assert "playlist" in response.text.lower(), response.text
     urls = [s["url"] for s in Storage().get_all_sources()]
     assert urls == ["https://www.youtube.com/@prismistest"], urls
+
+
+def test_a_bare_custom_url_is_stored_as_the_channel_handle(test_db) -> None:
+    """
+    INVARIANT: youtube.com/DwarkeshPatel (the browser-bar form) is accepted and stored as
+               https://www.youtube.com/@DwarkeshPatel, named @DwarkeshPatel
+    BREAKS: the validator refuses the form YouTube itself serves, or stores the bare
+            form so the same channel can exist twice under two spellings
+    """
+    import httpx
+
+    from prismis_daemon.api import get_validator
+    from prismis_daemon.validator import SourceValidator
+
+    page = (
+        '<link rel="canonical" href="https://www.youtube.com/channel/UCXl4i9dYBrFOabk0xGmbkRA">'
+        '"vanityChannelUrl":"http://www.youtube.com/@DwarkeshPatel"'
+    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text=page))
+    app.dependency_overrides[get_validator] = lambda: SourceValidator(transport=transport)
+    try:
+        response = TestClient(app).post(
+            "/api/sources",
+            json={"url": "https://www.youtube.com/DwarkeshPatel", "type": "youtube"},
+            headers=_HEADERS,
+        )
+    finally:
+        app.dependency_overrides.pop(get_validator, None)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["url"] == "https://www.youtube.com/@DwarkeshPatel"
+    sources = Storage().get_all_sources()
+    assert [(s["url"], s["name"]) for s in sources] == [
+        ("https://www.youtube.com/@DwarkeshPatel", "@DwarkeshPatel")
+    ], sources

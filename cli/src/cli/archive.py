@@ -20,7 +20,8 @@ def status() -> None:
         enabled_status = (
             "[green]Enabled[/green]" if data["enabled"] else "[red]Disabled[/red]"
         )
-        console.print(f"\n[bold]Archival Status:[/bold] {escape(str(enabled_status))}")
+        # enabled_status is this module's own markup, not external text: it stays unescaped.
+        console.print("\n[bold]Archival Status:[/bold] " + enabled_status)
         console.print(f"Total items: {data['total_items']}")
         console.print(f"  Active: [green]{escape(str(data['active_items']))}[/green]")
         console.print(f"  Archived: [dim]{escape(str(data['archived_items']))}[/dim]")

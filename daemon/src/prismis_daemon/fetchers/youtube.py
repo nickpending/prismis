@@ -218,7 +218,7 @@ class YouTubeFetcher:
             "--playlist-end",
             str(self.max_items),  # Limit videos
             "--print",
-            "%(.{id,title,duration,upload_date,view_count,webpage_url})j",
+            "%(.{id,title,duration,upload_date,timestamp,view_count,webpage_url})j",
             "--socket-timeout",
             "120",  # Increase timeout for reliability
             "--retries",
@@ -285,6 +285,7 @@ class YouTubeFetcher:
                                 if data.get("duration") is not None
                                 else None,
                                 "upload_date": data.get("upload_date"),
+                                "timestamp": data.get("timestamp"),
                                 "view_count": int(data["view_count"])
                                 if data.get("view_count") is not None
                                 else None,
@@ -532,7 +533,7 @@ class YouTubeFetcher:
             title=video["title"],
             url=video["url"],
             content=format_youtube_no_transcript(video["title"]),
-            published_at=self._parse_upload_date(video.get("upload_date")),
+            published_at=self._published_at(video),
             fetched_at=datetime.now(UTC),
             priority="low",  # Mark as low priority since no transcript
             notes="No transcript available",
@@ -557,8 +558,7 @@ class YouTubeFetcher:
         Returns:
             ContentItem with video content
         """
-        # Parse upload date if available
-        published_at = self._parse_upload_date(video.get("upload_date"))
+        published_at = self._published_at(video)
 
         # Store video metrics in analysis field
         metrics = {
@@ -577,6 +577,18 @@ class YouTubeFetcher:
             fetched_at=datetime.now(UTC),
             analysis=_fetcher_analysis(metrics, fetch_outcome),
         )
+
+    def _published_at(self, video: dict[str, Any]) -> datetime | None:
+        """The video's upload time: yt-dlp's exact `timestamp` when it has one, else
+        the day from `upload_date`.
+
+        `upload_date` is YYYYMMDD, so an item stamped from it alone sits at midnight
+        UTC and a video posted this afternoon reads as "20h ago" by evening.
+        """
+        ts = video.get("timestamp")
+        if isinstance(ts, int | float) and not isinstance(ts, bool):
+            return datetime.fromtimestamp(ts, UTC)
+        return self._parse_upload_date(video.get("upload_date"))
 
     def _parse_upload_date(self, date_str: str | None) -> datetime | None:
         """Parse YouTube's upload date format (YYYYMMDD).

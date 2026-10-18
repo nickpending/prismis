@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "prismis-daemon"
-version = "0.3.6"
+version = "0.3.7"
 description = "Prismis daemon for content fetching and analysis"
 requires-python = ">=3.13"
 dependencies = [

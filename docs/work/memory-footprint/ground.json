@@ -62,19 +62,19 @@
     },
     {
       "tag": "OBSERVED",
-      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "path": "<host>:~/.local/share/prismis/prismis.db",
       "line": 1,
       "text": "2026-10-03: content has 38,545 rows, 27,404 not archived. One GET /api/entries?limit=10000 returned 260 MB in 11.3 s: analysis 158 MB (full_text 99 MB in 431 file-source items, reading_summary 32 MB, alpha_insights 12 MB, deep_extraction 6 MB, patterns 5 MB, quotes 4 MB), content 80 MB, summary 3 MB. Daemon RSS went 561 MB to a 2,468 MB peak and stayed at 1,185 MB."
     },
     {
       "tag": "OBSERVED",
-      "path": "cerebro:/home/rudy/.local/share/uv/tools/prismis-daemon/bin/python3",
+      "path": "<host>:~/.local/share/uv/tools/prismis-daemon/bin/python3",
       "line": 1,
-      "text": "Measured in the daemon's own environment on cerebro: RSS 8 MB bare, 447 MB after importing prismis_daemon.api and storage (torch via sentence_transformers), 476 MB after loading the model, 526 MB after one encode. The resident baseline is import cost, flat in corpus size; the model itself is ~30 MB."
+      "text": "Measured in the daemon's own environment on <host>: RSS 8 MB bare, 447 MB after importing prismis_daemon.api and storage (torch via sentence_transformers), 476 MB after loading the model, 526 MB after one encode. The resident baseline is import cost, flat in corpus size; the model itself is ~30 MB."
     },
     {
       "tag": "OBSERVED",
-      "path": "cerebro:journalctl -u prismis",
+      "path": "<host>:journalctl -u prismis",
       "line": 1,
       "text": "Fetch-cycle memory peaks over 2026-09-30 to 10-03 ran 613 MB to 1 GB, except restarts during API traffic or the 10-03 migration; both 10-03 OOM kills came with remote-TUI traffic (the second 4 s after a GET /api/sources from the Mac, the TUI's first call before FetchEntries)."
     },
@@ -86,7 +86,7 @@
     },
     {
       "tag": "OBSERVED",
-      "path": "/Users/rudy/.claude/skills/prismis/SKILL.md",
+      "path": "~/.claude/skills/prismis/SKILL.md",
       "line": 43,
       "text": "The prismis skill (agent consumer) lists with --compact --json and fetches full items with `prismis-cli get <id> --json`."
     },

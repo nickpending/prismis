@@ -1,11 +1,11 @@
 {
   "workOrder": "drift-check",
-  "what": "J1 of the drift check: each daemon cycle computes and stores a drift check (trailing-24-hour unprioritized share against the median of the previous 28 daily shares, flag at +threshold, pinned baseline and a half-threshold clear line while flagged), logs it, and exposes the latest through GET /api/drift and `prismis-daemon verify`, proven by a replay of cerebro's real history.",
-  "why": "The design is docs/work/drift-check/shape/design.md. From 2026-09-30T17:00Z cerebro's unprioritized share went from ~55% to ~81% (#96) and nothing in prismis noticed for two weeks; a model swap, prompt or context edit, or an over-applying carve-out would look the same. The replay fixture daemon/tests/fixtures/drift/cerebro_hourly_counts.json holds cerebro's hourly item and null-priority counts from before the 2026-10-15 re-score, which rewrote the poisoned scores in the live database.",
+  "what": "J1 of the drift check: each daemon cycle computes and stores a drift check (trailing-24-hour unprioritized share against the median of the previous 28 daily shares, flag at +threshold, pinned baseline and a half-threshold clear line while flagged), logs it, and exposes the latest through GET /api/drift and `prismis-daemon verify`, proven by a replay of <host>'s real history.",
+  "why": "The design is docs/work/drift-check/shape/design.md. From 2026-09-30T17:00Z <host>'s unprioritized share went from ~55% to ~81% (#96) and nothing in prismis noticed for two weeks; a model swap, prompt or context edit, or an over-applying carve-out would look the same. The replay fixture daemon/tests/fixtures/drift/<host>_hourly_counts.json holds <host>'s hourly item and null-priority counts from before the 2026-10-15 re-score, which rewrote the poisoned scores in the live database.",
   "criteria": [
     {
       "id": "C1",
-      "given": "a database seeded from daemon/tests/fixtures/drift/cerebro_hourly_counts.json, one content row per counted item at its hour, with a null priority for the counted null ones",
+      "given": "a database seeded from daemon/tests/fixtures/drift/<host>_hourly_counts.json, one content row per counted item at its hour, with a null priority for the counted null ones",
       "when": "the drift check runs at every 2-hour mark from 2026-01-20T00:00Z to 2026-10-15T12:00Z, each check stored before the next runs, with the default threshold",
       "then": "No check before 2026-09-30T17:00Z is flagged; the first flagged check is at or before 2026-10-01T17:00Z; and every check from that first flag to 2026-10-15T12:00Z stays flagged. Against a check that recomputes its baseline while flagged, or clears at the full threshold, the 'stays flagged' assertion fails on this data."
     },
@@ -19,7 +19,7 @@
       "id": "C3",
       "given": "a window with fewer than 20 items, or fewer than 14 qualifying daily windows of history",
       "when": "the check runs",
-      "then": "It is stored and logged as not judged, with the reason naming which minimum was not met; it is never stored as an unflagged judgement. With no standing flag it is not flagged; while the latest check is flagged, it keeps that flag and its pinned baseline, because clearing is a judgement a thin window cannot make (cerebro's fixture has a 23-hour outage after 2026-10-04T17:00Z, and C1 must hold through it)."
+      "then": "It is stored and logged as not judged, with the reason naming which minimum was not met; it is never stored as an unflagged judgement. With no standing flag it is not flagged; while the latest check is flagged, it keeps that flag and its pinned baseline, because clearing is a judgement a thin window cannot make (<host>'s fixture has a 23-hour outage after 2026-10-04T17:00Z, and C1 must hold through it)."
     },
     {
       "id": "C4",
@@ -76,7 +76,7 @@
   "stakes": [
     "Every daemon cycle records one drift check with the measured share, the baseline, the deviation and the decision, including why it did not judge when items or history are too few.",
     "The check flags when the trailing-24-hour unprioritized share is at least the configured threshold (default 0.20) above the median of the previous 28 daily shares, with at least 20 items in the window and 14 qualifying baseline windows.",
-    "Replaying cerebro's 2026-01-05..2026-10-04 counts, the check raises no flag before 2026-09-30T17:00Z, raises one no later than 2026-10-01T17:00Z, and keeps it through 2026-10-04.",
+    "Replaying <host>'s 2026-01-05..2026-10-04 counts, the check raises no flag before 2026-09-30T17:00Z, raises one no later than 2026-10-01T17:00Z, and keeps it through 2026-10-04.",
     "The latest check is readable through GET /api/drift and `prismis-daemon verify`.",
     "While the latest check is flagged, the TUI header and the web status bar say so with the measured and usual shares, and the warning clears when a later check stops flagging.",
     "While flagged, the check compares against the baseline it flagged with and clears only below that baseline plus half the threshold, so a persisting regression is neither absorbed into a recomputed baseline nor flapping."

@@ -2,7 +2,7 @@
 type: design
 date: 2026-10-04
 title: "Design: fetch-address-guard"
-description: "Untrusted article links cannot make cerebro fetch pages on its own machine or the home network: every connection `extract_article` opens is checked against the address it actually connects to, before the request is sent and after every redirect."
+description: "Untrusted article links cannot make <host> fetch pages on its own machine or the home network: every connection `extract_article` opens is checked against the address it actually connects to, before the request is sent and after every redirect."
 purpose: "The recorded design of the fetch-address-guard work order, read by its plan and its builders."
 producer: cli:shape
 ---
@@ -11,7 +11,7 @@ producer: cli:shape
 
 ## Purpose
 
-Untrusted article links cannot make cerebro fetch pages on its own machine or the home network: every connection `extract_article` opens is checked against the address it actually connects to, before the request is sent and after every redirect.
+Untrusted article links cannot make <host> fetch pages on its own machine or the home network: every connection `extract_article` opens is checked against the address it actually connects to, before the request is sent and after every redirect.
 
 ## Form
 
@@ -38,7 +38,7 @@ Check the address at the moment of connection, inside the opener the extractor a
 ## Sacrifices
 
 - A feed whose entries link to pages on the operator's own network yields title-only items until those hosts are added to `fetch_allow_private_hosts`; no current source does.
-- A request through an HTTP proxy is checked against the proxy's address, not the final site; cerebro uses no proxy.
+- A request through an HTTP proxy is checked against the proxy's address, not the final site; <host> uses no proxy.
 
 ## Risk
 

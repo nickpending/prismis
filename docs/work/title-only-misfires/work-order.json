@@ -2,7 +2,7 @@
   "workOrder": "title-only-misfires",
   "issues": [],
   "what": "Narrow the summarize prompt's substantive question to whether the piece the title refers to is present, catch Reddit link posts without their article and standalone markdown links in the code readability check, define the Reddit discussion header once, and treat relative Reddit urls as reddit-internal.",
-  "why": "Design: docs/work/title-only-misfires/design.md. Three days after title-only-reasons deployed, 3 of 7 `model:not_substantive` items on cerebro were real content (the Nobel physics announcement and two Simon Willison release notes), and a relative crosspost url raised `fetch_failed:ValueError`. On 108 labeled cerebro items the measured wording called all 48 real items substantive; the structural cases it no longer catches (link posts holding only the link and comments, a markdown-link-only self-post) are facts the code can see.",
+  "why": "Design: docs/work/title-only-misfires/design.md. Three days after title-only-reasons deployed, 3 of 7 `model:not_substantive` items on <host> were real content (the Nobel physics announcement and two Simon Willison release notes), and a relative crosspost url raised `fetch_failed:ValueError`. On 108 labeled <host> items the measured wording called all 48 real items substantive; the structural cases it no longer catches (link posts holding only the link and comments, a markdown-link-only self-post) are facts the code can see.",
   "criteria": [
     {
       "id": "SC-1",
@@ -53,6 +53,6 @@
     "A markdown link counts as a link, not prose, in the has-prose rule.",
     "The Reddit discussion header is defined once in readability.py.",
     "Relative Reddit urls are reddit-internal and never fetched.",
-    "Measured on 108 labeled cerebro items: the new wording called 48 of 48 real items substantive; the new code rules catch 5 of the 6 code-passing junk items the new wording misses."
+    "Measured on 108 labeled <host> items: the new wording called 48 of 48 real items substantive; the new code rules catch 5 of the 6 code-passing junk items the new wording misses."
   ]
 }

@@ -12,7 +12,7 @@
     },
     {
       "test": "2 evidence noun",
-      "failureCase": "Claiming the pipeline renders real summaries from a hand-built fixture. Ran the pinned marked 18.0.14 and DOMPurify 3.4.16 in Chromium over the newest real reading summary and synthesis pulled from cerebro's database: headings, lists and bold rendered as h2, ul/li and strong.",
+      "failureCase": "Claiming the pipeline renders real summaries from a hand-built fixture. Ran the pinned marked 18.0.14 and DOMPurify 3.4.16 in Chromium over the newest real reading summary and synthesis pulled from <host>'s database: headings, lists and bold rendered as h2, ul/li and strong.",
       "result": "held"
     },
     {
@@ -27,7 +27,7 @@
     },
     {
       "test": "5 real system",
-      "failureCase": "Only seeded fixtures prove rendering. The cerebro probe above ran real stored output; after the build, opening an item on cerebro's web view is the live check.",
+      "failureCase": "Only seeded fixtures prove rendering. The <host> probe above ran real stored output; after the build, opening an item on <host>'s web view is the live check.",
       "result": "held"
     },
     {
@@ -97,12 +97,12 @@
     },
     {
       "test": "19 direct observation",
-      "failureCase": "Guessing what summaries look like from the prompt. Queried cerebro: 498 of the 500 newest reading summaries open with '# <title>', and the six sampled equal the stored title verbatim.",
+      "failureCase": "Guessing what summaries look like from the prompt. Queried <host>: 498 of the 500 newest reading summaries open with '# <title>', and the six sampled equal the stored title verbatim.",
       "result": "held"
     },
     {
       "test": "20 real walk",
-      "failureCase": "Walked cerebro's 500 newest reading summaries through marked's lexer: 497 open with an h1, every one the article title or a rewrite of it, and the always-drop rule removes all 497 so each panel shows the title once; the plain entry.summary fallback has no leading h1 and passes through unchanged.",
+      "failureCase": "Walked <host>'s 500 newest reading summaries through marked's lexer: 497 open with an h1, every one the article title or a rewrite of it, and the always-drop rule removes all 497 so each panel shows the title once; the plain entry.summary fallback has no leading h1 and passes through unchanged.",
       "result": "held"
     },
     {

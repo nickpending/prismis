@@ -28,7 +28,7 @@ The record: when the summarizer cut, its ContentSummary metadata carries `conten
 - When the text is cut, the prompt says so, so the model does not summarize a part as the whole.
 - One helper decides the bound for all three prompts.
 - The defect walk: content shaped like ascii.rest (over a million characters, about half non-ASCII) through `analyze_and_store_item` against the local LLM stub is refused before the change by a stub that enforces the window in bytes, and is stored with a summary and `content_bounded` after it.
-- After deploy, cerebro's next cycle that lists an article over the bound stores it with `content_bounded` instead of logging a context-length failure.
+- After deploy, <host>'s next cycle that lists an article over the bound stores it with `content_bounded` instead of logging a context-length failure.
 
 ## Sacrifices
 

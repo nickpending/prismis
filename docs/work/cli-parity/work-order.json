@@ -2,7 +2,7 @@
   "workOrder": "cli-parity",
   "issues": [],
   "what": "Make `prismis-cli report` render its report in the CLI from GET /api/entries list data instead of calling the /api/reports endpoint the daemon removed, remove the daemon's unused report formatters, and make `prismis-cli get --json` return the full entry including content.",
-  "why": "Design: docs/work/cli-parity/design.md. A sweep of every read-only CLI command against cerebro on 2026-10-03 found `prismis-cli report daily` failing with 'API error: 404' (commit b332c15 removed /api/reports on 2025-10-14 to keep presentation in the client, and the CLI was never updated) and `prismis-cli get <id> --json` returning no content although get.py says it outputs the full response and the prismis skill tells agents it carries content.",
+  "why": "Design: docs/work/cli-parity/design.md. A sweep of every read-only CLI command against <host> on 2026-10-03 found `prismis-cli report daily` failing with 'API error: 404' (commit b332c15 removed /api/reports on 2025-10-14 to keep presentation in the client, and the CLI was never updated) and `prismis-cli get <id> --json` returning no content although get.py says it outputs the full response and the prismis skill tells agents it carries content.",
   "criteria": [
     {
       "id": "SC-1",

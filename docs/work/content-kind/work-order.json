@@ -1,7 +1,7 @@
 {
   "workOrder": "content-kind",
   "what": "Tag every newly analysed item with the kind of information it is (one of ten kinds), using Jev, a decision model on OpenRouter's decisions endpoint, called after the light pass. Store the kind in the item's analysis and let the API, CLI and TUI show it and filter by it (gh #77).",
-  "why": "Priority says how much an item matters and topics say what it is about; neither says whether it is a release, a question, an incident or a joke. The kinds were derived from 100 hand-labelled cerebro items, and Jev picked the primary kind with 89% accuracy on the 72% it was confident about (threshold 0.7), for about $0.00007 per item. Items below the threshold stay unclassified instead of being forced into a wrong bucket. The evidence is on gh #77.",
+  "why": "Priority says how much an item matters and topics say what it is about; neither says whether it is a release, a question, an incident or a joke. The kinds were derived from 100 hand-labelled <host> items, and Jev picked the primary kind with 89% accuracy on the 72% it was confident about (threshold 0.7), for about $0.00007 per item. Items below the threshold stay unclassified instead of being forced into a wrong bucket. The evidence is on gh #77.",
   "criteria": [
     {
       "id": "SC-1",

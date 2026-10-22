@@ -22,7 +22,7 @@ get_unreadable_content (storage.py) gains a title_only_flagged keyword, default 
 - With --title-only, refetch selects only non-archived, unreadable rows of the given type whose analysis records title_only = true, oldest first, up to --limit; rows with title_only false or no title_only key are never selected.
 - Without --title-only, the selection is exactly what it is today, rows with no title_only key included.
 - refetch --dry-run --title-only reports the narrowed selection's count and cost estimate.
-- On cerebro after deploy, refetch --type rss --title-only --dry-run selects the 39 flagged HN items, and the real run reports how many were recovered from their discussion.
+- On <host> after deploy, refetch --type rss --title-only --dry-run selects the 39 flagged HN items, and the real run reports how many were recovered from their discussion.
 
 ## Sacrifices
 

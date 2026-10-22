@@ -204,7 +204,7 @@ Docs (5): `docs/architecture/{architecture,boundaries,components,decisions}.md`,
 - **And**: the new `complete()` carries a comment explaining why
 - **Verification**:
   ```bash
-  cd /Users/rudy/development/projects/prismis
+  cd ~/development/projects/prismis
   hits=$(grep -rnE '^[^#]*\btemperature\b' --include="*.py" daemon/src || true)
   if [ -n "$hits" ]; then echo "$hits"; echo "SC-2: FAIL"; else echo "SC-2: PASS"; fi
   ```
@@ -257,7 +257,7 @@ Docs (5): `docs/architecture/{architecture,boundaries,components,decisions}.md`,
   package
 - **Verification**:
   ```bash
-  cd /Users/rudy/development/projects/prismis
+  cd ~/development/projects/prismis
   if grep -rq "llm_core" --include="*.py" daemon/src cli/src \
      || grep -q "llm-core" daemon/pyproject.toml; then echo "SC-8: FAIL"; else echo "SC-8: PASS"; fi
   ```
@@ -296,7 +296,7 @@ Docs (5): `docs/architecture/{architecture,boundaries,components,decisions}.md`,
 ## Verification
 
 ```bash
-cd /Users/rudy/development/projects/prismis/daemon
+cd ~/development/projects/prismis/daemon
 uv run ruff check .
 uv run mypy .
 uv run pytest

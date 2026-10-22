@@ -41,7 +41,7 @@
       "result": "held"
     },
     {
-      "test": "T11 class, every install path for prismis: make (development, Linux, cerebro), the three formulas (macOS); both pin to the locks.",
+      "test": "T11 class, every install path for prismis: make (development, Linux, <host>), the three formulas (macOS); both pin to the locks.",
       "failureCase": "An install path left unpinned.",
       "result": "held"
     },

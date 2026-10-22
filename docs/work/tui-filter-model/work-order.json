@@ -6,7 +6,7 @@
     33
   ],
   "what": "In the TUI, make 1/2/3 select a priority floor (HIGH, MEDIUM+, LOW+) with 'a' equal to 3, keep 0 as the unprioritized-only view in one priority key row, and persist the view (priority, unread/all, archived, upvoted, sort, source type, kind) to $XDG_STATE_HOME/prismis/tui-view.json across launches.",
-  "why": "Design: docs/work/tui-filter-model/design.md. Reading cascades from HIGH down but 2 and 3 show one priority only, and every launch resets the view the operator built (gh #36, #33); #52's remaining question, what 0 means, is settled by usage on cerebro (6 of 24 upvotes are rescues from the unprioritized view).",
+  "why": "Design: docs/work/tui-filter-model/design.md. Reading cascades from HIGH down but 2 and 3 show one priority only, and every launch resets the view the operator built (gh #36, #33); #52's remaining question, what 0 means, is settled by usage on <host> (6 of 24 upvotes are rescues from the unprioritized view).",
   "criteria": [
     {
       "id": "SC-1",

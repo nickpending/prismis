@@ -1,20 +1,20 @@
 {
-  "what": "Change how user votes become learned preferences so a few downvotes can never make the evaluator reject the user's own High or Medium context topics: the topic aggregation in the get_feedback_statistics method in daemon/src/prismis_daemon/storage.py marks a topic disliked only on evidence, never lists a topic as both liked and disliked, and never lets a learned dislike name a High or Medium context topic, so the evaluator's learned-preferences block stops overriding context.md; then re-score the items cerebro scored under the poisoned preferences.",
-  "why": "On cerebro one downvote put three High-priority interests into 'User dislikes' and the unprioritized share went from ~55% to ~81% from 2026-09-30T17:00Z, unseen for two weeks; a controlled re-evaluation on 2026-10-15 (issue #96 comment) showed removing the dislike list alone takes 100 sampled items from 80% to 30% null, while reverting the b6c3f70 prompt (71%) or the context edit (75%) does not, so the dislike list is the cause and any user with a handful of votes hits it.",
+  "what": "Change how user votes become learned preferences so a few downvotes can never make the evaluator reject the user's own High or Medium context topics: the topic aggregation in the get_feedback_statistics method in daemon/src/prismis_daemon/storage.py marks a topic disliked only on evidence, never lists a topic as both liked and disliked, and never lets a learned dislike name a High or Medium context topic, so the evaluator's learned-preferences block stops overriding context.md; then re-score the items <host> scored under the poisoned preferences.",
+  "why": "On <host> one downvote put three High-priority interests into 'User dislikes' and the unprioritized share went from ~55% to ~81% from 2026-09-30T17:00Z, unseen for two weeks; a controlled re-evaluation on 2026-10-15 (issue #96 comment) showed removing the dislike list alone takes 100 sampled items from 80% to 30% null, while reverting the b6c3f70 prompt (71%) or the context edit (75%) does not, so the dislike list is the cause and any user with a handful of votes hits it.",
   "decided": [
     "A topic is marked disliked only on evidence: its downvotes meet a minimum count and exceed its upvotes.",
     "No topic ever appears in both the liked and the disliked list.",
     "The user's explicit context outranks learned preferences in code: a learned dislike can never name a topic from the context's High or Medium sections, and learned preferences only add to what the context says.",
     "Detecting the drift (an unprioritized-share check against a baseline) is issue #97, not this work.",
-    "After the fix deploys, the items cerebro scored since 2026-09-30T17:00Z are re-scored, with the cost measured by a dry run and shown to the operator before the run.",
-    "A test seeds cerebro's pattern (23 up, 1 down, the down item's topics overlapping the up items' topics and High-section bullets) and asserts the learned-preferences context names none of those topics as disliked, shown red against today's code.",
+    "After the fix deploys, the items <host> scored since 2026-09-30T17:00Z are re-scored, with the cost measured by a dry run and shown to the operator before the run.",
+    "A test seeds <host>'s pattern (23 up, 1 down, the down item's topics overlapping the up items' topics and High-section bullets) and asserts the learned-preferences context names none of those topics as disliked, shown red against today's code.",
     "A test asserts a topic with enough downvotes and no upvotes, outside High and Medium, does appear as disliked.",
     "A test asserts a topic from the High section is never emitted as disliked, whatever the votes."
   ],
   "open": [
-    "What minimum downvote count marks a topic disliked, given cerebro has 1 downvote and 24 upvotes in total, so real vote data cannot calibrate it?",
+    "What minimum downvote count marks a topic disliked, given <host> has 1 downvote and 24 upvotes in total, so real vote data cannot calibrate it?",
     "How is a learned topic label matched to a High or Medium context bullet, given the evaluator's matched_interests are not always verbatim bullets ('LLM-driven security tools' versus the bullet 'LLM-driven security tools (HTTP honeypots, vulnerability analysis)', and group headings such as 'AI-Powered Security & Prompt Engineering')?",
-    "Does this work also cover the context auto-updater (ContextAutoUpdater in daemon/src/prismis_daemon/context_auto_updater.py), which is on by default, feeds the same topics_upvoted and topics_downvoted lists to an LLM told to demote downvoted topics, and rewrites context.md, with its next cerebro run due about 2026-10-26?",
+    "Does this work also cover the context auto-updater (ContextAutoUpdater in daemon/src/prismis_daemon/context_auto_updater.py), which is on by default, feeds the same topics_upvoted and topics_downvoted lists to an LLM told to demote downvoted topics, and rewrites context.md, with its next <host> run due about 2026-10-26?",
     "Does this work also re-key the 30-day vote window from updated_at to the vote's own time, given every voted row from 2026-09-30 shares updated_at 21:40:16Z from one bulk write?",
     "Is the re-score a one-off script or a reusable command, given no rescore tool exists and refetch.py already carries a dry-run cost estimate?"
   ]

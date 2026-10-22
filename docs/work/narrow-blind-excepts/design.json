@@ -10,7 +10,7 @@
     "An existing but unreadable or malformed config.toml makes a CLI command fail naming the file, while a missing config.toml still means localhost, proven by a test for each.",
     "A Reddit item whose comment fetch failed stores `comments_outcome` with outcome fetch_failed; one with no comments and no failure stores no such key.",
     "The TUI's ExecutePrune makes no PruneCount call and PruneResultMsg has no Count field.",
-    "After deploy, the daemon's first full fetch cycle on cerebro completes, and every traceback its journal shows for that cycle names a real failure, not an expected one a narrowed handler missed."
+    "After deploy, the daemon's first full fetch cycle on <host> completes, and every traceback its journal shows for that cycle names a real failure, not an expected one a narrowed handler missed."
   ],
   "sacrifices": [
     "An unreadable context.md now stops daemon start-up with the read error instead of silently evaluating against the default context.",

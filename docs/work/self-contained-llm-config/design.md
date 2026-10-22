@@ -23,7 +23,7 @@ A new user goes from install to a working daemon by setting one environment vari
 
 4. Existing installs migrate. migrate-config, when [llm] names a service that config.toml does not define, reads ~/.config/llm-core/services.toml read-only, takes only the entries [llm] names, and appends them to config.toml as [services.<name>] (default_model becomes model; key_required = false becomes no api_key; otherwise api_key = env:<VAR>, where VAR comes from the `provider` field of the matching [keys.<key>] entry in ~/.config/apiconf/config.toml, read as plain TOML for that field only, mapped the way apiconf's own provider table does: openai OPENAI_API_KEY, else PROVIDER_API_KEY). It never reads or writes a key value, backs config.toml up to a timestamped copy before appending, appends rather than rewriting so comments survive, and is idempotent. The older pre-llm-core [llm] provider format migrates straight to a [services.prismis-<provider>] table the same way, replacing today's path that writes services.toml and copies the key value into apiconf's file (__main__.py:625).
 
-5. The operator's single key store sits outside prismis: the apiconf CLI's `apiconf env prismis` exports the variables (OPENROUTER_API_KEY on cerebro) at launch, in his shell and in cerebro's service unit, set up at deploy outside the lane.
+5. The operator's single key store sits outside prismis: the apiconf CLI's `apiconf env prismis` exports the variables (OPENROUTER_API_KEY on <host>) at launch, in his shell and in <host>'s service unit, set up at deploy outside the lane.
 
 ## Commitments
 
@@ -31,9 +31,9 @@ A new user goes from install to a working daemon by setting one environment vari
 - No prismis code path reads ~/.config/llm-core/services.toml except migrate-config, and apiconf is absent from daemon/pyproject.toml, uv.lock and every import.
 - Every LLM provider key comes from an environment variable named by `env:NAME` in a [services.*] api_key; a literal api_key value and a missing variable each fail with an error naming the service and the variable. prismis's own [api]/[remote] REST key is unchanged.
 - A service with no api_key works keyless.
-- migrate-config on cerebro's current config produces [services.prismis-light], [services.prismis-deep] and [services.prismis-kind] in config.toml with api_key = "env:OPENROUTER_API_KEY", a timestamped backup of the previous file, no key value in any file it writes, and a second run that changes nothing.
+- migrate-config on <host>'s current config produces [services.prismis-light], [services.prismis-deep] and [services.prismis-kind] in config.toml with api_key = "env:OPENROUTER_API_KEY", a timestamped backup of the previous file, no key value in any file it writes, and a second run that changes nothing.
 - README Quick Start, the .env template and the first-run text name OPENROUTER_API_KEY and match what the code reads.
-- After deploy, cerebro's daemon gets OPENROUTER_API_KEY from `apiconf env prismis` at launch, verify passes, and the first fetch cycle completes.
+- After deploy, <host>'s daemon gets OPENROUTER_API_KEY from `apiconf env prismis` at launch, verify passes, and the first fetch cycle completes.
 
 ## Sacrifices
 
@@ -43,7 +43,7 @@ A new user goes from install to a working daemon by setting one environment vari
 
 ## Risk
 
-If cerebro restarts on the new build before OPENROUTER_API_KEY reaches the service's environment, every LLM call fails at the per-item boundary until it does; the deploy runs migrate-config and sets up the apiconf bridge before the restart, and verify after restart is the check. A services.toml entry with fields this schema does not carry would be dropped by migrate-config; the migration copies the known fields and reports any it left behind.
+If <host> restarts on the new build before OPENROUTER_API_KEY reaches the service's environment, every LLM call fails at the per-item boundary until it does; the deploy runs migrate-config and sets up the apiconf bridge before the restart, and verify after restart is the check. A services.toml entry with fields this schema does not carry would be dropped by migrate-config; the migration copies the known fields and reports any it left behind.
 
 ## Licensed by
 

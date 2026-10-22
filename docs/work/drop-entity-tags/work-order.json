@@ -1,7 +1,7 @@
 {
   "workOrder": "drop-entity-tags",
   "what": "Stop generating, storing and showing the summarizer's 3-5 hashtag-style tags (analysis.entities): remove them from both summarizer prompts and the parsed result, from what the orchestrator and CLI repair write, from the model playtest harness, and from the TUI feed row and reader.",
-  "why": "The tags are display-only: nothing else reads analysis.entities. Feedback learning and the context auto-updater use matched_interests, and search and embeddings never touch the tags. rudy judged them mostly poor, and a recent cerebro sample mixes useful ones (cve-2026-88772, citrix-netscaler) with filler (ai, reuters). Content kind (gh #77) now tells the reader what sort of item it is, and the summary line says what it is about. Removing the step also takes one job out of the oversized summarizer prompt, which #79 is working toward.",
+  "why": "The tags are display-only: nothing else reads analysis.entities. Feedback learning and the context auto-updater use matched_interests, and search and embeddings never touch the tags. rudy judged them mostly poor, and a recent <host> sample mixes useful ones (cve-2026-88772, citrix-netscaler) with filler (ai, reuters). Content kind (gh #77) now tells the reader what sort of item it is, and the summary line says what it is about. Removing the step also takes one job out of the oversized summarizer prompt, which #79 is working toward.",
   "criteria": [
     {
       "id": "SC-1",

@@ -2,7 +2,7 @@
   "workOrder": "fetch-address-guard",
   "issues": [],
   "what": "Make `extract_article` refuse to connect to loopback, private, link-local or otherwise non-public addresses, checked on the address it connects to and on every redirect, with an explicit `[daemon] fetch_allow_private_hosts` config list as the only exception.",
-  "why": "Design: docs/work/fetch-address-guard/design.md. Article URLs come from third-party content (HN-submitted links, Reddit post urls), and cerebro sits on the home LAN beside the daemon's API, Home Assistant and the router; today any http(s) link to 127.0.0.1, 192.168.x.x or 169.254.169.254 is fetched, stored and sent to the LLM. No current source or stored item is on a private host (cerebro query 2026-10-03).",
+  "why": "Design: docs/work/fetch-address-guard/design.md. Article URLs come from third-party content (HN-submitted links, Reddit post urls), and <host> sits on the home LAN beside the daemon's API, Home Assistant and the router; today any http(s) link to 127.0.0.1, 192.168.x.x or 169.254.169.254 is fetched, stored and sent to the LLM. No current source or stored item is on a private host (<host> query 2026-10-03).",
   "criteria": [
     {
       "id": "SC-1",
@@ -43,7 +43,7 @@
   ],
   "outOfScope": [
     "A feed whose entries link to pages on the operator's own network yields title-only items until those hosts are added to `fetch_allow_private_hosts`; no current source does.",
-    "A request through an HTTP proxy is checked against the proxy's address, not the final site; cerebro uses no proxy."
+    "A request through an HTTP proxy is checked against the proxy's address, not the final site; <host> uses no proxy."
   ],
   "stakes": [
     "`extract_article` never connects to a loopback, private, link-local or otherwise non-public address unless its hostname is named in `fetch_allow_private_hosts`.",

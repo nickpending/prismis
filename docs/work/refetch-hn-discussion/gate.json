@@ -1,7 +1,7 @@
 {
   "scrutiny": [
     {
-      "test": "T0 purpose: 39 HN stories on cerebro sit title-only only because refetch predates hn-discussion; the live fetch already recovers the same kind of story, so this closes a gap rather than adding a behaviour.",
+      "test": "T0 purpose: 39 HN stories on <host> sit title-only only because refetch predates hn-discussion; the live fetch already recovers the same kind of story, so this closes a gap rather than adding a behaviour.",
       "failureCase": "Refetch and the live fetch giving different results for the same story.",
       "result": "held"
     },
@@ -11,7 +11,7 @@
       "result": "held"
     },
     {
-      "test": "T2 same noun: the 47/39/8 counts and the presence of item?id= in all 39 unreadable rows were read from cerebro's live database with sqlite3 on 2026-10-10, not estimated.",
+      "test": "T2 same noun: the 47/39/8 counts and the presence of item?id= in all 39 unreadable rows were read from <host>'s live database with sqlite3 on 2026-10-10, not estimated.",
       "failureCase": "A recovery claim about rows that cannot yield an id.",
       "result": "held"
     },
@@ -39,6 +39,6 @@
   "decisions": [],
   "verdict": "accept",
   "carried": [
-    "Running the backfill on cerebro waits on the operator, with the affected items and cost stated first."
+    "Running the backfill on <host> waits on the operator, with the affected items and cost stated first."
   ]
 }

@@ -11,7 +11,7 @@
       "result": "held"
     },
     {
-      "test": "T2 same noun: comment order was measured on a live item from both APIs, and the HN source's real feed URL and stored content were read on cerebro.",
+      "test": "T2 same noun: comment order was measured on a live item from both APIs, and the HN source's real feed URL and stored content were read on <host>.",
       "failureCase": "An API choice from memory.",
       "result": "held"
     },
@@ -41,7 +41,7 @@
       "result": "held"
     },
     {
-      "test": "T11 class, sources with comment threads, from cerebro's active sources (29 rss, 6 reddit, 9 youtube, 2 file): Reddit (covered), Hacker News (this work), no Lobsters, Tildes or other comment-bearing feed; YouTube comments are not fetched and are out of this scope. Detection is by the HN comments link, so hnrss feeds are covered too. Existing title-only items are not rewritten; the existing `prismis-daemon refetch` can re-analyze them if the operator chooses to spend on it.",
+      "test": "T11 class, sources with comment threads, from <host>'s active sources (29 rss, 6 reddit, 9 youtube, 2 file): Reddit (covered), Hacker News (this work), no Lobsters, Tildes or other comment-bearing feed; YouTube comments are not fetched and are out of this scope. Detection is by the HN comments link, so hnrss feeds are covered too. Existing title-only items are not rewritten; the existing `prismis-daemon refetch` can re-analyze them if the operator chooses to spend on it.",
       "failureCase": "A comment-bearing source left out.",
       "result": "held"
     },

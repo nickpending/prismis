@@ -1,7 +1,7 @@
 {
   "workOrder": "kind-backfill",
   "what": "Add `prismis-cli analyze kinds`, a bounded local-mode command that classifies already-analysed items that have no content kind yet, using the existing KindClassifier, and merges kind and kind_confidence into each item's stored analysis (gh #83).",
-  "why": "Only items analysed since content-kind shipped (aed1db6, 2026-09-28) carry analysis.kind, so the kind filter in the API, CLI and TUI misses nearly the whole corpus. Classifying costs about $0.00004 per item: about $0.14 for the last 30 days (about 3.4k items) and about $1.50 for all of cerebro's roughly 37.7k analysed items.",
+  "why": "Only items analysed since content-kind shipped (aed1db6, 2026-09-28) carry analysis.kind, so the kind filter in the API, CLI and TUI misses nearly the whole corpus. Classifying costs about $0.00004 per item: about $0.14 for the last 30 days (about 3.4k items) and about $1.50 for all of <host>'s roughly 37.7k analysed items.",
   "criteria": [
     {
       "id": "SC-1",
@@ -55,7 +55,7 @@
     }
   ],
   "outOfScope": [
-    "Running the backfill on cerebro. That happens after deploy, with its cost stated before it runs.",
+    "Running the backfill on <host>. That happens after deploy, with its cost stated before it runs.",
     "Re-classifying items that already have kind_confidence, including unclassified ones.",
     "Any change to KindClassifier, its threshold or the ten kinds."
   ],

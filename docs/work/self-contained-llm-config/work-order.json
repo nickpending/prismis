@@ -2,7 +2,7 @@
   "workOrder": "self-contained-llm-config",
   "issues": [],
   "what": "Move prismis's LLM services into its own config.toml ([services.<name>] with base_url, model, api_key = \"env:NAME\"), read provider keys only from the environment, remove apiconf and every read of ~/.config/llm-core/services.toml outside migrate-config, make a first run's default config (OpenRouter, openai/gpt-5.4-nano, OPENROUTER_API_KEY) reach an LLM, and migrate existing installs.",
-  "why": "Design: docs/work/self-contained-llm-config/design.md. Found on real use (2026-10-07): a fresh install following the README never reaches an LLM, because the daemon reads llm-core's services.toml and apiconf, neither of which anything creates, and ignores the key the docs ask for. After merge, cerebro is migrated and bridged to the operator's apiconf store with `apiconf env prismis` at launch, outside the lane.",
+  "why": "Design: docs/work/self-contained-llm-config/design.md. Found on real use (2026-10-07): a fresh install following the README never reaches an LLM, because the daemon reads llm-core's services.toml and apiconf, neither of which anything creates, and ignores the key the docs ask for. After merge, <host> is migrated and bridged to the operator's apiconf store with `apiconf env prismis` at launch, outside the lane.",
   "criteria": [
     {
       "id": "SC-1",
@@ -24,7 +24,7 @@
     },
     {
       "id": "SC-4",
-      "given": "a config home shaped like cerebro's: config.toml naming prismis-light, prismis-deep and prismis-kind (decisions adapter), a services.toml defining them with key names, and an apiconf config.toml mapping those keys to provider openrouter with values",
+      "given": "a config home shaped like <host>'s: config.toml naming prismis-light, prismis-deep and prismis-kind (decisions adapter), a services.toml defining them with key names, and an apiconf config.toml mapping those keys to provider openrouter with values",
       "when": "`prismis-daemon migrate-config` runs twice",
       "then": "it fails if any [services.*] table is missing or differs from its source, if api_key is not env:OPENROUTER_API_KEY, if any key value appears in a file it wrote, if no timestamped backup exists, or if the second run changes anything; otherwise config.toml gains the three tables and keeps its comments"
     },
@@ -57,8 +57,8 @@
     "No prismis code path reads ~/.config/llm-core/services.toml except migrate-config, and apiconf is absent from daemon/pyproject.toml, uv.lock and every import.",
     "Every LLM provider key comes from an environment variable named by `env:NAME` in a [services.*] api_key; a literal api_key value and a missing variable each fail with an error naming the service and the variable. prismis's own [api]/[remote] REST key is unchanged.",
     "A service with no api_key works keyless.",
-    "migrate-config on cerebro's current config produces [services.prismis-light], [services.prismis-deep] and [services.prismis-kind] in config.toml with api_key = \"env:OPENROUTER_API_KEY\", a timestamped backup of the previous file, no key value in any file it writes, and a second run that changes nothing.",
+    "migrate-config on <host>'s current config produces [services.prismis-light], [services.prismis-deep] and [services.prismis-kind] in config.toml with api_key = \"env:OPENROUTER_API_KEY\", a timestamped backup of the previous file, no key value in any file it writes, and a second run that changes nothing.",
     "README Quick Start, the .env template and the first-run text name OPENROUTER_API_KEY and match what the code reads.",
-    "After deploy, cerebro's daemon gets OPENROUTER_API_KEY from `apiconf env prismis` at launch, verify passes, and the first fetch cycle completes."
+    "After deploy, <host>'s daemon gets OPENROUTER_API_KEY from `apiconf env prismis` at launch, verify passes, and the first fetch cycle completes."
   ]
 }

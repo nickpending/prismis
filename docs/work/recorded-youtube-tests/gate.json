@@ -21,7 +21,7 @@
       "result": "held"
     },
     {
-      "test": "P1/P8 secrets: Reddit recording happens on cerebro, cassettes are scrubbed (filter_headers for Authorization/Cookie/Set-Cookie, before_record_response for access_token) and grepped on cerebro for the client id, secret and a real token before copying back; a mechanism test asserts a recorded cassette holds neither.",
+      "test": "P1/P8 secrets: Reddit recording happens on <host>, cassettes are scrubbed (filter_headers for Authorization/Cookie/Set-Cookie, before_record_response for access_token) and grepped on <host> for the client id, secret and a real token before copying back; a mechanism test asserts a recorded cassette holds neither.",
       "failureCase": "A credential or OAuth token reached a committed cassette.",
       "result": "held"
     },

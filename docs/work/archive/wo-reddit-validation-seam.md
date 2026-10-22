@@ -48,7 +48,7 @@ at all.
     The repo is public; `ci.yml` triggers on `push` and `pull_request`; live Reddit calls would
     make the gate depend on Reddit's uptime and rate limits, which is the exact defect class
     the last two days were spent removing. Live-credential tests stay behind the existing
-    `REDDIT_CLIENT_ID` env skip and run on cerebro.
+    `REDDIT_CLIENT_ID` env skip and run on <host>.
   - **No mocks.** `.specify/memory/constitution.md` Principle I — internal code is never mocked
     — and Project Constraints: LLM providers are "the one collaborator Principle I permits
     mocking, and the only one." `SourceValidator` is internal and Reddit is not an LLM.
@@ -98,7 +98,7 @@ at all.
   which SC-6 requires — the bare domain string must NOT be treated as the thing to remove
 - **Verification**:
   ```bash
-  cd /Users/rudy/development/projects/prismis
+  cd ~/development/projects/prismis
   f=daemon/src/prismis_daemon/validator.py
   if ! grep -q 'about\.json' "$f" && grep -q 'praw\.Reddit(' "$f" \
      && grep -q 'old\.reddit\.com/r/' "$f"; then
@@ -144,7 +144,7 @@ at all.
   `Depends(get_validator)`
 - **Verification**:
   ```bash
-  cd /Users/rudy/development/projects/prismis
+  cd ~/development/projects/prismis
   f=daemon/src/prismis_daemon/api.py
   n=$(grep -cE 'SourceValidator\(' "$f" || true)      # ANY construction, not just bare
   d=$(grep -c 'Depends(get_validator)' "$f" || true)  # one per handler signature
@@ -186,7 +186,7 @@ at all.
   repo does not currently run. Filed as **gh #70**.
 - **Verification**:
   ```bash
-  cd /Users/rudy/development/projects/prismis
+  cd ~/development/projects/prismis
   git add -A
   files=$(git ls-files --cached | grep -cE '(^|/)\.env$|(^|/)config\.toml$|praw\.ini|\.pem$' || true)
   ci=$(grep -c 'secrets\.' .github/workflows/ci.yml || true)
@@ -255,7 +255,7 @@ at all.
 - **Then**: the metadata dict still carries `display_name` from the subreddit's prefixed display
   name, so `api.py`'s `add_source` keeps naming the source `r/Name` rather than falling back to
   `extract_name_from_url`
-- **And**: covered by the credential-gated test that runs on cerebro
+- **And**: covered by the credential-gated test that runs on <host>
 
 ### SC-14: The refactor does not break the skipped validator suite
 - **Given**: `daemon/tests/integration/test_validator_integration.py`, which holds 6 of the 12
@@ -298,7 +298,7 @@ already holds. Nine outcomes route to their own messages. `SourceValidator` take
 ## Verification
 
 ```bash
-cd /Users/rudy/development/projects/prismis
+cd ~/development/projects/prismis
 
 # the gate — >2 min, raise the Bash timeout
 ./.specify/verify.sh; echo "exit: $?"
@@ -318,7 +318,7 @@ cd /Users/rudy/development/projects/prismis
 
 Cases that cannot be proven on this Mac — it has no daemon config
 (`~/.config/prismis/config.toml` is a `[remote]`-only CLI stub; `Config.from_file()` raises
-"Config [llm] section outdated") — verify on cerebro.
+"Config [llm] section outdated") — verify on <host>.
 
 **The suite never reads the machine's real config.** `daemon/tests/conftest.py`'s autouse
 `isolated_xdg_env` repoints `XDG_CONFIG_HOME` at a tmp dir holding the production template,
@@ -327,10 +327,10 @@ suite **only** through the environment, and **both** variables are required — 
 checks only `REDDIT_CLIENT_ID`, so setting one un-skips the test and then fails it on a 401.
 
 ```bash
-ssh cerebro
+ssh <host>
 cd ~/prismis && git fetch && git checkout <sha>
 cd daemon
-# both vars, sourced from cerebro's own config — never echoed, never written to the repo
+# both vars, sourced from <host>'s own config — never echoed, never written to the repo
 export REDDIT_CLIENT_ID=$(python3 -c "import tomllib;print(tomllib.load(open('$HOME/.config/prismis/config.toml','rb'))['reddit']['client_id'])")
 export REDDIT_CLIENT_SECRET=$(python3 -c "import tomllib;print(tomllib.load(open('$HOME/.config/prismis/config.toml','rb'))['reddit']['client_secret'])")
 XDG_DATA_HOME=$(mktemp -d) PRISMIS_LIVE_NETWORK_TESTS=1 \
@@ -376,4 +376,4 @@ failed on its first run. This is the case the new `CLAUDE.md` rule was written f
 after writing it.
 
 **Not proven here.** SC-13 and the success / 404 / 403 discrimination need real Reddit
-credentials, which exist only on cerebro. Three skips in the SC-14 run are exactly those.
+credentials, which exist only on <host>. Three skips in the SC-14 run are exactly those.

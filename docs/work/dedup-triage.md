@@ -1,12 +1,12 @@
 # Dedup triage — clone-by-clone verdicts
 
 Measured this run: `jscpd` (the pinned binary under
-`/Users/rudy/.local/share/ember/checkout/shared/node_modules/.bin/jscpd`, v5.3.3), invoked exactly
-as `findDuplicates` in `/Users/rudy/.local/share/ember/checkout/shared/verify/src/verify.ts` builds
+`~/.local/share/ember/checkout/shared/node_modules/.bin/jscpd`, v5.3.3), invoked exactly
+as `findDuplicates` in `~/.local/share/ember/checkout/shared/verify/src/verify.ts` builds
 it for this repo's three packages (`cli` python, `daemon` python, `tui` go):
 
 ```
-jscpd /Users/rudy/development/projects/prismis \
+jscpd ~/development/projects/prismis \
   --format python,go \
   --ignore "**/test_*.py,**/*_test.py,**/tests/**,**/*_test.go" \
   --reporters json --output <tmp>

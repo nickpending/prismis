@@ -11,7 +11,7 @@
       "result": "held"
     },
     {
-      "test": "T2 same noun: the 2,954 / 642 / 2,176 MB figures were measured through the real app on a copy of cerebro's real database, and the trigger request was read from cerebro's observability log for the window with the 2.9 GB peak.",
+      "test": "T2 same noun: the 2,954 / 642 / 2,176 MB figures were measured through the real app on a copy of <host>'s real database, and the trigger request was read from <host>'s observability log for the window with the 2.9 GB peak.",
       "failureCase": "A memory claim from estimation.",
       "result": "held"
     },
@@ -41,7 +41,7 @@
       "result": "held"
     },
     {
-      "test": "T20 walk: bishop's old TUI sends limit=10000 with no view; the handler validates, opens the stream, writes items one at a time from the cursor, logs item_count from request.state when done; RSS stays near the slim request's; the old TUI parses the same envelope it always did.",
+      "test": "T20 walk: <host>'s old TUI sends limit=10000 with no view; the handler validates, opens the stream, writes items one at a time from the cursor, logs item_count from request.state when done; RSS stays near the slim request's; the old TUI parses the same envelope it always did.",
       "failureCase": "A step where the full list is materialized.",
       "result": "held"
     }
@@ -49,7 +49,7 @@
   "decisions": [
     {
       "question": "Harden the daemon against old full-list clients, or rely on updating every TUI?",
-      "answer": "Update bishop and harden the daemon (operator, 2026-10-10)."
+      "answer": "Update <host> and harden the daemon (operator, 2026-10-10)."
     }
   ],
   "verdict": "accept",

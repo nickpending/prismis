@@ -95,7 +95,7 @@ index e231a9b..f8f1387 100644
 @@ -326,59 +326,51 @@ def test_INVARIANT_no_credentials_in_errors(
  
      # Fake API key that should never appear in error responses
-     fake_llm_service_key = "sk-test-SENSITIVE-KEY-12345"
+     fake_llm_service_key = "<key>"
 -    # Auth API key - must match what auth.py reads from Config
 -    auth_api_key = "test-api-key-for-cred-test"
  

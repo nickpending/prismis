@@ -41,7 +41,7 @@ The formulas are written and tested in this repository and published to the publ
 - prismis-daemon downloads its wheels from PyPI at install time instead of shipping a bottle, so an install needs network access and takes as long as the torch download.
 - prismis-tui builds from source on each user's Mac, so installing it pulls Go as a build dependency.
 - Publishing to the tap is a release step run with the operator's go, not automatic on every merge.
-- Linux hosts such as cerebro keep make install; the formulas target macOS.
+- Linux hosts such as <host> keep make install; the formulas target macOS.
 
 ## Risk
 

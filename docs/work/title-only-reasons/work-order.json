@@ -2,7 +2,7 @@
   "workOrder": "title-only-reasons",
   "issues": [],
   "what": "Record why every title-only item is title-only (fetch failed, nothing extractable, which content rule fired, or the light model judging it not substantive) through one helper, make the article and transcript extractors report three distinct outcomes, add a `substantive` verdict to the existing light summarize call, and show the marker and reason in the CLI.",
-  "why": "Design: docs/work/title-only-reasons/design.md. On 2026-10-03 no process recorded why items fail the readability check; `title_only` is a bare boolean and `extract_article` returns one None for a failed download, an empty page and an exception (constitution 2 and 3). A probe on cerebro the same day, with the instruction this design adds to the summarize prompt, called 50 of 51 known-junk items not substantive, and the 5 code-readable items it flagged were all junk the code check missed, with no real content flagged among 50 readable items.",
+  "why": "Design: docs/work/title-only-reasons/design.md. On 2026-10-03 no process recorded why items fail the readability check; `title_only` is a bare boolean and `extract_article` returns one None for a failed download, an empty page and an exception (constitution 2 and 3). A probe on <host> the same day, with the instruction this design adds to the summarize prompt, called 50 of 51 known-junk items not substantive, and the 5 code-readable items it flagged were all junk the code check missed, with no real content flagged among 50 readable items.",
   "criteria": [
     {
       "id": "SC-1",
@@ -73,6 +73,6 @@
     "A model-only title-only item is not retried each fetch cycle.",
     "`is_readable` keeps its boolean contract for every current caller.",
     "The CLI shows the title-only marker and reason, matching the TUI and web marker.",
-    "Measured before design on cerebro, 2026-10-03, with the instruction this design adds: 50 of 51 known-junk items called not substantive; of 40 short and 10 long readable-by-code items, 5 short ones called not substantive, and all 5, opened, were junk the code missed (bare links, gibberish, an X page of view counts); none were real content."
+    "Measured before design on <host>, 2026-10-03, with the instruction this design adds: 50 of 51 known-junk items called not substantive; of 40 short and 10 long readable-by-code items, 5 short ones called not substantive, and all 5, opened, were junk the code missed (bare links, gibberish, an X page of view counts); none were real content."
   ]
 }

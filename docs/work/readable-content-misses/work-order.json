@@ -4,7 +4,7 @@
     80
   ],
   "what": "Make the one readability check recognize failure pages by shape (no prose line; a JavaScript-requirement notice in a small page) instead of by one literal each, stop the RSS and Reddit fetchers preferring an unreadable extraction over their fallback, and fetch the article behind Reddit link posts that carry self-text (gh #80).",
-  "why": "Design: docs/work/readable-content-misses/design.md. Re-measured on cerebro 2026-10-03 for items created since the readable-content deploy: youtube 0/21 short (was 56/126), reddit 5/160 (was 270/1594), rss 17/217 (was 154/1720). Of currently-readable items over 45 days, 31 have no line of prose (11 YouTube footers, settings panels, 'Loading', '‹ ›', Reddit link posts with only one-word comments) and 15 hosts serve JavaScript walls in wordings the one literal `_JS_WALL_TEXT` misses (Mastodon, Notion, nature.com, stoppels.ch and others). 8 of 37 external Reddit link posts since the deploy hold no article because `_to_content_item` skips `extract_article` whenever the post has self-text.",
+  "why": "Design: docs/work/readable-content-misses/design.md. Re-measured on <host> 2026-10-03 for items created since the readable-content deploy: youtube 0/21 short (was 56/126), reddit 5/160 (was 270/1594), rss 17/217 (was 154/1720). Of currently-readable items over 45 days, 31 have no line of prose (11 YouTube footers, settings panels, 'Loading', '‹ ›', Reddit link posts with only one-word comments) and 15 hosts serve JavaScript walls in wordings the one literal `_JS_WALL_TEXT` misses (Mastodon, Notion, nature.com, stoppels.ch and others). 8 of 37 external Reddit link posts since the deploy hold no article because `_to_content_item` skips `extract_article` whenever the post has self-text.",
   "criteria": [
     {
       "id": "SC-1",
@@ -51,7 +51,7 @@
   ],
   "outOfScope": [
     "Reddit self-posts with no line of four words ('Pls help', 'Tada') become title-only; their title carries all there is.",
-    "A JavaScript wall longer than 1,200 visible characters stays readable; none was seen in 45 days of cerebro items.",
+    "A JavaScript wall longer than 1,200 visible characters stays readable; none was seen in 45 days of <host> items.",
     "Items already stored and analysed keep their classification until `prismis-daemon refetch` is run for them, a separate costed step.",
     "An HN link to youtube.com is still extracted as a page and becomes title-only rather than getting the video's transcript.",
     "Reddit link posts with self-text now cost one article fetch each per new post."

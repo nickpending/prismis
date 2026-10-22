@@ -25,7 +25,7 @@ Move the structural cases into the code check and narrow the model's question.
 
 4. Tests: the summarizer test asserts the prompt carries the new paragraph; readability tests: link line + discussion only is `link_without_article`, link line + self-text + discussion and link line + article + discussion stay readable, a self-post of one markdown link is `no_prose`, prose containing a markdown link stays readable, the existing readable fixtures stay readable; a Reddit fetcher test: a link post with url '/r/x/comments/1/y/' makes no extraction request and records no fetch outcome. Each shown red with its change removed.
 
-5. At deploy, the three misfired items (the Nobel announcement, llm-mistral 0.16, datasette-atom 0.11a0) are re-analysed once on cerebro through `analyze_and_store_item`, 3 light calls, and their stored reason checked.
+5. At deploy, the three misfired items (the Nobel announcement, llm-mistral 0.16, datasette-atom 0.11a0) are re-analysed once on <host> through `analyze_and_store_item`, 3 light calls, and their stored reason checked.
 
 ## Commitments
 
@@ -34,7 +34,7 @@ Move the structural cases into the code check and narrow the model's question.
 - A markdown link counts as a link, not prose, in the has-prose rule.
 - The Reddit discussion header is defined once in readability.py.
 - Relative Reddit urls are reddit-internal and never fetched.
-- Measured on 108 labeled cerebro items: the new wording called 48 of 48 real items substantive; the new code rules catch 5 of the 6 code-passing junk items the new wording misses.
+- Measured on 108 labeled <host> items: the new wording called 48 of 48 real items substantive; the new code rules catch 5 of the 6 code-passing junk items the new wording misses.
 
 ## Sacrifices
 

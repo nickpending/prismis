@@ -24,7 +24,7 @@ Record once against the real model, replay from the stub that already stands in 
 
 2. The gated tests drop their skip marks and run through the stub: test_audio_api_integration.py `test_audio_generates_with_high_priority`, test_daemon_integration.py `test_daemon_orchestration_with_test_database` (its source becomes the stub's `/feed.xml` instead of simonwillison.net), the two in test_context_api.py, and the four in test_summarizer_evaluator_integration.py, each configured with `configure_local_services` and keeping its existing assertions, which now check prismis's handling of a real reply. The audio test keeps its stand-in lspeak.
 
-3. The recordings are made once with `PRISMIS_RECORD_LLM=openrouter PRISMIS_RECORD_MODEL=openai/gpt-5.4-nano`, the production light and deep model on cerebro, about a dozen calls, and committed.
+3. The recordings are made once with `PRISMIS_RECORD_LLM=openrouter PRISMIS_RECORD_MODEL=openai/gpt-5.4-nano`, the production light and deep model on <host>, about a dozen calls, and committed.
 
 4. test_llm_client_live_integration.py is unchanged: live, opt-in under PRISMIS_LIVE_LLM_TESTS=1.
 

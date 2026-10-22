@@ -56,13 +56,13 @@
     },
     {
       "tag": "OBSERVED",
-      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "path": "<host>:~/.local/share/prismis/prismis.db",
       "line": 1,
       "text": "Measured 2026-10-15: the one downvoted item's nearest neighbors (cosine 0.52-0.62) are a coherent 'AI agents behaving badly' incident-news cluster, most scored High; the closest upvoted item is at 0.46."
     },
     {
       "tag": "INFERENCE",
-      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "path": "<host>:~/.local/share/prismis/prismis.db",
       "line": 1,
       "text": "With one downvote on record, real data cannot calibrate a similarity radius or show that a cluster generalizes; the 'more than one downvote in the slice' rule has no observed instance yet."
     },

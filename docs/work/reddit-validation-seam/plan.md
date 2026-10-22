@@ -1,6 +1,6 @@
 # Plan: wo-reddit-validation-seam
 
-Work order: `/Users/rudy/development/projects/prismis/docs/work/wo-reddit-validation-seam.md`
+Work order: `~/development/projects/prismis/docs/work/wo-reddit-validation-seam.md`
 
 ## Complexity
 
@@ -156,7 +156,7 @@ the process — an ordering constraint nothing enforces and any new import can b
 | Risk | Severity | Mitigation |
 |---|---|---|
 | `verify.sh` never runs `test_validator_integration.py`, so the refactor can break its 6 construction sites and 1 private call invisibly | **HIGH** | SC-14 requires an explicit `PRISMIS_LIVE_NETWORK_TESTS=1` run, recorded in Outputs. Keep the `_validate_reddit` name. |
-| Success path and 404/403/429 discrimination cannot be proven on this Mac | **HIGH** | Verify on cerebro with **both** env vars. The suite's autouse `isolated_xdg_env` means the real config is never read — credentials arrive only via env. |
+| Success path and 404/403/429 discrimination cannot be proven on this Mac | **HIGH** | Verify on <host> with **both** env vars. The suite's autouse `isolated_xdg_env` means the real config is never read — credentials arrive only via env. |
 | `asyncio.to_thread` + `wait_for` abandons rather than kills a slow thread | MEDIUM | Recorded as a known limitation; strictly better than today's unbounded blocking. |
 | The clamped-session approach depends on prawcore passing `timeout=` explicitly | MEDIUM | Verified in `prawcore/sessions.py`. If it regresses, the outer `wait_for` still bounds the request. |
 | A new untracked test file could carry a real secret | MEDIUM | SC-8 runs `git add -A` first, then greps the index. |
@@ -168,7 +168,7 @@ SC-1 through SC-14 in the work order. Mechanical checks on SC-1, SC-5, SC-8, SC-
 **Demo command** (expected: every line PASS, gate exit 0):
 
 ```bash
-cd /Users/rudy/development/projects/prismis
+cd ~/development/projects/prismis
 bash -c 'f=daemon/src/prismis_daemon/validator.py
   ! grep -q "about\.json" "$f" && grep -q "praw\.Reddit(" "$f" && grep -q "old\.reddit\.com/r/" "$f" \
   && echo "SC-1: PASS" || echo "SC-1: FAIL"'

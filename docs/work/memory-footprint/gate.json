@@ -36,7 +36,7 @@
       "result": "held"
     },
     {
-      "test": "T5 real-system proof: on cerebro after deploy, sample daemon RSS during the TUI's startup list request and during a fetch cycle; the 2026-10-03 baseline is 561 MB rising to 2,468 MB on the full request.",
+      "test": "T5 real-system proof: on <host> after deploy, sample daemon RSS during the TUI's startup list request and during a fetch cycle; the 2026-10-03 baseline is 561 MB rising to 2,468 MB on the full request.",
       "failureCase": "The only proof were an in-process test over a fixture.",
       "result": "held"
     },
@@ -68,7 +68,7 @@
   ],
   "decisions": [
     {
-      "question": "Do any other machines run the remote TUI, and will they all get the new TUI build when cerebro deploys? Until updated, an old TUI keeps requesting the 260 MB full list.",
+      "question": "Do any other machines run the remote TUI, and will they all get the new TUI build when <host> deploys? Until updated, an old TUI keeps requesting the 260 MB full list.",
       "answer": "Every remote TUI gets the new build at deploy, so the full list stays as the additive default without streaming; no shipped client requests a large full list after the change."
     }
   ],

@@ -28,7 +28,7 @@
       "id": "SC-4",
       "given": "a cassette written in record mode for a Reddit test, and every committed cassette",
       "when": "its contents are inspected",
-      "then": "it fails if any holds an Authorization, Cookie or Set-Cookie header or a non-placeholder access_token value; otherwise all are scrubbed, and the Reddit cassettes were recorded and checked on cerebro"
+      "then": "it fails if any holds an Authorization, Cookie or Set-Cookie header or a non-placeholder access_token value; otherwise all are scrubbed, and the Reddit cassettes were recorded and checked on <host>"
     },
     {
       "id": "SC-5",
@@ -63,14 +63,14 @@
   ],
   "outOfScope": [
     "Third-party changes (a feed's format, Reddit's API shape, yt-dlp's output) are not seen until the recordings are refreshed with the record commands.",
-    "Re-recording Reddit needs cerebro.",
+    "Re-recording Reddit needs <host>.",
     "Two record/replay mechanisms exist, the LLM stub and vcrpy, at two different boundaries: a configured service URL and arbitrary third-party URLs."
   ],
   "stakes": [
     "All 31 live-resource-gated tests (content-aware 3, YouTube 8, validator 8, RSS fetcher 5, Reddit fetcher 5, API 2) run in the gate with no network.",
     "Each boundary replays strictly: a missing or changed request fails with the command to re-record.",
     "Failure modes (timeouts, status codes, unresolvable hosts, non-feed pages) are produced locally, not replayed.",
-    "No credential or token is ever written to a recording; Reddit recordings are made on cerebro and checked there before they leave.",
+    "No credential or token is ever written to a recording; Reddit recordings are made on <host> and checked there before they leave.",
     "vcrpy is a dev-only dependency; the LLM recorder from recorded-llm-tests stays as it is.",
     "The YouTube tests' conditional guards become unconditional."
   ]

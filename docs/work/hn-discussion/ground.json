@@ -10,7 +10,7 @@
     {"path": "cli/src/cli/get.py", "role": "shows title-only and its reason for an item (line 71)"}
   ],
   "constraints": [
-    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/fetchers/rss.py", "line": 255, "text": "Hacker News is configured as an rss source with url https://news.ycombinator.com/rss (cerebro, 2026-10-10); a title-only HN item's stored content is the feed's Comments anchor."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/fetchers/rss.py", "line": 255, "text": "Hacker News is configured as an rss source with url https://news.ycombinator.com/rss (<host>, 2026-10-10); a title-only HN item's stored content is the feed's Comments anchor."},
     {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/fetchers/rss.py", "line": 255, "text": "Measured 2026-10-10: Firebase item 50034081 lists kids in HN's ranked order; Algolia's items endpoint lists the same story's children in ascending id order."},
     {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/readability.py", "line": 96, "text": "The link-without-article rule is decided in docs/work/title-only-misfires/design.json ('A Reddit link post with no article and no self-text is title-only by code ... whatever its comments'); the operator reversed that on 2026-10-10 for discussion that has prose."},
     {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/summarizer.py", "line": 336, "text": "The substantive verdict feeds title_only_reason's model:not_substantive; left unchanged, it would mark every discussion-basis item title-only."},

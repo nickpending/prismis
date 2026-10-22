@@ -25,7 +25,7 @@ links that touch reality — fetch, summarize, evaluate, store, embed, notify. N
 prismis end to end through its own production classes and watched what came out.
 
 That gap is what makes deployment unsafe. `make install-daemon` runs
-`uv tool install . --python 3.13 --reinstall`, which **replaces the running daemon** on cerebro.
+`uv tool install . --python 3.13 --reinstall`, which **replaces the running daemon** on <host>.
 There is currently no way to learn that a build is broken before it becomes the installed one.
 
 The three bugs found during `wo-green-the-suite` — #59, #61, #65 — were all found by *incidental*
@@ -83,7 +83,7 @@ argument for pointing the instrument at the product deliberately.
     transcript is P29.
 
     **Attribution is solved at the observability layer, not per call site.** Events carry only
-    `{ts, event, **metadata}` — no run id, no pid — and the file rotates daily, so on cerebro the
+    `{ts, event, **metadata}` — no run id, no pid — and the file rotates daily, so on <host> the
     production daemon writes into the same file on its own schedule (`fetch_interval = 90`,
     daemon confirmed running). Filtering by a time window alone is not enough: `fetcher.*` and the
     storage events carry `source_id` and can be attributed, but **`llm.call` events carry no
@@ -184,7 +184,7 @@ argument for pointing the instrument at the product deliberately.
   source under test comes from `--source` alone
 - **Verification**:
   ```bash
-  cd /Users/rudy/development/projects/prismis
+  cd ~/development/projects/prismis
   # Scoped to the chain's own module — the first version of this grepped __main__.py for a line
   # mentioning get_active_sources near the words "chain" or "verify", which printed PASS on a
   # tree where none of the work had been done. Name the file the chain lives in.
@@ -240,7 +240,7 @@ argument for pointing the instrument at the product deliberately.
 - **And**: a failure emits a distinguishable event rather than silence
 - **Verification**:
   ```bash
-  cd /Users/rudy/development/projects/prismis
+  cd ~/development/projects/prismis
   e=$(grep -c "obs_log(" daemon/src/prismis_daemon/embeddings.py || true)
   n=$(grep -c "obs_log(" daemon/src/prismis_daemon/notifier.py || true)
   if [ "$e" -gt 0 ] && [ "$n" -gt 0 ]; then echo "SC-5: PASS"; else echo "SC-5: FAIL (e=$e n=$n)"; fi
@@ -285,8 +285,8 @@ argument for pointing the instrument at the product deliberately.
 - **Then**: it exits 0 and prints no `VERIFY_UNCOVERED` line
 - **And**: CI is green on `main` after the push
 
-### SC-10: The chain has been run for real, on cerebro
-- **Given**: the built chain, checked out on cerebro where the real config and keys live
+### SC-10: The chain has been run for real, on <host>
+- **Given**: the built chain, checked out on <host> where the real config and keys live
 - **When**: run against a real source with a temp `XDG_DATA_HOME`
 - **Then**: the per-link report is captured verbatim into the work order's Outputs
 - **And**: this is recorded as a **manual, unguarded run** — not as a standing test — because
@@ -311,7 +311,7 @@ mistake the chain's quota view for the daemon's.
 ## Verification
 
 ```bash
-cd /Users/rudy/development/projects/prismis
+cd ~/development/projects/prismis
 
 # the gate — >2 min, raise the Bash timeout
 ./.specify/verify.sh; echo "exit: $?"
@@ -323,10 +323,10 @@ cd /Users/rudy/development/projects/prismis
 (cd daemon && uv run python -m prismis_daemon verify --help)
 ```
 
-The real run needs cerebro, where the config and keys live:
+The real run needs <host>, where the config and keys live:
 
 ```bash
-ssh cerebro
+ssh <host>
 cd ~/prismis && git fetch && git checkout <sha>
 cd daemon && XDG_DATA_HOME=$(mktemp -d) \
   ~/.local/bin/uv run prismis-daemon verify --chain --source <url>
@@ -350,7 +350,7 @@ runner outside the builder and re-run independently. CI green on `main`.
 
 **Suite:** daemon 434 passed / 44 skipped / 1 xfailed.
 
-**SC-10 — the real run on the deploy host.** `fcbf109` checked out on cerebro, temp
+**SC-10 — the real run on the deploy host.** `fcbf109` checked out on <host>, temp
 `XDG_DATA_HOME`, real config and credentials, installed daemon untouched:
 
 ```

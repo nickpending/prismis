@@ -13,7 +13,7 @@
     "prismis-daemon downloads its wheels from PyPI at install time instead of shipping a bottle, so an install needs network access and takes as long as the torch download.",
     "prismis-tui builds from source on each user's Mac, so installing it pulls Go as a build dependency.",
     "Publishing to the tap is a release step run with the operator's go, not automatic on every merge.",
-    "Linux hosts such as cerebro keep make install; the formulas target macOS."
+    "Linux hosts such as <host> keep make install; the formulas target macOS."
   ],
   "risk": "brew's Python tooling changes between Homebrew releases; the render script and the `brew test` runs are the check, and a formula that stops installing fails at the next release's install check rather than for users first.",
   "licensedBy": {"path": "Makefile", "line": 1}

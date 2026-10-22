@@ -24,7 +24,7 @@ declined as unilateral moves and now explicitly granted by an updated work order
 
 1. **Attribution moved to the observability layer.** The original design filtered by a
    sentinel-bounded timestamp window plus `source_id` for fetcher events. The operator identified a
-   real defect: `llm.call` events carry no `source_id` and no run identifier at all, so on cerebro —
+   real defect: `llm.call` events carry no `source_id` and no run identifier at all, so on <host> —
    where the daemon is running right now with `fetch_interval = 90` — a chain run overlapping a
    daemon cycle would count the daemon's own summarize/evaluate calls as the chain's, inflating cost
    and item counts in a report that looks right and isn't. `observability.py` now stamps a
@@ -59,7 +59,7 @@ the production scheduler. `__main__.py`'s `run_scheduler` hardcodes
 `IntervalTrigger(minutes=30)` for the non-test-mode path (`__main__.py:96-97`) regardless of the
 config value — `grep -rn "fetch_interval" daemon/src/prismis_daemon` shows no call site ever reads
 `config.fetch_interval` to build the trigger. So the work order's cited `fetch_interval = 90` (a
-real config value on cerebro) and the scheduler's actual ~30-minute period are two different
+real config value on <host>) and the scheduler's actual ~30-minute period are two different
 numbers that disagree with each other — a separate, pre-existing dead-config-value bug, out of this
 work order's scope (flagged as a `concerns` item, not fixed here). It does not change this plan's
 attribution design either way: the point of moving to a stamped `run_id` (below) is that correctness
@@ -97,7 +97,7 @@ def set_run_id(run_id: str | None) -> None:
     """Set the run id every subsequent log() call in this process stamps onto its event.
 
     Pass None to clear it. Process-scoped by design: this is a plain module-level global,
-    not a file or environment write, so a separate process (the running daemon on cerebro)
+    not a file or environment write, so a separate process (the running daemon on <host>)
     never sees it and its own events are never stamped — nothing to set it there.
     """
     global _current_run_id
@@ -338,7 +338,7 @@ Constitution Principle VII requires new machinery to be justified against the si
 displaces, and here the simpler alternative (the run id alone) fully subsumes what the sentinels
 added. Dropped.
 
-**Daemon-unaffected guarantee, restated concretely**: the daemon's own process (running on cerebro)
+**Daemon-unaffected guarantee, restated concretely**: the daemon's own process (running on <host>)
 never calls `verify_chain.run_chain` and therefore never calls `observability.set_run_id`.
 `_current_run_id` in the daemon's process stays `None` for its entire lifetime, so every event the
 daemon emits has the exact same `{ts, event, **metadata}` shape it has today — no `run_id` key, not
@@ -549,7 +549,7 @@ unmodified code.
 | SC-8 | Every new unit test is real-collaborator, network-free, credential-free — see "Test files" above; none reference `PRISMIS_LIVE_NETWORK_TESTS`. |
 | SC-8b | Process-scoped `run_id` stamped by `observability.log()`, selection rule stated explicitly above; proven in `test_verify_chain_events_unit.py` and `test_observability_unit.py` by seeding foreign events (different run_id, and no run_id at all) that must not appear in the output. |
 | SC-9 | New/modified modules ship with `[tool.ruff]`/`[tool.pyright]` coverage already configured at the `daemon/` unit level (`daemon/pyproject.toml:71-76`); no new dependency. |
-| SC-10 | Not testable from this plan — recorded in the work order's Outputs as a manual, unguarded cerebro run per the work order's own instruction. |
+| SC-10 | Not testable from this plan — recorded in the work order's Outputs as a manual, unguarded <host> run per the work order's own instruction. |
 
 ## Risks
 
@@ -558,15 +558,15 @@ unmodified code.
 | `_current_run_id` is a module-level global; pytest runs a whole suite in one process, so a test that sets it and fails before clearing could leak into a later, unrelated test | MEDIUM | Every test that calls `set_run_id` directly resets it to `None` in teardown regardless of outcome (mirrors `circuit_breaker.reset_circuit_breaker`'s existing convention); `run_chain` itself clears it in a `finally` block so the normal path is self-cleaning. |
 | Deep-extract's circuit-open case (deep_extractor.py:92-97) is invisible to both the JSONL and returned stats — swallowed by orchestrator.py's INV-002 catch | MEDIUM | Named as a concern for a separate, scoped follow-up; SC-3's own text names only summarizer.py/evaluator.py, so this is outside this work order's letter. Only reachable under `--full`. |
 | `--full`'s `dataclasses.replace(config, auto_extract="all")` diverges from the operator's real `auto_extract` setting, so a chain run under `--full` does not prove the operator's actual production config will trigger deep extraction | LOW | This is what makes `--full`'s promise ("includes both") deterministic and testable at all; the deep *service* (credentials, model, `llm_deep_service` name) is still the real one — only the priority-threshold gate is overridden, and this is called out in the report's `detail` text for link 5. |
-| `RSSFetcher`'s real `httpx.Client(timeout=30)` default could make a live cerebro run (not the test suite) slow against a truly hanging host | LOW | Only affects the manual SC-10 run, not the gate; the work order's own real-run recipe already expects the operator to pick a live, working source URL. |
+| `RSSFetcher`'s real `httpx.Client(timeout=30)` default could make a live <host> run (not the test suite) slow against a truly hanging host | LOW | Only affects the manual SC-10 run, not the gate; the work order's own real-run recipe already expects the operator to pick a live, working source URL. |
 | Rich table output width/column choices are a UX decision, not specified by the work order | LOW | Any Rich `Table` reusing the existing `console` (already imported in `__main__.py` and `orchestrator.py`) satisfies the letter of "reports... status, duration... cost... model"; exact column layout is left to the builder's judgment, not a spec gap. |
 
 ## Demo command
 
-Runnable now, on this machine, network-free (does not require SC-10's cerebro run):
+Runnable now, on this machine, network-free (does not require SC-10's <host> run):
 
 ```bash
-cd /Users/rudy/development/projects/prismis/daemon
+cd ~/development/projects/prismis/daemon
 
 # 1. Existing behavior is provably unchanged (SC-7)
 uv run python -m prismis_daemon verify --help
@@ -629,7 +629,7 @@ order.
   from instrumentation invented for the test. **Attribution is solved at the observability layer**:
   `observability.py` gains a process-scoped run id that `log()` stamps onto every event when set
   (file #1b above) — this, not a timestamp window, is what makes every link including the LLM links
-  correct when a chain run overlaps a live daemon cycle on cerebro. **One remaining deliberate
+  correct when a chain run overlaps a live daemon cycle on <host>. **One remaining deliberate
   exception** to reading the JSONL: circuit-open, sanctioned by SC-3 itself, read from
   `fetch_source_content`'s returned stats because the raise happens before either `summarizer.py` or
   `evaluator.py` reaches its own `obs_log` call.

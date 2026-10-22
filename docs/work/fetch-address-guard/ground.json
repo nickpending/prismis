@@ -11,7 +11,7 @@
   "constraints": [
     {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 86, "text": "Interfaces, schemas, and contracts change additively; a breaking change requires an explicit migration."},
     {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/config.py", "line": 270, "text": "`from_file` reads `daemon[\"max_days_lookback\"]` and its siblings with direct indexing, so a new key indexed the same way would raise on every existing config.toml that lacks it."},
-    {"tag": "OBSERVED", "path": "cerebro:~/.local/share/prismis/prismis.db", "line": 1, "text": "No active source and none of 38,545 stored items is on a private host; the two items whose URL contains 'localhost' are public articles about localhost."},
+    {"tag": "OBSERVED", "path": "<host>:~/.local/share/prismis/prismis.db", "line": 1, "text": "No active source and none of 38,545 stored items is on a private host; the two items whose URL contains 'localhost' are public articles about localhost."},
     {"tag": "OBSERVED", "path": "daemon/tests/conftest.py", "line": 391, "text": "Test pages are served on 127.0.0.1; at least the RSS, Reddit, refetch, readmit and verify-chain tests route article fetches there."},
     {"tag": "INFERENCE", "path": "daemon/src/prismis_daemon/article_extractor.py", "line": 1, "text": "An environment-variable switch would disable the guard for any process whose environment carries it, invisibly; a setting in config.toml is explicit, scoped to named hosts and visible where the operator configures fetching."}
   ],

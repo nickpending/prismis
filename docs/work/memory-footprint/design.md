@@ -2,7 +2,7 @@
 type: design
 date: 2026-10-03
 title: "Design: memory-footprint"
-description: "A client listing content costs the daemon memory proportional to the rows it asked for and the fields a list shows, never to the size of the corpus, so the remote TUI, CLI and web UI cannot push cerebro into the OOM killer, and the margin holds as the corpus grows."
+description: "A client listing content costs the daemon memory proportional to the rows it asked for and the fields a list shows, never to the size of the corpus, so the remote TUI, CLI and web UI cannot push <host> into the OOM killer, and the margin holds as the corpus grows."
 purpose: "The recorded design of the memory-footprint work order, read by its plan and its builders."
 producer: cli:shape
 ---
@@ -11,7 +11,7 @@ producer: cli:shape
 
 ## Purpose
 
-A client listing content costs the daemon memory proportional to the rows it asked for and the fields a list shows, never to the size of the corpus, so the remote TUI, CLI and web UI cannot push cerebro into the OOM killer, and the margin holds as the corpus grows.
+A client listing content costs the daemon memory proportional to the rows it asked for and the fields a list shows, never to the size of the corpus, so the remote TUI, CLI and web UI cannot push <host> into the OOM killer, and the margin holds as the corpus grows.
 
 ## Form
 
@@ -37,7 +37,7 @@ One bounded list query, one slim list shape, and detail on demand.
 - Full content and full analysis come from GET /api/entries/{id}?include=content, which the remote TUI calls when an item is opened, copied or sent to Fabric, as the web UI already does.
 - The server's limit ceiling of 10,000 and INV-API-TS-4's Pydantic routing stay as they are.
 - Local-mode TUI, the CLI's local commands, search and reports are unchanged.
-- The proof is daemon RSS sampled on cerebro during the remote TUI's startup request and a fetch cycle, plus an in-process tracemalloc bound that the old path fails.
+- The proof is daemon RSS sampled on <host> during the remote TUI's startup request and a fetch cycle, plus an in-process tracemalloc bound that the old path fails.
 
 ## Sacrifices
 

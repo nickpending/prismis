@@ -1,6 +1,6 @@
 # Plan — green the suite (`wo-green-the-suite`)
 
-Work order: `/Users/rudy/development/projects/prismis/docs/work/wo-green-the-suite.md`
+Work order: `~/development/projects/prismis/docs/work/wo-green-the-suite.md`
 Goal: `./.specify/verify.sh` exits 0, then CI runs that same script.
 
 **Status: READY.** The one blocking decision is resolved below.
@@ -277,18 +277,18 @@ outright — see Bucket D.
 
 **Bucket C — `FileNotFoundError` → hardcoded absolute paths, CI-fatal.**
 - `test_daemon_integration.py:99-105` runs a subprocess with
-  `cwd="/Users/rudy/development/projects/prismis/daemon"` and `-m src`. Both are wrong: derive the
+  `cwd="~/development/projects/prismis/daemon"` and `-m src`. Both are wrong: derive the
   cwd from `Path(__file__)` and invoke `-m prismis_daemon` (the package's entry point, per
   `daemon/pyproject.toml:29`).
 - `test_content_response_model_unit.py:207-208` asserts against
-  `/Users/rudy/obsidian/projects/prismis/architecture/boundaries.md` — outside the repo. The
+  `~/obsidian/projects/prismis/architecture/boundaries.md` — outside the repo. The
   in-repo copy at `docs/architecture/boundaries.md:46` contains all three asserted strings
   (`INV-API-TS-4`, `Pydantic`, `ContentResponse`), verified. Repoint to
   `Path(__file__).parents[3] / "docs" / "architecture" / "boundaries.md"`, matching the
   `Path(__file__).parent.parent.parent / "src" / ...` idiom already used at lines 150 and 255 of
   the same file.
 These two are the class "test depends on a path outside the repo". Sweep:
-`rg -n '/Users/rudy' --glob '!**/.venv/**'` — the only remaining hits must be under `docs/`.
+`rg -n '~' --glob '!**/.venv/**'` — the only remaining hits must be under `docs/`.
 
 **Bucket D — superseded daemon tests (SC-12 deletions).**
 `daemon/tests/integration/test_config_integration.py` tests a config API that is gone: dict-style
@@ -368,7 +368,7 @@ CI problem.
 
 ### Step 9 — CI (SC-6)
 
-**`.github/workflows/ci.yml`** (new). Model: `/Users/rudy/development/projects/bench/.github/
+**`.github/workflows/ci.yml`** (new). Model: `~/development/projects/bench/.github/
 workflows/ci.yml`, whose install step walks the same self-discovery the gate does (lines 28-35) —
 a hand-maintained matrix is the failure this is written to avoid. Structure:
 
@@ -597,7 +597,7 @@ points at nothing. Update the comment; the skip itself is legitimate and stays.
 ## Demo command
 
 ```bash
-cd /Users/rudy/development/projects/prismis && ./.specify/verify.sh; echo "rc=$?"
+cd ~/development/projects/prismis && ./.specify/verify.sh; echo "rc=$?"
 ```
 
 Expected:
@@ -615,11 +615,11 @@ Unit order follows `find | sort`, so `cli` precedes `daemon`.
 ## Quality Gates
 
 One runnable command per criterion. All paths relative to
-`/Users/rudy/development/projects/prismis`.
+`~/development/projects/prismis`.
 
 | SC | Command | Pass condition |
 |---|---|---|
-| SC-1 | `./.specify/verify.sh >/tmp/v.out 2>&1; rc=$?; grep -q '^verify: PASS' /tmp/v.out && [ $rc -eq 0 ]` | exit 0 |
+| SC-1 | `./.specify/verify.sh ><scratch>/v.out 2>&1; rc=$?; grep -q '^verify: PASS' <scratch>/v.out && [ $rc -eq 0 ]` | exit 0 |
 | SC-2 | `(cd daemon && uv run pytest -q --no-header 2>&1) \| grep -c 'Config \[llm\] section outdated'` | `0` |
 | SC-4 | `(cd daemon && uv run ruff check --select F821,RUF006 .)` | `All checks passed!`, exit 0 |
 | SC-5 | `(cd daemon && uv run ruff check .) && (cd cli && uv run ruff check .)` | both exit 0 |

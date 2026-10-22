@@ -21,12 +21,12 @@
       "result": "held"
     },
     {
-      "test": "T5 running system: the post-deploy commitment reads cerebro's next cycle for an article over the bound stored with content_bounded; the defect walk reproduces the refusal with a stub that enforces the window in bytes.",
+      "test": "T5 running system: the post-deploy commitment reads <host>'s next cycle for an article over the bound stored with content_bounded; the defect walk reproduces the refusal with a stub that enforces the window in bytes.",
       "failureCase": "Only a fixture built to pass.",
       "result": "held"
     },
     {
-      "test": "T6 assumptions: 50,000 tokens of headroom covers the system prompts, context.md (3,001 bytes on cerebro) and the reply; the tokenizer is byte-level BPE.",
+      "test": "T6 assumptions: 50,000 tokens of headroom covers the system prompts, context.md (3,001 bytes on <host>) and the reply; the tokenizer is byte-level BPE.",
       "failureCase": "Headroom sized by guess.",
       "result": "held"
     },

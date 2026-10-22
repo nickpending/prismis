@@ -25,7 +25,7 @@ Three record-and-replay boundaries, one per kind of third party, each strict on 
 
 4. Failure modes the third party produced on demand become local, deterministic servers or reserved names, not recordings: httpbin.org/delay/5 becomes a local server that sleeps past the validator's timeout, httpbin.org/status/429 a local server answering 429, the invalid-domain cases use the reserved `.invalid` TLD, and the 'non-RSS content' case serves an HTML page locally. Each keeps its assertion.
 
-5. Reddit recordings are made on cerebro, the only machine holding the Reddit credentials: the job's daemon test tree is copied to ~/prismis-record on cerebro (never /tmp, which is RAM there), recorded with cerebro's .env loaded, every cassette is grepped on cerebro for the client id, the client secret and the string 'access_token": "' with a real value before anything is copied back, and only the cassettes return. The scratch directory is removed afterwards.
+5. Reddit recordings are made on <host>, the only machine holding the Reddit credentials: the job's daemon test tree is copied to ~/prismis-record on <host> (never <scratch>, which is RAM there), recorded with <host>'s .env loaded, every cassette is grepped on <host> for the client id, the client secret and the string 'access_token": "' with a real value before anything is copied back, and only the cassettes return. The scratch directory is removed afterwards.
 
 6. Tests that stay opt-in and unchanged: test_llm_client_live_integration.py (4), test_llm_startup_validation_integration.py (2), test_notifier_integration.py (1, a macOS binary). `docs/architecture/boundaries.md`'s test section names the three replay mechanisms, their record commands and the opt-in live runs.
 
@@ -36,19 +36,19 @@ Three record-and-replay boundaries, one per kind of third party, each strict on 
 - All 31 live-resource-gated tests (content-aware 3, YouTube 8, validator 8, RSS fetcher 5, Reddit fetcher 5, API 2) run in the gate with no network.
 - Each boundary replays strictly: a missing or changed request fails with the command to re-record.
 - Failure modes (timeouts, status codes, unresolvable hosts, non-feed pages) are produced locally, not replayed.
-- No credential or token is ever written to a recording; Reddit recordings are made on cerebro and checked there before they leave.
+- No credential or token is ever written to a recording; Reddit recordings are made on <host> and checked there before they leave.
 - vcrpy is a dev-only dependency; the LLM recorder from recorded-llm-tests stays as it is.
 - The YouTube tests' conditional guards become unconditional.
 
 ## Sacrifices
 
 - Third-party changes (a feed's format, Reddit's API shape, yt-dlp's output) are not seen until the recordings are refreshed with the record commands.
-- Re-recording Reddit needs cerebro.
+- Re-recording Reddit needs <host>.
 - Two record/replay mechanisms exist, the LLM stub and vcrpy, at two different boundaries: a configured service URL and arbitrary third-party URLs.
 
 ## Risk
 
-If a scrub misses a credential shape, a token could be committed; the cerebro-side grep before copying and the mechanism test on a recorded cassette are the two guards. If vcrpy's patching misses a client path (the guarded urllib opener), that test fails on replay rather than reaching the network under `no_network`.
+If a scrub misses a credential shape, a token could be committed; the <host>-side grep before copying and the mechanism test on a recorded cassette are the two guards. If vcrpy's patching misses a client path (the guarded urllib opener), that test fails on replay rather than reaching the network under `no_network`.
 
 ## Licensed by
 

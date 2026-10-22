@@ -1,7 +1,7 @@
 {
   "workOrder": "vote-carveouts",
   "what": "J1 of the carve-out design: retire per-topic vote learning and the context.md auto-updater, make every fetch cycle score against context.md as it is on disk, and give context.md one shared parser that verify, the context analyzer and the coming carve-outs all use.",
-  "why": "The design is docs/work/vote-carveouts/design.md. Per-topic learning credited a downvote to the evaluator's own matched_interests and took cerebro's unprioritized share from ~55% to ~81% (#96); it is switched off behind learn_from_votes but still in the code, and the auto-updater would rewrite context.md from the same counts. Separately, the daemon scores with the context.md it read at startup, so the user's own :context edit does nothing until a restart, and accepted carve-outs (J2) would not apply either.",
+  "why": "The design is docs/work/vote-carveouts/design.md. Per-topic learning credited a downvote to the evaluator's own matched_interests and took <host>'s unprioritized share from ~55% to ~81% (#96); it is switched off behind learn_from_votes but still in the code, and the auto-updater would rewrite context.md from the same counts. Separately, the daemon scores with the context.md it read at startup, so the user's own :context edit does nothing until a restart, and accepted carve-outs (J2) would not apply either.",
   "criteria": [
     {
       "id": "C1",
@@ -17,7 +17,7 @@
     },
     {
       "id": "C3",
-      "given": "a database holding cerebro's vote pattern (five upvotes and one downvote on items whose matched_interests are High bullets) and a config with learn_from_votes = true",
+      "given": "a database holding <host>'s vote pattern (five upvotes and one downvote on items whose matched_interests are High bullets) and a config with learn_from_votes = true",
       "when": "an item is evaluated through each of run_once, run_refetch, `prismis-cli analyze repair` and `prismis-cli analyze priority`",
       "then": "No system prompt sent to the provider contains a learned-preferences block, the stored analysis carries no preference_influenced key, and analysis.get_learned_preferences, the evaluator's learned_preferences parameter and get_feedback_statistics' for_llm_context no longer exist (an import or call of any of them fails); each path is asserted through its own entry point, and the test fails against today's code on the learn_from_votes = true row."
     },
@@ -74,11 +74,11 @@
     },
     {
       "kind": "cost",
-      "summary": "Each proposal costs about 80 evaluate calls (roughly $0.05 at cerebro's median), plus one or two naming calls, spent by the daemon on its own once learn_from_votes is on."
+      "summary": "Each proposal costs about 80 evaluate calls (roughly $0.05 at <host>'s median), plus one or two naming calls, spent by the daemon on its own once learn_from_votes is on."
     },
     {
       "kind": "cost",
-      "summary": "Containment of a carve-out line named from two or more downvotes is unproven until cerebro has a second downvote; the first real proposal's measured impact is the first test."
+      "summary": "Containment of a carve-out line named from two or more downvotes is unproven until <host> has a second downvote; the first real proposal's measured impact is the first test."
     },
     {
       "kind": "cost",

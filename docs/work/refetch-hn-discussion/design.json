@@ -9,8 +9,8 @@
     "The discussion is fetched and appended by one method that both the live RSS fetch and refetch call; no copy of that logic exists in refetch.py."
   ],
   "sacrifices": [
-    "The story id is recovered from the stored content; a row whose content no longer holds the item link refetches article-only (none on cerebro on 2026-10-10: all 39 unreadable HN rows hold it).",
-    "Items already readable but judged not substantive (8 HN items on cerebro) are not refetched, as refetch selects only unreadable content."
+    "The story id is recovered from the stored content; a row whose content no longer holds the item link refetches article-only (none on <host> on 2026-10-10: all 39 unreadable HN rows hold it).",
+    "Items already readable but judged not substantive (8 HN items on <host>) are not refetched, as refetch selects only unreadable content."
   ],
   "risk": "The self-post branch: a story whose url is its own HN page must keep its stored body and take the item's text from the API, not be sent to article extraction against news.ycombinator.com; a test refetches a self post and asserts the item text is the body.",
   "licensedBy": {"path": "daemon/src/prismis_daemon/refetch.py", "line": 193}

@@ -4,7 +4,7 @@
     56
   ],
   "what": "Close gh #56: move the CLI and daemon to Python 3.14 (both .python-version files, both mypy settings, both uv.lock files refreshed so every compiled package ships a 3.14 wheel), make the Makefile read the version from .python-version, and install the deployed tools with the lock as constraints so production runs the versions the gate tested.",
-  "why": "Design: docs/work/python-314/design.md. The 3.13 pin is ours, not a dependency's; the current locks cannot install on 3.14 (lxml, markupsafe, pydantic-core, pyyaml ship no 3.14 wheel), and the deploy resolves fresh instead of reading the lock, so cerebro already runs versions the gate never tested. Refreshed locks pass both full suites on 3.14.6 (measured 2026-10-07). After merge, cerebro's daemon is reinstalled and its first cycle read, and the Mac's CLI reinstalled, outside the lane.",
+  "why": "Design: docs/work/python-314/design.md. The 3.13 pin is ours, not a dependency's; the current locks cannot install on 3.14 (lxml, markupsafe, pydantic-core, pyyaml ship no 3.14 wheel), and the deploy resolves fresh instead of reading the lock, so <host> already runs versions the gate never tested. Refreshed locks pass both full suites on 3.14.6 (measured 2026-10-07). After merge, <host>'s daemon is reinstalled and its first cycle read, and the Mac's CLI reinstalled, outside the lane.",
   "criteria": [
     {
       "id": "SC-1",
@@ -47,6 +47,6 @@
     "The Makefile contains no hardcoded Python version; each install target takes it from its unit's .python-version.",
     "make install-daemon, install-cli and install-cli-local install every locked dependency at its locked version: after an install into a scratch tool directory, each package the lock names reports the lock's version.",
     "A unit test fails if a Makefile install target hardcodes a Python version or drops the lock constraints.",
-    "After deploy, cerebro's prismis-daemon runs on 3.14 with its locked versions, `prismis-daemon verify` passes, and its first fetch cycle completes; the Mac's prismis-cli reinstalls on 3.14."
+    "After deploy, <host>'s prismis-daemon runs on 3.14 with its locked versions, `prismis-daemon verify` passes, and its first fetch cycle completes; the Mac's prismis-cli reinstalls on 3.14."
   ]
 }

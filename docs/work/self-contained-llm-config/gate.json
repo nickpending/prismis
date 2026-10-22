@@ -11,7 +11,7 @@
       "result": "held"
     },
     {
-      "test": "T2 same noun: the failure was observed on a real empty config home on cerebro, not inferred from code; cerebro's actual service entries (prismis-light, -deep, -kind, including the decisions adapter) were read to design the migration.",
+      "test": "T2 same noun: the failure was observed on a real empty config home on <host>, not inferred from code; <host>'s actual service entries (prismis-light, -deep, -kind, including the decisions adapter) were read to design the migration.",
       "failureCase": "Migration designed against an imagined services.toml.",
       "result": "held"
     },
@@ -21,7 +21,7 @@
       "result": "held"
     },
     {
-      "test": "T6 assumptions: apiconf's provider mapping (openai OPENAI_API_KEY, else PROVIDER_API_KEY) read from apiconf/python/src/apiconf/providers.py; cerebro has cargo to build the CLI.",
+      "test": "T6 assumptions: apiconf's provider mapping (openai OPENAI_API_KEY, else PROVIDER_API_KEY) read from apiconf/python/src/apiconf/providers.py; <host> has cargo to build the CLI.",
       "failureCase": "A variable name that `apiconf env` does not export.",
       "result": "held"
     },
@@ -46,7 +46,7 @@
       "result": "held"
     },
     {
-      "test": "T20 walk: newcomer runs `make install`, starts the daemon once, puts OPENROUTER_API_KEY in ~/.config/prismis/.env, runs verify: config.toml names [services.openrouter], the key resolves from the environment, the health check lists the model, verify passes; cerebro runs migrate-config, gets three [services.*] tables and a backup, apiconf env supplies the key, restart, verify passes.",
+      "test": "T20 walk: newcomer runs `make install`, starts the daemon once, puts OPENROUTER_API_KEY in ~/.config/prismis/.env, runs verify: config.toml names [services.openrouter], the key resolves from the environment, the health check lists the model, verify passes; <host> runs migrate-config, gets three [services.*] tables and a backup, apiconf env supplies the key, restart, verify passes.",
       "failureCase": "A step that only works with a pre-existing services.toml.",
       "result": "held"
     }

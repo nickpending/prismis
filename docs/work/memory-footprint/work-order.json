@@ -4,11 +4,11 @@
     55
   ],
   "what": "Make GET /api/entries cost memory in proportion to the rows and fields a client asked for: one bounded SQL list query in storage.py, an additive `view=list` slim shape the remote TUI and CLI extract use, and the remote TUI fetching an item's full content only when it is opened, copied or sent to Fabric (gh #55).",
-  "why": "Design: docs/work/memory-footprint/design.md. On 2026-10-03 cerebro's daemon was OOM-killed twice (anon-rss ~2.1 GB), seen as 502s by the remote TUI. One `GET /api/entries?limit=10000`, the TUI's startup call, returned 260 MB (analysis 158 MB, content 80 MB) and took the daemon from 561 MB to a 2,468 MB peak, holding 1,185 MB after; the VM has 3.9 GB and no swap. `get_content` loads all 27,404 non-archived rows with full content and analysis through `get_content_since` for every unfiltered call, sorts them in Python and only then slices to `limit`, so the cost grows with the corpus whatever the client asks for.",
+  "why": "Design: docs/work/memory-footprint/design.md. On 2026-10-03 <host>'s daemon was OOM-killed twice (anon-rss ~2.1 GB), seen as 502s by the remote TUI. One `GET /api/entries?limit=10000`, the TUI's startup call, returned 260 MB (analysis 158 MB, content 80 MB) and took the daemon from 561 MB to a 2,468 MB peak, holding 1,185 MB after; the VM has 3.9 GB and no swap. `get_content` loads all 27,404 non-archived rows with full content and analysis through `get_content_since` for every unfiltered call, sorts them in Python and only then slices to `limit`, so the cost grows with the corpus whatever the client asks for.",
   "criteria": [
     {
       "id": "SC-1",
-      "given": "a database of 2,000 non-archived content rows, each with 50 KB of content and a 50 KB analysis.full_text (the shape of cerebro's file-source items), served by the real FastAPI app through its test client with no storage or API internals stubbed",
+      "given": "a database of 2,000 non-archived content rows, each with 50 KB of content and a 50 KB analysis.full_text (the shape of <host>'s file-source items), served by the real FastAPI app through its test client with no storage or API internals stubbed",
       "when": "`GET /api/entries?limit=50` (default view) and `GET /api/entries?limit=10000&view=list` are each requested while tracemalloc measures the peak allocation of the request",
       "then": "it fails if either request's tracemalloc peak reaches 40 MB, which the current `get_content` exceeds because it loads every row's content and analysis before slicing (the test is shown red against the pre-change api.py and storage.py); otherwise both peaks stay under 40 MB, the first returns 50 items and the second 2,000"
     },
@@ -64,6 +64,6 @@
     "Full content and full analysis come from GET /api/entries/{id}?include=content, which the remote TUI calls when an item is opened, copied or sent to Fabric, as the web UI already does.",
     "The server's limit ceiling of 10,000 and INV-API-TS-4's Pydantic routing stay as they are.",
     "Local-mode TUI, the CLI's local commands, search and reports are unchanged.",
-    "The proof is daemon RSS sampled on cerebro during the remote TUI's startup request and a fetch cycle, plus an in-process tracemalloc bound that the old path fails."
+    "The proof is daemon RSS sampled on <host> during the remote TUI's startup request and a fetch cycle, plus an in-process tracemalloc bound that the old path fails."
   ]
 }

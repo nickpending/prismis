@@ -11,7 +11,7 @@
       "result": "held"
     },
     {
-      "test": "T2/T6 evidence on the same noun: the design now orders the migration drop-triggers, backfill, recreate-triggers, post-condition. Rehearsed in that order on a VACUUM INTO copy of cerebro's live database (693 MiB, 38,485 content rows): 0 naive cells in all 12 columns, 0 updated_at values changed beyond their own conversion, trigger output '2026-10-02T23:08:01.218+00:00' on a TUI-style UPDATE, user_version 1, 1.2 s; VACUUM INTO 0.8 s; the live database untouched (38,485 naive, user_version 0 after).",
+      "test": "T2/T6 evidence on the same noun: the design now orders the migration drop-triggers, backfill, recreate-triggers, post-condition. Rehearsed in that order on a VACUUM INTO copy of <host>'s live database (693 MiB, 38,485 content rows): 0 naive cells in all 12 columns, 0 updated_at values changed beyond their own conversion, trigger output '2026-10-02T23:08:01.218+00:00' on a TUI-style UPDATE, user_version 1, 1.2 s; VACUUM INTO 0.8 s; the live database untouched (38,485 naive, user_version 0 after).",
       "failureCase": "The rewrite expression or trigger expression produced a shape a consumer cannot parse, or the backfill altered data beyond the offset.",
       "result": "held"
     },

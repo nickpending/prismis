@@ -60,37 +60,37 @@
     },
     {
       "tag": "OBSERVED",
-      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "path": "<host>:~/.local/share/prismis/prismis.db",
       "line": 1,
       "text": "Measured 2026-10-15 (issue #96 comment): re-evaluating 100 items since 2026-10-08 gave 80% null live, 30% with only the 'User dislikes' part removed, 35% with no learned preferences, 71% with the pre-b6c3f70 prompt and 75% with the pre-Agentic context."
     },
     {
       "tag": "INFERENCE",
-      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "path": "<host>:~/.local/share/prismis/prismis.db",
       "line": 1,
       "text": "The dislike list is the cause of the drop, and the liked list is not harmful: likes without dislikes scored slightly better than no learned preferences."
     },
     {
       "tag": "OBSERVED",
-      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "path": "<host>:~/.local/share/prismis/prismis.db",
       "line": 1,
-      "text": "cerebro has 25 votes in total (24 up, 1 down); the single downvote's three matched_interests are all High-section bullets that also carry 10 to 11 upvotes each."
+      "text": "<host> has 25 votes in total (24 up, 1 down); the single downvote's three matched_interests are all High-section bullets that also carry 10 to 11 upvotes each."
     },
     {
       "tag": "INFERENCE",
-      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "path": "<host>:~/.local/share/prismis/prismis.db",
       "line": 1,
       "text": "Real vote data cannot calibrate a minimum downvote count: there is one downvote to learn from."
     },
     {
       "tag": "OBSERVED",
-      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "path": "<host>:~/.local/share/prismis/prismis.db",
       "line": 1,
       "text": "Of 7,344 matched_interests labels since 2026-08-15, 3,745 are exact context bullets, 3,266 are ### group headings (252 of them differing only in case), 248 are bullets without their parenthetical, 33 are bullet fragments or prefixes, and 52 match no context line."
     },
     {
       "tag": "INFERENCE",
-      "path": "cerebro:~/.local/share/prismis/prismis.db",
+      "path": "<host>:~/.local/share/prismis/prismis.db",
       "line": 1,
       "text": "A label resolves to its context line, and so to its ## section, for 99.3% of labels when matched case-insensitively, with parentheticals and extra spaces dropped, against both bullets and ### headings, falling back to bullet prefix or fragment."
     },
@@ -122,7 +122,7 @@
       "tag": "OBSERVED",
       "path": "daemon/src/prismis_daemon/config.py",
       "line": 390,
-      "text": "auto_update_enabled defaults to True, so every user gets the auto-updater unless they turn it off; cerebro has it on, last ran 2026-09-26T05:42Z (only added --- wrappers) and is next due about 2026-10-26."
+      "text": "auto_update_enabled defaults to True, so every user gets the auto-updater unless they turn it off; <host> has it on, last ran 2026-09-26T05:42Z (only added --- wrappers) and is next due about 2026-10-26."
     },
     {
       "tag": "INFERENCE",
@@ -146,7 +146,7 @@
       "tag": "OBSERVED",
       "path": "daemon/src/prismis_daemon/storage.py",
       "line": 2550,
-      "text": "The since_days window filters votes on c.updated_at; on cerebro every voted row from 2026-09-30 shares updated_at 21:40:16Z from one bulk write, while the downvote was cast 2026-09-29T20:03:59Z per the obs log."
+      "text": "The since_days window filters votes on c.updated_at; on <host> every voted row from 2026-09-30 shares updated_at 21:40:16Z from one bulk write, while the downvote was cast 2026-09-29T20:03:59Z per the obs log."
     },
     {
       "tag": "INFERENCE",
@@ -174,9 +174,9 @@
     },
     {
       "tag": "OBSERVED",
-      "path": "cerebro:~/.local/share/prismis/observability",
+      "path": "<host>:~/.local/share/prismis/observability",
       "line": 1,
-      "text": "Evaluate calls cost a median $0.00063 and p99 $0.0043 on cerebro; the OpenRouter account had about $1.02 of $150 credit left on 2026-10-15 and returned 402 in_flight_budget_exhausted under 8 parallel calls."
+      "text": "Evaluate calls cost a median $0.00063 and p99 $0.0043 on <host>; the OpenRouter account had about $1.02 of $150 credit left on 2026-10-15 and returned 402 in_flight_budget_exhausted under 8 parallel calls."
     }
   ],
   "adrs": {

@@ -11,7 +11,7 @@
       "result": "held"
     },
     {
-      "test": "T2 same noun: the 3.14 proof is the full suites run on 3.14.6 against the refreshed locks (980 and 126 passed); the production comparison read cerebro's installed tool environment with uv pip list, not the lock.",
+      "test": "T2 same noun: the 3.14 proof is the full suites run on 3.14.6 against the refreshed locks (980 and 126 passed); the production comparison read <host>'s installed tool environment with uv pip list, not the lock.",
       "failureCase": "A wheel's existence taken as proof it works.",
       "result": "held"
     },
@@ -26,7 +26,7 @@
       "result": "held"
     },
     {
-      "test": "T5 running system: commitment 4 installs into a scratch tool directory and compares installed versions to the lock; commitment 6 is cerebro's deployed fetch cycle on 3.14.",
+      "test": "T5 running system: commitment 4 installs into a scratch tool directory and compares installed versions to the lock; commitment 6 is <host>'s deployed fetch cycle on 3.14.",
       "failureCase": "Only a Makefile text check.",
       "result": "held"
     },
@@ -36,7 +36,7 @@
       "result": "held"
     },
     {
-      "test": "T7 consumers, enumerated with grep: install-binaries depends on install-daemon and install-cli-local (Makefile:83); cerebro's deploy runs make install-daemon and make install-cli-local; nothing else installs prismis.",
+      "test": "T7 consumers, enumerated with grep: install-binaries depends on install-daemon and install-cli-local (Makefile:83); <host>'s deploy runs make install-daemon and make install-cli-local; nothing else installs prismis.",
       "failureCase": "A deploy path left unpinned.",
       "result": "held"
     },
@@ -66,7 +66,7 @@
       "result": "held"
     },
     {
-      "test": "T20 walk: on cerebro, `git pull && make install-daemon` reads 3.14 from daemon/.python-version, installs CPython 3.14 if missing, exports the lock to a temp constraints file, installs prismis-daemon with it, restarts; `uv pip list` on the tool env then matches the lock; `prismis-daemon verify` passes; the next cycle runs.",
+      "test": "T20 walk: on <host>, `git pull && make install-daemon` reads 3.14 from daemon/.python-version, installs CPython 3.14 if missing, exports the lock to a temp constraints file, installs prismis-daemon with it, restarts; `uv pip list` on the tool env then matches the lock; `prismis-daemon verify` passes; the next cycle runs.",
       "failureCase": "A step that only works from a developer shell.",
       "result": "held"
     }

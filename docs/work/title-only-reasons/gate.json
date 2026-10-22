@@ -11,7 +11,7 @@
       "result": "held"
     },
     {
-      "test": "T6 assumptions: trafilatura's `fetch_response` returns a Response with `.status` when a response arrives and None when the request failed outright (read in the installed trafilatura.downloads); the light model returned a boolean `substantive` for all 101 probe items on cerebro.",
+      "test": "T6 assumptions: trafilatura's `fetch_response` returns a Response with `.status` when a response arrives and None when the request failed outright (read in the installed trafilatura.downloads); the light model returned a boolean `substantive` for all 101 probe items on <host>.",
       "failureCase": "The fetch status or the model field were not actually available.",
       "result": "held"
     },
@@ -31,7 +31,7 @@
       "result": "held"
     },
     {
-      "test": "T5 real-system proof: after deploy, group new items' `analysis.title_only_reason` on cerebro and read a sample of each reason against its content.",
+      "test": "T5 real-system proof: after deploy, group new items' `analysis.title_only_reason` on <host> and read a sample of each reason against its content.",
       "failureCase": "The only proof were fixtures.",
       "result": "held"
     },

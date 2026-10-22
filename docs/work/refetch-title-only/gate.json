@@ -3,7 +3,7 @@
     {"test": "T0 purpose: the operator chose on 2026-10-11 to backfill only the 39 flagged HN items; the selection must be able to name exactly those.", "failureCase": "A backfill that also analyses the 1,304 never-shown items.", "result": "held"},
     {"test": "T1 owners: get_unreadable_content owns refetch's selection; the flag narrows that one query rather than filtering rows again in refetch.py.", "failureCase": "A second selection path, or --limit counting unflagged rows that are then dropped.", "result": "held"},
     {"test": "T11 class, every caller of get_unreadable_content in daemon/src: run_refetch is the only one, so the default-False keyword leaves no other behaviour changed.", "failureCase": "Another caller whose selection shifts.", "result": "held"},
-    {"test": "T6 assumption checked: json_extract(c.analysis, '$.title_only') = 1 selected title-only HN rows in a direct query on cerebro's database, so a stored JSON true compares equal to 1.", "failureCase": "A filter that matches nothing on real data.", "result": "held"}
+    {"test": "T6 assumption checked: json_extract(c.analysis, '$.title_only') = 1 selected title-only HN rows in a direct query on <host>'s database, so a stored JSON true compares equal to 1.", "failureCase": "A filter that matches nothing on real data.", "result": "held"}
   ],
   "decisions": [
     {"question": "Backfill all 1,347 unreadable HN items, only the 39 flagged title-only, or none?", "answer": "Only the 39 flagged (operator, 2026-10-11)."}

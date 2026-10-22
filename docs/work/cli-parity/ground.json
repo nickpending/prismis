@@ -10,8 +10,8 @@
     {"tag": "RULE", "path": "git:b332c15", "line": 1, "text": "Commit b332c15 (2025-10-14): 'Removed /api/reports endpoint (violated data/presentation separation)'; report presentation belongs to the client."},
     {"tag": "RULE", "path": "daemon/src/prismis_daemon/api.py", "line": 877, "text": "GET /api/entries `since_hours` is bounded ge=1, le=720."},
     {"tag": "OBSERVED", "path": "cli/pyproject.toml", "line": 16, "text": "prismis-daemon is the CLI's optional `local` extra, so a remote CLI install cannot import daemon modules such as reports.py."},
-    {"tag": "OBSERVED", "path": "/Users/rudy/.claude/skills/prismis/SKILL.md", "line": 80, "text": "The prismis skill tells agents `prismis-cli get <article-id> --json` returns `content` (full transcript/text)."},
-    {"tag": "OBSERVED", "path": "cerebro", "line": 1, "text": "2026-10-03 sweep from this Mac against cerebro: list, search, statistics and source list exit 0; `report daily` exits 1 with 'API error: 404'; `get <id> --json` returns no content key."}
+    {"tag": "OBSERVED", "path": "~/.claude/skills/prismis/SKILL.md", "line": 80, "text": "The prismis skill tells agents `prismis-cli get <article-id> --json` returns `content` (full transcript/text)."},
+    {"tag": "OBSERVED", "path": "<host>", "line": 1, "text": "2026-10-03 sweep from this Mac against <host>: list, search, statistics and source list exit 0; `report daily` exits 1 with 'API error: 404'; `get <id> --json` returns no content key."}
   ],
   "adrs": {"scanned": 0, "binding": []},
   "related": {

@@ -26,7 +26,7 @@
       "result": "held"
     },
     {
-      "test": "T5 running system: after install, launch the TUI against cerebro, set 2 + oldest + a source type, quit and relaunch: the header shows the same view and the list matches.",
+      "test": "T5 running system: after install, launch the TUI against <host>, set 2 + oldest + a source type, quit and relaunch: the header shows the same view and the list matches.",
       "failureCase": "Only unit tests of the filter.",
       "result": "held"
     },

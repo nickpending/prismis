@@ -3,9 +3,9 @@
 `daemon/scripts/memory_probe.py` runs `GET /api/entries?limit=10000` with `view=list` and
 `view=full` through the real app, each in its own process, dropping the body as it is sent.
 
-## Measured on a copy of cerebro's database
+## Measured on a copy of <host>'s database
 
-A copy of cerebro's prismis.db (769 MB on disk) on macOS arm64, with the probe from this change
+A copy of <host>'s prismis.db (769 MB on disk) on macOS arm64, with the probe from this change
 run against both trees. 15.1 MB list body, 265.7 MB full body.
 
 | Code | view=list peak RSS | view=full peak RSS | full minus list |
@@ -19,7 +19,7 @@ Baseline RSS before the request was about 475 MB in every run (imports).
 
 These figures are from a generated database of 10,000 non-archived rows, each with about 30 KB of content and an
 analysis holding a 30 KB `full_text` (699 MB on disk, 653.5 MB full response body, 6.2 MB
-list body), on macOS arm64. Absolute peaks differ from cerebro's; the full-minus-list gap is
+list body), on macOS arm64. Absolute peaks differ from <host>'s; the full-minus-list gap is
 what the criterion bounds.
 
 | Code | view=list peak RSS | view=full peak RSS | full minus list |

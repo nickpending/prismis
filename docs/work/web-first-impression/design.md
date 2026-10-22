@@ -15,7 +15,7 @@ Make the web view, prismis's lowest-friction entry point, read as a finished pro
 
 ## Form
 
-1. Version endpoint. api.py gains GET /api/version behind verify_api_key, returning {success, message, data: {version: prismis_daemon.__version__}}, placed with the other authenticated GET routes. /health stays unchanged and unauthenticated: an unauthenticated version string tells a LAN scanner which known-vulnerable build to aim at (the daemon binds 0.0.0.0 when the operator opts into LAN, as cerebro does), and the page cannot be used before a key anyway.
+1. Version endpoint. api.py gains GET /api/version behind verify_api_key, returning {success, message, data: {version: prismis_daemon.__version__}}, placed with the other authenticated GET routes. /health stays unchanged and unauthenticated: an unauthenticated version string tells a LAN scanner which known-vulnerable build to aim at (the daemon binds 0.0.0.0 when the operator opts into LAN, as <host> does), and the page cannot be used before a key anyway.
 
 2. Identity banner. The existing .header gradient bar (index.html:26, markup at index.html:744) is the banner; no second strip is added. It gets slimmer padding. The subtitle line gains a version span filled from GET /api/version whenever the page has a key: in init, and in saveApiKey. It reads `v<version>` on success and `version unavailable` when the call fails, so a failure never looks like a blank. A (?) button sits at the header's right edge (margin-left: auto) with aria-label "Help".
 

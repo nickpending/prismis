@@ -17,7 +17,7 @@
     },
     {
       "test": "3 degrades (security)",
-      "failureCase": "An unauthenticated version on /health would disclose the build to the LAN (defaults.py:61 opt-in 0.0.0.0, used by cerebro). The revised design serves it only from GET /api/version behind verify_api_key and leaves /health unchanged; a test asserts 403 without a key and no version on /health.",
+      "failureCase": "An unauthenticated version on /health would disclose the build to the LAN (defaults.py:61 opt-in 0.0.0.0, used by <host>). The revised design serves it only from GET /api/version behind verify_api_key and leaves /health unchanged; a test asserts 403 without a key and no version on /health.",
       "result": "held"
     },
     {

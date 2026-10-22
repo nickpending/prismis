@@ -24,13 +24,13 @@
       "tag": "OBSERVED",
       "path": "daemon/src/prismis_daemon/fetchers/rss.py",
       "line": 135,
-      "text": "The HN id comes from entry.get('comments') at fetch time and is not persisted; external_id is a hash (cerebro rows such as 9c825ff1c4901a4c)."
+      "text": "The HN id comes from entry.get('comments') at fetch time and is not persisted; external_id is a hash (<host> rows such as 9c825ff1c4901a4c)."
     },
     {
       "tag": "OBSERVED",
       "path": "daemon/src/prismis_daemon/refetch.py",
       "line": 174,
-      "text": "On cerebro on 2026-10-10: 47 non-archived title-only items from https://news.ycombinator.com/rss; 39 have unreadable content and every one of those contains news.ycombinator.com/item?id=<id>; the other 8 are model:not_substantive with readable content, which get_unreadable_content does not select."
+      "text": "On <host> on 2026-10-10: 47 non-archived title-only items from https://news.ycombinator.com/rss; 39 have unreadable content and every one of those contains news.ycombinator.com/item?id=<id>; the other 8 are model:not_substantive with readable content, which get_unreadable_content does not select."
     },
     {
       "tag": "OBSERVED",

@@ -31,8 +31,8 @@ A Hacker News story stored title-only before hn-discussion shipped can be recove
 
 ## Sacrifices
 
-- The story id is recovered from the stored content; a row whose content no longer holds the item link refetches article-only (none on cerebro on 2026-10-10: all 39 unreadable HN rows hold it).
-- Items already readable but judged not substantive (8 HN items on cerebro) are not refetched, as refetch selects only unreadable content.
+- The story id is recovered from the stored content; a row whose content no longer holds the item link refetches article-only (none on <host> on 2026-10-10: all 39 unreadable HN rows hold it).
+- Items already readable but judged not substantive (8 HN items on <host>) are not refetched, as refetch selects only unreadable content.
 
 ## Risk
 

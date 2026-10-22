@@ -2,7 +2,7 @@
   "workOrder": "bounded-llm-content",
   "issues": [],
   "what": "Bound the article text the summarizer, evaluator and deep extractor send to the model at 350,000 UTF-8 bytes through one helper in llm_call.py, tell the model when the text was cut, and record the cut on the item as analysis `content_bounded`, so an article larger than the model's window is stored and summarized instead of refused on every cycle.",
-  "why": "Design: docs/work/bounded-llm-content/design.md. Found on real work: cerebro's first cycle after the gh #58 deploy (2026-10-07) refused https://ascii.rest/ at 482,792 tokens against openai/gpt-5.4-nano's 400,000-token window; its text is 1,724,631 UTF-8 bytes, half non-ASCII, and the summarizer sends full content by design, so the page is fetched and refused again every cycle HN lists it.",
+  "why": "Design: docs/work/bounded-llm-content/design.md. Found on real work: <host>'s first cycle after the gh #58 deploy (2026-10-07) refused https://ascii.rest/ at 482,792 tokens against openai/gpt-5.4-nano's 400,000-token window; its text is 1,724,631 UTF-8 bytes, half non-ASCII, and the summarizer sends full content by design, so the page is fetched and refused again every cycle HN lists it.",
   "criteria": [
     {
       "id": "SC-1",
@@ -51,6 +51,6 @@
     "When the text is cut, the prompt says so, so the model does not summarize a part as the whole.",
     "One helper decides the bound for all three prompts.",
     "The defect walk: content shaped like ascii.rest (over a million characters, about half non-ASCII) through `analyze_and_store_item` against the local LLM stub is refused before the change by a stub that enforces the window in bytes, and is stored with a summary and `content_bounded` after it.",
-    "After deploy, cerebro's next cycle that lists an article over the bound stores it with `content_bounded` instead of logging a context-length failure."
+    "After deploy, <host>'s next cycle that lists an article over the bound stores it with `content_bounded` instead of logging a context-length failure."
   ]
 }

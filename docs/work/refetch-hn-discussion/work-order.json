@@ -2,7 +2,7 @@
   "workOrder": "refetch-hn-discussion",
   "issues": [],
   "what": "Make `prismis-daemon refetch` add a Hacker News story's discussion the way the live RSS fetch does, through the one shared discussion method, so HN stories stored title-only before hn-discussion shipped can be recovered.",
-  "why": "Design: docs/work/refetch-hn-discussion/design.md. On cerebro on 2026-10-10, 39 non-archived HN stories hold only the feed's comments link and stay title-only on refetch, because refetch's rss branch re-extracts the article alone and never reads the discussion.",
+  "why": "Design: docs/work/refetch-hn-discussion/design.md. On <host> on 2026-10-10, 39 non-archived HN stories hold only the feed's comments link and stay title-only on refetch, because refetch's rss branch re-extracts the article alone and never reads the discussion.",
   "criteria": [
     {
       "id": "SC-1",
@@ -48,9 +48,9 @@
     }
   ],
   "outOfScope": [
-    "The story id is recovered from the stored content; a row whose content no longer holds the item link refetches article-only (none on cerebro on 2026-10-10: all 39 unreadable HN rows hold it).",
-    "Items already readable but judged not substantive (8 HN items on cerebro) are not refetched, as refetch selects only unreadable content.",
-    "Running the backfill on cerebro waits on the operator, with the affected items and cost stated first."
+    "The story id is recovered from the stored content; a row whose content no longer holds the item link refetches article-only (none on <host> on 2026-10-10: all 39 unreadable HN rows hold it).",
+    "Items already readable but judged not substantive (8 HN items on <host>) are not refetched, as refetch selects only unreadable content.",
+    "Running the backfill on <host> waits on the operator, with the affected items and cost stated first."
   ],
   "stakes": [
     "Refetching a stored title-only HN story whose article still fails and whose discussion has comments stores it readable, with content_basis = \"discussion\" and a summary of the discussion, proven through run_refetch against a real test database with the article and HN API responses recorded.",

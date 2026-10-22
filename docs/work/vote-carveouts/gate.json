@@ -27,12 +27,12 @@
     },
     {
       "test": "5 verified on the running system",
-      "failureCase": "Trusting a carve-out line to stay inside its slice untested. The 2026-10-15 cerebro check (81 calls) showed a single with/without comparison cannot separate the line from evaluator variance and that a one-item line carves nothing; the design now counts a hit only on two-run agreement and drops lines that null under half their preview, and measures every proposal on real items before it is shown. Containment of a line named from 2+ downvotes stays unproven until cerebro has a second downvote.",
+      "failureCase": "Trusting a carve-out line to stay inside its slice untested. The 2026-10-15 <host> check (81 calls) showed a single with/without comparison cannot separate the line from evaluator variance and that a one-item line carves nothing; the design now counts a hit only on two-run agreement and drops lines that null under half their preview, and measures every proposal on real items before it is shown. Containment of a line named from 2+ downvotes stays unproven until <host> has a second downvote.",
       "result": "held"
     },
     {
       "test": "6 assumptions",
-      "failureCase": "Assuming labels resolve to context lines (measured 99.3% on cerebro, 7,344 labels) and that stored embeddings are of summary plus synthesis (orchestrator.py analyze_and_store_item), both read this session.",
+      "failureCase": "Assuming labels resolve to context lines (measured 99.3% on <host>, 7,344 labels) and that stored embeddings are of summary plus synthesis (orchestrator.py analyze_and_store_item), both read this session.",
       "result": "held"
     },
     {
@@ -108,7 +108,7 @@
   ],
   "decisions": [
     {
-      "question": "Accept the carve-out design, after a containment check on cerebro?",
+      "question": "Accept the carve-out design, after a containment check on <host>?",
       "answer": "Ran the check; it showed the impact measurement could not separate the line from evaluator variance and that a one-item line carves nothing, so the design took a redesign round for both."
     },
     {
@@ -120,7 +120,7 @@
   "carried": [
     {
       "kind": "cost",
-      "summary": "Containment of a carve-out line named from two or more downvotes is unproven until cerebro has a second downvote; the first real proposal's measured impact is the first test."
+      "summary": "Containment of a carve-out line named from two or more downvotes is unproven until <host> has a second downvote; the first real proposal's measured impact is the first test."
     },
     {
       "kind": "cost",

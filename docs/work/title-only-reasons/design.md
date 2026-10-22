@@ -42,7 +42,7 @@ One reason vocabulary, produced where each decision is made and combined in the 
 - A model-only title-only item is not retried each fetch cycle.
 - `is_readable` keeps its boolean contract for every current caller.
 - The CLI shows the title-only marker and reason, matching the TUI and web marker.
-- Measured before design on cerebro, 2026-10-03, with the instruction this design adds: 50 of 51 known-junk items called not substantive; of 40 short and 10 long readable-by-code items, 5 short ones called not substantive, and all 5, opened, were junk the code missed (bare links, gibberish, an X page of view counts); none were real content.
+- Measured before design on <host>, 2026-10-03, with the instruction this design adds: 50 of 51 known-junk items called not substantive; of 40 short and 10 long readable-by-code items, 5 short ones called not substantive, and all 5, opened, were junk the code missed (bare links, gibberish, an X page of view counts); none were real content.
 
 ## Sacrifices
 

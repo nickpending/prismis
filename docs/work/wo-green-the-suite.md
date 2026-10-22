@@ -205,10 +205,10 @@ are recorded so the decision is made against them rather than against an assumpt
 - **And**: its `VERIFY_COVERED:` line names checks for all three units
 - **Verification**:
   ```bash
-  cd /Users/rudy/development/projects/prismis
-  ./.specify/verify.sh >/tmp/v.out 2>&1
+  cd ~/development/projects/prismis
+  ./.specify/verify.sh ><scratch>/v.out 2>&1
   rc=$?
-  grep -q "^verify: PASS" /tmp/v.out && [ $rc -eq 0 ] && echo "SC-1: PASS" || echo "SC-1: FAIL"
+  grep -q "^verify: PASS" <scratch>/v.out && [ $rc -eq 0 ] && echo "SC-1: PASS" || echo "SC-1: FAIL"
   ```
 
 ### SC-2: The config root cause is fixed at the cause, not per-test
@@ -276,16 +276,16 @@ are recorded so the decision is made against them rather than against an assumpt
   `except Exception: pytest.skip(...)` fallbacks are gone
 - **Verification**:
   ```bash
-  cd /Users/rudy/development/projects/prismis/daemon
+  cd ~/development/projects/prismis/daemon
   hostile=$(mktemp -d); mkdir -p "$hostile/prismis"
   printf '[remote]\nurl = "https://example.invalid"\nkey = "x"\n' > "$hostile/prismis/config.toml"
   empty=$(mktemp -d)
-  XDG_CONFIG_HOME="$hostile" uv run pytest -q --no-header >/tmp/sc8a.out 2>&1; a=$?
-  XDG_CONFIG_HOME="$empty"   uv run pytest -q --no-header >/tmp/sc8b.out 2>&1; b=$?
-  ha=$(grep -Eo '[0-9]+ (passed|failed|skipped)' /tmp/sc8a.out | sort | tr '\n' ' ')
-  hb=$(grep -Eo '[0-9]+ (passed|failed|skipped)' /tmp/sc8b.out | sort | tr '\n' ' ')
+  XDG_CONFIG_HOME="$hostile" uv run pytest -q --no-header ><scratch>/sc8a.out 2>&1; a=$?
+  XDG_CONFIG_HOME="$empty"   uv run pytest -q --no-header ><scratch>/sc8b.out 2>&1; b=$?
+  ha=$(grep -Eo '[0-9]+ (passed|failed|skipped)' <scratch>/sc8a.out | sort | tr '\n' ' ')
+  hb=$(grep -Eo '[0-9]+ (passed|failed|skipped)' <scratch>/sc8b.out | sort | tr '\n' ' ')
   if [ $a -eq 0 ] && [ $b -eq 0 ] && [ "$ha" = "$hb" ] \
-     && ! grep -q "Config file not found" /tmp/sc8a.out /tmp/sc8b.out; then
+     && ! grep -q "Config file not found" <scratch>/sc8a.out <scratch>/sc8b.out; then
     echo "SC-8: PASS"; else echo "SC-8: FAIL"; fi
   ```
   Measured today this prints FAIL with 153 vs 113 — the gap this criterion exists to close.
@@ -297,13 +297,13 @@ are recorded so the decision is made against them rather than against an assumpt
   normal local run
 - **Verification**:
   ```bash
-  cd /Users/rudy/development/projects/prismis
-  ./.specify/verify.sh >/tmp/sc9-local.out 2>&1 || true
+  cd ~/development/projects/prismis
+  ./.specify/verify.sh ><scratch>/sc9-local.out 2>&1 || true
   fresh=$(mktemp -d)
   env -i PATH="$PATH" HOME="$fresh" UV_CACHE_DIR="$HOME/.cache/uv" \
-    ./.specify/verify.sh >/tmp/sc9-ci.out 2>&1; rc=$?
-  a=$(grep '^VERIFY_COVERED:' /tmp/sc9-local.out); b=$(grep '^VERIFY_COVERED:' /tmp/sc9-ci.out)
-  if [ $rc -eq 0 ] && grep -q '^verify: PASS' /tmp/sc9-ci.out && [ "$a" = "$b" ]; then
+    ./.specify/verify.sh ><scratch>/sc9-ci.out 2>&1; rc=$?
+  a=$(grep '^VERIFY_COVERED:' <scratch>/sc9-local.out); b=$(grep '^VERIFY_COVERED:' <scratch>/sc9-ci.out)
+  if [ $rc -eq 0 ] && grep -q '^verify: PASS' <scratch>/sc9-ci.out && [ "$a" = "$b" ]; then
     echo "SC-9: PASS"; else echo "SC-9: FAIL"; fi
   ```
   SC-6 defers CI to last so it isn't red on arrival. This gets the *evidence* locally instead of
@@ -352,7 +352,7 @@ against either pre-seal figure.
 ## Verification
 
 ```bash
-cd /Users/rudy/development/projects/prismis && ./.specify/verify.sh
+cd ~/development/projects/prismis && ./.specify/verify.sh
 ```
 
 That is the whole verification. It is the gate this work exists to turn green.
@@ -393,7 +393,7 @@ Recorded 2026-09-04, before the SC-8/SC-9 evidence below, because it qualifies b
 collection — `api.py` does `from .embeddings import Embedder`, and `embeddings.py` does
 `from sentence_transformers import SentenceTransformer` — so it runs before the autouse seal
 exists. Measured: after importing the module, setting `XDG_CACHE_HOME` leaves
-`huggingface_hub.constants.HF_HOME` pointing at `/Users/rudy/.cache/huggingface` (16G on this
+`huggingface_hub.constants.HF_HOME` pointing at `~/.cache/huggingface` (16G on this
 machine). `Embedder()` is then constructed per request inside `api.py`'s search and
 similar-content handlers, so `/api/search` tests resolve `all-MiniLM-L6-v2` from that real cache.
 
@@ -638,7 +638,7 @@ decision rather than a defect this work order introduced. Recorded so it is not 
 read `~/obsidian/projects/prismis/architecture/boundaries.md`, outside the clone, so it skipped on
 every machine but one — including CI, where the invariant it names was therefore unguarded.
 Repointed at the in-repo `docs/architecture/boundaries.md`, which satisfies all three of its
-assertions. Sweep: `rg '/Users/rudy|obsidian|Path.home\(\)' daemon/tests cli/tests` now returns only
+assertions. Sweep: `rg '~|obsidian|Path.home\(\)' daemon/tests cli/tests` now returns only
 a legitimate XDG fallback — the "test reads a path outside the repo" class is closed.
 | 1 | documented `xfail` | `test_rfc3339_helper_unit.py`, required by two other files |
 

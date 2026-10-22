@@ -58,7 +58,7 @@
       "tag": "OBSERVED",
       "path": "daemon/src/prismis_daemon/__main__.py",
       "line": 364,
-      "text": "prismis already loads ~/.config/prismis/.env with python-dotenv, and cerebro's systemd unit also sets EnvironmentFile=/home/rudy/.config/prismis/.env, so environment-only keys need no new loading mechanism."
+      "text": "prismis already loads ~/.config/prismis/.env with python-dotenv, and <host>'s systemd unit also sets EnvironmentFile=~/.config/prismis/.env, so environment-only keys need no new loading mechanism."
     },
     {
       "tag": "OBSERVED",
@@ -94,13 +94,13 @@
       "tag": "OBSERVED",
       "path": "daemon/pyproject.toml",
       "line": 103,
-      "text": "apiconf's provider mapping names the variables `apiconf env` exports: openai -> OPENAI_API_KEY, otherwise PROVIDER_API_KEY (openrouter -> OPENROUTER_API_KEY); the apiconf CLI is not installed on the Mac or cerebro, and cerebro has cargo."
+      "text": "apiconf's provider mapping names the variables `apiconf env` exports: openai -> OPENAI_API_KEY, otherwise PROVIDER_API_KEY (openrouter -> OPENROUTER_API_KEY); the apiconf CLI is not installed on the Mac or <host>, and <host> has cargo."
     },
     {
       "tag": "OBSERVED",
       "path": "daemon/src/prismis_daemon/defaults.py",
       "line": 19,
-      "text": "Production (cerebro) runs prismis-light and prismis-deep on OpenRouter with openai/gpt-5.4-nano and prismis-kind on OpenRouter's Decisions endpoint; every LLM test recording uses openai/gpt-5.4-nano."
+      "text": "Production (<host>) runs prismis-light and prismis-deep on OpenRouter with openai/gpt-5.4-nano and prismis-kind on OpenRouter's Decisions endpoint; every LLM test recording uses openai/gpt-5.4-nano."
     }
   ],
   "adrs": {

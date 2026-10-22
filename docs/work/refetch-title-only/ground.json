@@ -5,8 +5,8 @@
     {"path": "daemon/src/prismis_daemon/__main__.py", "role": "the refetch command (line 933) parses --type, --limit and --dry-run and calls run_refetch (line 972)"}
   ],
   "constraints": [
-    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/storage.py", "line": 723, "text": "On cerebro on 2026-10-11, get_unreadable_content('rss', 100000) returns 1,347 Hacker News rows: 39 with analysis title_only true, 4 false, 1,304 with no title_only key and priority NULL, fetched from 2025-10 to 2026-10."},
-    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/storage.py", "line": 723, "text": "analysis is stored as JSON text; json_extract(c.analysis, '$.title_only') = 1 selected the 47 title-only HN rows on cerebro in a direct sqlite3 query on 2026-10-10."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/storage.py", "line": 723, "text": "On <host> on 2026-10-11, get_unreadable_content('rss', 100000) returns 1,347 Hacker News rows: 39 with analysis title_only true, 4 false, 1,304 with no title_only key and priority NULL, fetched from 2025-10 to 2026-10."},
+    {"tag": "OBSERVED", "path": "daemon/src/prismis_daemon/storage.py", "line": 723, "text": "analysis is stored as JSON text; json_extract(c.analysis, '$.title_only') = 1 selected the 47 title-only HN rows on <host> in a direct sqlite3 query on 2026-10-10."},
     {"tag": "RULE", "path": ".specify/memory/constitution.md", "line": 84, "text": "Principle VIII: the CLI changes additively; refetch without the new option behaves exactly as today."}
   ],
   "adrs": {"scanned": 0, "binding": []},

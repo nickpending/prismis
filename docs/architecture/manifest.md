@@ -2,7 +2,7 @@
 type: manifest
 project: prismis
 generated: "2026-10-06"
-source: /Users/rudy/development/projects/prismis/docs/architecture
+source: ~/development/projects/prismis/docs/architecture
 reconciled_at: 63b9bfb39d2adc238ebd82f893cd28d2d3f37e1c
 ---
 
@@ -34,7 +34,7 @@ reconciled_at: 63b9bfb39d2adc238ebd82f893cd28d2d3f37e1c
 
 ## Where to look
 
-- Overview: /Users/rudy/development/projects/prismis/docs/architecture/architecture.md
-- Components: /Users/rudy/development/projects/prismis/docs/architecture/components.md
-- Decisions: /Users/rudy/development/projects/prismis/docs/architecture/decisions.md
-- Contracts: /Users/rudy/development/projects/prismis/docs/architecture/boundaries.md
+- Overview: ~/development/projects/prismis/docs/architecture/architecture.md
+- Components: ~/development/projects/prismis/docs/architecture/components.md
+- Decisions: ~/development/projects/prismis/docs/architecture/decisions.md
+- Contracts: ~/development/projects/prismis/docs/architecture/boundaries.md

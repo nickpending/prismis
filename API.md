@@ -239,8 +239,11 @@ Get content items with filtering.
 - `unread_only` (boolean, default: false): Only unread items
 - `include_archived` (boolean, default: false): Include archived items
 - `interesting_override` (boolean, optional): Filter by the interesting-override flag
-- `since` (ISO 8601 timestamp, optional): Only items after this time
-- `since_hours` (integer 1–720, optional): Only items from the last N hours
+- `since` (ISO 8601 timestamp, optional): Only items fetched after this time
+- `since_hours` (integer 1–720, optional): Only items fetched in the last N hours
+- `changed_since` (ISO 8601 timestamp, optional): Only items whose row changed after this
+  time (fetched, re-scored, voted, read, archived); the marker a syncing client advances from
+  the `updated_at` of the rows it receives
 - `source` (string, optional): Filter by source name (case-insensitive substring)
 - `sort_by` (string, default: `priority`): `priority`, `date` or `unread`
 - `limit` (integer 1–10000, default: 50): Max items to return

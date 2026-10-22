@@ -65,7 +65,7 @@ type Model struct {
 	theme StyleTheme // Current color theme
 	// Remote mode
 	remoteURL  string           // If non-empty, use API instead of local DB
-	lastSync   time.Time        // Last successful API fetch timestamp
+	lastSync   time.Time        // Newest row change seen; the next sync asks for changes after it
 	itemsCache []db.ContentItem // Cached items for remote mode
 	// hydrated holds, by item ID, the full content and analysis fetched for an item
 	// merged from a slim list response (remote mode only). An ID present here is
@@ -97,7 +97,7 @@ type itemsLoadedMsg struct {
 	// Remote mode fields
 	allItems    []db.ContentItem // Unfiltered items for caching (remote mode only)
 	updateCache bool             // If true, update cache and lastSync
-	newLastSync time.Time        // Newest fetched_at timestamp from API (remote mode only)
+	newLastSync time.Time        // Newest updated_at (fetched_at from an older daemon) in the response (remote mode only)
 	mergedIDs   []string         // IDs of items this sync re-merged as slim list items (remote mode only)
 }
 
@@ -1373,11 +1373,17 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 		copy(allItems, m.itemsCache)
 	}
 
-	// Track the newest fetched_at timestamp for incremental sync
-	var newestFetchedAt time.Time
+	// Track the newest row change for the next incremental sync. updated_at covers
+	// every change (fetch, re-score, vote, read); a daemon from before it was served
+	// leaves it zero, and fetched_at is the best marker that daemon can give.
+	var newestChange time.Time
 	for _, apiItem := range apiItems {
-		if apiItem.FetchedAt.Time.After(newestFetchedAt) {
-			newestFetchedAt = apiItem.FetchedAt.Time
+		stamp := apiItem.UpdatedAt.Time
+		if stamp.IsZero() {
+			stamp = apiItem.FetchedAt.Time
+		}
+		if stamp.After(newestChange) {
+			newestChange = stamp
 		}
 	}
 
@@ -1436,7 +1442,7 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 		availableKinds: distinctKindsFromItems(allItems),
 		allItems:       allItems,
 		updateCache:    true,
-		newLastSync:    newestFetchedAt,
+		newLastSync:    newestChange,
 		mergedIDs:      mergedIDs,
 		driftRead:      true,
 		drift:          remoteDrift(client),

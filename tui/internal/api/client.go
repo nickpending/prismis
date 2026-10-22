@@ -85,6 +85,7 @@ type ContentItem struct {
 	Summary             string          `json:"summary"`
 	PublishedAt         apiTime         `json:"published_at"`
 	FetchedAt           apiTime         `json:"fetched_at"`
+	UpdatedAt           apiTime         `json:"updated_at"` // last row change; absent from an older daemon
 	Read                bool            `json:"read"`
 	Favorited           bool            `json:"favorited"`
 	InterestingOverride bool            `json:"interesting_override"`
@@ -656,12 +657,13 @@ func (c *APIClient) FetchEntries() ([]ContentItem, error) {
 	return c.fetchEntriesWithParams("limit=10000&view=list")
 }
 
-// FetchEntriesSince retrieves content items created/modified after the given timestamp
+// FetchEntriesSince retrieves content items whose row changed after the given
+// timestamp: new ones and ones re-scored, voted or read since, which `since`
+// (fetched_at) would miss until a restart.
 func (c *APIClient) FetchEntriesSince(since time.Time) ([]ContentItem, error) {
-	// Format timestamp as ISO8601 with nanosecond precision
 	// RFC3339Nano preserves microseconds to prevent re-fetching same items
 	sinceParam := since.Format(time.RFC3339Nano)
-	return c.fetchEntriesWithParams("limit=10000&view=list&since=" + sinceParam)
+	return c.fetchEntriesWithParams("limit=10000&view=list&changed_since=" + sinceParam)
 }
 
 // FetchEntry retrieves one item with its full content and full analysis

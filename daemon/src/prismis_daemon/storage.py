@@ -29,6 +29,7 @@ class ContentListFilters(TypedDict, total=False):
     """The row filters of a content list read; an absent key means no filter."""
 
     since: datetime | None
+    changed_since: datetime | None
     include_archived: bool
     source_filter: str | None
     kind_filter: list[str] | None
@@ -1015,6 +1016,7 @@ class Storage:
     ) -> tuple[str, list[Any]]:
         """The WHERE clause and params shared by the list read and its count."""
         since = filters.get("since")
+        changed_since = filters.get("changed_since")
         source_filter = filters.get("source_filter")
         kind_filter = filters.get("kind_filter")
         priorities = filters.get("priorities")
@@ -1023,6 +1025,12 @@ class Storage:
         if since is not None:
             where += " AND datetime(c.fetched_at) > datetime(?)"
             params.append(since.isoformat())
+        if changed_since is not None:
+            # updated_at is stamped by the update_content_timestamp trigger on every
+            # row change, so this is "rows changed since", the marker an open client
+            # syncs on; `since` is "rows fetched since", a window of new content.
+            where += " AND datetime(c.updated_at) > datetime(?)"
+            params.append(changed_since.isoformat())
         if not filters.get("include_archived", False):
             where += " AND c.archived_at IS NULL"
         if source_filter:
@@ -1114,8 +1122,8 @@ class Storage:
                 )
                 columns = (
                     "c.id, c.source_id, c.external_id, c.title, c.url, c.summary,"
-                    " c.priority, c.published_at, c.fetched_at, c.read, c.favorited,"
-                    " c.notes, c.interesting_override, c.user_feedback,"
+                    " c.priority, c.published_at, c.fetched_at, c.updated_at, c.read,"
+                    " c.favorited, c.notes, c.interesting_override, c.user_feedback,"
                     f" CASE WHEN json_valid(c.analysis) THEN json_object({pairs})"
                     " END AS analysis_list,"
                     " CASE WHEN json_valid(c.analysis) THEN"
@@ -1178,6 +1186,7 @@ class Storage:
             "priority": row["priority"],
             "published_at": row["published_at"],
             "fetched_at": row["fetched_at"],
+            "updated_at": row["updated_at"],
             "read": bool(row["read"]),
             "favorited": bool(row["favorited"]),
             "notes": row["notes"],

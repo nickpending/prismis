@@ -937,6 +937,18 @@ async def _stream_entries(
             close()
 
 
+def _parse_iso_param(name: str, value: str) -> datetime:
+    """An ISO 8601 query parameter as a datetime, or a ValidationError naming the
+    parameter: the TUI shows this text, so it has to say which one was wrong."""
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise ValidationError(
+            f"Invalid ISO8601 timestamp: {value} (query parameter {name}). "
+            "Expected format: 2025-11-05T12:00:00Z"
+        ) from e
+
+
 @app.get("/api/entries", dependencies=[Depends(verify_api_key)])
 async def get_content(
     request: Request,
@@ -957,6 +969,11 @@ async def get_content(
     since: str | None = Query(None, description="ISO8601 timestamp to filter content"),
     since_hours: int | None = Query(
         None, ge=1, le=720, description="Hours to look back (convenience parameter)"
+    ),
+    changed_since: str | None = Query(
+        None,
+        description="ISO8601 timestamp: only items whose row changed after it "
+        "(new, re-scored, voted, read); the marker a syncing client advances",
     ),
     sort_by: str | None = Query(
         None,
@@ -1033,18 +1050,17 @@ async def get_content(
         if since_hours:
             since_dt = datetime.now(UTC) - timedelta(hours=since_hours)
         elif since:
-            try:
-                since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
-            except ValueError as e:
-                raise ValidationError(
-                    f"Invalid ISO8601 timestamp: {since}. Expected format: 2025-11-05T12:00:00Z"
-                ) from e
+            since_dt = _parse_iso_param("since", since)
+        changed_since_dt = (
+            _parse_iso_param("changed_since", changed_since) if changed_since else None
+        )
 
         # One bounded SQL read: filter, sort and LIMIT all run in SQLite. The kind
         # filter is part of that WHERE clause, applied before the LIMIT
         # (search-kind-filter SC-2/SC-5).
         filters: ContentListFilters = {
             "since": since_dt,
+            "changed_since": changed_since_dt,
             "include_archived": include_archived,
             "source_filter": source,
             "kind_filter": kind_filter,

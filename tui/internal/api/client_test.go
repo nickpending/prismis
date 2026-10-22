@@ -671,7 +671,7 @@ func TestFetchEntriesSinceRequest(t *testing.T) {
 	if _, err := client.FetchEntriesSince(since); err != nil {
 		t.Fatalf("FetchEntriesSince failed: %v", err)
 	}
-	wantParam := "since=" + since.Format(time.RFC3339Nano)
+	wantParam := "changed_since=" + since.Format(time.RFC3339Nano)
 	if !strings.Contains(gotPath, wantParam) {
 		t.Errorf("expected path to contain %q, got %s", wantParam, gotPath)
 	}

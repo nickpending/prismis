@@ -24,17 +24,18 @@ note_uncovered() { UNCOVERED="${UNCOVERED:+$UNCOVERED; }$1"; }
 # the failing assertion cannot be diagnosed anywhere the failure does not also reproduce,
 # which is precisely the CI-vs-laptop case the gate exists to catch.
 run_step() {
-  local desc="$1"; shift
-  local out
-  note_covered "$desc"
-  if out="$("$@" 2>&1)"; then
-    return 0
-  else
-    echo "FAILED: $desc"
-    printf '%s\n' "$out" | sed 's/^/  | /'
-    FAIL=1
-    return 1
-  fi
+	local desc="$1"
+	shift
+	local out
+	note_covered "$desc"
+	if out="$("$@" 2>&1)"; then
+		return 0
+	else
+		echo "FAILED: $desc"
+		printf '%s\n' "$out" | sed 's/^/  | /'
+		FAIL=1
+		return 1
+	fi
 }
 
 # ---------------------------------------------------------------- Python units
@@ -42,70 +43,75 @@ run_step() {
 # --locked: the gate judges the tree as committed and never rewrites it. Plain `uv run` relocked
 # cli/uv.lock and blocked the lane merge (2026-10-01); a stale lock now fails that unit instead.
 while IFS= read -r pp; do
-  d="$(dirname "$pp")"
-  rel="${d#"$ROOT"/}"; [ "$rel" = "$d" ] && rel="."
-  UNITS_FOUND=$((UNITS_FOUND + 1))
+	d="$(dirname "$pp")"
+	rel="${d#"$ROOT"/}"
+	[ "$rel" = "$d" ] && rel="."
+	UNITS_FOUND=$((UNITS_FOUND + 1))
 
-  if grep -q '\[tool\.ruff' "$pp" 2>/dev/null; then
-    run_step "ruff($rel)" env -C "$d" uv run --locked --quiet ruff check . || true
-  else
-    note_uncovered "ruff($rel): no [tool.ruff] config"
-  fi
+	if grep -q '\[tool\.ruff' "$pp" 2>/dev/null; then
+		run_step "ruff($rel)" env -C "$d" uv run --locked --quiet ruff check . || true
+	else
+		note_uncovered "ruff($rel): no [tool.ruff] config"
+	fi
 
-  if grep -q '\[tool\.mypy\]' "$pp" 2>/dev/null; then
-    run_step "mypy($rel)" env -C "$d" uv run --locked --quiet mypy . || true
-  else
-    note_uncovered "typecheck($rel): no [tool.mypy] config — type errors are unchecked here"
-  fi
+	if grep -q '\[tool\.mypy\]' "$pp" 2>/dev/null; then
+		run_step "mypy($rel)" env -C "$d" uv run --locked --quiet mypy . || true
+	else
+		note_uncovered "typecheck($rel): no [tool.mypy] config — type errors are unchecked here"
+	fi
 
-  if [ -d "$d/tests" ]; then
-    run_step "pytest($rel)" env -C "$d" uv run --locked --quiet pytest -q || true
-  else
-    note_uncovered "pytest($rel): no tests/ directory"
-  fi
-# `.claude/worktrees` is where Claude Code materialises an agent worktree —
-# inside the repo, and `find` does not read `.gitignore`. Without this exclusion a
-# live sibling worktree is adopted as units of the main checkout; it has no
-# node_modules, so the gate fails on code that is fine (workshop#40).
+	if [ -d "$d/tests" ]; then
+		run_step "pytest($rel)" env -C "$d" uv run --locked --quiet pytest -q || true
+	else
+		note_uncovered "pytest($rel): no tests/ directory"
+	fi
+	# `.claude/worktrees` is where Claude Code materialises an agent worktree —
+	# inside the repo, and `find` does not read `.gitignore`. Without this exclusion a
+	# live sibling worktree is adopted as units of the main checkout; it has no
+	# node_modules, so the gate fails on code that is fine (workshop#40).
 done < <(find "$ROOT" -name pyproject.toml \
-           -not -path '*/.venv/*' -not -path '*/node_modules/*' \
-           -not -path '*/build/*' -not -path '*/dist/*' \
-           -not -path "$ROOT/.claude/worktrees/*" | sort)
+	-not -path '*/.venv/*' -not -path '*/node_modules/*' \
+	-not -path '*/build/*' -not -path '*/dist/*' \
+	-not -path "$ROOT/.claude/worktrees/*" | sort)
 
 # -------------------------------------------------------------------- Go units
 while IFS= read -r gm; do
-  d="$(dirname "$gm")"
-  rel="${d#"$ROOT"/}"; [ "$rel" = "$d" ] && rel="."
-  UNITS_FOUND=$((UNITS_FOUND + 1))
+	d="$(dirname "$gm")"
+	rel="${d#"$ROOT"/}"
+	[ "$rel" = "$d" ] && rel="."
+	UNITS_FOUND=$((UNITS_FOUND + 1))
 
-  run_step "gofmt($rel)" env -C "$d" sh -c '[ -z "$(gofmt -l .)" ]' || true
-  run_step "go vet($rel)" env -C "$d" go vet ./... || true
-  # `go tool` runs the staticcheck pinned by the unit's own go.mod tool directive, so
-  # no PATH binary is involved; a Go unit without the directive fails here loudly.
-  run_step "staticcheck($rel)" env -C "$d" go tool staticcheck ./... || true
-  run_step "go test($rel)" env -C "$d" go test ./... || true
+	# shellcheck disable=SC2016  # the $(...) is for the sh -c below, expanded there
+	run_step "gofmt($rel)" env -C "$d" sh -c '[ -z "$(gofmt -l .)" ]' || true
+	run_step "go vet($rel)" env -C "$d" go vet ./... || true
+	# `go tool` runs the staticcheck pinned by the unit's own go.mod tool directive, so
+	# no PATH binary is involved; a Go unit without the directive fails here loudly.
+	run_step "staticcheck($rel)" env -C "$d" go tool staticcheck ./... || true
+	run_step "go test($rel)" env -C "$d" go test ./... || true
 done < <(find "$ROOT" -name go.mod -not -path '*/vendor/*' -not -path "$ROOT/.claude/worktrees/*" | sort)
 
 # ------------------------------------------------------------------ Rust units
 while IFS= read -r cg; do
-  d="$(dirname "$cg")"
-  rel="${d#"$ROOT"/}"; [ "$rel" = "$d" ] && rel="."
-  UNITS_FOUND=$((UNITS_FOUND + 1))
-  run_step "cargo fmt($rel)" env -C "$d" cargo fmt --check || true
-  run_step "clippy($rel)" env -C "$d" cargo clippy -- -D warnings || true
-  run_step "cargo test($rel)" env -C "$d" cargo test || true
+	d="$(dirname "$cg")"
+	rel="${d#"$ROOT"/}"
+	[ "$rel" = "$d" ] && rel="."
+	UNITS_FOUND=$((UNITS_FOUND + 1))
+	run_step "cargo fmt($rel)" env -C "$d" cargo fmt --check || true
+	run_step "clippy($rel)" env -C "$d" cargo clippy -- -D warnings || true
+	run_step "cargo test($rel)" env -C "$d" cargo test || true
 done < <(find "$ROOT" -name Cargo.toml -not -path '*/target/*' -not -path "$ROOT/.claude/worktrees/*" -maxdepth 3 | sort)
 
 # ------------------------------------------------------------------- JS/TS units
 while IFS= read -r pj; do
-  d="$(dirname "$pj")"
-  rel="${d#"$ROOT"/}"; [ "$rel" = "$d" ] && rel="."
-  UNITS_FOUND=$((UNITS_FOUND + 1))
-  grep -q '"typecheck"' "$pj" && { run_step "typecheck($rel)" env -C "$d" bun run typecheck || true; }
-  grep -q '"check"'     "$pj" && { run_step "check($rel)"     env -C "$d" bun run check     || true; }
-  if find "$d" -name '*.test.ts' -not -path '*/node_modules/*' | grep -q .; then
-    run_step "bun test($rel)" env -C "$d" bun test || true
-  fi
+	d="$(dirname "$pj")"
+	rel="${d#"$ROOT"/}"
+	[ "$rel" = "$d" ] && rel="."
+	UNITS_FOUND=$((UNITS_FOUND + 1))
+	grep -q '"typecheck"' "$pj" && { run_step "typecheck($rel)" env -C "$d" bun run typecheck || true; }
+	grep -q '"check"' "$pj" && { run_step "check($rel)" env -C "$d" bun run check || true; }
+	if find "$d" -name '*.test.ts' -not -path '*/node_modules/*' | grep -q .; then
+		run_step "bun test($rel)" env -C "$d" bun test || true
+	fi
 done < <(find "$ROOT" -name package.json -not -path '*/node_modules/*' -not -path "$ROOT/.claude/worktrees/*" | sort)
 
 # ------------------------------------------------------------------- Secret scan
@@ -126,13 +132,13 @@ done < <(find "$ROOT" -name package.json -not -path '*/node_modules/*' -not -pat
 # Known fakes are allowlisted in .gitleaks.toml.
 TOOL_MODULE_DIR="$ROOT/tui"
 if [ -n "${VERIFY_IN_PLANT_TEST:-}" ]; then
-  TOOL_MODULE_DIR="${VERIFY_TOOL_MODULE_DIR:-$ROOT/tui}"
+	TOOL_MODULE_DIR="${VERIFY_TOOL_MODULE_DIR:-$ROOT/tui}"
 fi
 GITLEAKS_TREE="$(mktemp -d)"
 trap 'rm -rf "$GITLEAKS_TREE"' EXIT
 while IFS= read -r -d '' f; do
-  mkdir -p "$GITLEAKS_TREE/$(dirname "$f")"
-  cp "$ROOT/$f" "$GITLEAKS_TREE/$f"
+	mkdir -p "$GITLEAKS_TREE/$(dirname "$f")"
+	cp "$ROOT/$f" "$GITLEAKS_TREE/$f"
 done < <(git -C "$ROOT" ls-files -z --cached --others --exclude-standard)
 run_step "gitleaks(.)" env -C "$TOOL_MODULE_DIR" go tool gitleaks dir "$GITLEAKS_TREE" --redact --no-banner --verbose --config "$ROOT/.gitleaks.toml" || true
 rm -rf "$GITLEAKS_TREE"
@@ -146,10 +152,10 @@ trap - EXIT
 # self-tests again. That skip is recorded as uncovered, never silent, and outside that
 # nested run a missing script is a failure, never a skip.
 if [ -n "${VERIFY_IN_PLANT_TEST:-}" ]; then
-  note_uncovered "gitleaks-plant(.), gate-wiring(.): not run — nested inside the plant test (VERIFY_IN_PLANT_TEST is set)"
+	note_uncovered "gitleaks-plant(.), gate-wiring(.): not run — nested inside the plant test (VERIFY_IN_PLANT_TEST is set)"
 else
-  run_step "gitleaks-plant(.)" bash "$ROOT/.specify/tests/gitleaks_plant_test.sh" || true
-  run_step "gate-wiring(.)" bash "$ROOT/.specify/tests/gate_wiring_test.sh" || true
+	run_step "gitleaks-plant(.)" bash "$ROOT/.specify/tests/gitleaks_plant_test.sh" || true
+	run_step "gate-wiring(.)" bash "$ROOT/.specify/tests/gate_wiring_test.sh" || true
 fi
 
 # ----------------------------------------------------------------- the verdict
@@ -157,15 +163,15 @@ fi
 # a project not yet written — the sentinel tells the consuming gate not to send a fixer
 # after the absence of code. No units WITH source present is broken discovery.
 if [ "$UNITS_FOUND" -eq 0 ]; then
-  if [ -z "$(find "$ROOT" \( -name '*.py' -o -name '*.go' -o -name '*.ts' -o -name '*.rs' \) \
-              -not -path '*/.venv/*' -not -path '*/node_modules/*' \
-              -not -path "$ROOT/.claude/worktrees/*" -print -quit)" ]; then
-    echo "VERIFY_NOT_YET: no verifiable unit and no source files — nothing has been written yet"
-  else
-    echo "VERIFY_UNCOVERED: source files exist but no unit was discovered — discovery is broken"
-  fi
-  echo "verify: FAIL"
-  exit 1
+	if [ -z "$(find "$ROOT" \( -name '*.py' -o -name '*.go' -o -name '*.ts' -o -name '*.rs' \) \
+		-not -path '*/.venv/*' -not -path '*/node_modules/*' \
+		-not -path "$ROOT/.claude/worktrees/*" -print -quit)" ]; then
+		echo "VERIFY_NOT_YET: no verifiable unit and no source files — nothing has been written yet"
+	else
+		echo "VERIFY_UNCOVERED: source files exist but no unit was discovered — discovery is broken"
+	fi
+	echo "verify: FAIL"
+	exit 1
 fi
 
 echo "VERIFY_COVERED: ${COVERED:-none}"
@@ -174,14 +180,14 @@ echo "VERIFY_COVERED: ${COVERED:-none}"
 # Units were found but nothing executed: every check routed to a skip path, so the failure
 # accumulator was never touched and the verdict would print PASS having proven nothing.
 if [ -z "$COVERED" ]; then
-  echo "VERIFY_UNCOVERED: $UNITS_FOUND unit(s) discovered but no check executed"
-  echo "verify: FAIL"
-  exit 1
+	echo "VERIFY_UNCOVERED: $UNITS_FOUND unit(s) discovered but no check executed"
+	echo "verify: FAIL"
+	exit 1
 fi
 
 if [ "$FAIL" -ne 0 ]; then
-  echo "verify: FAIL"
-  exit 1
+	echo "verify: FAIL"
+	exit 1
 fi
 
 echo "verify: PASS"

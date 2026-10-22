@@ -37,7 +37,7 @@ cp "$ROOT/.specify/verify.sh" "$GATE_TREE/.specify/verify.sh"
 cp "$ROOT/.gitleaks.toml" "$GATE_TREE/.gitleaks.toml"
 
 run_gate() {
-  bash "$GATE_TREE/.specify/verify.sh" 2>&1 || true
+	bash "$GATE_TREE/.specify/verify.sh" 2>&1 || true
 }
 
 PLANTED_REL="src/planted_credential_test_fixture.py"
@@ -54,15 +54,15 @@ FAIL=0
 # check that fails without saying where is not one anyone can act on.
 OUT="$(run_gate)"
 if ! printf '%s\n' "$OUT" | grep -qF 'FAILED: gitleaks(.)'; then
-  echo "FAIL: the gate did not report FAILED: gitleaks(.) with the planted credential present"
-  printf '%s\n' "$OUT" | sed 's/^/  | /'
-  FAIL=1
+	echo "FAIL: the gate did not report FAILED: gitleaks(.) with the planted credential present"
+	printf '%s\n' "$OUT" | sed 's/^/  | /'
+	FAIL=1
 elif ! printf '%s\n' "$OUT" | grep -q "$PLANTED_REL"; then
-  echo "FAIL: the gate failed gitleaks but did not name the planted file ($PLANTED_REL)"
-  printf '%s\n' "$OUT" | sed 's/^/  | /'
-  FAIL=1
+	echo "FAIL: the gate failed gitleaks but did not name the planted file ($PLANTED_REL)"
+	printf '%s\n' "$OUT" | sed 's/^/  | /'
+	FAIL=1
 else
-  echo "OK: the gate's own gitleaks step failed and named the planted file"
+	echo "OK: the gate's own gitleaks step failed and named the planted file"
 fi
 
 # Phase 2: once the file is gone, the same gate run must no longer report that
@@ -70,16 +70,16 @@ fi
 rm -f "$PLANTED"
 OUT2="$(run_gate)"
 if printf '%s\n' "$OUT2" | grep -qF 'FAILED: gitleaks(.)'; then
-  echo "FAIL: the gate still reported FAILED: gitleaks(.) after the planted file was removed"
-  printf '%s\n' "$OUT2" | sed 's/^/  | /'
-  FAIL=1
+	echo "FAIL: the gate still reported FAILED: gitleaks(.) after the planted file was removed"
+	printf '%s\n' "$OUT2" | sed 's/^/  | /'
+	FAIL=1
 else
-  echo "OK: the gate's own gitleaks step passed once the planted file was removed"
+	echo "OK: the gate's own gitleaks step passed once the planted file was removed"
 fi
 
 if [ "$FAIL" -ne 0 ]; then
-  echo "gitleaks_plant_test: FAIL"
-  exit 1
+	echo "gitleaks_plant_test: FAIL"
+	exit 1
 fi
 
 echo "gitleaks_plant_test: PASS"

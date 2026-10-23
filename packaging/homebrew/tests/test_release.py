@@ -41,7 +41,15 @@ def run_release(
     repo: Path, tap: Path, tarball: Path, tag: str = "v1.4.2"
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(RELEASE), tag, str(tarball), str(tap), "--repo-root", str(repo)],
+        [
+            sys.executable,
+            str(RELEASE),
+            tag,
+            str(tarball),
+            str(tap),
+            "--repo-root",
+            str(repo),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -49,7 +57,11 @@ def run_release(
 
 
 def snapshot(d: Path) -> dict[str, bytes]:
-    return {str(p.relative_to(d)): p.read_bytes() for p in sorted(d.rglob("*")) if p.is_file()}
+    return {
+        str(p.relative_to(d)): p.read_bytes()
+        for p in sorted(d.rglob("*"))
+        if p.is_file()
+    }
 
 
 def stale_resources(formula: Path) -> None:
@@ -91,10 +103,15 @@ def test_matching_versions_write_the_three_filled_formulas_into_the_tap(
         written = (tap / "Formula" / f"{name}.rb").read_text()
         template = (repo / "packaging" / "homebrew" / f"{name}.rb").read_text()
         expected = re.sub(
-            r'^  url ".*"$', f'  url "{render.TAG_URL.format(tag="v1.4.2")}"', template, flags=re.M
+            r'^  url ".*"$',
+            f'  url "{render.TAG_URL.format(tag="v1.4.2")}"',
+            template,
+            flags=re.M,
         )
         expected = re.sub(r'^  sha256 ".*"$', f'  sha256 "{sha}"', expected, flags=re.M)
-        expected = re.sub(r'^  version ".*"$', '  version "1.4.2"', expected, flags=re.M)
+        expected = re.sub(
+            r'^  version ".*"$', '  version "1.4.2"', expected, flags=re.M
+        )
         assert written == expected
     assert snapshot(repo / "packaging" / "homebrew") == committed
     assert "v1.4.2" in result.stdout
@@ -105,7 +122,8 @@ def test_matching_versions_write_the_three_filled_formulas_into_the_tap(
 
 
 @pytest.mark.parametrize(
-    ("daemon", "cli", "named"), [("1.4.1", "1.4.2", "daemon"), ("1.4.2", "1.4.3", "cli")]
+    ("daemon", "cli", "named"),
+    [("1.4.1", "1.4.2", "daemon"), ("1.4.2", "1.4.3", "cli")],
 )
 def test_a_version_mismatch_exits_nonzero_naming_it_and_leaves_the_tap_untouched(
     tmp_path: Path, tap: Path, tarball: Path, daemon: str, cli: str, named: str
@@ -177,7 +195,9 @@ def test_every_workflow_pins_an_action_to_the_same_commit() -> None:
     assert not drifted, f"one action pinned to different commits: {drifted}"
 
 
-def test_workflow_runs_the_release_logic_retries_on_404_and_pushes_the_tap_over_ssh() -> None:
+def test_workflow_runs_the_release_logic_retries_on_404_and_pushes_the_tap_over_ssh() -> (
+    None
+):
     text = WORKFLOW.read_text()
     assert "release.py" in text
     assert "for attempt in 1 2 3" in text

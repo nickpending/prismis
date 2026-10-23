@@ -52,7 +52,7 @@ def test_extract_entry_uses_120s_timeout_not_class_default() -> None:
     """
 
     class _SlowHandler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_POST(self) -> None:

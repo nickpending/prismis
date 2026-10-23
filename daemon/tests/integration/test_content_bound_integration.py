@@ -53,7 +53,7 @@ class _WindowStub:
         stub = self
 
         class _Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *_args: object) -> None:
+            def log_message(self, format: str, *args: object) -> None:
                 return
 
             def do_POST(self) -> None:

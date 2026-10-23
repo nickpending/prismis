@@ -58,7 +58,9 @@ def test_INVARIANT_one_monthly_group_with_both_ecosystems_opted_in() -> None:
         )
 
 
-def test_INVARIANT_gomod_allow_list_tracks_tool_modules_without_opening_indirects() -> None:
+def test_INVARIANT_gomod_allow_list_tracks_tool_modules_without_opening_indirects() -> (
+    None
+):
     """
     BREAKS: A missing dependency-name leaves that tool pinned forever with no PR; a
     switch to dependency-type all raises a PR for every indirect module.

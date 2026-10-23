@@ -17,7 +17,12 @@ from conftest import make_config
 
 from prismis_daemon.config import Config
 from prismis_daemon.fetchers.rss import RSSFetcher
-from prismis_daemon.hackernews import find_story_id, html_to_text, is_item_link, story_id
+from prismis_daemon.hackernews import (
+    find_story_id,
+    html_to_text,
+    is_item_link,
+    story_id,
+)
 from prismis_daemon.models import ContentItem
 from prismis_daemon.readability import (
     DISCUSSION_HEADER,
@@ -31,9 +36,7 @@ RECORDED_FEED_LOOKBACK_DAYS = 36500
 HN_SOURCE = {"url": "https://news.ycombinator.com/rss", "id": "hn-source"}
 WSJ_URL = "https://wsj.com/tech/ai/tom-brown-athropic-669005ad"
 BLOCKED_ARTICLE = {"outcome": "fetch_failed", "detail": "HTTP 403"}
-COMMENTS_ANCHOR = (
-    '<a href="https://news.ycombinator.com/item?id={id}">Comments</a>'
-)
+COMMENTS_ANCHOR = '<a href="https://news.ycombinator.com/item?id={id}">Comments</a>'
 
 
 def hn_fetcher(max_comments: int = 5) -> RSSFetcher:
@@ -88,8 +91,9 @@ def test_a_blocked_story_gets_its_first_live_comments_in_hn_order() -> None:
         "netfortius",
         "gsky",
     ]
-    assert '> "He offered to mop the floors at OpenAI to get his foot in the door."' in (
-        content
+    assert (
+        '> "He offered to mop the floors at OpenAI to get his foot in the door."'
+        in (content)
     )
     assert "\n\nThe American dream is alive and kicking." in content
     assert "\n> https://archive.ph/X2W6e\n" in content
@@ -229,7 +233,10 @@ def test_story_id_recognizes_only_an_hn_item_comments_link() -> None:
 def test_find_story_id_finds_the_first_item_link_inside_text() -> None:
     anchor = '<a href="https://news.ycombinator.com/item?id=50033678">Comments</a>'
     assert find_story_id(anchor) == "50033678"
-    assert find_story_id(f"see {anchor} and http://news.ycombinator.com/item?id=9") == "50033678"
+    assert (
+        find_story_id(f"see {anchor} and http://news.ycombinator.com/item?id=9")
+        == "50033678"
+    )
     assert find_story_id("https://example.com/item?id=12") is None
     assert find_story_id("no link here") is None
     assert find_story_id(None) is None
@@ -244,7 +251,7 @@ def test_find_story_id_finds_the_first_item_link_inside_text() -> None:
     [
         ("plain", "plain"),
         ("first<p>second", "first\n\nsecond"),
-        ("it&#x27;s &quot;fine&quot; &amp; &lt;done&gt;", "it's \"fine\" & <done>"),
+        ("it&#x27;s &quot;fine&quot; &amp; &lt;done&gt;", 'it\'s "fine" & <done>'),
         (
             '<a href="https:&#x2F;&#x2F;example.com&#x2F;full&#x2F;path" rel="nofollow">'
             "https:&#x2F;&#x2F;example.com&#x2F;fu...</a>",

@@ -70,7 +70,11 @@ class _Scanner(ast.NodeVisitor):
         for part in fstring.values:
             if not isinstance(part, ast.FormattedValue):
                 continue
-            if part.conversion == -1 and part.format_spec is None and _is_escape(part.value):
+            if (
+                part.conversion == -1
+                and part.format_spec is None
+                and _is_escape(part.value)
+            ):
                 continue
             self.violations.append(
                 Violation(self.path, part.value.lineno, ast.unparse(part.value))

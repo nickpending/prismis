@@ -65,7 +65,9 @@ class YouTubeFetcher:
         # tool install yt-dlp`, PATH resolution silently ran that install (without
         # the curl-cffi extra below) instead of the daemon's own dependency.
         if importlib.util.find_spec("yt_dlp") is None:
-            raise RuntimeError("yt-dlp not found. Please install it: pip install yt-dlp")
+            raise RuntimeError(
+                "yt-dlp not found. Please install it: pip install yt-dlp"
+            )
         self.yt_dlp_cmd: list[str] = [sys.executable, "-m", "yt_dlp"]
 
         logger.info(

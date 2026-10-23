@@ -15,10 +15,12 @@ import json
 import logging
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch  # claudex-guard: allow-mock -- httpx2, not prismis_daemon
+from unittest.mock import (
+    patch,
+)  # claudex-guard: allow-mock -- httpx2, not prismis_daemon
 
 import httpx2
 import openai
@@ -55,7 +57,7 @@ def _write_service(
     """
     cfg_home = Path(os.environ["XDG_CONFIG_HOME"])
     config_path = cfg_home / "prismis" / "config.toml"
-    block = f"\n[services.{name}]\nbase_url = \"{base_url}/v1\"\nmodel = \"{model}\"\n"
+    block = f'\n[services.{name}]\nbase_url = "{base_url}/v1"\nmodel = "{model}"\n'
     if api_key is not None:
         block += f'api_key = "{api_key}"\n'
     config_path.write_text(config_path.read_text() + block)
@@ -69,7 +71,7 @@ def _clean_circuit_registry() -> Iterator[None]:
 
 
 @contextmanager
-def _running(handler_cls: type[http.server.BaseHTTPRequestHandler]) -> Iterator[str]:
+def _running(handler_cls: type[http.server.BaseHTTPRequestHandler]) -> Generator[str]:
     """Start a local HTTP server for `handler_cls`, yield its base URL, tear it down."""
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
     host, port = server.server_address[0], server.server_address[1]
@@ -108,7 +110,7 @@ def _content_handler(
     and `finish_reason` (the provider's raw value, e.g. "stop" or "length")."""
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_POST(self) -> None:
@@ -146,7 +148,7 @@ def test_complete_reuses_one_connection_across_calls() -> None:
     class _KeepAlive(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_POST(self) -> None:
@@ -277,9 +279,7 @@ def test_complete_extracts_real_cost_for_an_openrouter_shaped_base_url() -> None
     and returns the provider's real cost on CompleteResult.cost -- proven end to end
     (gate, extra_body, response parsing) without a live network call."""
     service = "openrouter-shaped-svc"
-    _write_service(
-        service, "https://openrouter.ai/api", model="openai/gpt-5.6-luna"
-    )
+    _write_service(service, "https://openrouter.ai/api", model="openai/gpt-5.6-luna")
 
     sent_requests: list[httpx2.Request] = []
 
@@ -350,7 +350,7 @@ def test_complete_does_not_send_extra_body_to_a_non_openrouter_base_url() -> Non
 
 def _rate_limited_handler() -> type[http.server.BaseHTTPRequestHandler]:
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_POST(self) -> None:
@@ -655,7 +655,7 @@ def _models_handler(
     ids: list[str],
 ) -> type[http.server.BaseHTTPRequestHandler]:
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_GET(self) -> None:

@@ -78,7 +78,9 @@ def test_time_bound_keeps_only_the_window(shape: str, test_db) -> None:
     assert response.status_code == 200, response.text
     returned = {item["id"] for item in response.json()["data"]["items"]}
     assert ids["fresh"] in returned, f"{shape}: the item inside the window is missing"
-    assert ids["stale"] not in returned, f"{shape}: the item fetched before the bound passed"
+    assert ids["stale"] not in returned, (
+        f"{shape}: the item fetched before the bound passed"
+    )
 
 
 def test_archival_ages_a_t_separated_row_by_its_time_not_its_date(test_db) -> None:
@@ -150,7 +152,9 @@ def test_prune_age_reads_a_space_separated_published_at_by_its_time(test_db) -> 
     )
 
 
-@pytest.mark.parametrize("priority", [None, "high"], ids=["all-priorities", "one-priority"])
+@pytest.mark.parametrize(
+    "priority", [None, "high"], ids=["all-priorities", "one-priority"]
+)
 def test_unread_only_still_honors_the_time_bound(priority: str | None, test_db) -> None:
     """
     INVARIANT: unread_only=true with a time bound returns only unread items fetched after it

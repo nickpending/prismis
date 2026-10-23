@@ -129,7 +129,7 @@ def _high_priority_payload() -> bytes:
 
 def _serve(payload_fn) -> http.server.ThreadingHTTPServer:
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_POST(self) -> None:
@@ -383,7 +383,9 @@ _EXTRACTED = {"outcome": "extracted", "detail": ""}
             id="readable-fallback-after-failed-fetch-model-says-no",
         ),
         pytest.param(_NAVIGATION, None, None, "content:no_prose", id="code-rule"),
-        pytest.param(_NAVIGATION, None, True, "content:no_prose", id="code-beats-model"),
+        pytest.param(
+            _NAVIGATION, None, True, "content:no_prose", id="code-beats-model"
+        ),
         pytest.param(
             _NAVIGATION, _EMPTY_OUTCOME, None, "content:no_prose", id="empty-outcome"
         ),
@@ -569,7 +571,7 @@ class _LLMStub:
         outer = self
 
         class _Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *_args: object) -> None:
+            def log_message(self, format: str, *args: object) -> None:
                 return
 
             def do_POST(self) -> None:
@@ -603,7 +605,10 @@ class _LLMStub:
                     "choices": [
                         {
                             "index": 0,
-                            "message": {"role": "assistant", "content": _json.dumps(reply)},
+                            "message": {
+                                "role": "assistant",
+                                "content": _json.dumps(reply),
+                            },
                             "finish_reason": "stop",
                         }
                     ],
@@ -655,7 +660,9 @@ class _RecordingFetcher:
 
 
 def _orchestrator(
-    base_url: str, storage: Storage, rss_fetcher: _RecordingFetcher | _NullFetcher | None = None
+    base_url: str,
+    storage: Storage,
+    rss_fetcher: _RecordingFetcher | _NullFetcher | None = None,
 ) -> DaemonOrchestrator:
     configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), base_url)
     config = Config.from_file()
@@ -904,7 +911,9 @@ def test_fetch_cycle_settles_model_only_items_and_retries_content_items(
             )
         )
 
-    seed("model-only", {"title_only": True, "title_only_reason": "model:not_substantive"})
+    seed(
+        "model-only", {"title_only": True, "title_only_reason": "model:not_substantive"}
+    )
     seed("content-only", {"title_only": True, "title_only_reason": "content:no_prose"})
     seed("readable", {"title_only": False, "title_only_reason": None})
 

@@ -203,7 +203,9 @@ def test_database_lock_during_update(test_db: Path) -> None:
             # A lock error raised after busy_timeout (5s) elapsed, not at once
             elapsed = time.time() - start_time
             assert "locked" in str(e).lower()
-            assert 4 <= elapsed < 6, f"lock error after {elapsed:.2f}s, not at busy_timeout"
+            assert 4 <= elapsed < 6, (
+                f"lock error after {elapsed:.2f}s, not at busy_timeout"
+            )
     finally:
         # Release the lock
         lock_conn.execute("ROLLBACK")

@@ -87,12 +87,16 @@ def test_config_validates_max_days_lookback() -> None:
     BREAKS: Could disable all filtering if config corruption allows bad values
     """
     # Test negative value raises error
-    with pytest.raises(ValueError, match="max_days_lookback must be between 1 and 365 days"):
+    with pytest.raises(
+        ValueError, match="max_days_lookback must be between 1 and 365 days"
+    ):
         config = make_config(max_days_lookback=-1)
         config.validate()
 
     # Test zero value raises error
-    with pytest.raises(ValueError, match="max_days_lookback must be between 1 and 365 days"):
+    with pytest.raises(
+        ValueError, match="max_days_lookback must be between 1 and 365 days"
+    ):
         config = make_config(max_days_lookback=0)
         config.validate()
 

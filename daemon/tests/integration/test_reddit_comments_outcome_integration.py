@@ -63,7 +63,9 @@ def test_a_failed_comment_fetch_reaches_storage_and_a_quiet_post_stores_no_outco
     }
 
     failed = create_self_post_mock(permalink="/r/python/comments/1/failed/")
-    failed.comments.replace_more.side_effect = requests.exceptions.ConnectionError("down")
+    failed.comments.replace_more.side_effect = requests.exceptions.ConnectionError(
+        "down"
+    )
     quiet = create_self_post_mock(permalink="/r/python/comments/2/quiet/")
 
     stored = {}

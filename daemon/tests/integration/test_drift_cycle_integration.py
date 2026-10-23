@@ -96,9 +96,7 @@ def test_a_cycle_stores_exactly_one_drift_check_and_logs_the_same_values(
     stats = orchestrator.run_once()
 
     assert stats["total_new"] == 1, stats["errors"]
-    rows = orchestrator.storage.conn.execute(
-        "SELECT * FROM drift_checks"
-    ).fetchall()
+    rows = orchestrator.storage.conn.execute("SELECT * FROM drift_checks").fetchall()
     assert len(rows) == 1
     row = dict(rows[0])
     assert row["window_items"] == 1
@@ -169,7 +167,9 @@ def test_a_flagged_check_meeting_an_empty_window_keeps_the_flag_and_the_cycle_co
     assert latest["flagged"] is True
     assert latest["share"] is None
     assert latest["baseline"] == 0.5
-    assert [r for r in caplog.records if r.exc_info and "Drift check" in r.message] == []
+    assert [
+        r for r in caplog.records if r.exc_info and "Drift check" in r.message
+    ] == []
 
 
 def test_a_drift_check_that_fails_is_logged_with_its_traceback_and_the_cycle_completes(
@@ -194,6 +194,7 @@ def test_a_drift_check_that_fails_is_logged_with_its_traceback_and_the_cycle_com
     assert stored == 1
     failures = [r for r in caplog.records if r.exc_info and "Drift check" in r.message]
     assert len(failures) == 1, [r.message for r in caplog.records]
-    assert failures[0].exc_info is not None
-    assert isinstance(failures[0].exc_info[1], sqlite3.OperationalError)
+    exc_info = failures[0].exc_info
+    assert isinstance(exc_info, tuple)
+    assert isinstance(exc_info[1], sqlite3.OperationalError)
     assert _drift_events() == []

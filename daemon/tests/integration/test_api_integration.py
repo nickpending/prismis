@@ -313,6 +313,7 @@ def test_concurrent_source_adds(api_client: TestClient, test_db: Path) -> None:
         "re-posting an existing URL added a row; the sources table grows per attempt"
     )
 
+
 def test_validation_timeout(api_client: TestClient) -> None:
     """
     FAILURE: Source validation exceeds 5 second timeout

@@ -215,4 +215,3 @@ def fetch_discussion(
         return HNDiscussion(), {"outcome": "fetch_failed", "detail": type(e).__name__}
     finally:
         session.close()
-

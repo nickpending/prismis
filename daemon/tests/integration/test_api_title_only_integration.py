@@ -199,7 +199,9 @@ def test_entries_and_single_entry_carry_the_title_only_reason(
     assert items["readable-1"]["title_only_reason"] is None
     assert items["legacy-1"]["title_only_reason"] is None
 
-    single = api_client.get(f"/api/entries/{items['title-only-1']['id']}", headers=headers)
+    single = api_client.get(
+        f"/api/entries/{items['title-only-1']['id']}", headers=headers
+    )
     assert single.status_code == 200, single.text
     assert single.json()["data"]["title_only_reason"] == _REASON
 

@@ -44,7 +44,9 @@ from prismis_daemon.summarizer import ContentSummarizer
 from prismis_daemon.verify_chain import read_run_events
 
 # The decisions-endpoint provider boundary itself (Principle I's one permitted fake).
-_PATCH_SUBMIT = "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+_PATCH_SUBMIT = (
+    "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+)
 
 _KIND_SERVICE = "prismis-openrouter-kind-test"
 

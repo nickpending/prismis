@@ -74,10 +74,14 @@ def test_kind_badge_rendered_only_when_item_has_kind_and_lowercased() -> None:
     """
     html = _read_html()
 
-    assert "kind-badge" in html, "SC-2: no kind-badge class found; kind badge not rendered"
+    assert "kind-badge" in html, (
+        "SC-2: no kind-badge class found; kind badge not rendered"
+    )
 
     match = re.search(r"const kindBadge = (.+?);\n", html, re.S)
-    assert match, "SC-2: expected a `const kindBadge = ...;` expression in renderContentItem"
+    assert match, (
+        "SC-2: expected a `const kindBadge = ...;` expression in renderContentItem"
+    )
 
     expr = match.group(1)
     assert "item.kind" in expr, "SC-2: kind badge must derive from item.kind"
@@ -150,8 +154,12 @@ def test_choosing_kind_adds_query_param_not_browser_filter() -> None:
         "the filter-after-limit defect search-kind-filter fixed"
     )
 
-    load_content = _method_body(html, "async loadContent()", "handleOfflineState(error)")
-    assert re.search(r"params\.set\(\s*['\"]kind['\"]\s*,\s*this\.kindFilter\s*\)", load_content), (
+    load_content = _method_body(
+        html, "async loadContent()", "handleOfflineState(error)"
+    )
+    assert re.search(
+        r"params\.set\(\s*['\"]kind['\"]\s*,\s*this\.kindFilter\s*\)", load_content
+    ), (
         "SC-2: choosing a kind must add kind=<kind> to the /api/entries request "
         "via this.kindFilter, inside loadContent"
     )
@@ -172,9 +180,13 @@ def test_kind_filter_persists_across_refresh() -> None:
     """
     html = _read_html()
 
-    assert "prismis_kind" in html, "SC-2: chosen kind must be persisted (localStorage key)"
+    assert "prismis_kind" in html, (
+        "SC-2: chosen kind must be persisted (localStorage key)"
+    )
 
-    load_content = _method_body(html, "async loadContent()", "handleOfflineState(error)")
+    load_content = _method_body(
+        html, "async loadContent()", "handleOfflineState(error)"
+    )
     assert "this.kindFilter" in load_content, (
         "SC-2: loadContent must read this.kindFilter so the chosen kind is sent "
         "on the initial load AND every 30s auto-refresh call"
@@ -203,6 +215,6 @@ def test_no_kind_name_hardcoded_as_a_literal() -> None:
         found = pattern.search(html)
         assert not found, (
             f"SC-2 VIOLATION: '{kind}' appears as a quoted literal in index.html "
-            f"at offset {found.start() if found else -1}; kind choices must come "
+            f"at offset {found.start()}; kind choices must come "
             f"from GET /api/kinds, not a second hardcoded list"
         )

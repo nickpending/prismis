@@ -8,7 +8,9 @@ from typing import Any, cast
 from urllib.parse import urlparse
 
 import praw
+import praw.exceptions
 import prawcore
+import prawcore.exceptions
 import requests
 
 from ..article_extractor import extract_article

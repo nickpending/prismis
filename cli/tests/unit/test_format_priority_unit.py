@@ -97,7 +97,7 @@ runner = CliRunner()
 class _EntriesHandler(http.server.BaseHTTPRequestHandler):
     """Serves /api/entries with one HIGH-priority item."""
 
-    def log_message(self, *_args: object) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         return
 
     def do_GET(self) -> None:

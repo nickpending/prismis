@@ -105,7 +105,7 @@ def _guarded_connection(
 def _guard(
     conn: http.client.HTTPConnection, allowed_hosts: frozenset[str]
 ) -> http.client.HTTPConnection:
-    conn._create_connection = lambda address, timeout=None, source_address=None: (  # type: ignore[attr-defined]
+    conn._create_connection = lambda address, timeout=None, source_address=None: (  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
         _guarded_connection(allowed_hosts, address, timeout, source_address)
     )
     return conn
@@ -173,7 +173,7 @@ def _http_only_opener(
             return self.do_open(
                 _HTTPSConnection,
                 req,
-                context=self._context,  # type: ignore[attr-defined]
+                context=self._context,  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
             )
 
     opener = urllib.request.OpenerDirector()

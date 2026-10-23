@@ -82,21 +82,78 @@ def storage(test_db: Path) -> Storage:
     beta = s.add_source("https://beta.example/rss", "rss", "Beta Blog")
     c = s.conn
     # published newest-first: lower hours_ago = newer
-    _plant(c, alpha, "h-new", priority="high", published_hours_ago=1, analysis=_analysis("news"))
-    _plant(c, alpha, "h-old", priority="high", published_hours_ago=50, read=1,
-           feedback="up", analysis=_analysis("release"))
-    _plant(c, beta, "m-new", priority="medium", published_hours_ago=2, feedback="up",
-           analysis=_analysis("news"))
-    _plant(c, beta, "m-old", priority="medium", published_hours_ago=60, read=1,
-           analysis=_analysis("tutorial"))
-    _plant(c, alpha, "l-new", priority="low", published_hours_ago=3, fetched_days_ago=10,
-           analysis=_analysis("news"))
-    _plant(c, beta, "n-newest", priority=None, published_hours_ago=0, feedback="down",
-           analysis=_analysis("news"))
-    _plant(c, beta, "n-old", priority=None, published_hours_ago=70, read=1,
-           analysis=_analysis("news"))
-    _plant(c, alpha, "arch", priority="high", published_hours_ago=4, archived=True,
-           analysis=_analysis("news"))
+    _plant(
+        c,
+        alpha,
+        "h-new",
+        priority="high",
+        published_hours_ago=1,
+        analysis=_analysis("news"),
+    )
+    _plant(
+        c,
+        alpha,
+        "h-old",
+        priority="high",
+        published_hours_ago=50,
+        read=1,
+        feedback="up",
+        analysis=_analysis("release"),
+    )
+    _plant(
+        c,
+        beta,
+        "m-new",
+        priority="medium",
+        published_hours_ago=2,
+        feedback="up",
+        analysis=_analysis("news"),
+    )
+    _plant(
+        c,
+        beta,
+        "m-old",
+        priority="medium",
+        published_hours_ago=60,
+        read=1,
+        analysis=_analysis("tutorial"),
+    )
+    _plant(
+        c,
+        alpha,
+        "l-new",
+        priority="low",
+        published_hours_ago=3,
+        fetched_days_ago=10,
+        analysis=_analysis("news"),
+    )
+    _plant(
+        c,
+        beta,
+        "n-newest",
+        priority=None,
+        published_hours_ago=0,
+        feedback="down",
+        analysis=_analysis("news"),
+    )
+    _plant(
+        c,
+        beta,
+        "n-old",
+        priority=None,
+        published_hours_ago=70,
+        read=1,
+        analysis=_analysis("news"),
+    )
+    _plant(
+        c,
+        alpha,
+        "arch",
+        priority="high",
+        published_hours_ago=4,
+        archived=True,
+        analysis=_analysis("news"),
+    )
     c.commit()
     return s
 
@@ -105,32 +162,60 @@ def _ids(rows: list[dict[str, Any]]) -> list[str]:
     return [r["id"] for r in rows]
 
 
-def test_limit_bounds_rows_and_priority_sort_is_high_medium_low_none(storage: Storage) -> None:
+def test_limit_bounds_rows_and_priority_sort_is_high_medium_low_none(
+    storage: Storage,
+) -> None:
     rows = storage.get_content_list(limit=100, sort_by="priority")
     assert _ids(rows) == [
-        "h-new", "h-old", "m-new", "m-old", "l-new", "n-newest", "n-old",
+        "h-new",
+        "h-old",
+        "m-new",
+        "m-old",
+        "l-new",
+        "n-newest",
+        "n-old",
     ]
     assert _ids(storage.get_content_list(limit=3)) == ["h-new", "h-old", "m-new"]
 
 
-def test_date_sort_is_published_newest_first_across_priorities(storage: Storage) -> None:
+def test_date_sort_is_published_newest_first_across_priorities(
+    storage: Storage,
+) -> None:
     rows = storage.get_content_list(limit=100, sort_by="date")
     assert _ids(rows) == [
-        "n-newest", "h-new", "m-new", "l-new", "h-old", "m-old", "n-old",
+        "n-newest",
+        "h-new",
+        "m-new",
+        "l-new",
+        "h-old",
+        "m-old",
+        "n-old",
     ]
 
 
 def test_unread_sort_puts_unread_first_then_newest(storage: Storage) -> None:
     rows = storage.get_content_list(limit=100, sort_by="unread")
     assert _ids(rows) == [
-        "n-newest", "h-new", "m-new", "l-new", "h-old", "m-old", "n-old",
+        "n-newest",
+        "h-new",
+        "m-new",
+        "l-new",
+        "h-old",
+        "m-old",
+        "n-old",
     ]
     # tell it apart from the date sort: make an old row unread
     storage.conn.execute("UPDATE content SET read = 0 WHERE id = 'n-old'")
     storage.conn.commit()
     rows = storage.get_content_list(limit=100, sort_by="unread")
     assert _ids(rows) == [
-        "n-newest", "h-new", "m-new", "l-new", "n-old", "h-old", "m-old",
+        "n-newest",
+        "h-new",
+        "m-new",
+        "l-new",
+        "n-old",
+        "h-old",
+        "m-old",
     ]
 
 
@@ -219,9 +304,23 @@ def test_list_view_invalid_or_missing_analysis_gives_empty_analysis(
 ) -> None:
     c = storage.conn
     src = c.execute("SELECT id FROM sources LIMIT 1").fetchone()[0]
-    _plant(c, src, "bad-json", priority="low", published_hours_ago=5, raw_analysis="{not json")
+    _plant(
+        c,
+        src,
+        "bad-json",
+        priority="low",
+        published_hours_ago=5,
+        raw_analysis="{not json",
+    )
     _plant(c, src, "no-analysis", priority="low", published_hours_ago=6)
-    _plant(c, src, "array-analysis", priority="low", published_hours_ago=7, raw_analysis="[1, 2]")
+    _plant(
+        c,
+        src,
+        "array-analysis",
+        priority="low",
+        published_hours_ago=7,
+        raw_analysis="[1, 2]",
+    )
     c.commit()
     rows = {r["id"]: r for r in storage.get_content_list(limit=100, view="list")}
     for rid in ("bad-json", "no-analysis", "array-analysis"):
@@ -246,7 +345,9 @@ def test_full_view_carries_content_and_whole_analysis(storage: Storage) -> None:
 def test_one_sql_statement_per_call(storage: Storage) -> None:
     statements: list[str] = []
     storage.conn.set_trace_callback(statements.append)
-    storage.get_content_list(limit=5, view="list", priorities=["high"], unread_only=True)
+    storage.get_content_list(
+        limit=5, view="list", priorities=["high"], unread_only=True
+    )
     storage.conn.set_trace_callback(None)
     selects = [s for s in statements if s.lstrip().upper().startswith("SELECT")]
     assert len(selects) == 1
@@ -309,5 +410,5 @@ def test_the_connection_is_usable_after_the_iterator_is_abandoned(
 ) -> None:
     rows = storage.iter_content_list(100)
     next(rows)
-    rows.close()  # type: ignore[attr-defined]
+    rows.close()
     assert len(storage.get_content_list(limit=100)) == 7

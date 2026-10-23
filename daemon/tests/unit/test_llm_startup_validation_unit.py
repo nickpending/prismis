@@ -26,7 +26,9 @@ _HEALTH_CHECK_MOCK = (
 # only provider boundary here is submit_decision itself, per Principle I --
 # llm_validator's own validate_llm_services and __main__'s validate_llm_config both
 # run for real.
-_SUBMIT_DECISION_MOCK = "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+_SUBMIT_DECISION_MOCK = (
+    "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+)
 
 # Valid dual-service config TOML — uses light_service= (task 1.1 format)
 VALID_CONFIG_TOML = """\
@@ -434,7 +436,8 @@ def test_INVARIANT_kind_service_failure_is_non_fatal() -> None:
             mock_health.return_value = None  # light succeeds
 
             with patch(
-                _SUBMIT_DECISION_MOCK, side_effect=httpx.ConnectError("connection refused")
+                _SUBMIT_DECISION_MOCK,
+                side_effect=httpx.ConnectError("connection refused"),
             ):
                 try:
                     validate_llm_config(config)
@@ -537,7 +540,8 @@ def test_kind_service_and_deep_service_unreachable_warnings_describe_what_actual
 
         with patch(_HEALTH_CHECK_MOCK, side_effect=mock_health_check):
             with patch(
-                _SUBMIT_DECISION_MOCK, side_effect=httpx.ConnectError("connection refused")
+                _SUBMIT_DECISION_MOCK,
+                side_effect=httpx.ConnectError("connection refused"),
             ):
                 validate_llm_config(config)
 

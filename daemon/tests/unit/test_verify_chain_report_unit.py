@@ -219,9 +219,7 @@ def test_llm_link_with_processed_items_but_no_call_is_empty() -> None:
     """
     stats = _stats(items_fetched=1, items_processed=1)
 
-    links = _by_name(
-        render_report(stats, [_fetch_complete(1)], _SOURCE_ID, full=False)
-    )
+    links = _by_name(render_report(stats, [_fetch_complete(1)], _SOURCE_ID, full=False))
 
     assert links["summarize"].status == "empty"
 

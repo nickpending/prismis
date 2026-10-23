@@ -86,9 +86,7 @@ def collect(repo: Path, prev: str, tag: str) -> Notes:
         if pr := _MERGE_PR.match(subject):
             title = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
             notes.pull_requests.append(f"{title or subject} (#{pr.group(1)})")
-            in_pull_requests.update(
-                _git(repo, "rev-list", f"{sha}^1..{sha}^2").split()
-            )
+            in_pull_requests.update(_git(repo, "rev-list", f"{sha}^1..{sha}^2").split())
     for sha, subject, _body in _commits(repo, "--no-merges", f"{prev}..{tag}"):
         if sha in in_pull_requests or _RELEASE.match(subject) or _LANE.match(subject):
             continue

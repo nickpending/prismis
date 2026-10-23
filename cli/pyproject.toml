@@ -56,6 +56,11 @@ select = [
 # required-idiom case as daemon's FastAPI Depends() entry.
 "src/cli/report.py" = ["B008"]
 
+# ty beside mypy, over the same scope: tests import conftest from tests/, the directory
+# pytest puts on sys.path.
+[tool.ty.environment]
+extra-paths = ["tests"]
+
 [tool.mypy]
 # `uv run mypy .` from this directory is the gate's typecheck (ember's house toolchain).
 python_version = "3.14"

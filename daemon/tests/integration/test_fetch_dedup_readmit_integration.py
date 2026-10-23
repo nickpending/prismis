@@ -66,7 +66,7 @@ class _ReadmitServer:
         outer = self
 
         class _Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *_args: object) -> None:
+            def log_message(self, format: str, *args: object) -> None:
                 return
 
             def do_GET(self) -> None:
@@ -98,9 +98,7 @@ class _ReadmitServer:
         host, port = self._server.server_address[0], self._server.server_address[1]
         assert isinstance(host, str)
         self.base_url = f"http://{host}:{port}"
-        self._thread = threading.Thread(
-            target=self._server.serve_forever, daemon=True
-        )
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
 
     def shutdown(self) -> None:
@@ -162,7 +160,7 @@ class _LLMStub:
         outer = self
 
         class _Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *_args: object) -> None:
+            def log_message(self, format: str, *args: object) -> None:
                 return
 
             def do_POST(self) -> None:
@@ -183,9 +181,7 @@ class _LLMStub:
         host, port = self._server.server_address[0], self._server.server_address[1]
         assert isinstance(host, str)
         self.base_url = f"http://{host}:{port}"
-        self._thread = threading.Thread(
-            target=self._server.serve_forever, daemon=True
-        )
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
 
     def shutdown(self) -> None:
@@ -238,7 +234,10 @@ def _real_config(base_url: str) -> Config:
 
 
 def test_readmit_cycle_skip_known_readable_avoids_reextraction(
-    test_db: Path, isolated_xdg_env: Path, llm_stub: _LLMStub, readmit_server: _ReadmitServer
+    test_db: Path,
+    isolated_xdg_env: Path,
+    llm_stub: _LLMStub,
+    readmit_server: _ReadmitServer,
 ) -> None:
     """
     SC-4: on a second fetch cycle, an item already stored readably is not
@@ -274,7 +273,10 @@ def test_readmit_cycle_skip_known_readable_avoids_reextraction(
 
 
 def test_readmit_cycle_force_refetch_reextracts_an_already_readable_item(
-    test_db: Path, isolated_xdg_env: Path, llm_stub: _LLMStub, readmit_server: _ReadmitServer
+    test_db: Path,
+    isolated_xdg_env: Path,
+    llm_stub: _LLMStub,
+    readmit_server: _ReadmitServer,
 ) -> None:
     """
     SC-4: force_refetch still processes every item -- an item already stored
@@ -335,7 +337,10 @@ def test_readmit_cycle_force_refetch_reextracts_an_already_readable_item(
 
 
 def test_readmit_cycle_replaces_content_in_place_once_a_title_only_item_becomes_readable(
-    test_db: Path, isolated_xdg_env: Path, llm_stub: _LLMStub, readmit_server: _ReadmitServer
+    test_db: Path,
+    isolated_xdg_env: Path,
+    llm_stub: _LLMStub,
+    readmit_server: _ReadmitServer,
 ) -> None:
     """
     SC-4: a stored title-only item is extracted again on the next cycle, and
@@ -394,7 +399,10 @@ def test_readmit_cycle_replaces_content_in_place_once_a_title_only_item_becomes_
 
 
 def test_readmit_cycle_leaves_a_still_unreadable_item_unanalysed_and_unchanged(
-    test_db: Path, isolated_xdg_env: Path, llm_stub: _LLMStub, readmit_server: _ReadmitServer
+    test_db: Path,
+    isolated_xdg_env: Path,
+    llm_stub: _LLMStub,
+    readmit_server: _ReadmitServer,
 ) -> None:
     """
     SC-4: when a title-only item's fresh content is still not readable, it is

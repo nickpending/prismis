@@ -198,7 +198,9 @@ def test_boundaries_md_documents_inv_api_ts4() -> None:
     """
     # The in-repo copy, not a path inside one developer's vault: a test that reads
     # outside the repo cannot pass anywhere else, CI included.
-    boundaries_path = Path(__file__).parents[2] / ".." / "docs" / "architecture" / "boundaries.md"
+    boundaries_path = (
+        Path(__file__).parents[2] / ".." / "docs" / "architecture" / "boundaries.md"
+    )
     boundaries_path = boundaries_path.resolve()
     assert boundaries_path.exists(), f"boundaries.md not found at {boundaries_path}"
 

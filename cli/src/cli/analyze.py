@@ -67,7 +67,7 @@ def status() -> None:
             cost_per_item = 0.02
             estimated_cost = missing * cost_per_item
             console.print(
-                f"  Estimated repair cost: [cyan]${escape(f"{estimated_cost:.2f}")}[/cyan] @ ${escape(str(cost_per_item))}/item\n"
+                f"  Estimated repair cost: [cyan]${escape(f'{estimated_cost:.2f}')}[/cyan] @ ${escape(str(cost_per_item))}/item\n"
             )
 
             console.print(
@@ -104,11 +104,15 @@ def repair(
                 return
 
             total = len(items)
-            console.print(f"[bold]Found {escape(str(total))} items needing analysis[/bold]")
+            console.print(
+                f"[bold]Found {escape(str(total))} items needing analysis[/bold]"
+            )
 
             if not force:
                 cost_estimate = total * 0.02
-                console.print(f"[dim]Estimated cost: ${escape(f"{cost_estimate:.2f}")}[/dim]\n")
+                console.print(
+                    f"[dim]Estimated cost: ${escape(f'{cost_estimate:.2f}')}[/dim]\n"
+                )
 
             # Lazy import heavy LLM dependencies (only when actually repairing)
             from prismis_daemon.analysis import build_llm_analysis, content_basis
@@ -132,8 +136,12 @@ def repair(
 
             for idx, item in enumerate(items, 1):
                 # Show item details
-                console.print(f"\n[bold][{escape(str(idx))}/{escape(str(total))}][/bold] {escape(str(item['title']))}")
-                console.print(f"  Source: [cyan]{escape(str(item['source_name']))}[/cyan]")
+                console.print(
+                    f"\n[bold][{escape(str(idx))}/{escape(str(total))}][/bold] {escape(str(item['title']))}"
+                )
+                console.print(
+                    f"  Source: [cyan]{escape(str(item['source_name']))}[/cyan]"
+                )
 
                 # Show current state
                 status_parts = []
@@ -143,7 +151,9 @@ def repair(
                     status_parts.append("no summary")
                 if not item["analysis"]:
                     status_parts.append("no analysis")
-                console.print(f"  Current: [yellow]{escape(str(', '.join(status_parts)))}[/yellow]")
+                console.print(
+                    f"  Current: [yellow]{escape(str(', '.join(status_parts)))}[/yellow]"
+                )
 
                 # Confirm before spending money
                 if not force:
@@ -244,9 +254,13 @@ def repair(
 
             # Summary
             console.print("\n[bold]Repair Complete[/bold]")
-            console.print(f"  ✓ Repaired: [green]{escape(str(processed))}[/green] items")
+            console.print(
+                f"  ✓ Repaired: [green]{escape(str(processed))}[/green] items"
+            )
             if skipped > 0:
-                console.print(f"  ⊙ Skipped: [yellow]{escape(str(skipped))}[/yellow] items")
+                console.print(
+                    f"  ⊙ Skipped: [yellow]{escape(str(skipped))}[/yellow] items"
+                )
             if failed > 0:
                 console.print(f"  ✗ Failed: [red]{escape(str(failed))}[/red] items")
 
@@ -261,9 +275,7 @@ def kinds(
     since_days: Optional[int] = typer.Option(
         None, "--since-days", help="Only classify items fetched in the last N days"
     ),
-    force: bool = typer.Option(
-        False, "--force", "-f", help="Skip confirmation prompt"
-    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
 ) -> None:
     """Backfill the content kind for already-analysed items that have none yet.
 
@@ -300,11 +312,15 @@ def kinds(
                 return
 
             total = len(items)
-            console.print(f"[bold]Found {escape(str(total))} items needing kind classification[/bold]")
+            console.print(
+                f"[bold]Found {escape(str(total))} items needing kind classification[/bold]"
+            )
 
             if not force:
                 cost_estimate = total * _KIND_COST_PER_ITEM
-                console.print(f"[dim]Estimated cost: ${escape(f"{cost_estimate:.4f}")}[/dim]\n")
+                console.print(
+                    f"[dim]Estimated cost: ${escape(f'{cost_estimate:.4f}')}[/dim]\n"
+                )
                 if not Confirm.ask(f"Classify {total} items?", default=False):
                     console.print("[yellow]Aborted[/yellow]")
                     return
@@ -319,7 +335,9 @@ def kinds(
             failed = 0
 
             for idx, item in enumerate(items, 1):
-                console.print(f"\n[bold][{escape(str(idx))}/{escape(str(total))}][/bold] {escape(str(item['title']))}")
+                console.print(
+                    f"\n[bold][{escape(str(idx))}/{escape(str(total))}][/bold] {escape(str(item['title']))}"
+                )
                 analysis = item.get("analysis") or {}
 
                 try:
@@ -334,7 +352,9 @@ def kinds(
                 except Exception as e:
                     # Per-item boundary: one item's failure never stops the run.
                     logger.warning(
-                        "Kind classification failed for %s", item["title"], exc_info=True
+                        "Kind classification failed for %s",
+                        item["title"],
+                        exc_info=True,
                     )
                     console.print(f"  [red]✗ Failed: {escape(str(e))}[/red]")
                     failed += 1
@@ -347,7 +367,7 @@ def kinds(
 
                 if result.kind is not None:
                     console.print(
-                        f"  [green]✓ {escape(str(result.kind))} ({escape(f"{result.confidence:.2f}")})[/green]"
+                        f"  [green]✓ {escape(str(result.kind))} ({escape(f'{result.confidence:.2f}')})[/green]"
                     )
                     classified += 1
                 else:
@@ -366,8 +386,12 @@ def kinds(
             )
 
             console.print("\n[bold]Kind Classification Complete[/bold]")
-            console.print(f"  ✓ Classified: [green]{escape(str(classified))}[/green] items")
-            console.print(f"  ⊙ Unclassified: [yellow]{escape(str(unclassified))}[/yellow] items")
+            console.print(
+                f"  ✓ Classified: [green]{escape(str(classified))}[/green] items"
+            )
+            console.print(
+                f"  ⊙ Unclassified: [yellow]{escape(str(unclassified))}[/yellow] items"
+            )
             if failed > 0:
                 console.print(f"  ✗ Failed: [red]{escape(str(failed))}[/red] items")
 
@@ -385,9 +409,7 @@ def priority(
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Count the items and estimate the cost; change nothing"
     ),
-    force: bool = typer.Option(
-        False, "--force", "-f", help="Skip confirmation prompt"
-    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
 ) -> None:
     """Re-evaluate the priority of already-analysed items against the current context.
 
@@ -425,8 +447,8 @@ def priority(
                 f"[bold]{escape(str(total))} items to re-score[/bold] (fetched in the last {escape(str(since_days))} days)"
             )
             console.print(
-                f"[dim]Estimated cost: at most ${escape(f"{per_item * total:.2f}")} "
-                f"(99th-percentile evaluate cost ${escape(f"{per_item:.5f}")} per item)[/dim]"
+                f"[dim]Estimated cost: at most ${escape(f'{per_item * total:.2f}')} "
+                f"(99th-percentile evaluate cost ${escape(f'{per_item:.5f}')} per item)[/dim]"
             )
             if dry_run:
                 return
@@ -436,7 +458,9 @@ def priority(
 
             evaluator = ContentEvaluator(config.llm_light_service)
             start_time = time.time()
-            obs_log("cli.priority.start", source="cli", items=total, since_days=since_days)
+            obs_log(
+                "cli.priority.start", source="cli", items=total, since_days=since_days
+            )
 
             transitions: dict[tuple[str, str], int] = {}
             for idx, item in enumerate(items, 1):
@@ -450,12 +474,18 @@ def priority(
                     )
                 except Exception as e:
                     # Per-item boundary: a failed call keeps the item's old score.
-                    logger.warning("Re-score failed for %s", item["title"], exc_info=True)
-                    console.print(f"[{escape(str(idx))}/{escape(str(total))}] [red]✗ Failed: {escape(str(e))}[/red]")
+                    logger.warning(
+                        "Re-score failed for %s", item["title"], exc_info=True
+                    )
+                    console.print(
+                        f"[{escape(str(idx))}/{escape(str(total))}] [red]✗ Failed: {escape(str(e))}[/red]"
+                    )
                     failed += 1
                     continue
 
-                new_priority = evaluation.priority.value if evaluation.priority else None
+                new_priority = (
+                    evaluation.priority.value if evaluation.priority else None
+                )
                 new = new_priority or "none"
                 analysis = dict(item.get("analysis") or {})
                 analysis.update(evaluation_fields(evaluation))
@@ -463,11 +493,17 @@ def priority(
                 analysis.pop("preference_influenced", None)
                 storage.update_priority(item["id"], new_priority, analysis)
                 obs_log(
-                    "cli.priority.item", source="cli", content_id=item["id"], old=old, new=new
+                    "cli.priority.item",
+                    source="cli",
+                    content_id=item["id"],
+                    old=old,
+                    new=new,
                 )
                 transitions[(old, new)] = transitions.get((old, new), 0) + 1
                 if old != new:
-                    console.print(f"[{idx}/{total}] {old} → {new}: {escape(item['title'])}")
+                    console.print(
+                        f"[{idx}/{total}] {old} → {new}: {escape(item['title'])}"
+                    )
 
             changed = sum(n for (o, n2), n in transitions.items() if o != n2)
             obs_log(
@@ -480,14 +516,20 @@ def priority(
             )
 
             console.print("\n[bold]Re-score Complete[/bold]")
-            console.print(f"  ✓ Re-scored: [green]{escape(str(total - failed))}[/green] items")
+            console.print(
+                f"  ✓ Re-scored: [green]{escape(str(total - failed))}[/green] items"
+            )
             console.print(f"  Changed: [cyan]{escape(str(changed))}[/cyan]")
             for (o, n2), n in sorted(transitions.items(), key=lambda kv: -kv[1]):
                 if o != n2:
                     console.print(f"    {o} → {n2}: {n}")
             if failed > 0:
-                console.print(f"  ✗ Failed: [red]{escape(str(failed))}[/red] items (scores kept)")
-            if config.llm_deep_service and any(n2 == "high" and o != "high" for o, n2 in transitions):
+                console.print(
+                    f"  ✗ Failed: [red]{escape(str(failed))}[/red] items (scores kept)"
+                )
+            if config.llm_deep_service and any(
+                n2 == "high" and o != "high" for o, n2 in transitions
+            ):
                 console.print(
                     "[dim]Newly HIGH items have no deep extraction yet: "
                     "run 'prismis-cli extract --priority high'[/dim]"

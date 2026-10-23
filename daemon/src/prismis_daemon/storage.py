@@ -4,7 +4,7 @@ import json
 import sqlite3
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from operator import itemgetter
 from pathlib import Path
@@ -309,9 +309,7 @@ class Storage:
         analysis_json = json.dumps(item.analysis) if item.analysis else None
         published_at_iso = item.published_at.isoformat() if item.published_at else None
         fetched_at_iso = (
-            item.fetched_at.isoformat()
-            if item.fetched_at
-            else utc_now_iso()
+            item.fetched_at.isoformat() if item.fetched_at else utc_now_iso()
         )
         return analysis_json, published_at_iso, fetched_at_iso
 
@@ -1075,7 +1073,7 @@ class Storage:
         self,
         limit: int = 50,
         **options: Unpack[ContentListArgs],
-    ) -> Iterator[dict[str, Any]]:
+    ) -> Generator[dict[str, Any]]:
         """One bounded SQL read behind GET /api/entries: filter, sort and LIMIT all
         run in SQLite, and rows come off one cursor in small batches, so a caller
         that serializes each item as it arrives holds a batch, not `limit` items.
@@ -1118,7 +1116,8 @@ class Storage:
                 # whose analysis is NULL, empty or not JSON (a classifier failure),
                 # the way get_distinct_kinds does.
                 pairs = ", ".join(
-                    f"'{key}', c.analysis -> '$.{key}'" for key in self.LIST_ANALYSIS_KEYS
+                    f"'{key}', c.analysis -> '$.{key}'"
+                    for key in self.LIST_ANALYSIS_KEYS
                 )
                 columns = (
                     "c.id, c.source_id, c.external_id, c.title, c.url, c.summary,"
@@ -1146,7 +1145,7 @@ class Storage:
 
     def _iter_content_list_rows(
         self, cursor: sqlite3.Cursor, view: str
-    ) -> Iterator[dict[str, Any]]:
+    ) -> Generator[dict[str, Any]]:
         """Map the rows of a `iter_content_list` cursor one batch at a time."""
         omit = ("created_at", "updated_at")
         try:
@@ -1747,9 +1746,7 @@ class Storage:
         except sqlite3.Error as e:
             raise sqlite3.Error(f"Failed to get latest content for source: {e}") from e
 
-    def drift_window_counts(
-        self, end: datetime, windows: int
-    ) -> list[tuple[int, int]]:
+    def drift_window_counts(self, end: datetime, windows: int) -> list[tuple[int, int]]:
         """Item and null-priority counts for consecutive 24-hour windows ending at `end`.
 
         Window 0 is the trailing 24 hours, (end - 24h, end]; window k is the 24 hours

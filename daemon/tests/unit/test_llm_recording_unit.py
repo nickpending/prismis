@@ -60,7 +60,7 @@ def fake_provider() -> Iterator[FakeProvider]:
     provider = FakeProvider()
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_POST(self) -> None:
@@ -116,7 +116,9 @@ def live_request(prompt: str) -> dict[str, Any]:
     }
 
 
-def write_recording(directory: Path, test_name: str, entries: list[dict[str, Any]]) -> Path:
+def write_recording(
+    directory: Path, test_name: str, entries: list[dict[str, Any]]
+) -> Path:
     path = directory / MODULE / f"{test_name}.json"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(entries))
@@ -289,7 +291,9 @@ def test_teardown_fails_a_recording_the_test_did_not_use_up(tmp_path: Path) -> N
 def test_teardown_fails_when_the_recording_is_missing_and_no_call_was_made(
     tmp_path: Path,
 ) -> None:
-    recorder = LlmRecorder(tmp_path / MODULE / "absent.json", "tests/x.py::absent", None)
+    recorder = LlmRecorder(
+        tmp_path / MODULE / "absent.json", "tests/x.py::absent", None
+    )
     with pytest.raises(pytest.fail.Exception, match="absent.json"):
         recorder.finalize()
 
@@ -312,7 +316,10 @@ def test_record_mode_forwards_to_the_service_and_writes_the_recording(
 
     # the request went to that service, with the chosen model and its credentials
     assert [r["model"] for r in fake_provider.received] == ["provider/chosen-model"] * 2
-    assert fake_provider.received[0]["messages"] == live_request("first prompt")["messages"]
+    assert (
+        fake_provider.received[0]["messages"]
+        == live_request("first prompt")["messages"]
+    )
     assert fake_provider.headers[0]["authorization"] == "Bearer provider-secret"
     assert fake_provider.headers[0]["x-openrouter-title"] == "bench"
 
@@ -323,7 +330,9 @@ def test_record_mode_forwards_to_the_service_and_writes_the_recording(
         ("real reply 2", "provider/real-model-0613"),
     ]
     assert written[0]["request"] == fake_provider.received[0]
-    assert written[1]["request"]["messages"] == live_request("second prompt")["messages"]
+    assert (
+        written[1]["request"]["messages"] == live_request("second prompt")["messages"]
+    )
 
 
 def test_record_target_comes_from_the_config_toml_service_named(

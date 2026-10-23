@@ -157,9 +157,7 @@ def test_fetch_reddit_filters_image_posts(http_cassette: HttpCassette) -> None:
     kept = {item.external_id for item in items}
     listing = _listing_in_order(http_cassette)
     last_kept = max(i for i, (post_id, _img) in enumerate(listing) if post_id in kept)
-    dropped_images = {
-        post_id for post_id, is_image in listing[:last_kept] if is_image
-    }
+    dropped_images = {post_id for post_id, is_image in listing[:last_kept] if is_image}
     assert dropped_images, (
         "no image post precedes the last kept post in the recorded listing, so the "
         "filter had nothing to drop"

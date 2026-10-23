@@ -45,12 +45,16 @@ def create_base_submission_mock(**overrides) -> Mock:
         # assignment types the target as the bound-method shape mypy sees on the
         # class, one arg narrower than what actually gets called; the constructor
         # kwarg goes through Mock's untyped `**kwargs: Any` instead.
-        subreddit_mock = Mock(__str__=lambda self: "python")  # claudex-guard: allow-mock
+        subreddit_mock = Mock(
+            __str__=lambda self: "python"
+        )  # claudex-guard: allow-mock
         submission.subreddit = subreddit_mock
 
     # Create mock author object
     if "author" not in overrides:
-        author_mock = Mock(__str__=lambda self: "test_user")  # claudex-guard: allow-mock
+        author_mock = Mock(
+            __str__=lambda self: "test_user"
+        )  # claudex-guard: allow-mock
         submission.author = author_mock
 
     return submission

@@ -97,7 +97,7 @@ def test_should_deep_extract_none_threshold_always_skips() -> None:
     """auto_extract="none" or falsy -> never extract regardless of priority."""
     assert DaemonOrchestrator._should_deep_extract("high", "none") is False
     assert DaemonOrchestrator._should_deep_extract("high", "") is False
-    assert DaemonOrchestrator._should_deep_extract("high", None) is False  # type: ignore[arg-type]  # deliberately invalid input
+    assert DaemonOrchestrator._should_deep_extract("high", None) is False  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # deliberately invalid input
 
 
 def test_should_deep_extract_none_priority_skips() -> None:

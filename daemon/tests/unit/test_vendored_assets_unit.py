@@ -38,7 +38,9 @@ def verify_vendored(assets: Path) -> list[str]:
         if banner not in data[:400].decode("utf-8", errors="replace"):
             problems.append(f"{name}: banner {banner!r} not in the file header")
         if record["version"] not in banner:
-            problems.append(f"{name}: banner {banner!r} does not name {record['version']}")
+            problems.append(
+                f"{name}: banner {banner!r} does not name {record['version']}"
+            )
     return problems
 
 

@@ -63,7 +63,9 @@ def test_starting_an_existing_database_adds_the_table_and_keeps_every_row(
 
     conn = _connect(db)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == len(_MIGRATIONS) == 2
+        assert (
+            conn.execute("PRAGMA user_version").fetchone()[0] == len(_MIGRATIONS) == 2
+        )
         assert conn.execute("SELECT COUNT(*) FROM drift_checks").fetchone()[0] == 0
         assert conn.execute("SELECT * FROM content ORDER BY id").fetchall() == before
     finally:

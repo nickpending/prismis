@@ -396,7 +396,9 @@ def test_probe_client_is_bounded_by_the_validators_timeout() -> None:
         "prawcore sleeps between attempts, and that sleep is outside the deadline"
     )
 
-    adapter = core._requestor._http.get_adapter("https://oauth.reddit.com")
+    session = core._requestor._http
+    assert isinstance(session, requests.Session)
+    adapter = session.get_adapter("https://oauth.reddit.com")
     assert isinstance(adapter, DeadlineAdapter)
     budget = adapter._deadline - built_at
     assert budget == pytest.approx(validator.timeout, abs=0.5), (

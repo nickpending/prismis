@@ -153,7 +153,9 @@ def test_a_missing_cassette_refuses_the_request_and_names_the_file(
     assert not http_cassette.path.exists()
     with pytest.raises(pytest.fail.Exception, match="No HTTP cassette exists"):
         http_cassette.finalize()
-    http_cassette.recording = True  # nothing was recorded; keep the fixture's teardown quiet
+    http_cassette.recording = (
+        True  # nothing was recorded; keep the fixture's teardown quiet
+    )
 
 
 def test_article_extraction_is_served_from_the_cassette_under_no_network(
@@ -163,12 +165,16 @@ def test_article_extraction_is_served_from_the_cassette_under_no_network(
 ) -> None:
     import os
 
-    assert os.environ["HTTPS_PROXY"] == "http://127.0.0.1:1", "must run under no_network"
+    assert os.environ["HTTPS_PROXY"] == "http://127.0.0.1:1", (
+        "must run under no_network"
+    )
 
     result = extract_article(seeded_cassette)
 
     assert result.outcome == "extracted"
-    assert result.text is not None and "Paragraph 3 of the recorded article" in result.text
+    assert (
+        result.text is not None and "Paragraph 3 of the recorded article" in result.text
+    )
     assert local_http_server.requests == ["/recorded"], (
         "extract_article's urllib opener went around the cassette to the server"
     )
@@ -182,7 +188,7 @@ class _TokenServer:
         owner = self
 
         class _Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *_args: object) -> None:
+            def log_message(self, format: str, *args: object) -> None:
                 return
 
             def do_POST(self) -> None:
@@ -252,7 +258,9 @@ def assert_cassette_holds_no_credential(cassette: dict[str, Any], text: str) -> 
     for value in _access_token_values(text):
         assert value == ACCESS_TOKEN_PLACEHOLDER, f"unscrubbed access_token: {value!r}"
     for value in _media_signature_values(text):
-        assert value == MEDIA_SIGNATURE_PLACEHOLDER, f"unscrubbed media signature: {value!r}"
+        assert value == MEDIA_SIGNATURE_PLACEHOLDER, (
+            f"unscrubbed media signature: {value!r}"
+        )
     for value in _client_token_values(text):
         assert value == CLIENT_TOKEN_PLACEHOLDER, f"unscrubbed clientToken: {value!r}"
 
@@ -266,7 +274,10 @@ def _access_token_values(text: str) -> list[str]:
 def _media_signature_values(text: str) -> list[str]:
     import re
 
-    return re.findall(r"(?:redd\.it|redditmedia\.com)/[^\s\"'<>]*?(?:\?|&|\\u0026)(?:amp;)?s=([\w-]+)", text)
+    return re.findall(
+        r"(?:redd\.it|redditmedia\.com)/[^\s\"'<>]*?(?:\?|&|\\u0026)(?:amp;)?s=([\w-]+)",
+        text,
+    )
 
 
 def _client_token_values(text: str) -> list[str]:
@@ -277,7 +288,9 @@ def _client_token_values(text: str) -> list[str]:
 
 def test_every_committed_cassette_holds_no_credential() -> None:
     cassettes = sorted(HTTP_CASSETTES_DIR.glob("*/*.yaml"))
-    assert len(cassettes) >= 15, "the committed cassettes are the thing under inspection"
+    assert len(cassettes) >= 15, (
+        "the committed cassettes are the thing under inspection"
+    )
 
     for path in cassettes:
         text = path.read_text()

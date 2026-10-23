@@ -199,7 +199,9 @@ def test_unknown_view_is_refused(seeded) -> None:  # type: ignore[no-untyped-def
 
 def test_detail_endpoint_returns_full_content_and_analysis(seeded) -> None:  # type: ignore[no-untyped-def]
     client, ids = seeded
-    response = client.get(f"/api/entries/{ids['deep']}?include=content", headers=HEADERS)
+    response = client.get(
+        f"/api/entries/{ids['deep']}?include=content", headers=HEADERS
+    )
     assert response.status_code == 200, response.text
     data = response.json()["data"]
     assert data["content"] == "BODY of deep"

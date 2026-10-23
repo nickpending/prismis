@@ -30,6 +30,7 @@ from prismis_daemon.validator import SourceValidator
 
 from conftest import LocalHttpServer, make_config
 
+
 def reddit_validator() -> SourceValidator:
     """Build a validator carrying the credentials the environment supplies."""
     return SourceValidator(
@@ -153,7 +154,9 @@ def test_rate_limited_feed_is_reported_with_its_status(
         f"{local_http_server.base_url}/feed.xml", "rss"
     )
 
-    assert local_http_server.requests == ["/feed.xml"], "the validator must ask the server"
+    assert local_http_server.requests == ["/feed.xml"], (
+        "the validator must ask the server"
+    )
     assert is_valid is False
     assert error is not None
     assert error.startswith("HTTP 429"), f"Should name the status, got: {error!r}"

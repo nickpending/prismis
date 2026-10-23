@@ -51,9 +51,9 @@ def test_INVARIANT_llm_core_git_source_is_gone() -> None:
     )
 
     dependencies = data.get("project", {}).get("dependencies", [])
-    assert not any(dep.split(">=")[0].split("=")[0].strip() == "llm-core" for dep in dependencies), (
-        "llm-core still present in [project.dependencies]"
-    )
+    assert not any(
+        dep.split(">=")[0].split("=")[0].strip() == "llm-core" for dep in dependencies
+    ), "llm-core still present in [project.dependencies]"
 
 
 def test_INVARIANT_every_git_source_has_rev_field() -> None:
@@ -67,7 +67,9 @@ def test_INVARIANT_every_git_source_has_rev_field() -> None:
         data = tomllib.load(f)
 
     sources = data.get("tool", {}).get("uv", {}).get("sources", {})
-    assert sources, "No [tool.uv.sources] section found — the torch index route is expected"
+    assert sources, (
+        "No [tool.uv.sources] section found — the torch index route is expected"
+    )
 
     git_sources = {
         name: entry
@@ -125,10 +127,16 @@ def test_SC10_openai_dependency_carries_an_explicit_floor_version() -> None:
         data = tomllib.load(f)
 
     dependencies = data.get("project", {}).get("dependencies", [])
-    openai_deps = [dep for dep in dependencies if dep.split(">=")[0].split("=")[0].split("<")[0].strip() == "openai"]
+    openai_deps = [
+        dep
+        for dep in dependencies
+        if dep.split(">=")[0].split("=")[0].split("<")[0].strip() == "openai"
+    ]
 
     assert openai_deps, "openai not found in [project.dependencies]"
-    assert len(openai_deps) == 1, f"Expected exactly one openai entry, got {openai_deps}"
+    assert len(openai_deps) == 1, (
+        f"Expected exactly one openai entry, got {openai_deps}"
+    )
     assert any(op in openai_deps[0] for op in (">=", "==", "~=")), (
         f"SC-10 FAILED — openai dependency has no version specifier: {openai_deps[0]!r}"
     )

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from prismis_daemon import api
@@ -58,9 +59,10 @@ def test_serve_spa_refuses_assets_prefix_like_api_and_audio(
     route = next(
         r
         for r in api.app.routes
-        if getattr(r, "path", None) == "/{full_path:path}"
-        and "GET" in getattr(r, "methods", set())
+        if isinstance(r, APIRoute)
+        and r.path == "/{full_path:path}"
+        and "GET" in (r.methods or ())
     )
     with pytest.raises(HTTPException) as excinfo:
-        asyncio.run(route.endpoint("assets/anything.js"))  # type: ignore[attr-defined]
+        asyncio.run(route.endpoint("assets/anything.js"))
     assert excinfo.value.status_code == 404

@@ -39,7 +39,9 @@ from prismis_daemon.verify_chain import read_run_events
 
 # Patch target -- the decisions-endpoint provider boundary itself, which the
 # constitution permits standing in for (Principle I).
-_PATCH_SUBMIT = "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+_PATCH_SUBMIT = (
+    "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+)
 
 
 @pytest.fixture(autouse=True)
@@ -172,7 +174,9 @@ def test_classify_returns_unclassified_below_the_confidence_threshold() -> None:
     assert result.confidence == pytest.approx(CONFIDENCE_THRESHOLD - 0.01)
 
 
-def test_classify_returns_unclassified_when_choice_is_not_one_of_the_ten_kinds() -> None:
+def test_classify_returns_unclassified_when_choice_is_not_one_of_the_ten_kinds() -> (
+    None
+):
     """
     SC-1: a high-confidence choice outside the ten declared kinds still comes back
     unclassified -- the endpoint answering with something we didn't ask for is not

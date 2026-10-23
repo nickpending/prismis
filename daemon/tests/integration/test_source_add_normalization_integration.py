@@ -108,7 +108,9 @@ def test_a_bare_custom_url_is_stored_as_the_channel_handle(test_db) -> None:
         '"vanityChannelUrl":"http://www.youtube.com/@DwarkeshPatel"'
     )
     transport = httpx.MockTransport(lambda request: httpx.Response(200, text=page))
-    app.dependency_overrides[get_validator] = lambda: SourceValidator(transport=transport)
+    app.dependency_overrides[get_validator] = lambda: SourceValidator(
+        transport=transport
+    )
     try:
         response = TestClient(app).post(
             "/api/sources",

@@ -82,8 +82,7 @@ def _capture_transcript_args(fetcher: YouTubeFetcher, tmp_path: Path) -> list[st
     spy = tmp_path / "spy.py"
     out = tmp_path / "spy_args.json"
     spy.write_text(
-        "import json, sys\n"
-        f"json.dump(sys.argv[1:], open({str(out)!r}, 'w'))\n"
+        f"import json, sys\njson.dump(sys.argv[1:], open({str(out)!r}, 'w'))\n"
     )
     real = fetcher.yt_dlp_cmd
     fetcher.yt_dlp_cmd = [sys.executable, str(spy)]
@@ -123,7 +122,9 @@ def test_replay_returns_the_recorded_output_and_files_under_no_network(
 
     result = fetcher._extract_transcript(VIDEO_URL)
 
-    assert os.environ["HTTPS_PROXY"] == "http://127.0.0.1:1", "replay must run under no_network"
+    assert os.environ["HTTPS_PROXY"] == "http://127.0.0.1:1", (
+        "replay must run under no_network"
+    )
     assert result.outcome == "extracted"
     assert result.text == "Hello recorded world"
     assert not fake_yt_dlp.exists(), "replay must never start yt-dlp"
@@ -138,7 +139,9 @@ def test_missing_recording_is_refused_naming_file_and_record_command(
 ) -> None:
     result = fetcher._extract_transcript(VIDEO_URL)
 
-    assert result.outcome == "fetch_failed", "the missing recording must not pass as a transcript"
+    assert result.outcome == "fetch_failed", (
+        "the missing recording must not pass as a transcript"
+    )
     assert len(ytdlp_replay.failures) == 1
     assert str(ytdlp_replay.path) in ytdlp_replay.failures[0]
     assert "PRISMIS_RECORD_YTDLP=1" in ytdlp_replay.failures[0]
@@ -165,7 +168,9 @@ def test_arguments_that_differ_in_more_than_a_date_or_temp_path_are_refused(
 
     result = fetcher._extract_transcript(VIDEO_URL)
 
-    assert result.outcome == "fetch_failed", "a mismatched call must not pass as a transcript"
+    assert result.outcome == "fetch_failed", (
+        "a mismatched call must not pass as a transcript"
+    )
     assert len(ytdlp_replay.failures) == 1
     assert str(ytdlp_replay.path) in ytdlp_replay.failures[0]
     assert "PRISMIS_RECORD_YTDLP=1" in ytdlp_replay.failures[0]

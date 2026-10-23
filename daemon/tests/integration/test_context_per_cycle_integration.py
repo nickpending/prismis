@@ -167,9 +167,10 @@ def test_an_unreadable_context_md_keeps_the_text_last_read_and_logs_why(
     assert _NEW_BULLET in prompts[0], "scored with the text last read successfully"
     failures = [r for r in caplog.records if r.exc_info and "context.md" in r.message]
     assert len(failures) == 1, [r.message for r in caplog.records]
-    assert failures[0].exc_info is not None
-    assert isinstance(failures[0].exc_info[1], ValueError)
-    assert isinstance(failures[0].exc_info[1].__cause__, PermissionError)
+    exc_info = failures[0].exc_info
+    assert isinstance(exc_info, tuple)
+    assert isinstance(exc_info[1], ValueError)
+    assert isinstance(exc_info[1].__cause__, PermissionError)
 
 
 def test_a_missing_context_md_scores_with_the_default_context(

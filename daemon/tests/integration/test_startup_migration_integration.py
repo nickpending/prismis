@@ -40,7 +40,13 @@ _OLD_SCHEMA = (
 ).read_text()
 
 _TIMESTAMP_COLUMNS = {
-    "content": ("published_at", "fetched_at", "created_at", "updated_at", "archived_at"),
+    "content": (
+        "published_at",
+        "fetched_at",
+        "created_at",
+        "updated_at",
+        "archived_at",
+    ),
     "sources": ("created_at", "updated_at", "last_fetched_at"),
     "categories": ("created_at", "updated_at"),
     "source_categories": ("created_at",),
@@ -112,9 +118,7 @@ def test_startup_once_migrates_naive_database_before_first_fetch(
                zero naive cells, converted before the fetch wrote its rows
     BREAKS: the first request or fetch after deploy runs against naive rows the TUI cannot parse
     """
-    configure_local_services(
-        Path(os.environ["XDG_CONFIG_HOME"]), local_pipeline_stub
-    )
+    configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), local_pipeline_stub)
     db = _seed_old_database(f"{local_pipeline_stub}/feed.xml")
     assert _naive_cells(db), "precondition: the seeded database holds naive cells"
 
@@ -132,9 +136,13 @@ def test_startup_once_migrates_naive_database_before_first_fetch(
     assert _scalar(backup, "SELECT COUNT(*) FROM content WHERE id != 'old-1'") == 0, (
         "the backup holds rows the fetch wrote: the fetch ran before the migration"
     )
-    assert _scalar(
-        backup, "SELECT COUNT(*) FROM content WHERE created_at = '2026-01-01 00:00:00'"
-    ) == 1, "the backup must hold the pre-migration naive row"
+    assert (
+        _scalar(
+            backup,
+            "SELECT COUNT(*) FROM content WHERE created_at = '2026-01-01 00:00:00'",
+        )
+        == 1
+    ), "the backup must hold the pre-migration naive row"
 
 
 def test_startup_once_unconvertible_database_stops_before_any_fetch(
@@ -144,9 +152,7 @@ def test_startup_once_unconvertible_database_stops_before_any_fetch(
     INVARIANT: a database the migration cannot convert fails startup before a fetch runs
     BREAKS: the daemon serves and fetches against a half-converted database
     """
-    configure_local_services(
-        Path(os.environ["XDG_CONFIG_HOME"]), local_pipeline_stub
-    )
+    configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), local_pipeline_stub)
     db = _seed_old_database(f"{local_pipeline_stub}/feed.xml", poison=True)
 
     with patch(_HEALTH_CHECK_MOCK):
@@ -159,7 +165,9 @@ def test_startup_once_unconvertible_database_stops_before_any_fetch(
         "no fetch may run after a failed migration"
     )
     assert (
-        _scalar(db, "SELECT COUNT(*) FROM sources WHERE last_fetched_at = '2026-01-01 00:00:00'")
+        _scalar(
+            db,
+            "SELECT COUNT(*) FROM sources WHERE last_fetched_at = '2026-01-01 00:00:00'",
+        )
         == 1
     ), "the source must not have been fetched"
-

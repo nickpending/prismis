@@ -204,7 +204,7 @@ def test_refetch_extraction_honours_the_configured_allow_list(
     page = b"<html><body><article><p>Refetched body prose, a full sentence.</p></article></body></html>"
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_GET(self) -> None:
@@ -270,7 +270,9 @@ def test_cli_title_only_dry_run_reports_the_flagged_count_and_cost_and_writes_no
                 analysis=analysis,
             )
         )
-    get_obs_logger().log("llm.call", action="summarize", status="success", cost_usd=0.01)
+    get_obs_logger().log(
+        "llm.call", action="summarize", status="success", cost_usd=0.01
+    )
     before = storage.conn.execute(
         "SELECT id, content, analysis, updated_at FROM content ORDER BY id"
     ).fetchall()

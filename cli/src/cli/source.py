@@ -1,6 +1,5 @@
 """Source management commands for Prismis CLI."""
 
-
 import typer
 from rich.console import Console
 from rich.markup import escape
@@ -95,7 +94,9 @@ def add(
 
         # Use API to add source (includes validation)
         if not output_json:
-            console.print(f"[yellow]Adding {escape(str(source_type))} source...[/yellow]")
+            console.print(
+                f"[yellow]Adding {escape(str(source_type))} source...[/yellow]"
+            )
 
         try:
             api_client = APIClient()
@@ -117,14 +118,18 @@ def add(
                 typer.echo(f"Error: {error_msg}", err=True)
             else:
                 if "validation failed" in error_msg.lower():
-                    console.print(f"[red]❌ Validation failed:[/red] {escape(str(error_msg))}")
+                    console.print(
+                        f"[red]❌ Validation failed:[/red] {escape(str(error_msg))}"
+                    )
                 else:
                     console.print(f"[red]❌ API error:[/red] {escape(str(error_msg))}")
             raise typer.Exit(1) from e
 
         # The daemon normalizes and names the source; show what it stored.
         response_name = result.get("name", name)
-        console.print(f"[green]✅ Added {escape(str(source_type))} source:[/green] {escape(str(response_name))}")
+        console.print(
+            f"[green]✅ Added {escape(str(source_type))} source:[/green] {escape(str(response_name))}"
+        )
         console.print(f"[dim]URL: {escape(str(result.get('url', url)))}[/dim]")
         console.print(f"[dim]ID: {escape(str(source_id))}[/dim]")
 

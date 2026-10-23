@@ -90,7 +90,9 @@ def extract(
             failed += 1
             console.print(f"  [red]failed: {escape(str(e))}[/red]")
 
-    console.print(f"\n[bold]Done: {escape(str(succeeded))} extracted, {escape(str(failed))} failed[/bold]")
+    console.print(
+        f"\n[bold]Done: {escape(str(succeeded))} extracted, {escape(str(failed))} failed[/bold]"
+    )
 
 
 if __name__ == "__main__":

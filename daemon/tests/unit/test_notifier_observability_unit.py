@@ -108,7 +108,9 @@ def test_missing_command_is_one_skipped_record_and_one_warning_not_a_traceback(
     events = _notification_events(run_id)
     assert [e["status"] for e in events] == ["skipped", "skipped"]
     assert all(e["reason"] == "command_not_found" for e in events)
-    assert all(e["command"] == "prismis-notifier-that-does-not-exist-7f3a" for e in events)
+    assert all(
+        e["command"] == "prismis-notifier-that-does-not-exist-7f3a" for e in events
+    )
 
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
     assert len(warnings) == 1, [r.getMessage() for r in warnings]

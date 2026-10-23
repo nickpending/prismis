@@ -45,7 +45,9 @@ from conftest import TEST_API_KEY, configure_local_services
 
 # The decisions-endpoint provider boundary itself (Principle I permits faking it);
 # patched here only to prove it is never called, never to supply a canned answer.
-_PATCH_SUBMIT = "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+_PATCH_SUBMIT = (
+    "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+)
 
 
 class _NullFetcher:
@@ -90,8 +92,7 @@ def test_config_kind_service_loads_when_present(isolated_xdg_env: Path) -> None:
     text = DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY)
     text = text.replace(
         'light_service = "openrouter"\n',
-        'light_service = "openrouter"\n'
-        'kind_service = "prismis-openrouter-kind"\n',
+        'light_service = "openrouter"\nkind_service = "prismis-openrouter-kind"\n',
     )
     config_path.write_text(text)
 

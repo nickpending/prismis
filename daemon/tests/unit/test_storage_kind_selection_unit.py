@@ -38,7 +38,9 @@ def _seed(
             fetched_at=fetched_at,
         )
     )
-    assert content_id is not None, "expected a newly inserted content id, got a duplicate"
+    assert content_id is not None, (
+        "expected a newly inserted content id, got a duplicate"
+    )
     return content_id
 
 
@@ -85,10 +87,18 @@ def test_selects_newest_first_and_at_most_limit(test_db: Path) -> None:
 
     now = datetime.now(UTC)
     oldest_id = _seed(
-        storage, source_id, title="Oldest", analysis={}, fetched_at=now - timedelta(days=2)
+        storage,
+        source_id,
+        title="Oldest",
+        analysis={},
+        fetched_at=now - timedelta(days=2),
     )
     middle_id = _seed(
-        storage, source_id, title="Middle", analysis={}, fetched_at=now - timedelta(days=1)
+        storage,
+        source_id,
+        title="Middle",
+        analysis={},
+        fetched_at=now - timedelta(days=1),
     )
     newest_id = _seed(storage, source_id, title="Newest", analysis={}, fetched_at=now)
 
@@ -106,7 +116,13 @@ def test_selects_only_items_fetched_within_since_days_when_given(test_db: Path) 
     source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
 
     now = datetime.now(UTC)
-    _seed(storage, source_id, title="Ancient", analysis={}, fetched_at=now - timedelta(days=10))
+    _seed(
+        storage,
+        source_id,
+        title="Ancient",
+        analysis={},
+        fetched_at=now - timedelta(days=10),
+    )
     recent_id = _seed(storage, source_id, title="Recent", analysis={}, fetched_at=now)
 
     results = storage.get_content_needing_kind(limit=10, since_days=5)

@@ -34,7 +34,9 @@ def storage(test_db: Path) -> Generator[Storage, None, None]:
     app.dependency_overrides.clear()
 
 
-def _seed_day(storage: Storage, end: datetime, items: int, nulls: int, tag: str) -> None:
+def _seed_day(
+    storage: Storage, end: datetime, items: int, nulls: int, tag: str
+) -> None:
     """`items` items in the 24 hours ending at `end`, `nulls` of them unprioritized."""
     created = (end - timedelta(hours=1)).isoformat()
     storage.conn.executemany(
@@ -127,7 +129,9 @@ def test_the_newest_check_is_the_one_returned(storage: Storage) -> None:
 
     response = TestClient(app).get("/api/drift", headers={"X-API-Key": TEST_API_KEY})
 
-    assert response.json()["data"]["checked_at"] == (NOW + timedelta(hours=2)).isoformat()
+    assert (
+        response.json()["data"]["checked_at"] == (NOW + timedelta(hours=2)).isoformat()
+    )
 
 
 def test_requires_the_api_key(storage: Storage) -> None:

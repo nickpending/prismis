@@ -45,7 +45,9 @@ def cleanup() -> None:
         if count == 0:
             console.print("[green]✓ No orphaned vectors found[/green]")
         else:
-            console.print(f"[green]✓ Cleaned up {escape(str(count))} orphaned vector(s)[/green]")
+            console.print(
+                f"[green]✓ Cleaned up {escape(str(count))} orphaned vector(s)[/green]"
+            )
 
     except Exception as e:
         console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
@@ -179,7 +181,9 @@ def generate() -> None:
 
             # Summary
             console.print("\n[bold]Generation Complete[/bold]")
-            console.print(f"  ✓ Generated: [green]{escape(str(processed))}[/green] embeddings")
+            console.print(
+                f"  ✓ Generated: [green]{escape(str(processed))}[/green] embeddings"
+            )
             if failed > 0:
                 console.print(f"  ✗ Failed: [red]{escape(str(failed))}[/red] items")
 

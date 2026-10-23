@@ -22,13 +22,25 @@ _HEADERS = {"X-API-Key": TEST_API_KEY}
 NOW = datetime.now(UTC)
 
 
-def _plant(conn: sqlite3.Connection, source_id: str, name: str, fetched_days_ago: int) -> None:
+def _plant(
+    conn: sqlite3.Connection, source_id: str, name: str, fetched_days_ago: int
+) -> None:
     stamp = (NOW - timedelta(days=fetched_days_ago)).isoformat()
     conn.execute(
         """INSERT INTO content (id, source_id, external_id, title, url, content, summary,
                priority, published_at, fetched_at, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, 'body', 'sum', 'high', ?, ?, ?, ?)""",
-        (name, source_id, name, f"Title {name}", f"https://example.com/{name}", stamp, stamp, stamp, stamp),
+        (
+            name,
+            source_id,
+            name,
+            f"Title {name}",
+            f"https://example.com/{name}",
+            stamp,
+            stamp,
+            stamp,
+            stamp,
+        ),
     )
     conn.commit()
 
@@ -55,7 +67,10 @@ def test_changed_since_returns_rows_changed_after_the_marker_even_if_fetched_lon
     marker = NOW - timedelta(hours=1)
 
     assert _ids(s.get_content_list(limit=100, since=marker)) == {"fresh"}
-    assert _ids(s.get_content_list(limit=100, changed_since=marker)) == {"fresh", "old-voted"}
+    assert _ids(s.get_content_list(limit=100, changed_since=marker)) == {
+        "fresh",
+        "old-voted",
+    }
 
 
 def test_list_view_rows_carry_updated_at(test_db: Path) -> None:
@@ -72,13 +87,17 @@ def test_api_changed_since_param_and_list_view_updated_at(test_db: Path) -> None
     client = TestClient(app)
 
     response = client.get(
-        "/api/entries", params={"changed_since": marker, "view": "list", "limit": 100}, headers=_HEADERS
+        "/api/entries",
+        params={"changed_since": marker, "view": "list", "limit": 100},
+        headers=_HEADERS,
     )
     assert response.status_code == 200, response.text
     items = {i["id"]: i for i in response.json()["data"]["items"]}
     assert set(items) == {"fresh", "old-voted"}
     assert items["old-voted"]["updated_at"] is not None
 
-    bad = client.get("/api/entries", params={"changed_since": "yesterday"}, headers=_HEADERS)
+    bad = client.get(
+        "/api/entries", params={"changed_since": "yesterday"}, headers=_HEADERS
+    )
     assert bad.status_code == 422, bad.text
     assert "changed_since" in bad.text

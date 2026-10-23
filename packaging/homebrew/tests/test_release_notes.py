@@ -22,7 +22,9 @@ def _git(repo: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def _commit(repo: Path, message: str, path: str = "f.txt", text: str | None = None) -> None:
+def _commit(
+    repo: Path, message: str, path: str = "f.txt", text: str | None = None
+) -> None:
     target = repo / path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text if text is not None else message)
@@ -48,10 +50,22 @@ def history(tmp_path: Path) -> Path:
     _git(repo, "checkout", "-q", "main")
     _commit(repo, "docs: explain the fast thing", "README.md")
     _git(repo, "checkout", "-q", "job")
-    _git(repo, "merge", "-q", "--no-ff", "-m", "fast-thing: merge job 1 (worktree-x)", "main")
+    _git(
+        repo,
+        "merge",
+        "-q",
+        "--no-ff",
+        "-m",
+        "fast-thing: merge job 1 (worktree-x)",
+        "main",
+    )
     _git(repo, "checkout", "-q", "main")
     _git(repo, "merge", "-q", "--ff-only", "job")
-    order = {"workOrder": "fast-thing", "what": "Make the thing fast.", "issues": [7, 9]}
+    order = {
+        "workOrder": "fast-thing",
+        "what": "Make the thing fast.",
+        "issues": [7, 9],
+    }
     _commit(
         repo,
         "fast-thing: close — C1, C2 delivered",
@@ -92,7 +106,9 @@ def test_notes_list_each_change_once_in_its_section(history: Path) -> None:
     )}  # fmt: skip
 
     assert notes.delivered == ["**fast-thing**: Make the thing fast. (closes #7, #9)"]
-    assert notes.changes == [f"api: stop dropping the last item ({sha['api: stop dropping the last item']})"]
+    assert notes.changes == [
+        f"api: stop dropping the last item ({sha['api: stop dropping the last item']})"
+    ]
     assert notes.pull_requests == ["Handle the empty case in the CLI (#12)"]
     assert notes.maintenance == [
         f"docs: explain the fast thing ({sha['docs: explain the fast thing']})",
@@ -100,7 +116,9 @@ def test_notes_list_each_change_once_in_its_section(history: Path) -> None:
     ]
 
 
-def test_rendered_notes_carry_sections_in_order_and_the_compare_link(history: Path) -> None:
+def test_rendered_notes_carry_sections_in_order_and_the_compare_link(
+    history: Path,
+) -> None:
     """
     INVARIANT: the markdown has one section per non-empty list in a fixed order and
                ends with the compare link for the range
@@ -143,7 +161,9 @@ def test_a_close_without_a_work_order_falls_back_to_its_subject(tmp_path: Path) 
     assert notes.delivered == ["**old-thing**: old-thing: close — SC-1 delivered"]
 
 
-def test_an_unknown_ref_exits_nonzero_naming_it(history: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_an_unknown_ref_exits_nonzero_naming_it(
+    history: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """
     INVARIANT: a range whose ref does not exist fails with exit 1 and says why on
                stderr, printing no notes

@@ -58,7 +58,7 @@ _ITEMS = (
 class _Handler(http.server.BaseHTTPRequestHandler):
     requests: ClassVar[list[str]] = []
 
-    def log_message(self, *_args: object) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         return
 
     def do_GET(self) -> None:

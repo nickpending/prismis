@@ -142,7 +142,9 @@ def delete(
         result = client.prune_unprioritized(days)
 
         deleted_count = result.get("deleted", 0)
-        console.print(f"✅ Deleted [bold green]{escape(str(deleted_count))}[/bold green] items")
+        console.print(
+            f"✅ Deleted [bold green]{escape(str(deleted_count))}[/bold green] items"
+        )
 
     except typer.Exit:
         # click's Exit subclasses RuntimeError; without this the command's own

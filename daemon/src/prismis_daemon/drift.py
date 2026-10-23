@@ -79,7 +79,11 @@ def decide(
 
     pinned_baseline: float | None = None
     pinned_windows = 0
-    if previous is not None and previous["flagged"] and previous["baseline"] is not None:
+    if (
+        previous is not None
+        and previous["flagged"]
+        and previous["baseline"] is not None
+    ):
         pinned_baseline = float(previous["baseline"])
         pinned_windows = int(previous["baseline_windows"])
     pinned = pinned_baseline is not None

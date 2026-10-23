@@ -69,12 +69,30 @@ def test_resources_match_lock_sdist_url_and_hash() -> None:
 
 def test_resources_hold_client_dependencies_and_exclude_the_rest() -> None:
     names = set(parse_resources(render.render_resources(CLI_LOCK)))
-    for needed in ("httpx", "httpcore", "typer", "rich", "python-dotenv",
-                   "h11", "anyio", "certifi", "idna", "shellingham", "pygments"):
+    for needed in (
+        "httpx",
+        "httpcore",
+        "typer",
+        "rich",
+        "python-dotenv",
+        "h11",
+        "anyio",
+        "certifi",
+        "idna",
+        "shellingham",
+        "pygments",
+    ):
         assert needed in names, f"client dependency {needed} missing"
     # [local] extra and Windows-only packages must not be rendered; neither must the
     # project itself (the formula installs it from the tarball).
-    for excluded in ("prismis-daemon", "prismis-cli", "colorama", "torch", "pytest", "mypy"):
+    for excluded in (
+        "prismis-daemon",
+        "prismis-cli",
+        "colorama",
+        "torch",
+        "pytest",
+        "mypy",
+    ):
         assert excluded not in names, f"{excluded} must not be a resource"
 
 
@@ -83,7 +101,9 @@ def test_committed_cli_formula_resources_equal_the_render() -> None:
     assert committed == render.render_resources(CLI_LOCK)
 
 
-def test_changed_locked_version_makes_the_render_differ_from_committed(tmp_path: Path) -> None:
+def test_changed_locked_version_makes_the_render_differ_from_committed(
+    tmp_path: Path,
+) -> None:
     text = CLI_LOCK.read_text()
     packages = lock_packages(CLI_LOCK)
     url = packages["httpx"]["sdist"]["url"]
@@ -93,20 +113,37 @@ def test_changed_locked_version_makes_the_render_differ_from_committed(tmp_path:
     assert render.render_resources(mutated) != committed
 
 
-def test_check_exits_nonzero_when_committed_resources_are_stale(tmp_path: Path, formula_dir: Path) -> None:
+def test_check_exits_nonzero_when_committed_resources_are_stale(
+    tmp_path: Path, formula_dir: Path
+) -> None:
     mutated = tmp_path / "uv.lock"
     text = CLI_LOCK.read_text()
     url = lock_packages(CLI_LOCK)["httpx"]["sdist"]["url"]
     mutated.write_text(text.replace(url, url.replace(".tar.gz", "x.tar.gz"), 1))
-    assert render.main(["check", "--formula-dir", str(formula_dir), "--lock", str(CLI_LOCK)]) == 0
-    assert render.main(["check", "--formula-dir", str(formula_dir), "--lock", str(mutated)]) == 1
+    assert (
+        render.main(
+            ["check", "--formula-dir", str(formula_dir), "--lock", str(CLI_LOCK)]
+        )
+        == 0
+    )
+    assert (
+        render.main(
+            ["check", "--formula-dir", str(formula_dir), "--lock", str(mutated)]
+        )
+        == 1
+    )
 
 
 def test_package_without_sdist_is_refused(tmp_path: Path) -> None:
     lock = tmp_path / "uv.lock"
     text = CLI_LOCK.read_text()
     sdist = lock_packages(CLI_LOCK)["h11"]["sdist"]
-    stripped = re.sub(r'^sdist = \{ url = "' + re.escape(sdist["url"]) + r'".*\}\n', "", text, flags=re.M)
+    stripped = re.sub(
+        r'^sdist = \{ url = "' + re.escape(sdist["url"]) + r'".*\}\n',
+        "",
+        text,
+        flags=re.M,
+    )
     assert stripped != text
     lock.write_text(stripped)
     with pytest.raises(ValueError, match="h11"):
@@ -122,7 +159,9 @@ def changed_lines(before: str, after: str) -> list[tuple[str, str]]:
     return [(x, y) for x, y in zip(b, a, strict=True) if x != y]
 
 
-def test_fill_changes_only_url_sha256_and_version(formula_dir: Path, tmp_path: Path) -> None:
+def test_fill_changes_only_url_sha256_and_version(
+    formula_dir: Path, tmp_path: Path
+) -> None:
     tarball = tmp_path / "t.tar.gz"
     tarball.write_bytes(b"prismis release bytes")
     sha = hashlib.sha256(tarball.read_bytes()).hexdigest()
@@ -141,7 +180,9 @@ def test_fill_changes_only_url_sha256_and_version(formula_dir: Path, tmp_path: P
         ]
 
 
-def test_fill_leaves_resource_urls_and_hashes_alone(formula_dir: Path, tmp_path: Path) -> None:
+def test_fill_leaves_resource_urls_and_hashes_alone(
+    formula_dir: Path, tmp_path: Path
+) -> None:
     tarball = tmp_path / "t.tar.gz"
     tarball.write_bytes(b"x")
     before = parse_resources((formula_dir / "prismis-cli.rb").read_text())
@@ -150,7 +191,9 @@ def test_fill_leaves_resource_urls_and_hashes_alone(formula_dir: Path, tmp_path:
     assert before
 
 
-def test_fill_refuses_a_formula_missing_a_field(formula_dir: Path, tmp_path: Path) -> None:
+def test_fill_refuses_a_formula_missing_a_field(
+    formula_dir: Path, tmp_path: Path
+) -> None:
     tarball = tmp_path / "t.tar.gz"
     tarball.write_bytes(b"x")
     f = formula_dir / "prismis-tui.rb"
@@ -163,7 +206,11 @@ def test_fill_refuses_a_formula_missing_a_field(formula_dir: Path, tmp_path: Pat
 
 
 def caveats(name: str) -> str:
-    m = re.search(r"def caveats\n    <<~EOS\n(.*?)\n    EOS", (HERE / f"{name}.rb").read_text(), re.S)
+    m = re.search(
+        r"def caveats\n    <<~EOS\n(.*?)\n    EOS",
+        (HERE / f"{name}.rb").read_text(),
+        re.S,
+    )
     assert m, f"{name} has no caveats"
     return m.group(1)
 
@@ -179,8 +226,13 @@ def test_client_caveats_name_remote_step_and_check(name: str) -> None:
 
 def test_daemon_caveats_name_the_first_run_steps() -> None:
     text = caveats("prismis-daemon")
-    for step in ("OPENROUTER_API_KEY", "~/.config/prismis/.env", "prismis-cli context bootstrap",
-                 "prismis-daemon verify", "brew services start prismis-daemon"):
+    for step in (
+        "OPENROUTER_API_KEY",
+        "~/.config/prismis/.env",
+        "prismis-cli context bootstrap",
+        "prismis-daemon verify",
+        "brew services start prismis-daemon",
+    ):
         assert step in text, f"daemon caveats omit {step}"
 
 
@@ -191,7 +243,9 @@ def test_daemon_caveats_start_the_daemon_and_add_a_source_before_verify() -> Non
     start = text.find("brew services start prismis-daemon")
     add = text.find("prismis-cli source add")
     check = text.find("prismis-daemon verify")
-    assert -1 < start < add < check, "caveats must order: start daemon, add source, verify"
+    assert -1 < start < add < check, (
+        "caveats must order: start daemon, add source, verify"
+    )
 
 
 def test_readme_installation_leads_with_the_three_brew_commands() -> None:
@@ -206,7 +260,9 @@ def test_readme_installation_leads_with_the_three_brew_commands() -> None:
     ]
     positions = [section.find(c) for c in cmds]
     assert all(p >= 0 for p in positions), "a brew command is missing from Installation"
-    assert section.find("make install") > max(positions), "make install must follow the brew commands"
+    assert section.find("make install") > max(positions), (
+        "make install must follow the brew commands"
+    )
 
 
 def test_readme_quick_start_trusts_the_tap_and_verifies_last() -> None:
@@ -215,11 +271,20 @@ def test_readme_quick_start_trusts_the_tap_and_verifies_last() -> None:
     readme = (REPO / "README.md").read_text()
     m = re.search(r"^## [^\n]*Quick Start[^\n]*\n(.*?)^## ", readme, re.S | re.M)
     assert m, "README has no Quick Start section"
-    commands = [ln for ln in m.group(1).splitlines() if ln and not ln.lstrip().startswith("#")]
-    order = ["brew trust nickpending/prismis", "brew install", "brew services start prismis-daemon",
-             "prismis-cli source add", "prismis-daemon verify"]
-    positions = [next((i for i, ln in enumerate(commands) if ln.startswith(step)), -1)
-                 for step in order]
+    commands = [
+        ln for ln in m.group(1).splitlines() if ln and not ln.lstrip().startswith("#")
+    ]
+    order = [
+        "brew trust nickpending/prismis",
+        "brew install",
+        "brew services start prismis-daemon",
+        "prismis-cli source add",
+        "prismis-daemon verify",
+    ]
+    positions = [
+        next((i for i, ln in enumerate(commands) if ln.startswith(step)), -1)
+        for step in order
+    ]
     assert -1 not in positions, f"Quick Start runs no {order[positions.index(-1)]}"
     assert positions == sorted(positions), f"Quick Start must run {order} in that order"
 
@@ -237,11 +302,26 @@ def test_daemon_pin_filter_drops_no_requirement_line() -> None:
     assert m, "the daemon formula no longer filters the export with lines.grep"
     rx = re.compile(m["rx"].replace(r"\A", "^"))
     export = subprocess.run(
-        ["uv", "export", "--frozen", "--no-dev", "--no-emit-project", "--no-hashes", "--no-header",
-         "--project", str(REPO / "daemon")],
-        capture_output=True, text=True, check=True,
+        [
+            "uv",
+            "export",
+            "--frozen",
+            "--no-dev",
+            "--no-emit-project",
+            "--no-hashes",
+            "--no-header",
+            "--project",
+            str(REPO / "daemon"),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
-    lines = [ln for ln in export.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    lines = [
+        ln
+        for ln in export.splitlines()
+        if ln.strip() and not ln.lstrip().startswith("#")
+    ]
     dropped = [ln for ln in lines if not rx.match(ln)]
     assert lines
     assert not dropped, f"export lines the pin filter would silently drop: {dropped}"
@@ -249,8 +329,13 @@ def test_daemon_pin_filter_drops_no_requirement_line() -> None:
 
 def test_daemon_installs_pins_as_constraints_from_the_lock() -> None:
     text = (HERE / "prismis-daemon.rb").read_text()
-    for needle in ('"--frozen"', '"--no-dev"', '"--no-emit-project"', '"--project", "daemon"',
-                   '"--constraints"'):
+    for needle in (
+        '"--frozen"',
+        '"--no-dev"',
+        '"--no-emit-project"',
+        '"--project", "daemon"',
+        '"--constraints"',
+    ):
         assert needle in text, f"daemon install lost {needle}"
 
 
@@ -270,5 +355,11 @@ def test_formula_installs_alone(name: str) -> None:
     text = (HERE / f"{name}.rb").read_text()
     deps = re.findall(r'^  depends_on "([^"]+)"', text, re.M)
     assert deps
-    assert not [d for d in deps if "prismis" in d], f"{name} pulls in another prismis formula"
-    assert re.search(r'^  head "https://github.com/nickpending/prismis.git", branch: "main"$', text, re.M)
+    assert not [d for d in deps if "prismis" in d], (
+        f"{name} pulls in another prismis formula"
+    )
+    assert re.search(
+        r'^  head "https://github.com/nickpending/prismis.git", branch: "main"$',
+        text,
+        re.M,
+    )

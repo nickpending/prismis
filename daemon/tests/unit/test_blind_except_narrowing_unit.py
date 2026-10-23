@@ -101,11 +101,7 @@ from fixtures.reddit_mocks import create_link_post_mock
 def _printing_yt_dlp(tmp_path: Path, lines: list[str]) -> list[str]:
     """A runnable stand-in for yt-dlp discovery that prints exactly `lines`."""
     script = tmp_path / "print_lines.py"
-    script.write_text(
-        "import sys\n"
-        f"for line in {lines!r}:\n"
-        "    print(line)\n"
-    )
+    script.write_text(f"import sys\nfor line in {lines!r}:\n    print(line)\n")
     return [sys.executable, str(script)]
 
 
@@ -180,7 +176,7 @@ def test_a_failure_outside_the_narrowed_family_is_not_swallowed_by_extraction() 
     BREAKS: the narrowing is cosmetic and a defect still reads as a failed fetch
     """
     fetcher = YouTubeFetcher()
-    fetcher.yt_dlp_cmd = [None]  # type: ignore[list-item]
+    fetcher.yt_dlp_cmd = [None]  # type: ignore[list-item]  # ty: ignore[invalid-assignment]
 
     with pytest.raises(TypeError):
         fetcher._extract_transcript("https://www.youtube.com/watch?v=abc123")
@@ -247,7 +243,9 @@ class _RedditClient:
         return _Subreddit(self.posts)
 
 
-def test_a_post_with_an_unusable_date_is_still_fetched(reddit_credentials: None) -> None:
+def test_a_post_with_an_unusable_date_is_still_fetched(
+    reddit_credentials: None,
+) -> None:
     """
     INVARIANT: a created_utc that is not a timestamp leaves the date empty, not the post lost
     BREAKS: the TypeError escapes the listing loop and the subreddit's fetch fails
@@ -257,7 +255,7 @@ def test_a_post_with_an_unusable_date_is_still_fetched(reddit_credentials: None)
     )
     post.stickied = False
     fetcher = RedditFetcher(config=make_config())
-    fetcher.reddit = _RedditClient([post])  # type: ignore[assignment]
+    fetcher.reddit = _RedditClient([post])  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     items = fetcher.fetch_content({"url": "https://reddit.com/r/python", "id": "s1"})
 
@@ -336,7 +334,9 @@ def test_an_rss_url_httpx_cannot_parse_is_a_validation_error_not_a_crash() -> No
     INVARIANT: a URL httpx rejects as invalid answers (False, "RSS validation error: ...")
     BREAKS: the InvalidURL escapes the feed validator's own handler
     """
-    ok, message, metadata = SourceValidator()._validate_rss("http://example.com:abc/feed")
+    ok, message, metadata = SourceValidator()._validate_rss(
+        "http://example.com:abc/feed"
+    )
 
     assert ok is False
     assert message is not None and message.startswith("RSS validation error")
@@ -366,7 +366,7 @@ def test_the_validation_boundary_logs_a_defect_and_still_answers(
 
     with caplog.at_level(logging.WARNING):
         # A non-string URL is a defect in the caller, which no validator names.
-        ok, message, _ = validator.validate_source(None, "rss")  # type: ignore[arg-type]
+        ok, message, _ = validator.validate_source(None, "rss")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
     assert ok is False
     assert message is not None and message.startswith("Validation failed")
@@ -425,7 +425,9 @@ def test_the_event_writer_swallows_a_failed_write_and_logs_the_traceback(
 # --- verify_chain.py and the doctor ---------------------------------------------------------
 
 
-@pytest.mark.parametrize("config_text", [None, "[daemon\nnot = toml"], ids=["missing", "malformed"])
+@pytest.mark.parametrize(
+    "config_text", [None, "[daemon\nnot = toml"], ids=["missing", "malformed"]
+)
 def test_verify_chain_reports_a_config_that_cannot_load(
     config_text: str | None, isolated_xdg_env: Path
 ) -> None:

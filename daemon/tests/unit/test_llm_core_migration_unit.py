@@ -40,6 +40,7 @@ def _clean_circuit_registry():
     yield
     reset_circuit_breaker()
 
+
 # --- INV-001 / SC-13 ---
 
 

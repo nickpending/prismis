@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import feedparser
 import httpx
 import praw
+import praw.exceptions
 import requests
 from prawcore import exceptions as prawcore_exceptions
 from prawcore.sessions import FiniteRetryStrategy
@@ -289,7 +290,8 @@ class SourceValidator:
         core = reddit._core
         if core is None:
             raise RuntimeError("PRAW built no core session")
-        core._retry_strategy_class = _SingleAttemptRetry
+        # ty infers the attribute as exactly FiniteRetryStrategy, not a type of it.
+        core._retry_strategy_class = _SingleAttemptRetry  # ty: ignore[invalid-assignment]
 
         return reddit
 
@@ -469,7 +471,9 @@ class SourceValidator:
         except httpx.HTTPError as e:
             return (
                 False,
-                self._redact(f"Could not reach YouTube to resolve the channel URL: {e}"),
+                self._redact(
+                    f"Could not reach YouTube to resolve the channel URL: {e}"
+                ),
                 None,
             )
         page = response.text
@@ -479,7 +483,9 @@ class SourceValidator:
         )
         if channel is None:
             return False, "Invalid YouTube channel URL format", None
-        handle = re.search(r'"vanityChannelUrl":"https?://www\.youtube\.com/(@[^"/]+)"', page)
+        handle = re.search(
+            r'"vanityChannelUrl":"https?://www\.youtube\.com/(@[^"/]+)"', page
+        )
         canonical = (
             f"https://www.youtube.com/{handle.group(1)}" if handle else channel.group(1)
         )

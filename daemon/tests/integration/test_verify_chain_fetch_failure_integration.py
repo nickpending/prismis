@@ -148,7 +148,9 @@ def test_chain_without_source_exits_before_touching_config(monkeypatch, capsys) 
     assert "config" not in out
 
 
-def test_verify_with_no_flags_still_takes_the_original_path(monkeypatch, capsys) -> None:
+def test_verify_with_no_flags_still_takes_the_original_path(
+    monkeypatch, capsys
+) -> None:
     """
     SC-7: calling verify() with no arguments must run the original checks.
 

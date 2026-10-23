@@ -19,7 +19,9 @@ import pytest
 from prismis_daemon.drift import DriftCheck, decide, run_drift_check
 from prismis_daemon.storage import Storage
 
-FIXTURE = Path(__file__).parent.parent / "fixtures" / "drift" / "cerebro_hourly_counts.json"
+FIXTURE = (
+    Path(__file__).parent.parent / "fixtures" / "drift" / "cerebro_hourly_counts.json"
+)
 
 REGRESSION_START = datetime(2026, 9, 30, 17, tzinfo=UTC)
 FLAG_BY = datetime(2026, 10, 1, 17, tzinfo=UTC)
@@ -87,18 +89,20 @@ def test_replay_flags_the_regression_and_holds_the_flag(seeded: Storage) -> None
     BREAKS: the warning fires on ordinary weeks (ignored like no check), misses
             the regression for days, or clears while the regression is still there
     """
-    checks = [
-        run_drift_check(seeded, 0.20, now=moment) for moment in _two_hourly()
-    ]
+    checks = [run_drift_check(seeded, 0.20, now=moment) for moment in _two_hourly()]
 
     flagged = [c for c in checks if c.flagged]
     assert flagged, "the regression was never flagged"
     first = datetime.fromisoformat(flagged[0].checked_at)
-    early = [c for c in checks if datetime.fromisoformat(c.checked_at) < REGRESSION_START]
+    early = [
+        c for c in checks if datetime.fromisoformat(c.checked_at) < REGRESSION_START
+    ]
     assert [c.checked_at for c in early if c.flagged] == []
     assert first <= FLAG_BY, f"first flag at {first}"
     after = [c for c in checks if datetime.fromisoformat(c.checked_at) >= first]
-    unflagged_after = [(c.checked_at, c.reason, c.deviation) for c in after if not c.flagged]
+    unflagged_after = [
+        (c.checked_at, c.reason, c.deviation) for c in after if not c.flagged
+    ]
     assert unflagged_after == []
     assert len(checks) == len(_two_hourly())
 
@@ -125,7 +129,9 @@ def test_replay_stays_flagged_only_because_the_baseline_is_pinned(
         )
 
     flagged = [c for c in memoryless if c.flagged]
-    assert flagged, "even the memoryless check never flagged; the data has no regression"
+    assert flagged, (
+        "even the memoryless check never flagged; the data has no regression"
+    )
     first = flagged[0].checked_at
     assert [c for c in memoryless if c.checked_at >= first and not c.flagged], (
         "a recomputed baseline kept the flag; the pinned baseline is not what holds it"

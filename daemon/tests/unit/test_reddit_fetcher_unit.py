@@ -46,7 +46,7 @@ def link_post_article_server() -> Iterator[str]:
     anything else is a 404."""
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_GET(self) -> None:
@@ -224,10 +224,8 @@ def test_extract_metrics_all_fields_present() -> None:
     submission.score = 42
     submission.upvote_ratio = 0.85
     submission.num_comments = 15
-    submission.subreddit = Mock()
-    submission.subreddit.__str__ = lambda self: "python"
-    submission.author = Mock()
-    submission.author.__str__ = lambda self: "test_user"
+    submission.subreddit = "python"
+    submission.author = "test_user"
 
     metrics = fetcher._extract_metrics(submission)
 
@@ -277,10 +275,8 @@ def test_to_content_item_self_post() -> None:
     submission.score = 25
     submission.upvote_ratio = 0.9
     submission.num_comments = 5
-    submission.subreddit = Mock()
-    submission.subreddit.__str__ = lambda self: "python"
-    submission.author = Mock()
-    submission.author.__str__ = lambda self: "learner123"
+    submission.subreddit = "python"
+    submission.author = "learner123"
 
     item = fetcher._to_content_item(submission, "test-source-id")
 
@@ -313,10 +309,8 @@ def _link_post_submission(url: str) -> Mock:
     submission.score = 100
     submission.upvote_ratio = 0.95
     submission.num_comments = 20
-    submission.subreddit = Mock()
-    submission.subreddit.__str__ = lambda self: "programming"
-    submission.author = Mock()
-    submission.author.__str__ = lambda self: "developer456"
+    submission.subreddit = "programming"
+    submission.author = "developer456"
     return submission
 
 
@@ -445,7 +439,9 @@ def test_to_content_item_link_post_with_self_text_unreadable_or_failed_extractio
 
     item = fetcher._to_content_item(submission, "test-source-id")
 
-    assert item.content == f"Link: {url}\n\nMy note about why this article matters to me."
+    assert (
+        item.content == f"Link: {url}\n\nMy note about why this article matters to me."
+    )
 
 
 def test_to_content_item_link_post_without_self_text_drops_navigation_only_article(
@@ -468,7 +464,7 @@ def hit_counting_server() -> Iterator[tuple[str, list[str]]]:
     hits: list[str] = []
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_GET(self) -> None:
@@ -691,8 +687,7 @@ def test_to_content_item_deleted_content() -> None:
     submission.score = 0
     submission.upvote_ratio = 0.5
     submission.num_comments = 0
-    submission.subreddit = Mock()
-    submission.subreddit.__str__ = lambda self: "test"
+    submission.subreddit = "test"
     submission.author = None
 
     item = fetcher._to_content_item(submission, "test-source-id")
@@ -719,10 +714,8 @@ def test_to_content_item_date_parsing_error() -> None:
     submission.score = 1
     submission.upvote_ratio = 0.6
     submission.num_comments = 1
-    submission.subreddit = Mock()
-    submission.subreddit.__str__ = lambda self: "test"
-    submission.author = Mock()
-    submission.author.__str__ = lambda self: "user123"
+    submission.subreddit = "test"
+    submission.author = "user123"
 
     item = fetcher._to_content_item(submission, "test-source-id")
 
@@ -800,7 +793,7 @@ def test_refetch_one_rebuilds_the_item_via_praw_submission(
 
     submission = _link_post_submission(f"{link_post_article_server}/article")
     fake_reddit = _FakeRedditClient(submission)
-    fetcher.reddit = fake_reddit
+    fetcher.reddit = fake_reddit  # ty: ignore[invalid-assignment]
 
     external_id = "https://reddit.com/r/programming/comments/456/cool_article/"
     item = fetcher.refetch_one(external_id, "test-source-id")
@@ -828,9 +821,7 @@ def test_refetch_one_raises_when_reddit_not_configured() -> None:
     fetcher = RedditFetcher(config=config)
 
     with pytest.raises(RedditNotConfiguredError) as raised:
-        fetcher.refetch_one(
-            "https://reddit.com/r/test/comments/1/x/", "test-source-id"
-        )
+        fetcher.refetch_one("https://reddit.com/r/test/comments/1/x/", "test-source-id")
 
     assert str(raised.value) == REDDIT_NOT_CONFIGURED
 
@@ -854,9 +845,7 @@ def test_reddit_link_post_extraction_honours_the_configured_allow_list(
         "detail": "blocked address",
     }
 
-    allowed = RedditFetcher(
-        config=make_config(fetch_allow_private_hosts=["127.0.0.1"])
-    )
+    allowed = RedditFetcher(config=make_config(fetch_allow_private_hosts=["127.0.0.1"]))
     item = allowed._to_content_item(_link_post_submission(url), "test-source-id")
     assert hits == ["/article"]
     assert item.content is not None

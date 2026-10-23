@@ -95,7 +95,9 @@ def test_parse_evaluation_response_handles_missing_fields() -> None:
     assert result.reasoning is None
 
 
-def test_parse_evaluation_response_refuses_matched_interests_that_is_not_a_list() -> None:
+def test_parse_evaluation_response_refuses_matched_interests_that_is_not_a_list() -> (
+    None
+):
     """A malformed matched_interests is a failed reply, not an item with no interests.
 
     Coercing it to [] used to store a "high" reply as unprioritized, the same value a

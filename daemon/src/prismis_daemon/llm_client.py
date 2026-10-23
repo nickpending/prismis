@@ -108,7 +108,7 @@ def load_api_key(service: ServiceConfig) -> str | None:
     if not ref.startswith(_ENV_PREFIX) or not ref[len(_ENV_PREFIX) :]:
         raise ConfigError(
             f'Service "{service.name}": api_key must be an env:NAME reference '
-            f"(e.g. api_key = \"env:OPENROUTER_API_KEY\"); a key value does not belong "
+            f'(e.g. api_key = "env:OPENROUTER_API_KEY"); a key value does not belong '
             f"in config.toml."
         )
     var = ref[len(_ENV_PREFIX) :]

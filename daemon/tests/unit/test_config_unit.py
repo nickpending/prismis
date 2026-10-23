@@ -36,9 +36,7 @@ def test_config_loading_with_all_files_present() -> None:
     temp_dir = tempfile.mkdtemp()
 
     try:
-        config_path = _write_config(
-            Path(temp_dir), fetch_interval=45, max_items_rss=15
-        )
+        config_path = _write_config(Path(temp_dir), fetch_interval=45, max_items_rss=15)
         (Path(temp_dir) / "context.md").write_text(test_context)
 
         config = Config.from_file(config_path)
@@ -160,7 +158,6 @@ def test_config_loading_without_context_md_uses_default(tmp_path: Path) -> None:
     assert config.context == DEFAULT_CONTEXT_MD
 
 
-
 def test_config_structure_contains_all_expected_fields() -> None:
     """Test Config always has all expected fields."""
     config = make_config()
@@ -259,6 +256,8 @@ def test_fetch_allow_private_hosts_defaults_to_empty_and_reads_the_key() -> None
 
         with_key = Path(tmpdir) / "with.toml"
         with_key.write_text(
-            text.replace("[daemon]\n", '[daemon]\nfetch_allow_private_hosts = ["127.0.0.1"]\n', 1)
+            text.replace(
+                "[daemon]\n", '[daemon]\nfetch_allow_private_hosts = ["127.0.0.1"]\n', 1
+            )
         )
         assert Config.from_file(with_key).fetch_allow_private_hosts == ["127.0.0.1"]

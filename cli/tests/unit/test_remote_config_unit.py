@@ -85,7 +85,9 @@ def test_a_malformed_config_stops_the_command_naming_the_file_and_cause(
         get_remote_url()
 
     assert type(raised.value.__cause__).__name__ == "TOMLDecodeError"
-    assert str(raised.value.__cause__) in str(raised.value), "the cause is in the message"
+    assert str(raised.value.__cause__) in str(raised.value), (
+        "the cause is in the message"
+    )
 
 
 def test_a_malformed_config_stops_client_construction(isolated_xdg_env: Path) -> None:

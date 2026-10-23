@@ -174,7 +174,9 @@ def test_is_readable_false_for_failure_shapes_the_literal_check_missed(
 
 
 def test_is_readable_true_for_japanese_paragraph_with_no_spaces() -> None:
-    content = "政府は火曜日に新しい経済対策を発表し、来年度の予算に盛り込む方針を示した。"
+    content = (
+        "政府は火曜日に新しい経済対策を発表し、来年度の予算に盛り込む方針を示した。"
+    )
     assert is_readable(content) is True
 
 
@@ -266,7 +268,9 @@ def test_readability_failure_names_the_rule_that_fired(
     "content",
     [
         pytest.param(_READABLE_ARTICLE, id="article"),
-        pytest.param("Is anyone else seeing this?\nIt started this morning.", id="two-lines"),
+        pytest.param(
+            "Is anyone else seeing this?\nIt started this morning.", id="two-lines"
+        ),
     ],
 )
 def test_readability_failure_is_none_for_readable_content(content: str) -> None:
@@ -360,7 +364,9 @@ def test_a_self_post_of_one_markdown_link_has_no_prose() -> None:
     BREAKS: counting the words inside a markdown link's text makes a post that is
     only a link read as prose.
     """
-    content = "[On the Navier-Stokes Millennium Prize Problem | OpenAI](https://openai.com/x)"
+    content = (
+        "[On the Navier-Stokes Millennium Prize Problem | OpenAI](https://openai.com/x)"
+    )
 
     assert readability_failure(content) == "no_prose"
 

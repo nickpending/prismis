@@ -44,7 +44,9 @@ def _seed(
             analysis=analysis,
         )
     )
-    assert content_id is not None, "expected a newly inserted content id, got a duplicate"
+    assert content_id is not None, (
+        "expected a newly inserted content id, got a duplicate"
+    )
     return content_id
 
 
@@ -108,7 +110,11 @@ def test_selects_oldest_fetched_first(test_db: Path) -> None:
     # return -- so a query that (wrongly) relies on insertion/rowid order
     # would fail this too.
     newest_id = _seed(
-        storage, source_id, title="Newest", content=RSS_NO_CONTENT_FALLBACK, fetched_at=now
+        storage,
+        source_id,
+        title="Newest",
+        content=RSS_NO_CONTENT_FALLBACK,
+        fetched_at=now,
     )
     middle_id = _seed(
         storage,
@@ -186,7 +192,9 @@ def test_readable_external_ids_settle_model_only_title_only_items(
 
     seed("readable", {"title_only": False, "title_only_reason": None})
     seed("no-analysis-key", {"metrics": {}})
-    seed("model-only", {"title_only": True, "title_only_reason": "model:not_substantive"})
+    seed(
+        "model-only", {"title_only": True, "title_only_reason": "model:not_substantive"}
+    )
     seed("content-rule", {"title_only": True, "title_only_reason": "content:no_prose"})
     seed(
         "fetch-failed",

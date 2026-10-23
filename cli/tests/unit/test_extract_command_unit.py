@@ -149,7 +149,7 @@ def list_view_server(isolated_xdg_env: Path) -> Iterator[list[str]]:
     ]
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def _reply(self, body: dict[str, object]) -> None:
@@ -220,9 +220,7 @@ def test_per_item_failure_does_not_abort_batch(live_daemon_deep: LiveDaemon) -> 
     storage = Storage(live_daemon_deep.db_path)
     source_id = storage.add_source("http://example.com/feed", "rss", "Example")
     now = datetime.now(UTC)
-    seed_content(
-        storage, source_id, title="Article One", published_at=now
-    )
+    seed_content(storage, source_id, title="Article One", published_at=now)
     seed_content(
         storage,
         source_id,
@@ -231,7 +229,10 @@ def test_per_item_failure_does_not_abort_batch(live_daemon_deep: LiveDaemon) -> 
         published_at=now - timedelta(minutes=1),
     )
     seed_content(
-        storage, source_id, title="Article Three", published_at=now - timedelta(minutes=2)
+        storage,
+        source_id,
+        title="Article Three",
+        published_at=now - timedelta(minutes=2),
     )
     storage.close()
 

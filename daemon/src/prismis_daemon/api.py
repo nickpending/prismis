@@ -126,7 +126,7 @@ async def log_requests(request: Request, call_next) -> Response:
         # Include query parameters for debugging
         query_str = f"?{request.url.query}" if request.url.query else ""
         console.print(
-            f"[dim]   📡 API: {escape(str(request.method))} {escape(str(request.url.path))}{escape(str(query_str))} from {escape(str(client_ip))} → {escape(str(response.status_code))}{escape(str(count_info))} ({escape(f"{duration:.0f}")}ms)[/dim]"
+            f"[dim]   📡 API: {escape(str(request.method))} {escape(str(request.url.path))}{escape(str(query_str))} from {escape(str(client_ip))} → {escape(str(response.status_code))}{escape(str(count_info))} ({escape(f'{duration:.0f}')}ms)[/dim]"
         )
 
         # Log to observability system
@@ -1506,9 +1506,7 @@ async def extract_entry(
             )
             storage.add_embedding(content_id, emb)
         except Exception as e:
-            logger.warning(
-                "Embedding regen failed for %s", content_id, exc_info=True
-            )
+            logger.warning("Embedding regen failed for %s", content_id, exc_info=True)
             console.print(
                 f"[yellow]Embedding regen failed for {escape(str(content_id))}: {escape(str(e))}[/yellow]"
             )

@@ -9,7 +9,7 @@ observability JSONL the request wrote.
 
 import asyncio
 import json
-from collections.abc import Generator
+from collections.abc import Generator, MutableMapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -78,7 +78,9 @@ def _item_count_of(event: dict[str, Any]) -> int | None:
 
 
 @pytest.mark.parametrize("view", ["full", "list"])
-def test_entries_logs_the_number_of_items_it_sent(client: TestClient, view: str) -> None:
+def test_entries_logs_the_number_of_items_it_sent(
+    client: TestClient, view: str
+) -> None:
     """
     INVARIANT: api.request for /api/entries carries item_count equal to the items sent
     BREAKS: the count is missing (None) or differs from the body once the middleware
@@ -133,7 +135,9 @@ def test_a_count_on_request_state_is_logged_whatever_the_body_says(
         assert client.get("/api/_probe_state_only").status_code == 200
     finally:
         app.router.routes[:] = [
-            r for r in app.router.routes if getattr(r, "path", "") != "/api/_probe_state_only"
+            r
+            for r in app.router.routes
+            if getattr(r, "path", "") != "/api/_probe_state_only"
         ]
 
     assert [_item_count_of(e) for e in _request_events("/api/_probe_state_only")] == [7]
@@ -149,7 +153,7 @@ def test_the_middleware_passes_the_entries_body_through_as_it_is_written(
     """
     bodies: list[bool] = []
 
-    async def send(message: dict[str, Any]) -> None:
+    async def send(message: MutableMapping[str, Any]) -> None:
         if message["type"] == "http.response.body":
             bodies.append(message.get("more_body", False))
 
@@ -177,7 +181,7 @@ def test_the_middleware_passes_the_entries_body_through_as_it_is_written(
         "client": ("testclient", 1234),
         "server": ("testserver", 80),
     }
-    asyncio.run(app(scope, receive, send))  # type: ignore[arg-type]
+    asyncio.run(app(scope, receive, send))
 
     assert len(bodies) > 3, bodies
     assert bodies[0] is True

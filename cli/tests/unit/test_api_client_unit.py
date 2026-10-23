@@ -64,7 +64,9 @@ class _RecordingHandler(http.server.BaseHTTPRequestHandler):
     received_api_key: str | None = None
     received_body: dict | None = None
 
-    def log_message(self, *_args: object) -> None:  # keep pytest output clean
+    def log_message(
+        self, format: str, *args: object
+    ) -> None:  # keep pytest output clean
         return
 
     def _handle(self) -> None:

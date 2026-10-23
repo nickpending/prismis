@@ -17,7 +17,7 @@ import json
 import os
 import re
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -40,12 +40,12 @@ def _add_service(name: str, base_url: str, api_key: str | None) -> None:
 
 
 @contextmanager
-def _provider() -> Iterator[tuple[str, list[str | None]]]:
+def _provider() -> Generator[tuple[str, list[str | None]]]:
     """A local chat-completions server; yields its URL and the Authorization headers seen."""
     seen: list[str | None] = []
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_POST(self) -> None:
@@ -189,7 +189,9 @@ def _migrate_config_span(text: str) -> tuple[int, int]:
     return start, text.index("\n@app.command()", start)
 
 
-def test_retired_key_library_is_never_imported_and_named_only_by_migrate_config() -> None:
+def test_retired_key_library_is_never_imported_and_named_only_by_migrate_config() -> (
+    None
+):
     """
     SC-3: the retired key library is not a dependency (absent from daemon/pyproject.toml
     and daemon/uv.lock), is imported nowhere in daemon/src or cli/src, and its name
@@ -206,14 +208,18 @@ def test_retired_key_library_is_never_imported_and_named_only_by_migrate_config(
     assert len(files) > 10, "the scan found almost nothing; the roots are wrong"
 
     imports = re.compile(rf"^\s*(import|from)\s+{_RETIRED_LIBRARY}\b", re.MULTILINE)
-    assert [str(f.relative_to(_REPO)) for f in files if imports.search(f.read_text())] == []
+    assert [
+        str(f.relative_to(_REPO)) for f in files if imports.search(f.read_text())
+    ] == []
 
     for manifest in (_REPO / "daemon" / "pyproject.toml", _REPO / "daemon" / "uv.lock"):
         assert _RETIRED_LIBRARY not in manifest.read_text(), manifest.name
 
     text = main_py.read_text()
     start, end = _migrate_config_span(text)
-    assert _RETIRED_LIBRARY in text[start:end], "migrate-config no longer reads the old store"
+    assert _RETIRED_LIBRARY in text[start:end], (
+        "migrate-config no longer reads the old store"
+    )
     assert _RETIRED_LIBRARY not in text[:start] + text[end:], "outside migrate_config"
     assert [
         str(f.relative_to(_REPO))

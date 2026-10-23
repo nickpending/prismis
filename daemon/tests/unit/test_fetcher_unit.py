@@ -172,7 +172,7 @@ def rss_skip_known_server() -> Iterator[tuple[str, dict[str, int]]]:
     hits: dict[str, int] = {}
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_GET(self) -> None:
@@ -281,7 +281,7 @@ def rss_unreadable_extraction_server() -> Iterator[str]:
     article, both served over real HTTP."""
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_GET(self) -> None:

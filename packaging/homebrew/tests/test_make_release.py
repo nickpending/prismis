@@ -8,10 +8,14 @@ check: verify.sh discovers this pytest unit, and nothing else would run the scri
 import subprocess
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "tests" / "test_make_release.sh"
+SCRIPT = (
+    Path(__file__).resolve().parents[3] / "scripts" / "tests" / "test_make_release.sh"
+)
 
 
 def test_make_release_shell_proof_passes() -> None:
-    result = subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        ["bash", str(SCRIPT)], capture_output=True, text=True, check=False
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.rstrip().endswith("make release test: PASS")

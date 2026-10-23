@@ -30,7 +30,12 @@ class RSSFetcher:
     extracts full article content, and returns standardized ContentItem objects.
     """
 
-    def __init__(self, max_items: int | None = None, config: Config | None = None, timeout: int = 30):
+    def __init__(
+        self,
+        max_items: int | None = None,
+        config: Config | None = None,
+        timeout: int = 30,
+    ):
         """Initialize the RSS fetcher.
 
         Args:

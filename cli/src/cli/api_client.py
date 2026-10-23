@@ -276,9 +276,7 @@ class APIClient:
         self._send_json("PATCH", f"/api/sources/{source_id}", json={"name": name})
         return True
 
-    def get_entry(
-        self, entry_id: str, include_content: bool = False
-    ) -> dict[str, Any]:
+    def get_entry(self, entry_id: str, include_content: bool = False) -> dict[str, Any]:
         """Get a single content entry by ID.
 
         Args:

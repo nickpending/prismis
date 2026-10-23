@@ -33,12 +33,16 @@ from conftest import strip_ansi, unreachable_service_error
 # Patched where verify() looks it up (module attribute, not the imported symbol) --
 # same pattern as test_dual_service_config_unit.py's
 # "prismis_daemon.llm_validator.llm_client.health_check".
-_HEALTH_CHECK_MOCK = "prismis_daemon.__main__.llm_client.health_check"  # claudex-guard: allow-mock
+_HEALTH_CHECK_MOCK = (
+    "prismis_daemon.__main__.llm_client.health_check"  # claudex-guard: allow-mock
+)
 
 # The kind service has no equivalent to llm_client.health_check (gh #82's "why"):
 # the only boundary standing in for the provider here is submit_decision itself,
 # per Principle I -- verify()'s own kind-service check runs for real.
-_SUBMIT_DECISION_MOCK = "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+_SUBMIT_DECISION_MOCK = (
+    "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+)
 
 # --- TOML fixtures ------------------------------------------------------------
 
@@ -366,6 +370,7 @@ def test_verify_zero_active_sources_exits_1(monkeypatch, test_db) -> None:
 
         shutil.rmtree(tmpdir, ignore_errors=True)
 
+
 def test_verify_continues_all_checks_after_light_failure(
     monkeypatch, test_db, capsys
 ) -> None:
@@ -388,7 +393,10 @@ def test_verify_continues_all_checks_after_light_failure(
     # If the function short-circuited on light failure, sources check would not run
 
     try:
-        with patch(_HEALTH_CHECK_MOCK, side_effect=unreachable_service_error("Connection refused")):
+        with patch(
+            _HEALTH_CHECK_MOCK,
+            side_effect=unreachable_service_error("Connection refused"),
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 verify()
 
@@ -410,7 +418,9 @@ def test_verify_continues_all_checks_after_light_failure(
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def test_verify_deep_check_uses_deep_service_name_not_light(monkeypatch, test_db) -> None:
+def test_verify_deep_check_uses_deep_service_name_not_light(
+    monkeypatch, test_db
+) -> None:
     """
     INVARIANT (discovered, NOT in task file): When deep service is configured,
     health_check must be called with config.llm_deep_service, NOT config.llm_light_service.

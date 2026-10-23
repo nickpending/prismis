@@ -45,7 +45,10 @@ def release(tag: str, tarball: Path, tap: Path, repo: Path) -> str:
 
     formula_dir = repo / "packaging" / "homebrew"
     lock = repo / "cli" / "uv.lock"
-    if render.main(["check", "--formula-dir", str(formula_dir), "--lock", str(lock)]) != 0:
+    if (
+        render.main(["check", "--formula-dir", str(formula_dir), "--lock", str(lock)])
+        != 0
+    ):
         raise ReleaseError("render.py check failed")
 
     sha = hashlib.sha256(tarball.read_bytes()).hexdigest()
@@ -65,7 +68,9 @@ def release(tag: str, tarball: Path, tap: Path, repo: Path) -> str:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawTextHelpFormatter
+    )
     parser.add_argument("tag")
     parser.add_argument("tarball", type=Path)
     parser.add_argument("tap", type=Path)
@@ -76,7 +81,9 @@ def main(argv: list[str]) -> int:
     except ReleaseError as exc:
         sys.stderr.write(f"release: {exc}\n")
         return 1
-    sys.stdout.write(f"release: tag={args.tag} sha256={sha} formulas -> {args.tap / 'Formula'}\n")
+    sys.stdout.write(
+        f"release: tag={args.tag} sha256={sha} formulas -> {args.tap / 'Formula'}\n"
+    )
     return 0
 
 

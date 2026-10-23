@@ -31,7 +31,9 @@ def _youtube(pages: dict[str, str]) -> tuple[SourceValidator, list[str]]:
 
 
 def test_bare_custom_url_resolves_to_the_channel_handle() -> None:
-    validator, fetched = _youtube({"https://www.youtube.com/DwarkeshPatel": _CHANNEL_PAGE})
+    validator, fetched = _youtube(
+        {"https://www.youtube.com/DwarkeshPatel": _CHANNEL_PAGE}
+    )
 
     ok, message, metadata = validator.validate_source(
         "https://www.youtube.com/DwarkeshPatel", "youtube"
@@ -51,13 +53,17 @@ def test_channel_without_a_handle_resolves_to_its_channel_id() -> None:
     )
 
     assert ok is True
-    assert metadata == {"canonical_url": "https://www.youtube.com/channel/UCXl4i9dYBrFOabk0xGmbkRA"}
+    assert metadata == {
+        "canonical_url": "https://www.youtube.com/channel/UCXl4i9dYBrFOabk0xGmbkRA"
+    }
 
 
 def test_bare_path_that_is_not_a_channel_is_still_refused() -> None:
     validator, _ = _youtube({"https://www.youtube.com/feed": _NOT_A_CHANNEL_PAGE})
 
-    ok, message, metadata = validator.validate_source("https://www.youtube.com/feed", "youtube")
+    ok, message, metadata = validator.validate_source(
+        "https://www.youtube.com/feed", "youtube"
+    )
 
     assert ok is False
     assert message == "Invalid YouTube channel URL format"

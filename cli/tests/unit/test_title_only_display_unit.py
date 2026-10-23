@@ -64,9 +64,7 @@ _DISCUSSION_ENTRY: dict[str, Any] = {
     "analysis": {"content_basis": "discussion", "title_only": False},
 }
 
-_ENTRIES = {
-    e["id"]: e for e in (_TITLE_ONLY_ENTRY, _READABLE_ENTRY, _DISCUSSION_ENTRY)
-}
+_ENTRIES = {e["id"]: e for e in (_TITLE_ONLY_ENTRY, _READABLE_ENTRY, _DISCUSSION_ENTRY)}
 
 _list_app = typer.Typer()
 _list_app.command()(list_command)
@@ -77,7 +75,7 @@ runner = CliRunner()
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
-    def log_message(self, *_args: object) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         return
 
     def do_GET(self) -> None:

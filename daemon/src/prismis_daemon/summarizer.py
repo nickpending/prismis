@@ -299,7 +299,8 @@ class ContentSummarizer:
 
     def _get_system_prompt(self) -> str:
         """Get the standard system prompt for content analysis (current behavior)."""
-        return """You are an expert content analyst. Follow these steps SEQUENTIALLY.
+        return (
+            """You are an expert content analyst. Follow these steps SEQUENTIALLY.
 
 CRITICAL: You MUST respond with ONLY valid JSON. DO NOT include any text, explanation, or preamble before or after the JSON. Start directly with { and end directly with }. No "Here is the analysis:" or similar phrases. ONLY JSON.
 
@@ -394,7 +395,9 @@ OUTPUT FORMAT:
 }
 
 SUBSTANTIVE:
-""" + _SUBSTANTIVE_PARAGRAPH
+"""
+            + _SUBSTANTIVE_PARAGRAPH
+        )
 
     def _get_brief_system_prompt(self) -> str:
         """Get brief system prompt for short content (Reddit <300 words).
@@ -508,9 +511,7 @@ Return JSON with: summary, reading_summary, alpha_insights, patterns, quotes, to
             if metadata.get("view_count"):
                 metadata_str += f"View Count: {metadata['view_count']:,}\n"
 
-        basis_note = (
-            f"{_DISCUSSION_NOTE}\n\n" if content_basis == "discussion" else ""
-        )
+        basis_note = f"{_DISCUSSION_NOTE}\n\n" if content_basis == "discussion" else ""
 
         return f"""Analyze this content and extract structured insights:
 

@@ -173,7 +173,7 @@ class DaemonOrchestrator:
         mode = summary_result.metadata.get("summarization_mode", "standard")
         word_count = summary_result.metadata.get("word_count", 0)
         self.console.print(
-            f"       📝 Summarized with [cyan]{escape(str(mode))}[/cyan] mode ({escape(f"{word_count:,}")} words)"
+            f"       📝 Summarized with [cyan]{escape(str(mode))}[/cyan] mode ({escape(f'{word_count:,}')} words)"
         )
 
         evaluation = self.evaluator.evaluate_content(
@@ -299,9 +299,7 @@ class DaemonOrchestrator:
                 f"Failed to generate embedding for {content_id}: {embed_error}",
                 exc_info=True,
             )
-            self.console.print(
-                "       ⚠️  Embedding generation failed", style="yellow"
-            )
+            self.console.print("       ⚠️  Embedding generation failed", style="yellow")
 
         return {
             "content_id": content_id,
@@ -770,7 +768,9 @@ class DaemonOrchestrator:
         count = self.storage.archive_old_content(archival_config)
 
         if count > 0:
-            self.console.print(f"[cyan]📦 Auto-archival: {escape(str(count))} items archived[/cyan]")
+            self.console.print(
+                f"[cyan]📦 Auto-archival: {escape(str(count))} items archived[/cyan]"
+            )
 
         return {"archived_count": count}
 

@@ -80,7 +80,9 @@ def _client_closure(packages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if "version" in dep:
                 candidates = [c for c in candidates if c["version"] == dep["version"]]
             if len(candidates) != 1:
-                raise ValueError(f"{name}: expected one locked package, found {len(candidates)}")
+                raise ValueError(
+                    f"{name}: expected one locked package, found {len(candidates)}"
+                )
             if name not in seen:
                 seen[name] = candidates[0]
                 queue.append(candidates[0])
@@ -94,7 +96,9 @@ def render_resources(lock_path: Path) -> str:
     for pkg in _client_closure(data["package"]):
         sdist = pkg.get("sdist")
         if not sdist or "url" not in sdist or "hash" not in sdist:
-            raise ValueError(f"{pkg['name']}: the lock holds no sdist url and hash to pin")
+            raise ValueError(
+                f"{pkg['name']}: the lock holds no sdist url and hash to pin"
+            )
         algo, _, digest = sdist["hash"].partition(":")
         if algo != "sha256":
             raise ValueError(f"{pkg['name']}: unsupported hash algorithm {algo}")
@@ -108,7 +112,9 @@ def render_resources(lock_path: Path) -> str:
 
 
 def _resources_span(text: str) -> tuple[int, int]:
-    m = re.search(rf"^  {re.escape(BEGIN)}\n(.*?)^  {re.escape(END)}\n", text, re.S | re.M)
+    m = re.search(
+        rf"^  {re.escape(BEGIN)}\n(.*?)^  {re.escape(END)}\n", text, re.S | re.M
+    )
     if not m:
         raise ValueError(f"resource markers {BEGIN!r}/{END!r} missing from the formula")
     return m.start(1), m.end(1)
@@ -126,10 +132,14 @@ def write_resources(formula: Path, lock_path: Path) -> None:
     formula.write_text(text[:start] + render_resources(lock_path) + text[end:])
 
 
-def _sub_once(text: str, field: str, pattern: str, replacement: str, formula: str) -> str:
+def _sub_once(
+    text: str, field: str, pattern: str, replacement: str, formula: str
+) -> str:
     new, n = re.subn(pattern, lambda _: replacement, text, flags=re.M)
     if n != 1:
-        raise ValueError(f"{formula}: expected exactly one top-level {field} line, found {n}")
+        raise ValueError(
+            f"{formula}: expected exactly one top-level {field} line, found {n}"
+        )
     return new
 
 
@@ -153,7 +163,9 @@ def fill_formulas(formula_dir: Path, tag: str, tarball: Path) -> None:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawTextHelpFormatter
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     for cmd in ("check", "resources", "fill", "write-resources"):
         p = sub.add_parser(cmd)

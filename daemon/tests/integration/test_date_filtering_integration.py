@@ -69,7 +69,7 @@ def dated_feed_url() -> Iterator[str]:
             self.end_headers()
             self.wfile.write(body)
 
-        def log_message(self, *args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             pass
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FeedHandler)
@@ -102,7 +102,7 @@ def slow_feed_url() -> Iterator[str]:
             self.end_headers()
             self.wfile.write(body)
 
-        def log_message(self, *args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             pass  # keep pytest output clean
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), SlowHandler)
@@ -131,9 +131,7 @@ def test_date_filtering_prevents_old_content(dated_feed_url: str) -> None:
     items = rss_fetcher.fetch_content({"url": dated_feed_url, "id": "test-source-id"})
 
     # CRITICAL INVARIANT: NO items older than cutoff
-    old_items = [
-        i for i in items if i.published_at and i.published_at < cutoff_date
-    ]
+    old_items = [i for i in items if i.published_at and i.published_at < cutoff_date]
     assert not old_items, (
         f"Found {len(old_items)} items older than {config.max_days_lookback} days "
         "- API cost protection FAILED"
@@ -147,8 +145,7 @@ def test_date_filtering_prevents_old_content(dated_feed_url: str) -> None:
         "every item in this feed carries a pubDate"
     )
     assert all(
-        i.published_at is not None and i.published_at.tzinfo is not None
-        for i in items
+        i.published_at is not None and i.published_at.tzinfo is not None for i in items
     ), "dates must be timezone-aware"
 
 

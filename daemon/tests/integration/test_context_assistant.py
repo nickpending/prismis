@@ -342,9 +342,7 @@ def test_INVARIANT_no_credentials_in_errors(
         side_effect=Exception(f"API call failed with key {fake_llm_service_key}"),
     ):
         # Make API call with the real sealed API key
-        response = api_client.post(
-            "/api/context", headers={"X-API-Key": TEST_API_KEY}
-        )
+        response = api_client.post("/api/context", headers={"X-API-Key": TEST_API_KEY})
 
         # Verify error response
         assert response.status_code == 500

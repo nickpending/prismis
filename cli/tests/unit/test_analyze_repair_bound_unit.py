@@ -104,7 +104,9 @@ def _repair(db_path: Path, content: str) -> tuple[dict[str, Any], list[str]]:
     prompts: list[str] = []
     replies = [_fake(_SUMMARY), _fake(_EVAL)]
 
-    def _complete(*, prompt: str, **_rest: object) -> MagicMock:  # claudex-guard: allow-mock
+    def _complete(
+        *, prompt: str, **_rest: object
+    ) -> MagicMock:  # claudex-guard: allow-mock
         prompts.append(prompt)
         return replies.pop(0)
 

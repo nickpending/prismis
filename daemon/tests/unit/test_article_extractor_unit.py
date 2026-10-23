@@ -25,9 +25,7 @@ from prismis_daemon.article_extractor import (
     extract_article,
 )
 
-_EMPTY_HTML = (
-    b"<!doctype html><html><head><title>x</title></head><body></body></html>"
-)
+_EMPTY_HTML = b"<!doctype html><html><head><title>x</title></head><body></body></html>"
 
 _ARTICLE_HTML = b"""<!doctype html>
 <html><head><title>A Real Article</title></head>
@@ -50,14 +48,20 @@ def _fetch_local(url: str) -> ArticleResult:
     return extract_article(url, allowed_private_hosts=("127.0.0.1",))
 
 
+class _RedirectServer(http.server.ThreadingHTTPServer):
+    """A loopback server whose `/redirect` answers send clients to `redirect_target`."""
+
+    redirect_target = ""
+
+
 @pytest.fixture
-def article_server_with_redirect() -> Iterator[tuple[str, http.server.ThreadingHTTPServer]]:
+def article_server_with_redirect() -> Iterator[tuple[str, _RedirectServer]]:
     """A local HTTP server serving a real article page, a page with nothing
     extractable, a 429 and a 404 -- the real boundary `extract_article` fetches, not
     a stand-in for it."""
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_GET(self) -> None:
@@ -73,13 +77,13 @@ def article_server_with_redirect() -> Iterator[tuple[str, http.server.ThreadingH
                 self.send_error(429)
             elif self.path.startswith("/redirect-to-file"):
                 self.send_response(302)
-                self.send_header("Location", self.server.redirect_target)  # type: ignore[attr-defined]
+                assert isinstance(self.server, _RedirectServer)
+                self.send_header("Location", self.server.redirect_target)
                 self.end_headers()
             else:
                 self.send_error(404)
 
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    server.redirect_target = ""  # type: ignore[attr-defined]
+    server = _RedirectServer(("127.0.0.1", 0), _Handler)
     host, port = server.server_address[0], server.server_address[1]
     assert isinstance(host, str)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -94,7 +98,7 @@ def article_server_with_redirect() -> Iterator[tuple[str, http.server.ThreadingH
 
 @pytest.fixture
 def article_server(
-    article_server_with_redirect: tuple[str, http.server.ThreadingHTTPServer],
+    article_server_with_redirect: tuple[str, _RedirectServer],
 ) -> str:
     return article_server_with_redirect[0]
 
@@ -196,14 +200,14 @@ def test_extract_article_refuses_a_file_url_and_never_reads_the_file(
 
 
 def test_extract_article_refuses_a_redirect_to_a_file_url(
-    article_server_with_redirect: tuple[str, http.server.ThreadingHTTPServer],
+    article_server_with_redirect: tuple[str, _RedirectServer],
     tmp_path: Path,
 ) -> None:
     """A server answering with a redirect to `file://` must not get the file read."""
     base, server = article_server_with_redirect
     secret = tmp_path / "secret.html"
     secret.write_text(_ARTICLE_HTML.decode())
-    server.redirect_target = secret.as_uri()  # type: ignore[attr-defined]
+    server.redirect_target = secret.as_uri()
 
     result = _fetch_local(f"{base}/redirect-to-file")
 
@@ -212,20 +216,21 @@ def test_extract_article_refuses_a_redirect_to_a_file_url(
 
 
 @pytest.fixture
-def recording_server() -> Iterator[tuple[str, int, list[str], http.server.ThreadingHTTPServer]]:
+def recording_server() -> Iterator[tuple[str, int, list[str], _RedirectServer]]:
     """A loopback server that records every request path it receives and serves
     `/article`, plus `/redirect` to whatever `server.redirect_target` holds."""
     hits: list[str] = []
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_GET(self) -> None:
             hits.append(self.path)
             if self.path == "/redirect":
                 self.send_response(302)
-                self.send_header("Location", self.server.redirect_target)  # type: ignore[attr-defined]
+                assert isinstance(self.server, _RedirectServer)
+                self.send_header("Location", self.server.redirect_target)
                 self.end_headers()
                 return
             self.send_response(200)
@@ -234,8 +239,7 @@ def recording_server() -> Iterator[tuple[str, int, list[str], http.server.Thread
             self.end_headers()
             self.wfile.write(_ARTICLE_HTML)
 
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    server.redirect_target = ""  # type: ignore[attr-defined]
+    server = _RedirectServer(("127.0.0.1", 0), _Handler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -249,7 +253,7 @@ def recording_server() -> Iterator[tuple[str, int, list[str], http.server.Thread
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])
 def test_extract_article_refuses_loopback_and_makes_no_request(
-    recording_server: tuple[str, int, list[str], http.server.ThreadingHTTPServer],
+    recording_server: tuple[str, int, list[str], _RedirectServer],
     host: str,
 ) -> None:
     """
@@ -270,7 +274,7 @@ def test_extract_article_refuses_loopback_and_makes_no_request(
 
 
 def test_extract_article_refuses_a_redirect_to_a_host_not_allowed(
-    recording_server: tuple[str, int, list[str], http.server.ThreadingHTTPServer],
+    recording_server: tuple[str, int, list[str], _RedirectServer],
 ) -> None:
     """
     SC-2: the first hop is allowed (127.0.0.1) and redirects to `localhost`, which
@@ -279,7 +283,7 @@ def test_extract_article_refuses_a_redirect_to_a_host_not_allowed(
     records `/target` on the server.
     """
     _, port, hits, server = recording_server
-    server.redirect_target = f"http://localhost:{port}/target"  # type: ignore[attr-defined]
+    server.redirect_target = f"http://localhost:{port}/target"
 
     result = extract_article(
         f"http://127.0.0.1:{port}/redirect", allowed_private_hosts=("127.0.0.1",)
@@ -290,7 +294,7 @@ def test_extract_article_refuses_a_redirect_to_a_host_not_allowed(
 
 
 def test_extract_article_fetches_an_allowed_private_host(
-    recording_server: tuple[str, int, list[str], http.server.ThreadingHTTPServer],
+    recording_server: tuple[str, int, list[str], _RedirectServer],
 ) -> None:
     """SC-4: naming the host in the allow list lets the same page through.
     BREAKS: an allow list that is ignored leaves this `blocked address`."""
@@ -305,7 +309,7 @@ def test_extract_article_fetches_an_allowed_private_host(
 
 
 def test_guarded_opener_accepts_the_default_timeout_sentinel(
-    recording_server: tuple[str, int, list[str], http.server.ThreadingHTTPServer],
+    recording_server: tuple[str, int, list[str], _RedirectServer],
 ) -> None:
     """An open() without a timeout hands the connection socket's default-timeout
     sentinel object, not a number or None.

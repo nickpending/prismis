@@ -65,6 +65,7 @@ def rejected_key_error(message: str = "Incorrect API key provided") -> Exception
         message, response=httpx2.Response(401, request=request), body=None
     )
 
+
 # Popped at import, not in the fixture below, and this ordering is the whole point.
 # Rich resolves a Console's color system once, in its constructor, and caches it — only
 # is_terminal is re-read later. __main__.py and orchestrator.py both build a console at
@@ -126,7 +127,9 @@ def add_new_content(storage: Storage, item: ContentItem | dict[str, Any]) -> str
     call sites to pass a possibly-None id downstream.
     """
     content_id = storage.add_content(item)
-    assert content_id is not None, "expected a newly inserted content id, got a duplicate"
+    assert content_id is not None, (
+        "expected a newly inserted content id, got a duplicate"
+    )
     return content_id
 
 
@@ -431,7 +434,9 @@ def _resolve_import_time_record_target() -> RecordTarget | Exception | None:
         return resolve_record_target(
             service, os.environ.get(RECORD_MODEL_ENV), _real_prismis_config()
         )
-    except llm_client.ConfigError as e:  # reported when a recorded test first needs the target
+    except (
+        llm_client.ConfigError
+    ) as e:  # reported when a recorded test first needs the target
         return e
 
 
@@ -531,7 +536,9 @@ class LlmRecorder:
         with self._lock:
             index = self.calls
             status, payload = (
-                self._record(index, body) if self.recording else self._replay(index, body)
+                self._record(index, body)
+                if self.recording
+                else self._replay(index, body)
             )
             if status == 200:
                 self.calls += 1
@@ -547,7 +554,9 @@ class LlmRecorder:
                 f"{len(entries)}."
             )
         entry = entries[index]
-        want = json.dumps(_normalize_request(entry["request"]), indent=1, sort_keys=True)
+        want = json.dumps(
+            _normalize_request(entry["request"]), indent=1, sort_keys=True
+        )
         got = json.dumps(_normalize_request(body), indent=1, sort_keys=True)
         if want != got:
             diff = "\n".join(
@@ -576,7 +585,9 @@ class LlmRecorder:
     def _record(self, index: int, body: dict[str, Any]) -> tuple[int, bytes]:
         target = self.target
         if isinstance(target, Exception) or target is None:
-            return self._refuse_bytes(f"Record mode could not resolve its service: {target}")
+            return self._refuse_bytes(
+                f"Record mode could not resolve its service: {target}"
+            )
         sent = {**body, "model": target.model}
         headers = {"Content-Type": "application/json", **target.headers}
         if target.api_key:
@@ -600,7 +611,11 @@ class LlmRecorder:
         reply = json.loads(raw)
         content = reply["choices"][0]["message"].get("content") or ""
         self._recorded.append(
-            {"request": sent, "reply": content, "model": reply.get("model", target.model)}
+            {
+                "request": sent,
+                "reply": content,
+                "model": reply.get("model", target.model),
+            }
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
@@ -626,7 +641,8 @@ class LlmRecorder:
                 )
         if self.failures:
             pytest.fail(
-                "recorded LLM replay failed:\n" + "\n".join(self.failures), pytrace=False
+                "recorded LLM replay failed:\n" + "\n".join(self.failures),
+                pytrace=False,
             )
 
 
@@ -719,7 +735,9 @@ def local_pipeline_stub(
     import json as _json
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:  # keep pytest output clean
+        def log_message(
+            self, format: str, *args: object
+        ) -> None:  # keep pytest output clean
             return
 
         def _send(self, body: bytes, content_type: str, status: int = 200) -> None:
@@ -894,7 +912,9 @@ class YtdlpReplay:
                     f"Re-record with: {self.command}"
                 ]
         if problems:
-            pytest.fail("recorded yt-dlp replay failed:\n" + "\n".join(problems), pytrace=False)
+            pytest.fail(
+                "recorded yt-dlp replay failed:\n" + "\n".join(problems), pytrace=False
+            )
 
 
 @pytest.fixture
@@ -1093,7 +1113,10 @@ def reddit_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     the environment (REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET).
     """
     if os.environ.get(RECORD_HTTP_ENV):
-        if not (os.environ.get("REDDIT_CLIENT_ID") and os.environ.get("REDDIT_CLIENT_SECRET")):
+        if not (
+            os.environ.get("REDDIT_CLIENT_ID")
+            and os.environ.get("REDDIT_CLIENT_SECRET")
+        ):
             pytest.fail(
                 "Recording a Reddit cassette needs REDDIT_CLIENT_ID and "
                 "REDDIT_CLIENT_SECRET in the environment (cerebro holds them).",
@@ -1107,7 +1130,9 @@ def reddit_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
 class LocalHttpServer:
     """A loopback HTTP server a test scripts; `requests` lists what it was asked."""
 
-    def __init__(self, base_url: str, routes: dict[str, tuple[int, str, bytes]]) -> None:
+    def __init__(
+        self, base_url: str, routes: dict[str, tuple[int, str, bytes]]
+    ) -> None:
         self.base_url = base_url
         self.routes = routes
         self.requests: list[str] = []
@@ -1127,7 +1152,7 @@ def local_http_server() -> Iterator[LocalHttpServer]:
     served: list[str] = []
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def do_GET(self) -> None:
@@ -1192,9 +1217,7 @@ def configure_local_services(cfg_home: Path, base_url: str) -> None:
     # No api_key means keyless: no secret is needed.
     for name in (LOCAL_LIGHT_SERVICE, LOCAL_DEEP_SERVICE):
         out.append(
-            f"\n[services.{name}]\n"
-            f'base_url = "{base_url}/v1"\n'
-            'model = "stub-model"'
+            f'\n[services.{name}]\nbase_url = "{base_url}/v1"\nmodel = "stub-model"'
         )
     path.write_text("\n".join(out) + "\n")
 

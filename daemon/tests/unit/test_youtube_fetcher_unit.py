@@ -238,8 +238,7 @@ def test_youtube_fetcher_yt_dlp_env_has_an_available_curl_cffi_impersonate_targe
         line for line in result.stdout.splitlines() if "curl_cffi" in line
     ]
     assert curl_cffi_lines, (
-        "expected at least one curl_cffi impersonate target line: "
-        f"{result.stdout!r}"
+        f"expected at least one curl_cffi impersonate target line: {result.stdout!r}"
     )
     available = [line for line in curl_cffi_lines if "unavailable" not in line]
     assert available, (

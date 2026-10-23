@@ -146,7 +146,9 @@ def seed_content(
             published_at=published_at,
         )
     )
-    assert content_id is not None, "expected a newly inserted content id, got a duplicate"
+    assert content_id is not None, (
+        "expected a newly inserted content id, got a duplicate"
+    )
     return content_id
 
 
@@ -294,7 +296,9 @@ def live_daemon_deep(isolated_xdg_env: Path) -> Iterator[LiveDaemon]:
     service_name = f"prismis-cli-test-deep-{uuid.uuid4().hex[:8]}"
 
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *_args: object) -> None:  # keep pytest output clean
+        def log_message(
+            self, format: str, *args: object
+        ) -> None:  # keep pytest output clean
             return
 
         def do_POST(self) -> None:

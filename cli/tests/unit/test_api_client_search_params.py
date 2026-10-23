@@ -39,7 +39,9 @@ from cli.api_client import APIClient
 class _ParamProbeHandler(http.server.BaseHTTPRequestHandler):
     """Reports the query params a GET actually carried, inside a normal items list."""
 
-    def log_message(self, *_args: object) -> None:  # keep pytest output clean
+    def log_message(
+        self, format: str, *args: object
+    ) -> None:  # keep pytest output clean
         return
 
     def do_GET(self) -> None:

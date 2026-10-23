@@ -108,7 +108,9 @@ def _previous_body(storage: Storage, q: dict[str, Any]) -> bytes:
 
     priorities = [p.strip() for p in priority.split(",")] if priority else []
     kinds = api._parse_kind_filter(kind)
-    effective_sort = sort_by if sort_by in ("priority", "date", "unread") else "priority"
+    effective_sort = (
+        sort_by if sort_by in ("priority", "date", "unread") else "priority"
+    )
     since_dt = datetime.fromisoformat(since.replace("Z", "+00:00")) if since else None
     items = storage.get_content_list(
         limit if skip_dedup else max(limit, api.DEDUP_WINDOW),
@@ -153,7 +155,9 @@ def _previous_body(storage: Storage, q: dict[str, Any]) -> bytes:
         ),
     ).model_dump(
         mode="json",
-        exclude={"data": {"items": {"__all__": {"content"}}}} if view == "list" else None,
+        exclude={"data": {"items": {"__all__": {"content"}}}}
+        if view == "list"
+        else None,
     )
     if compact:
         # #95: a compact item carries only the fields it kept, not default-filled ones.

@@ -123,9 +123,7 @@ def test_invalid_host_binding_errors() -> None:
 
         # uvicorn will validate the host when server starts, not during config creation
         # So we test that config creation doesn't crash
-        assert uvicorn_config.host == invalid_host, (
-            "Config should store the host value"
-        )
+        assert uvicorn_config.host == invalid_host, "Config should store the host value"
 
 
 def test_port_conflict_handling() -> None:

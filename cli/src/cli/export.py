@@ -41,7 +41,9 @@ def export(
     """
     # Validate format
     if format not in ["json", "csv"]:
-        console.print(f"[red]✗ Invalid format '{escape(str(format))}'. Use 'json' or 'csv'[/red]")
+        console.print(
+            f"[red]✗ Invalid format '{escape(str(format))}'. Use 'json' or 'csv'[/red]"
+        )
         raise typer.Exit(1)
 
     try:

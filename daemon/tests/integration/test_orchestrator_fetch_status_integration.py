@@ -22,9 +22,7 @@ def _cycle(url: str, tmp_path: Path) -> dict:
     """Run one real cycle over a single RSS source and return its stored row."""
     os.environ["XDG_DATA_HOME"] = str(tmp_path / "data")
     storage, source = setup_isolated_run(url, "rss")
-    orchestrator = build_orchestrator(
-        Config.from_file(), storage, Console(quiet=True)
-    )
+    orchestrator = build_orchestrator(Config.from_file(), storage, Console(quiet=True))
 
     orchestrator.run_once()
 

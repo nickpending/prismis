@@ -35,7 +35,10 @@ from prismis_daemon.llm_client import CompleteResult, TokenUsage
 from prismis_daemon.models import ContentItem
 from prismis_daemon.notifier import Notifier
 from prismis_daemon.orchestrator import DaemonOrchestrator
-from prismis_daemon.readability import RSS_NO_CONTENT_FALLBACK, format_youtube_no_transcript
+from prismis_daemon.readability import (
+    RSS_NO_CONTENT_FALLBACK,
+    format_youtube_no_transcript,
+)
 from prismis_daemon.refetch import run_refetch
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
@@ -69,7 +72,7 @@ class _ArticleServer:
         outer = self
 
         class _Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *_args: object) -> None:
+            def log_message(self, format: str, *args: object) -> None:
                 return
 
             def do_GET(self) -> None:
@@ -145,7 +148,9 @@ def _build_orchestrator(
     )
 
 
-def _youtube_fake_yt_dlp_cmd(tmp_path: Path, video_id: str, transcript: str) -> list[str]:
+def _youtube_fake_yt_dlp_cmd(
+    tmp_path: Path, video_id: str, transcript: str
+) -> list[str]:
     """A runnable yt-dlp stand-in: writes a real transcript file for
     `video_id` only, mirroring real yt-dlp exiting cleanly with nothing
     written for a video that truly has no captions."""
@@ -163,7 +168,10 @@ def _youtube_fake_yt_dlp_cmd(tmp_path: Path, video_id: str, transcript: str) -> 
 
 
 def test_refetch_rss_recovers_readable_items_and_patches_still_unreadable_ones(
-    test_db: Path, isolated_xdg_env: Path, local_pipeline_stub: str, article_server: _ArticleServer
+    test_db: Path,
+    isolated_xdg_env: Path,
+    local_pipeline_stub: str,
+    article_server: _ArticleServer,
 ) -> None:
     """
     SC-2: of two not-readable stored RSS items, the one whose URL now serves
@@ -228,7 +236,9 @@ def test_refetch_rss_recovers_readable_items_and_patches_still_unreadable_ones(
     recovered = storage.get_content_by_id(recovered_row["id"])
     assert recovered is not None
     assert "genuine article body" in recovered["content"]
-    assert recovered["summary"], "a recovered item must be re-analysed, not just re-stored"
+    assert recovered["summary"], (
+        "a recovered item must be re-analysed, not just re-stored"
+    )
     assert recovered["analysis"]["title_only"] is False
 
     still_unreadable_row = storage.conn.execute(
@@ -581,11 +591,18 @@ def test_a_blocked_story_is_recovered_from_its_discussion(
     """
     storage = Storage(test_db)
     source_id = storage.add_source("https://news.ycombinator.com/rss", "rss", "HN")
-    story = _seed_hn_story(storage, source_id, 60000001, "https://wsj.com/tech/ai/blocked-story")
+    story = _seed_hn_story(
+        storage, source_id, 60000001, "https://wsj.com/tech/ai/blocked-story"
+    )
 
     report = _run_hn_refetch(_hn_orchestrator(storage))
 
-    assert (report.selected, report.recovered, report.still_title_only, report.failed) == (1, 1, 0, 0)
+    assert (
+        report.selected,
+        report.recovered,
+        report.still_title_only,
+        report.failed,
+    ) == (1, 1, 0, 0)
     stored = _stored(storage, story)
     assert "First comment on the blocked story." in stored["content"]
     assert "**bix6:**" in stored["content"]
@@ -606,7 +623,9 @@ def test_a_story_whose_article_now_loads_is_recovered_from_article_and_discussio
     """
     storage = Storage(test_db)
     source_id = storage.add_source("https://news.ycombinator.com/rss", "rss", "HN")
-    story = _seed_hn_story(storage, source_id, 60000011, "https://blog.example.org/now-readable")
+    story = _seed_hn_story(
+        storage, source_id, 60000011, "https://blog.example.org/now-readable"
+    )
 
     report = _run_hn_refetch(_hn_orchestrator(storage))
 
@@ -629,12 +648,21 @@ def test_a_quiet_story_and_a_failed_read_both_stay_title_only(
     """
     storage = Storage(test_db)
     source_id = storage.add_source("https://news.ycombinator.com/rss", "rss", "HN")
-    quiet = _seed_hn_story(storage, source_id, 60000021, "https://wsj.com/tech/ai/quiet-story")
-    failing = _seed_hn_story(storage, source_id, 60000031, "https://wsj.com/tech/ai/failing-story")
+    quiet = _seed_hn_story(
+        storage, source_id, 60000021, "https://wsj.com/tech/ai/quiet-story"
+    )
+    failing = _seed_hn_story(
+        storage, source_id, 60000031, "https://wsj.com/tech/ai/failing-story"
+    )
 
     report = _run_hn_refetch(_hn_orchestrator(storage))
 
-    assert (report.selected, report.recovered, report.still_title_only, report.failed) == (2, 0, 2, 0)
+    assert (
+        report.selected,
+        report.recovered,
+        report.still_title_only,
+        report.failed,
+    ) == (2, 0, 2, 0)
     for content_id, item_id in ((quiet, 60000021), (failing, 60000031)):
         stored = _stored(storage, content_id)
         assert stored["content"] == _comments_link(item_id)
@@ -669,7 +697,9 @@ def test_a_self_post_keeps_its_own_text_as_the_body(
     assert report.recovered == 1
     content = _stored(storage, story)["content"]
     assert content.startswith("The self post's own question body.")
-    assert content.index("An answer to the question.") > len("The self post's own question body.")
+    assert content.index("An answer to the question.") > len(
+        "The self post's own question body."
+    )
     assert "content_basis" not in _stored(storage, story)["analysis"]
 
 
@@ -698,7 +728,9 @@ def test_a_row_without_an_hn_link_is_refetched_article_only(
     report = _run_hn_refetch(_hn_orchestrator(storage))
 
     assert report.recovered == 1
-    row = storage.conn.execute("SELECT id FROM content WHERE external_id = 'plain-rss'").fetchone()
+    row = storage.conn.execute(
+        "SELECT id FROM content WHERE external_id = 'plain-rss'"
+    ).fetchone()
     stored = _stored(storage, row["id"])
     assert "genuine article body" in stored["content"]
     assert "Discussion" not in stored["content"]

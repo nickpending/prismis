@@ -33,11 +33,19 @@ from packaging.utils import canonicalize_name
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 TAP = "prismis-local/prismis"
-BINS = {"prismis-tui": "prismis", "prismis-cli": "prismis-cli", "prismis-daemon": "prismis-daemon"}
+BINS = {
+    "prismis-tui": "prismis",
+    "prismis-cli": "prismis-cli",
+    "prismis-daemon": "prismis-daemon",
+}
 MACOS_ENV = {
-    "sys_platform": "darwin", "platform_system": "Darwin", "os_name": "posix",
-    "platform_machine": "arm64", "implementation_name": "cpython",
-    "platform_python_implementation": "CPython", "python_version": "3.14",
+    "sys_platform": "darwin",
+    "platform_system": "Darwin",
+    "os_name": "posix",
+    "platform_machine": "arm64",
+    "implementation_name": "cpython",
+    "platform_python_implementation": "CPython",
+    "python_version": "3.14",
     "python_full_version": "3.14.0",
 }
 
@@ -50,39 +58,86 @@ def check(ok: bool, label: str) -> None:
         failures.append(label)
 
 
-def run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, capture_output=True, text=True, **kw)  # type: ignore[call-overload, no-any-return]
+def run(
+    cmd: list[str],
+    *,
+    check: bool = False,
+    env: dict[str, str] | None = None,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd, capture_output=True, text=True, check=check, env=env, timeout=timeout
+    )
 
 
 def prismis_installed() -> list[str]:
-    return [f for f in run(["brew", "list", "--formula"]).stdout.split() if f.startswith("prismis")]
+    return [
+        f
+        for f in run(["brew", "list", "--formula"]).stdout.split()
+        if f.startswith("prismis")
+    ]
 
 
 def snapshot(dest: Path) -> None:
     shutil.copytree(
-        REPO, dest,
-        ignore=shutil.ignore_patterns(".git", ".venv", "node_modules", ".claude", "__pycache__"),
+        REPO,
+        dest,
+        ignore=shutil.ignore_patterns(
+            ".git", ".venv", "node_modules", ".claude", "__pycache__"
+        ),
     )
-    for step in (["init", "-q", "-b", "main"], ["add", "-A"],
-                 ["-c", "user.email=proof@example.invalid", "-c", "user.name=proof", "commit", "-qm", "snapshot"]):
+    for step in (
+        ["init", "-q", "-b", "main"],
+        ["add", "-A"],
+        [
+            "-c",
+            "user.email=proof@example.invalid",
+            "-c",
+            "user.name=proof",
+            "commit",
+            "-qm",
+            "snapshot",
+        ],
+    ):
         subprocess.run(["git", *step], cwd=dest, check=True, capture_output=True)
 
 
 def write_tap_formulas(snap: Path) -> None:
     repo = run(["brew", "--repository"]).stdout.strip()
-    formula_dir = Path(repo) / "Library" / "Taps" / TAP.replace("/", "/homebrew-") / "Formula"
+    formula_dir = (
+        Path(repo) / "Library" / "Taps" / TAP.replace("/", "/homebrew-") / "Formula"
+    )
     for name in BINS:
         text = (HERE / f"{name}.rb").read_text()
-        text = re.sub(r"^  head .*$", f'  head "file://{snap}", using: :git, branch: "main"', text, flags=re.M)
+        text = re.sub(
+            r"^  head .*$",
+            f'  head "file://{snap}", using: :git, branch: "main"',
+            text,
+            flags=re.M,
+        )
         (formula_dir / f"{name}.rb").write_text(text)
 
 
 def locked_versions(daemon: Path) -> dict[str, str]:
-    export = run(["uv", "export", "--frozen", "--no-dev", "--no-emit-project", "--no-hashes",
-                  "--no-header", "--project", str(daemon)], check=True).stdout
+    export = run(
+        [
+            "uv",
+            "export",
+            "--frozen",
+            "--no-dev",
+            "--no-emit-project",
+            "--no-hashes",
+            "--no-header",
+            "--project",
+            str(daemon),
+        ],
+        check=True,
+    ).stdout
     locked: dict[str, str] = {}
     for line in export.splitlines():
-        m = re.match(r"^([A-Za-z0-9_.-]+)(?:\[[^\]]*\])?==([^\s;]+)\s*(?:;\s*(.*))?$", line)
+        m = re.match(
+            r"^([A-Za-z0-9_.-]+)(?:\[[^\]]*\])?==([^\s;]+)\s*(?:;\s*(.*))?$", line
+        )
         if m and (not m[3] or Marker(m[3]).evaluate(MACOS_ENV)):
             locked[canonicalize_name(m[1])] = m[2]
     return locked
@@ -91,23 +146,36 @@ def locked_versions(daemon: Path) -> dict[str, str]:
 def prove_sc3() -> None:
     prefix = run(["brew", "--prefix", "prismis-daemon"]).stdout.strip()
     py = f"{prefix}/libexec/bin/python"
-    freeze = run(["uv", "pip", "list", "--python", py, "--format", "freeze"], check=True).stdout
-    installed: dict[str, str] = {canonicalize_name(a): b for a, b in (ln.split("==") for ln in freeze.splitlines() if "==" in ln)}
+    freeze = run(
+        ["uv", "pip", "list", "--python", py, "--format", "freeze"], check=True
+    ).stdout
+    installed: dict[str, str] = {
+        canonicalize_name(a): b
+        for a, b in (ln.split("==") for ln in freeze.splitlines() if "==" in ln)
+    }
     locked: dict[str, str] = dict(locked_versions(REPO / "daemon"))
     bad = {k: (v, installed.get(k)) for k, v in locked.items() if installed.get(k) != v}
-    check(bool(locked) and not bad, f"SC-3 {len(locked)} locked packages installed at locked versions {bad or ''}")
+    check(
+        bool(locked) and not bad,
+        f"SC-3 {len(locked)} locked packages installed at locked versions {bad or ''}",
+    )
 
 
 def prove_sc4(scratch: Path) -> None:
     ruby = 'puts Formulary.factory("%s/prismis-daemon").service.to_plist' % TAP
-    plist = plistlib.loads(run(["brew", "ruby", "-e", ruby], check=True).stdout.encode())
+    plist = plistlib.loads(
+        run(["brew", "ruby", "-e", ruby], check=True).stdout.encode()
+    )
     cmd = plist["ProgramArguments"]
     brew_prefix = run(["brew", "--prefix"]).stdout.strip()
     check(Path(cmd[0]).name == "prismis-daemon", f"SC-4 plist runs {cmd}")
     check(plist.get("KeepAlive") is True, "SC-4 plist KeepAlive")
     log = plist.get("StandardOutPath", "")
-    check(log.startswith(brew_prefix) and plist.get("StandardErrorPath", "").startswith(brew_prefix),
-          f"SC-4 plist logs under the brew prefix: {log}")
+    check(
+        log.startswith(brew_prefix)
+        and plist.get("StandardErrorPath", "").startswith(brew_prefix),
+        f"SC-4 plist logs under the brew prefix: {log}",
+    )
 
     cfg, data = scratch / "cfg", scratch / "data"
     cfg.mkdir()
@@ -121,12 +189,16 @@ def prove_sc4(scratch: Path) -> None:
 
     started()  # first run writes config.toml and exits
     control = started()
-    check("OPENROUTER_API_KEY" in control and "not set" in control,
-          "SC-4 control: without .env the daemon reports OPENROUTER_API_KEY as not set")
+    check(
+        "OPENROUTER_API_KEY" in control and "not set" in control,
+        "SC-4 control: without .env the daemon reports OPENROUTER_API_KEY as not set",
+    )
     (cfg / "prismis" / ".env").write_text("OPENROUTER_API_KEY=probe-key\n")
     seen = started()
-    check("not set" not in seen and "Starting Prismis daemon" in seen,
-          "SC-4 with .env the daemon sees OPENROUTER_API_KEY and starts")
+    check(
+        "not set" not in seen and "Starting Prismis daemon" in seen,
+        "SC-4 with .env the daemon sees OPENROUTER_API_KEY and starts",
+    )
 
 
 def main() -> int:
@@ -147,8 +219,14 @@ def main() -> int:
                 test = run(["brew", "test", f"{TAP}/{name}"])
                 check(test.returncode == 0, f"SC-1 {name} brew test passes")
                 prefix = run(["brew", "--prefix", name]).stdout.strip()
-                check(Path(prefix, "bin", binary).exists(), f"SC-1 {name} provides bin/{binary}")
-                check(prismis_installed() == [name], f"SC-1 {name} installed alone: {prismis_installed()}")
+                check(
+                    Path(prefix, "bin", binary).exists(),
+                    f"SC-1 {name} provides bin/{binary}",
+                )
+                check(
+                    prismis_installed() == [name],
+                    f"SC-1 {name} installed alone: {prismis_installed()}",
+                )
                 if name == "prismis-daemon":
                     prove_sc3()
                     prove_sc4(scratch)

@@ -80,7 +80,9 @@ def search(
             return
 
         if not results:
-            console.print(f"[yellow]No results found for '{escape(str(query))}'[/yellow]")
+            console.print(
+                f"[yellow]No results found for '{escape(str(query))}'[/yellow]"
+            )
             return
 
         # Create table for results

@@ -58,7 +58,9 @@ from conftest import TEST_API_KEY
 
 # The decisions-endpoint provider boundary itself (Principle I permits faking it) --
 # same patch target kind_classifier's own unit tests use.
-_PATCH_SUBMIT = "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+_PATCH_SUBMIT = (
+    "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
+)
 
 # The shared LLM-call boundary summarizer.py and evaluator.py both go through
 # since cluster 11's call_llm_with_circuit_breaker extraction -- same patch target
@@ -102,7 +104,9 @@ def clean_circuit_registry() -> Iterator[None]:
     reset_circuit_breaker()
 
 
-def _write_config(cfg_dir: Path, *, kind_service: str | None, remote_url: str | None = None) -> None:
+def _write_config(
+    cfg_dir: Path, *, kind_service: str | None, remote_url: str | None = None
+) -> None:
     text = DEFAULT_CONFIG_TOML.format(api_key=TEST_API_KEY)
     if kind_service:
         text = text.replace(
@@ -167,7 +171,9 @@ def _seed(
             fetched_at=fetched_at,
         )
     )
-    assert content_id is not None, "expected a newly inserted content id, got a duplicate"
+    assert content_id is not None, (
+        "expected a newly inserted content id, got a duplicate"
+    )
     return content_id
 
 
@@ -192,7 +198,12 @@ def test_kinds_selects_items_with_summary_and_no_kind_confidence_key(
     storage = Storage(local_env)
     source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
 
-    _seed(storage, source_id, title="Needs Classification", analysis={"reading_summary": "x"})
+    _seed(
+        storage,
+        source_id,
+        title="Needs Classification",
+        analysis={"reading_summary": "x"},
+    )
     _seed(
         storage,
         source_id,
@@ -229,8 +240,20 @@ def test_kinds_selects_newest_first_and_at_most_limit(local_env: Path) -> None:
     source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
 
     now = datetime.now(UTC)
-    _seed(storage, source_id, title="Oldest Item", analysis={}, fetched_at=now - timedelta(days=2))
-    _seed(storage, source_id, title="Middle Item", analysis={}, fetched_at=now - timedelta(days=1))
+    _seed(
+        storage,
+        source_id,
+        title="Oldest Item",
+        analysis={},
+        fetched_at=now - timedelta(days=2),
+    )
+    _seed(
+        storage,
+        source_id,
+        title="Middle Item",
+        analysis={},
+        fetched_at=now - timedelta(days=1),
+    )
     _seed(storage, source_id, title="Newest Item", analysis={}, fetched_at=now)
     storage.close()
 
@@ -259,7 +282,13 @@ def test_kinds_selects_only_items_fetched_within_since_days_when_given(
     source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
 
     now = datetime.now(UTC)
-    _seed(storage, source_id, title="Ancient Item", analysis={}, fetched_at=now - timedelta(days=10))
+    _seed(
+        storage,
+        source_id,
+        title="Ancient Item",
+        analysis={},
+        fetched_at=now - timedelta(days=10),
+    )
     _seed(storage, source_id, title="Recent Item", analysis={}, fetched_at=now)
     storage.close()
 
@@ -295,7 +324,10 @@ def test_kinds_merges_kind_and_confidence_leaving_other_analysis_fields_unchange
         storage,
         source_id,
         title="Release Notes For Foo",
-        analysis={"reading_summary": "Foo shipped v2.", "alpha_insights": ["insight-1"]},
+        analysis={
+            "reading_summary": "Foo shipped v2.",
+            "alpha_insights": ["insight-1"],
+        },
     )
     storage.close()
 
@@ -316,7 +348,9 @@ def test_kinds_merges_kind_and_confidence_leaving_other_analysis_fields_unchange
     assert analysis["alpha_insights"] == ["insight-1"]
 
 
-def test_kinds_merges_a_classified_item_is_never_selected_again(local_env: Path) -> None:
+def test_kinds_merges_a_classified_item_is_never_selected_again(
+    local_env: Path,
+) -> None:
     """
     SC-2: once merged, the item carries a kind_confidence key and a second run finds
     nothing left to classify.
@@ -355,7 +389,9 @@ def test_kinds_merges_stores_null_kind_using_the_classifier_own_threshold(
     at_threshold_id = _seed(storage, source_id, title="At Threshold Item", analysis={})
     storage.close()
 
-    with patch(_PATCH_SUBMIT, side_effect=_fixed_decision("release", CONFIDENCE_THRESHOLD)):
+    with patch(
+        _PATCH_SUBMIT, side_effect=_fixed_decision("release", CONFIDENCE_THRESHOLD)
+    ):
         result = runner.invoke(analyze_app, ["kinds", "--force", "--limit", "10"])
     assert result.exit_code == 0, result.output
 
@@ -367,11 +403,14 @@ def test_kinds_merges_stores_null_kind_using_the_classifier_own_threshold(
     assert stored_at_threshold["analysis"]["kind_confidence"] == CONFIDENCE_THRESHOLD
 
     storage = Storage(local_env)
-    below_threshold_id = _seed(storage, source_id, title="Below Threshold Item", analysis={})
+    below_threshold_id = _seed(
+        storage, source_id, title="Below Threshold Item", analysis={}
+    )
     storage.close()
 
     with patch(
-        _PATCH_SUBMIT, side_effect=_fixed_decision("release", CONFIDENCE_THRESHOLD - 0.01)
+        _PATCH_SUBMIT,
+        side_effect=_fixed_decision("release", CONFIDENCE_THRESHOLD - 0.01),
     ):
         result = runner.invoke(analyze_app, ["kinds", "--force", "--limit", "10"])
     assert result.exit_code == 0, result.output
@@ -493,7 +532,11 @@ def test_kinds_refuses_in_remote_mode_naming_local_mode_like_repair(
     BREAKS: `analyze kinds` grows its own remote-mode check with a drifted message
     instead of reusing `_check_local_mode`, the way `analyze status`/`repair` do.
     """
-    _write_config(isolated_xdg_env, kind_service="prismis-openrouter-kind", remote_url="http://example.com")
+    _write_config(
+        isolated_xdg_env,
+        kind_service="prismis-openrouter-kind",
+        remote_url="http://example.com",
+    )
 
     with patch(_PATCH_SUBMIT, side_effect=AssertionError("must never be called")):
         result = runner.invoke(analyze_app, ["kinds", "--force"])
@@ -516,7 +559,9 @@ def test_kinds_declining_confirmation_skips_classification(local_env: Path) -> N
     """
     storage = Storage(local_env)
     source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Feed")
-    content_id = _seed(storage, source_id, title="Should Not Be Classified", analysis={})
+    content_id = _seed(
+        storage, source_id, title="Should Not Be Classified", analysis={}
+    )
     storage.close()
 
     with patch(_PATCH_SUBMIT, side_effect=AssertionError("must never be called")):
@@ -604,9 +649,7 @@ def _seed_cerebro_votes(storage: Storage, source_id: str) -> None:
             title=f"Voted Item {i}",
             analysis={"matched_interests": ["a high bullet"]},
         )
-        storage.update_content_status(
-            voted_id, user_feedback="up" if i < 5 else "down"
-        )
+        storage.update_content_status(voted_id, user_feedback="up" if i < 5 else "down")
 
 
 def _answer_by_prompt(calls: list[dict[str, Any]]):
@@ -616,7 +659,9 @@ def _answer_by_prompt(calls: list[dict[str, Any]]):
     def _fake(**kwargs: str) -> MagicMock:
         calls.append(kwargs)
         is_evaluator = "evaluates articles" in kwargs["system_prompt"]
-        return _fake_complete_result(_EVAL_PAYLOAD if is_evaluator else _SUMMARY_PAYLOAD)
+        return _fake_complete_result(
+            _EVAL_PAYLOAD if is_evaluator else _SUMMARY_PAYLOAD
+        )
 
     return _fake
 
@@ -854,8 +899,12 @@ def test_priority_rescores_only_unarchived_items_in_the_window_and_keeps_the_res
     storage.close()
     calls: list[dict[str, Any]] = []
 
-    with patch(_PATCH_COMPLETE, side_effect=_record_complete(_HIGH_EVAL, calls)):  # claudex-guard: allow-mock
-        result = runner.invoke(analyze_app, ["priority", "--since-days", "15", "--force"])
+    with patch(
+        _PATCH_COMPLETE, side_effect=_record_complete(_HIGH_EVAL, calls)
+    ):  # claudex-guard: allow-mock
+        result = runner.invoke(
+            analyze_app, ["priority", "--since-days", "15", "--force"]
+        )
 
     assert result.exit_code == 0, result.output
     assert len(calls) == 1, "only the in-window, unarchived item is evaluated"
@@ -891,8 +940,12 @@ def test_priority_dry_run_counts_and_prices_without_calling_or_writing(
     storage.close()
     calls: list[dict[str, Any]] = []
 
-    with patch(_PATCH_COMPLETE, side_effect=_record_complete(_HIGH_EVAL, calls)):  # claudex-guard: allow-mock
-        result = runner.invoke(analyze_app, ["priority", "--since-days", "15", "--dry-run"])
+    with patch(
+        _PATCH_COMPLETE, side_effect=_record_complete(_HIGH_EVAL, calls)
+    ):  # claudex-guard: allow-mock
+        result = runner.invoke(
+            analyze_app, ["priority", "--since-days", "15", "--dry-run"]
+        )
 
     assert result.exit_code == 0, result.output
     assert calls == []
@@ -926,8 +979,12 @@ def test_priority_sends_no_learned_preferences_whatever_the_switch(
     storage.close()
     calls: list[dict[str, Any]] = []
 
-    with patch(_PATCH_COMPLETE, side_effect=_record_complete(_HIGH_EVAL, calls)):  # claudex-guard: allow-mock
-        result = runner.invoke(analyze_app, ["priority", "--since-days", "15", "--force"])
+    with patch(
+        _PATCH_COMPLETE, side_effect=_record_complete(_HIGH_EVAL, calls)
+    ):  # claudex-guard: allow-mock
+        result = runner.invoke(
+            analyze_app, ["priority", "--since-days", "15", "--force"]
+        )
 
     assert result.exit_code == 0, result.output
     assert len(calls) >= 1
@@ -963,8 +1020,12 @@ def test_priority_keeps_an_items_old_score_when_its_evaluation_fails(
             raise RuntimeError("provider exploded")
         return _fake_complete_result(_HIGH_EVAL)
 
-    with patch(_PATCH_COMPLETE, side_effect=_fail_for_in_window):  # claudex-guard: allow-mock
-        result = runner.invoke(analyze_app, ["priority", "--since-days", "15", "--force"])
+    with patch(
+        _PATCH_COMPLETE, side_effect=_fail_for_in_window
+    ):  # claudex-guard: allow-mock
+        result = runner.invoke(
+            analyze_app, ["priority", "--since-days", "15", "--force"]
+        )
 
     assert result.exit_code == 1, result.output
     assert "Error" not in result.output, "the exit is not reported as a second error"

@@ -62,8 +62,12 @@ def test_daemon_orchestration_with_test_database(
     file_fetcher = FileFetcher()
     summarizer = ContentSummarizer(config_obj.llm_light_service)
     evaluator = ContentEvaluator(config_obj.llm_light_service)
-    notifier = Notifier({"high_priority_only": config_obj.high_priority_only,
-                        "command": config_obj.notification_command})
+    notifier = Notifier(
+        {
+            "high_priority_only": config_obj.high_priority_only,
+            "command": config_obj.notification_command,
+        }
+    )
 
     # Capture console output
     output = StringIO()
@@ -113,8 +117,6 @@ def test_daemon_orchestration_with_test_database(
     assert first_item["title"] is not None
     assert first_item["priority"] in ["high", "medium", "low"]
     assert first_item["analysis"] is not None
-
-
 
 
 def test_daemon_help_command() -> None:

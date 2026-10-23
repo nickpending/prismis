@@ -140,7 +140,9 @@ def browser(playwright_instance: Playwright) -> Iterator[Browser]:
 def seeded_ids(live_web_app: str, test_db: Path) -> dict[str, str]:
     """Seed the daemon's database through Storage; returns the id of each named item."""
     storage = Storage(test_db)
-    source_id = storage.add_source("https://example.com/feed.xml", "rss", "Browser Feed")
+    source_id = storage.add_source(
+        "https://example.com/feed.xml", "rss", "Browser Feed"
+    )
     now = datetime.now(UTC)
     ids: dict[str, str] = {}
 
@@ -579,7 +581,9 @@ def test_offline_status_is_plain_text_and_filter_tab_rules_are_gone(
 # --------------------------------------------------------------------------- drift warning
 
 
-FLAGGED_TEXT = "⚠ Drift: 62% of the last 24 hours' items are unprioritized, usual is 54%"
+FLAGGED_TEXT = (
+    "⚠ Drift: 62% of the last 24 hours' items are unprioritized, usual is 54%"
+)
 THIN_TEXT = "⚠ Drift: too few items to measure, usual is ?"
 
 
@@ -598,7 +602,9 @@ def _store_drift(
             "share": share,
             "baseline": baseline,
             "baseline_windows": 7,
-            "deviation": None if share is None or baseline is None else share - baseline,
+            "deviation": None
+            if share is None or baseline is None
+            else share - baseline,
             "threshold": 0.2,
             "flagged": flagged,
             "reason": None,

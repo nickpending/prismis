@@ -40,7 +40,9 @@ REFUSED_EXIT = 97
 
 DATE_TOKEN = "<date>"
 TMP_TOKEN = "<tmp>"
-_DATE = re.compile(r"(?<![\w-])(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?![\w-])")
+_DATE = re.compile(
+    r"(?<![\w-])(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?![\w-])"
+)
 
 
 def normalize_args(args: list[str]) -> list[str]:
@@ -65,7 +67,9 @@ def output_dir(args: list[str]) -> Path | None:
 
 
 def _refuse(state: Path, message: str) -> int:
-    full = f"{message}\nRe-record with: {os.environ.get(COMMAND_ENV, '<command unknown>')}"
+    full = (
+        f"{message}\nRe-record with: {os.environ.get(COMMAND_ENV, '<command unknown>')}"
+    )
     with (state / "failures.txt").open("a") as f:
         f.write(full + "\n---\n")
     sys.stderr.write(full + "\n")

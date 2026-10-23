@@ -15,7 +15,7 @@ the old path, which materialises the whole corpus, allocates well past the bound
 import asyncio
 import json
 import tracemalloc
-from collections.abc import Generator
+from collections.abc import Generator, MutableMapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -108,7 +108,7 @@ def _peak_of_discarded_request(path: str, query: bytes) -> tuple[int, int]:
     """
     sent = 0
 
-    async def send(message: dict[str, Any]) -> None:
+    async def send(message: MutableMapping[str, Any]) -> None:
         nonlocal sent
         if message["type"] == "http.response.body":
             sent += len(message.get("body", b""))
@@ -140,7 +140,7 @@ def _peak_of_discarded_request(path: str, query: bytes) -> tuple[int, int]:
     tracemalloc.start()
     try:
         tracemalloc.reset_peak()
-        asyncio.run(app(scope, receive, send))  # type: ignore[arg-type]
+        asyncio.run(app(scope, receive, send))
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
@@ -157,5 +157,7 @@ def test_full_view_over_the_whole_table_stays_under_the_bound(
     """
     query = b"limit=10000" + chr(38).encode() + b"view=full"
     peak, sent = _peak_of_discarded_request("/api/entries", query)
-    assert sent > ROW_COUNT * 2 * len(BLOB)  # every row's content and full_text went out
+    assert sent > ROW_COUNT * 2 * len(
+        BLOB
+    )  # every row's content and full_text went out
     assert peak < PEAK_BOUND_BYTES, f"peak {peak / 1e6:.1f} MB"

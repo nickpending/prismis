@@ -373,7 +373,7 @@ class _ReplyStub:
         outer = self
 
         class _Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *_args: object) -> None:
+            def log_message(self, format: str, *args: object) -> None:
                 return
 
             def do_POST(self) -> None:
@@ -463,9 +463,7 @@ def test_summarize_with_analysis_parses_the_substantive_verdict(
     skips the field not substantive; requiring it fails the whole parse.
     """
     reply_stub.reply = {**_REPLY_BASE, **reply_extra}
-    configure_local_services(
-        Path(os.environ["XDG_CONFIG_HOME"]), reply_stub.base_url
-    )
+    configure_local_services(Path(os.environ["XDG_CONFIG_HOME"]), reply_stub.base_url)
     summarizer = ContentSummarizer(LOCAL_LIGHT_SERVICE)
 
     result = summarizer.summarize_with_analysis(
@@ -482,7 +480,9 @@ def test_summarize_with_analysis_parses_the_substantive_verdict(
 # --- hn-discussion SC-4: a discussion-basis item is summarized as discussion ---
 
 
-def test_discussion_basis_swaps_the_substantive_wording_in_every_non_diff_mode() -> None:
+def test_discussion_basis_swaps_the_substantive_wording_in_every_non_diff_mode() -> (
+    None
+):
     """
     BREAKS: asking whether "the piece itself" is present of an item whose article is
     absent by definition marks every rescued discussion not substantive.

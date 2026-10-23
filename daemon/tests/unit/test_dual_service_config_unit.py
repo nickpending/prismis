@@ -87,7 +87,6 @@ def _make_prismis_config_dir(tmp: Path, config_text: str) -> Path:
     return config_path
 
 
-
 # ─── Config dataclass: new fields present ────────────────────────────────────
 
 
@@ -206,6 +205,8 @@ def test_validate_llm_services_light_failure_raises() -> None:
     BREAKS: Daemon starts with a broken light service and silently fails on every
     summarization / evaluation call.
     """
-    with patch(_HEALTH_CHECK_MOCK, side_effect=unreachable_service_error("Connection refused")):
+    with patch(
+        _HEALTH_CHECK_MOCK, side_effect=unreachable_service_error("Connection refused")
+    ):
         with pytest.raises(openai.APIConnectionError, match="Connection refused"):
             validate_llm_services("prismis-openai", None)

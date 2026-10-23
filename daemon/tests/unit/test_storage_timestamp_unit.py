@@ -156,7 +156,9 @@ def _exercise_every_write_path(storage: Storage) -> None:
     check()
 
 
-@pytest.mark.parametrize("triggers", [True, False], ids=["with_triggers", "no_triggers"])
+@pytest.mark.parametrize(
+    "triggers", [True, False], ids=["with_triggers", "no_triggers"]
+)
 def test_every_timestamp_column_is_tz_aware_after_every_write_path(
     test_db: Path, triggers: bool
 ) -> None:
@@ -177,7 +179,9 @@ def test_every_timestamp_column_is_tz_aware_after_every_write_path(
 
         columns = _assert_all_aware(storage.conn)
         assert ("content", "archived_at") in columns, "enumeration must see content"
-        assert len(columns) >= 12, f"expected at least the twelve known columns: {columns}"
+        assert len(columns) >= 12, (
+            f"expected at least the twelve known columns: {columns}"
+        )
         for table, column in columns:
             (written,) = storage.conn.execute(
                 f"SELECT COUNT(*) FROM {table} WHERE {column} IS NOT NULL"
@@ -206,7 +210,6 @@ def test_no_current_timestamp_literal_in_sql_or_schema() -> None:
     offenders = [
         str(path.relative_to(_SRC))
         for path in sorted(_SRC.rglob("*"))
-        if path.suffix in {".py", ".sql"}
-        and "CURRENT_TIMESTAMP" in path.read_text()
+        if path.suffix in {".py", ".sql"} and "CURRENT_TIMESTAMP" in path.read_text()
     ]
     assert offenders == []

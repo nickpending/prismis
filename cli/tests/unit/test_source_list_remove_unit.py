@@ -110,5 +110,11 @@ def test_format_source_row_truncates_the_timestamp_to_seconds() -> None:
 
 
 def test_format_source_row_renders_a_never_fetched_source() -> None:
-    source = {"id": "1", "type": "rss", "name": "n", "active": True, "last_fetched": None}
+    source = {
+        "id": "1",
+        "type": "rss",
+        "name": "n",
+        "active": True,
+        "last_fetched": None,
+    }
     assert format_source_row(source)[5] == "Never"

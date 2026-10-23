@@ -36,7 +36,12 @@ from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
 
-from conftest import TEST_API_KEY, add_new_content, configure_local_services, make_config
+from conftest import (
+    TEST_API_KEY,
+    add_new_content,
+    configure_local_services,
+    make_config,
+)
 
 _HEADERS = {"X-API-Key": TEST_API_KEY}
 
@@ -111,7 +116,7 @@ def test_evaluate_content_raises_when_the_reply_cannot_be_parsed() -> None:
     # extract_json hands the evaluator only objects, so an array reaches the parser
     # when the parser is called directly.
     with pytest.raises(AttributeError):
-        evaluator._parse_evaluation_response(["not", "an", "object"])  # type: ignore[arg-type]
+        evaluator._parse_evaluation_response(["not", "an", "object"])  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
     # A reply that is an object, through the real evaluate_content, whose priority is
     # not a string.
@@ -232,13 +237,17 @@ def test_a_cycle_isolates_a_failed_source_and_a_failed_item_and_logs_both(
         stats = orchestrator.run_once()
 
     assert any("unexpected fetch defect" in e for e in stats["errors"]), stats["errors"]
-    assert any("unexpected analysis defect" in e for e in stats["errors"]), stats["errors"]
+    assert any("unexpected analysis defect" in e for e in stats["errors"]), stats[
+        "errors"
+    ]
     assert stats["total_analyzed"] == 2, "the second source still ran"
-    assert stats["total_new"] == 1, "the item after the failed one was analyzed and stored"
-    stored = {
-        row[0] for row in storage.conn.execute("SELECT external_id FROM content")
-    }
-    assert stored == {"ext-fine"}, f"only the item that did not fail is stored: {stored}"
+    assert stats["total_new"] == 1, (
+        "the item after the failed one was analyzed and stored"
+    )
+    stored = {row[0] for row in storage.conn.execute("SELECT external_id FROM content")}
+    assert stored == {"ext-fine"}, (
+        f"only the item that did not fail is stored: {stored}"
+    )
 
     logged = {
         str(r.exc_info[1])
@@ -362,9 +371,7 @@ def test_backfill_counts_one_items_embedding_failure_and_continues(
     source_id = storage.add_source("https://example.com/feed.xml", "rss", "Feed")
     for title in ("bad", "good"):
         add_new_content(storage, _item(source_id, title))
-    orchestrator = _orchestrator(
-        config, storage, embedder=_EmbedderFailingFor("bad")
-    )
+    orchestrator = _orchestrator(config, storage, embedder=_EmbedderFailingFor("bad"))
 
     with caplog.at_level(logging.WARNING):
         result = orchestrator.backfill_embeddings()

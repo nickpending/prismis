@@ -40,7 +40,9 @@ def _flagged_previous(baseline: float = 0.5) -> dict[str, Any]:
     return {"flagged": True, "baseline": baseline, "baseline_windows": 28}
 
 
-def test_unflagged_latest_recomputes_the_baseline_and_flags_at_the_full_threshold() -> None:
+def test_unflagged_latest_recomputes_the_baseline_and_flags_at_the_full_threshold() -> (
+    None
+):
     """
     INVARIANT: with no standing flag the baseline is the median of the history shares,
                and the check flags exactly when share - baseline >= threshold

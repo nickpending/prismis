@@ -29,6 +29,7 @@ from cli import (  # noqa: E402 - must follow the sys.path setup above
 )
 from cli.remote import set_remote_url  # noqa: E402 - same
 
+
 def _load_ambient_env() -> None:
     """Load ~/.config/prismis/.env into the process environment.
 

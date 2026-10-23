@@ -58,7 +58,9 @@ def _make_client(base_url: str) -> APIClient:
 class _KindParamProbeHandler(http.server.BaseHTTPRequestHandler):
     """Reports the `kind` query param a GET actually carried."""
 
-    def log_message(self, *_args: object) -> None:  # keep pytest output clean
+    def log_message(
+        self, format: str, *args: object
+    ) -> None:  # keep pytest output clean
         return
 
     def do_GET(self) -> None:
@@ -163,7 +165,9 @@ class _SearchResultsHandler(http.server.BaseHTTPRequestHandler):
 
     received_query: str = ""
 
-    def log_message(self, *_args: object) -> None:  # keep pytest output clean
+    def log_message(
+        self, format: str, *args: object
+    ) -> None:  # keep pytest output clean
         return
 
     def do_GET(self) -> None:

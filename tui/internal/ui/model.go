@@ -63,6 +63,9 @@ type Model struct {
 	focusedPane string // "sources", "content" (content is either list or reader based on view)
 	// Theme system
 	theme StyleTheme // Current color theme
+
+	// The open article's markdown before styling, so a theme switch can redraw it
+	readerMarkdown string
 	// Remote mode
 	remoteURL  string           // If non-empty, use API instead of local DB
 	lastSync   time.Time        // Newest row change seen; the next sync asks for changes after it
@@ -421,6 +424,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMessage = fmt.Sprintf("Theme: %s", m.theme.Name)
 		// Update sources viewport with new theme
 		m.updateSourcesViewport()
+		// Redraw an open article in place; SetContent keeps the scroll position.
+		if m.view == "reader" {
+			m.viewport.SetContent(renderSimpleMarkdown(m.readerMarkdown, m.viewport.Width, m.theme))
+		}
 		cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 
 	// Reader command handlers

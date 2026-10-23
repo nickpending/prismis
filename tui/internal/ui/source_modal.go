@@ -323,7 +323,9 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 // UpdateContent refreshes the modal content based on current mode (exported for testing)
 func (m *SourceModal) UpdateContent() {
 	if m.mode == "list" {
-		m.viewport.SetContent(m.renderListContentOnly())
+		// The viewport needs the list's lines to scroll; View redraws them in the
+		// active theme, so no theme is needed here.
+		m.viewport.SetContent(m.renderListContentOnly(StyleTheme{}))
 	}
 }
 
@@ -419,6 +421,7 @@ func (m SourceModal) View(theme StyleTheme) string {
 		// The error sits below the scrolled list, not inside it (gh #87): inside,
 		// an empty or long list pushed it out of the visible window.
 		vp := m.viewport
+		vp.SetContent(m.renderListContentOnly(theme))
 		errorLines := appendErrorLine(theme, nil, m.errorMsg)
 		vp.Height = max(vp.Height-len(errorLines), 1)
 		content.WriteString(vp.View())
@@ -431,11 +434,11 @@ func (m SourceModal) View(theme StyleTheme) string {
 		var mainContent string
 		switch m.mode {
 		case "add":
-			mainContent = m.renderAddContentOnly()
+			mainContent = m.renderAddContentOnly(theme)
 		case "edit":
-			mainContent = m.renderEditContentOnly()
+			mainContent = m.renderEditContentOnly(theme)
 		case "confirm_remove":
-			mainContent = m.renderConfirmContentOnly()
+			mainContent = m.renderConfirmContentOnly(theme)
 		}
 		content.WriteString(mainContent)
 		mainContentStr = content.String()
@@ -481,8 +484,7 @@ func (m SourceModal) View(theme StyleTheme) string {
 }
 
 // renderListContentOnly renders just the list content without header/commands
-func (m SourceModal) renderListContentOnly() string {
-	theme := CleanCyberTheme
+func (m SourceModal) renderListContentOnly(theme StyleTheme) string {
 	var lines []string
 
 	// Source list
@@ -581,8 +583,7 @@ func appendErrorLine(theme StyleTheme, lines []string, errorMsg string) []string
 }
 
 // renderAddContentOnly renders just the add form content
-func (m SourceModal) renderAddContentOnly() string {
-	theme := CleanCyberTheme
+func (m SourceModal) renderAddContentOnly(theme StyleTheme) string {
 	var lines []string
 
 	// URL field
@@ -605,8 +606,7 @@ func (m SourceModal) renderAddContentOnly() string {
 }
 
 // renderEditContentOnly renders just the edit form content
-func (m SourceModal) renderEditContentOnly() string {
-	theme := CleanCyberTheme
+func (m SourceModal) renderEditContentOnly(theme StyleTheme) string {
 	if m.cursor >= len(m.sources) {
 		return "Invalid source selection"
 	}
@@ -630,8 +630,7 @@ func (m SourceModal) renderEditContentOnly() string {
 }
 
 // renderConfirmContentOnly renders just the confirmation content
-func (m SourceModal) renderConfirmContentOnly() string {
-	theme := CleanCyberTheme
+func (m SourceModal) renderConfirmContentOnly(theme StyleTheme) string {
 	if m.cursor >= len(m.sources) {
 		return "Invalid source selection"
 	}

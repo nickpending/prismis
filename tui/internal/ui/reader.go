@@ -211,7 +211,8 @@ func renderMetadata(metadata ContentMetadata, width int) string {
 // command that clears the status line and the reader falls back to the item's summary.
 func (m *Model) updateReaderContent() tea.Cmd {
 	if m.cursor >= len(m.items) || len(m.items) == 0 {
-		m.viewport.SetContent("No content selected")
+		m.readerMarkdown = "No content selected"
+		m.viewport.SetContent(renderSimpleMarkdown(m.readerMarkdown, m.viewport.Width, m.theme))
 		return nil
 	}
 
@@ -283,7 +284,8 @@ func (m *Model) updateReaderContent() tea.Cmd {
 	}
 
 	// Render our simple markdown format ourselves for proper wrapping
-	contentToShow = renderSimpleMarkdown(contentToShow, m.viewport.Width)
+	m.readerMarkdown = contentToShow
+	contentToShow = renderSimpleMarkdown(contentToShow, m.viewport.Width, m.theme)
 
 	// Set the viewport content
 	m.viewport.SetContent(contentToShow)

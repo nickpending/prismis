@@ -49,8 +49,7 @@ func wrapText(text string, width int) string {
 }
 
 // renderSimpleMarkdown renders our consistent markdown format with proper wrapping
-func renderSimpleMarkdown(content string, width int) string {
-	theme := CleanCyberTheme
+func renderSimpleMarkdown(content string, width int, theme StyleTheme) string {
 	lines := strings.Split(content, "\n")
 	var result []string
 

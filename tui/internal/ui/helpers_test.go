@@ -90,8 +90,8 @@ func TestRenderHeaderLine_Overview_NoContent(t *testing.T) {
 // renderHeaderLine, produce identical output for the same header text - proving
 // the consolidation didn't change either branch's behavior.
 func TestRenderSimpleMarkdown_SingleAndDoubleHashHeadersMatch(t *testing.T) {
-	doubleHash := renderSimpleMarkdown("## Summary\nSome body text.", 40)
-	singleHash := renderSimpleMarkdown("# Summary\nSome body text.", 40)
+	doubleHash := renderSimpleMarkdown("## Summary\nSome body text.", 40, CleanCyberTheme)
+	singleHash := renderSimpleMarkdown("# Summary\nSome body text.", 40, CleanCyberTheme)
 
 	if doubleHash != singleHash {
 		t.Errorf("expected '## ' and '# ' headers to render identically:\n## -> %q\n# -> %q", doubleHash, singleHash)
@@ -108,7 +108,7 @@ func TestRenderSimpleMarkdown_SingleAndDoubleHashHeadersMatch(t *testing.T) {
 func TestRenderSimpleMarkdown_OverviewBoxedForBothHeaderLevels(t *testing.T) {
 	for _, prefix := range []string{"##", "#"} {
 		content := prefix + " Overview\nThe overview body.\n\n## Key Points\n- a point"
-		out := renderSimpleMarkdown(content, 40)
+		out := renderSimpleMarkdown(content, 40, CleanCyberTheme)
 
 		if !strings.Contains(out, "The overview body.") {
 			t.Errorf("prefix %q: expected boxed overview content, got %q", prefix, out)

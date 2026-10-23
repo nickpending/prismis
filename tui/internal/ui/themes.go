@@ -74,13 +74,6 @@ var AvailableThemes = []StyleTheme{
 	LightTheme,
 }
 
-// Package-level variables for backward compatibility
-var (
-	ErrorStyle    = CleanCyberTheme.ErrorStyle()
-	DimmedStyle   = CleanCyberTheme.DimmedStyle()
-	SelectedStyle = CleanCyberTheme.SelectedStyle()
-)
-
 // Common styles using the clean cyber theme
 func (t StyleTheme) BorderStyle() lipgloss.Style {
 	return lipgloss.NewStyle().

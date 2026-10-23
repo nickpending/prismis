@@ -117,15 +117,15 @@ func RenderList(m Model) string {
 		height = 24 // Standard terminal default
 	}
 
+	theme := m.theme
+
 	if m.loading {
-		return renderLoading()
+		return renderLoading(theme)
 	}
 
 	if m.err != nil {
-		return renderError(m.err)
+		return renderError(theme, m.err)
 	}
-
-	theme := m.theme
 
 	// Build the header content with padding built-in
 	title := " PRISMIS" // Add space for left padding
@@ -556,16 +556,16 @@ func renderContentList(m Model, width, height int, theme StyleTheme) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderLoading() string {
+func renderLoading(theme StyleTheme) string {
 	return lipgloss.NewStyle().
-		Foreground(CleanCyberTheme.Cyan).
+		Foreground(theme.Cyan).
 		Bold(true).
 		Render("Loading content...")
 }
 
-func renderError(err error) string {
+func renderError(theme StyleTheme, err error) string {
 	return lipgloss.NewStyle().
-		Foreground(CleanCyberTheme.Red).
+		Foreground(theme.Red).
 		Bold(true).
 		Render(fmt.Sprintf("Error: %v", err))
 }

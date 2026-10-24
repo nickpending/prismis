@@ -8,6 +8,7 @@ XDG_DATA_HOME ?= $(HOME)/.local/share
 INSTALL_DIR := $(HOME)/.local/bin
 CONFIG_DIR := $(XDG_CONFIG_HOME)/prismis
 DATA_DIR := $(XDG_DATA_HOME)/prismis
+SHELL := /bin/bash
 
 # Interpreter version per unit comes from its .python-version, never from this file.
 DAEMON_PY := $(shell cat daemon/.python-version)

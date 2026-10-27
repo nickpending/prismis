@@ -118,6 +118,34 @@ import Testing
     #expect(refusal(home) == .missingFile(PrismisConfig.path(home: home).path))
   }
 
+  /// A file that is there but cannot be read is not reported as absent: the fix differs.
+  @Test func aFileThatCannotBeOpenedIsUnreadableNotMissing() throws {
+    let home = try home("[api]\nkey = \"A\"\n", mode: 0o000)
+    let path = PrismisConfig.path(home: home).path
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path) }
+    let error = refusal(home)
+    guard case .unreadable(let named, let reason) = error else {
+      Issue.record("an unopenable file gave \(String(describing: error)), not unreadable")
+      return
+    }
+    #expect(named == path)
+    #expect(reason.contains("Permission denied"))
+    #expect(error?.description.contains("not found") == false)
+  }
+
+  @Test func aFileThatIsNotUTF8IsUnreadableNotMissing() throws {
+    let home = try home("", mode: 0o600)
+    let path = PrismisConfig.path(home: home).path
+    try Data([0x5B, 0xFF, 0xFE, 0x5D]).write(to: URL(fileURLWithPath: path))
+    let error = refusal(home)
+    guard case .unreadable(let named, let reason) = error else {
+      Issue.record("a non-UTF-8 file gave \(String(describing: error)), not unreadable")
+      return
+    }
+    #expect(named == path)
+    #expect(reason.contains("UTF-8"))
+  }
+
   @Test func refusingAFileLeavesItsModeAndBytesAlone() throws {
     let home = try home("[api]\nkey = \"A\"\n", mode: 0o644)
     let file = PrismisConfig.path(home: home)

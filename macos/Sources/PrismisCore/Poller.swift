@@ -60,7 +60,8 @@ public actor Poller {
 
     let fresh = items.filter { !store.contains($0.id) }
     do {
-      try store.record(fresh.map(\.id), now: now)
+      // Every listed id, not only the fresh ones: a listed item's entry is never pruned.
+      try store.record(ids, now: now)
     } catch {
       log("could not write the alerted store: \(error)")
     }

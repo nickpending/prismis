@@ -2,6 +2,8 @@ import Foundation
 
 public enum ConfigError: Error, Equatable, CustomStringConvertible {
   case missingFile(String)
+  /// The file is there but could not be read: the path, and why (the system's reason, or not UTF-8).
+  case unreadable(path: String, reason: String)
   /// The key the section in use lacks, as `[remote] key` or `[api] key`.
   case missingKey(String)
   case invalidURL(String)
@@ -12,6 +14,7 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible {
   public var description: String {
     switch self {
     case .missingFile(let p): return "config not found: \(p)"
+    case .unreadable(let path, let reason): return "config \(path) cannot be read: \(reason)"
     case .missingKey(let k): return "config has no \(k)"
     case .invalidURL(let v): return "[remote] url is not an http(s) URL: \(v)"
     case .plaintextURL(let v):
@@ -51,18 +54,31 @@ public struct PrismisConfig: Sendable, Equatable {
     // Open once: the descriptor that is checked is the one that is read, so a swap of the path between the
     // check and the read cannot slip an unchecked file through.
     let fd = open(path.path, O_RDONLY)
-    if fd < 0 { throw ConfigError.missingFile(path.path) }
+    if fd < 0 {
+      // Only an absent file is missing; one that is there and refuses to open names the system's reason.
+      let code = errno
+      if code == ENOENT { throw ConfigError.missingFile(path.path) }
+      throw ConfigError.unreadable(path: path.path, reason: String(cString: strerror(code)))
+    }
     let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     var info = stat()
-    guard fstat(fd, &info) == 0 else { throw ConfigError.missingFile(path.path) }
+    guard fstat(fd, &info) == 0 else {
+      throw ConfigError.unreadable(path: path.path, reason: String(cString: strerror(errno)))
+    }
     let mode = UInt16(info.st_mode & 0o777)
     if mode & 0o077 != 0 || info.st_uid != effectiveUID {
       throw ConfigError.exposed(path: path.path, mode: mode, owner: info.st_uid)
     }
     // readToEnd returns nil, not empty Data, for an empty file.
-    guard let data = try? (handle.readToEnd() ?? Data()),
-      let text = String(data: data, encoding: .utf8)
-    else { throw ConfigError.missingFile(path.path) }
+    let data: Data
+    do {
+      data = try handle.readToEnd() ?? Data()
+    } catch {
+      throw ConfigError.unreadable(path: path.path, reason: error.localizedDescription)
+    }
+    guard let text = String(data: data, encoding: .utf8) else {
+      throw ConfigError.unreadable(path: path.path, reason: "not UTF-8 text")
+    }
     return try parse(text)
   }
 

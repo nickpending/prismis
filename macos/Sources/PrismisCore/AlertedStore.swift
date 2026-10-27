@@ -16,7 +16,8 @@ public enum AlertedStoreError: Error, CustomStringConvertible {
 /// first poll seeds it with every listed item and alerts none. A file that cannot be read counts as absent,
 /// so a damaged store reseeds rather than alerting everything again.
 public struct AlertedStore: Sendable {
-  /// Entries first alerted longer ago than this are dropped on the next write.
+  /// Entries first alerted longer ago than this are dropped on the next write, once their item is no longer
+  /// listed.
   public static let retention: TimeInterval = 30 * 86400
 
   public static var defaultFile: URL {
@@ -51,13 +52,17 @@ public struct AlertedStore: Sendable {
 
   public func alertedAt(_ id: String) -> Date? { entries[id] }
 
-  /// Adds every id not already held as first alerted at `now`, drops entries older than `retention`, and
-  /// writes the file when it changed or does not exist yet. The ids are held in memory even when the
-  /// write throws, so this process does not alert them again.
-  public mutating func record(_ ids: [String], now: Date) throws {
+  /// Takes every id the poll listed: adds each one not already held as first alerted at `now`, drops entries
+  /// older than `retention` whose item is not listed, and writes the file when it changed or does not exist
+  /// yet. A listed item keeps its entry however old it is, so an item that stays unread HIGH never alerts
+  /// twice. The ids are held in memory even when the write throws, so this process does not alert them again.
+  public mutating func record(_ listed: [String], now: Date) throws {
     var next = entries
-    for id in ids where next[id] == nil { next[id] = now }
-    next = next.filter { now.timeIntervalSince($0.value) <= Self.retention }
+    for id in listed where next[id] == nil { next[id] = now }
+    let keep = Set(listed)
+    next = next.filter {
+      keep.contains($0.key) || now.timeIntervalSince($0.value) <= Self.retention
+    }
     let changed = next != entries
     entries = next
     guard changed || !seeded else { return }

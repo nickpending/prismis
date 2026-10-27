@@ -50,6 +50,27 @@ import Testing
     #expect(left == ["alerted.json"], "the directory holds \(left)")
   }
 
+  /// An item still listed as unread HIGH keeps its entry past 30 days, so the polls after the one that
+  /// would prune it do not see it as new.
+  @Test func anEntryStillListedPastThirtyDaysIsKeptAndNeverAlertsAgain() async throws {
+    let now = Date()
+    let stillListed = item(old, "Still unread")
+    let file = try storeFile([old: now.addingTimeInterval(-31 * 86400)])
+    let server = try await FakeServer()
+    defer { server.stop() }
+    server.list([stillListed])
+    let notifier = RecordingNotifier()
+    let p = poller(server, store: file, notifier: notifier)
+
+    await p.poll(now: now)
+    await p.poll(now: now.addingTimeInterval(300))
+    // A restart reads the store from the file.
+    await poller(server, store: file, notifier: notifier).poll(now: now.addingTimeInterval(600))
+
+    #expect(notifier.posted.isEmpty, "posted \(notifier.posted.map(\.title))")
+    #expect((try? storedIDs(file)) == [old])
+  }
+
   @Test func aWriteThatCannotCompleteLeavesTheOldStoreWhole() throws {
     let file = try storeFile([today.id: Date()])
     let dir = file.deletingLastPathComponent()

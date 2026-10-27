@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -50,12 +51,7 @@ func (p *Patterns) GetPatterns() []string {
 // ValidatePattern checks if a pattern exists in the cached list
 func (p *Patterns) ValidatePattern(pattern string) bool {
 	patterns := p.GetPatterns()
-	for _, p := range patterns {
-		if p == pattern {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(patterns, pattern)
 }
 
 // FilterPatterns returns patterns matching the given prefix

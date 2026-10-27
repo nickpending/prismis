@@ -93,7 +93,7 @@ def _naive_cells(path: Path) -> list[tuple[str, str, str]]:
         for table, cols in _TIMESTAMP_COLUMNS.items():
             for col in cols:
                 for (value,) in conn.execute(
-                    f"SELECT {col} FROM {table} WHERE {col} IS NOT NULL"
+                    f"SELECT {col} FROM {table} WHERE {col} IS NOT NULL"  # nosec B608 -- table and column names are the test's own constants
                 ):
                     if not (value.endswith("Z") or value[-6] in "+-"):
                         naive.append((table, col, value))

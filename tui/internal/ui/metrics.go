@@ -131,7 +131,7 @@ func extractYouTubeMetrics(analysis string) youTubeMetrics {
 }
 
 // formatDurationMinutes formats seconds (as int or float) into minutes only
-func formatDurationMinutes(seconds interface{}) string {
+func formatDurationMinutes(seconds any) string {
 	var totalSeconds int
 
 	// Handle both int and float64 from JSON

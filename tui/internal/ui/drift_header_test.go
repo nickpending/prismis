@@ -51,7 +51,7 @@ func listModel(remoteURL string) Model {
 // view. The clock segment is the only part that moves between renders.
 func headerOf(m Model) (string, string) {
 	view := RenderList(m)
-	first := strings.SplitN(view, "\n", 2)[0]
+	first, _, _ := strings.Cut(view, "\n")
 	return ansiRE.ReplaceAllString(first, ""), view
 }
 
@@ -65,8 +65,6 @@ func withoutClock(header string) string {
 func flagged(share, baseline *float64) *db.DriftCheck {
 	return &db.DriftCheck{Flagged: true, Share: share, Baseline: baseline}
 }
-
-func f64(v float64) *float64 { return &v }
 
 // driftServer answers /api/entries with an empty feed and /api/drift with the given
 // status and body.
@@ -93,7 +91,7 @@ const (
 )
 
 // loaded runs one refresh (the load path under test) and applies its result to m.
-func loaded(t *testing.T, m Model, load func(Model) interface{}) Model {
+func loaded(t *testing.T, m Model, load func(Model) any) Model {
 	t.Helper()
 	msg := load(m)
 	got, ok := msg.(itemsLoadedMsg)
@@ -111,15 +109,15 @@ func loaded(t *testing.T, m Model, load func(Model) interface{}) Model {
 	return nm
 }
 
-func refreshLoad(m Model) interface{} { return m.buildRefreshCmd(false)() }
-func initialLoad(m Model) interface{} { return fetchItemsWithState(m, true)() }
+func refreshLoad(m Model) any { return m.buildRefreshCmd(false)() }
+func initialLoad(m Model) any { return fetchItemsWithState(m, true)() }
 
 func TestRemoteHeaderCarriesTheDriftWarning(t *testing.T) {
 	remoteTestConfig(t)
 
 	for _, load := range []struct {
 		name string
-		fn   func(Model) interface{}
+		fn   func(Model) any
 	}{{"buildRefreshCmd", refreshLoad}, {"initial load", initialLoad}} {
 		t.Run(load.name, func(t *testing.T) {
 			server := driftServer(t, 200, flaggedBody)
@@ -279,7 +277,7 @@ func TestLocalHeaderCarriesAndClearsTheDriftWarning(t *testing.T) {
 
 	storeDrift(t, raw, 0, 0.5, 0.54)
 	storeDrift(t, raw, 1, 0.62, 0.54)
-	for name, load := range map[string]func(Model) interface{}{"refresh": refreshLoad, "initial": initialLoad} {
+	for name, load := range map[string]func(Model) any{"refresh": refreshLoad, "initial": initialLoad} {
 		m = loaded(t, listModel(""), load)
 		if header, _ := headerOf(m); !strings.Contains(header, flaggedWarning) {
 			t.Fatalf("%s: header %q lacks the warning", name, header)
@@ -300,11 +298,11 @@ func TestDriftWarningTextWording(t *testing.T) {
 		want  string
 	}{
 		"nil":           {nil, ""},
-		"unflagged":     {&db.DriftCheck{Share: f64(0.62), Baseline: f64(0.54)}, ""},
-		"flagged":       {flagged(f64(0.62), f64(0.54)), flaggedWarning},
+		"unflagged":     {&db.DriftCheck{Share: new(0.62), Baseline: new(0.54)}, ""},
+		"flagged":       {flagged(new(0.62), new(0.54)), flaggedWarning},
 		"thin":          {flagged(nil, nil), thinWarning},
-		"missing base":  {flagged(f64(0.62), nil), "⚠ Drift: 62% of the last 24 hours' items are unprioritized, usual is ?"},
-		"missing share": {flagged(nil, f64(0.54)), "⚠ Drift: too few items to measure, usual is 54%"},
+		"missing base":  {flagged(new(0.62), nil), "⚠ Drift: 62% of the last 24 hours' items are unprioritized, usual is ?"},
+		"missing share": {flagged(nil, new(0.54)), "⚠ Drift: too few items to measure, usual is 54%"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := driftWarningText(tc.check); got != tc.want {
@@ -317,7 +315,7 @@ func TestDriftWarningTextWording(t *testing.T) {
 func TestNarrowTerminalKeepsTheWarningAndFiveRows(t *testing.T) {
 	m := listModel("")
 	m.width = 90
-	m.drift = flagged(f64(0.62), f64(0.54))
+	m.drift = flagged(new(0.62), new(0.54))
 	header, view := headerOf(m)
 	if !strings.Contains(header, flaggedWarning) {
 		t.Fatalf("a narrow header must keep the warning: %q", header)

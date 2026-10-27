@@ -66,43 +66,43 @@ func renderSimpleMarkdown(content string, width int, theme StyleTheme) string {
 		// Handle level-3 sub-headers (### Sub -> cyan, no prefix, not bold).
 		// Visually less prominent than ## (no ▸, not bold) but still color-distinct
 		// from body paragraphs.
-		if strings.HasPrefix(trimmed, "### ") {
-			subHeaderText := strings.TrimPrefix(trimmed, "### ")
+		if after, ok := strings.CutPrefix(trimmed, "### "); ok {
+			subHeaderText := after
 			styled := lipgloss.NewStyle().
 				Foreground(theme.Cyan).
 				Render(subHeaderText)
 			result = append(result, styled)
 			result = append(result, "") // Add space after sub-header
-		} else if strings.HasPrefix(trimmed, "## ") {
+		} else if after, ok := strings.CutPrefix(trimmed, "## "); ok {
 			// Handle headers (## Header -> ▸ Header in cyan)
-			headerText := strings.TrimPrefix(trimmed, "## ")
+			headerText := after
 			headerLines, consumed := renderHeaderLine(headerText, lines, i, width, theme)
 			result = append(result, headerLines...)
 			skipLines += consumed
-		} else if strings.HasPrefix(trimmed, "# ") {
+		} else if after, ok := strings.CutPrefix(trimmed, "# "); ok {
 			// Bigger headers (also handles # Overview in case it was converted)
-			headerText := strings.TrimPrefix(trimmed, "# ")
+			headerText := after
 			headerLines, consumed := renderHeaderLine(headerText, lines, i, width, theme)
 			result = append(result, headerLines...)
 			skipLines += consumed
-		} else if strings.HasPrefix(trimmed, "> ") {
+		} else if after, ok := strings.CutPrefix(trimmed, "> "); ok {
 			// Handle quotes with indentation and color
-			quoteText := strings.TrimPrefix(trimmed, "> ")
+			quoteText := after
 			// Remove the outer quotes if present
 			quoteText = strings.Trim(quoteText, "\"")
 
 			// Wrap the quote text with indentation
 			wrapped := wrapTextWithPrefix(quoteText, width-4, "  │ ", "  │ ")
 			// Style it with gray/dim color
-			for _, wline := range strings.Split(wrapped, "\n") {
+			for wline := range strings.SplitSeq(wrapped, "\n") {
 				styled := lipgloss.NewStyle().
 					Foreground(theme.Gray).
 					Render(wline)
 				result = append(result, styled)
 			}
-		} else if strings.HasPrefix(trimmed, "- ") {
+		} else if after, ok := strings.CutPrefix(trimmed, "- "); ok {
 			// Handle list items with proper wrapping - cyberpunk style
-			itemText := strings.TrimPrefix(trimmed, "- ")
+			itemText := after
 			// Use diamond bullets for cyber look
 			wrapped := wrapTextWithPrefix(itemText, width-4, "  ◆ ", "    ")
 			// Add cyan color to the bullet
@@ -129,8 +129,8 @@ func renderSimpleMarkdown(content string, width int, theme StyleTheme) string {
 			wrapped := wrapText(cleaned, width-2) // Reduce width for indent
 
 			// Add indent to each line
-			lines := strings.Split(wrapped, "\n")
-			for _, wline := range lines {
+			lines := strings.SplitSeq(wrapped, "\n")
+			for wline := range lines {
 				if wline != "" {
 					result = append(result, "  "+wline) // 2-space indent
 				} else {

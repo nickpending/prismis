@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 // viewFileName is the persisted view's file name under $XDG_STATE_HOME/prismis.
@@ -94,12 +95,7 @@ func (m *Model) applyViewState(v viewState) {
 }
 
 func containsString(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }
 
 // viewStatePath resolves $XDG_STATE_HOME/prismis/tui-view.json, defaulting to

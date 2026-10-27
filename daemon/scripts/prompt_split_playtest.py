@@ -121,7 +121,7 @@ def items_by_id(db_path: Path, ids_from: Path) -> list[dict]:
         rows = {
             r["id"]: dict(r)
             for r in conn.execute(
-                "SELECT c.id, c.title, c.url, c.content, c.summary, c.priority,"
+                "SELECT c.id, c.title, c.url, c.content, c.summary, c.priority,"  # nosec B608 -- only ? placeholders are interpolated; ids are bound
                 " c.analysis, s.type AS source_type, s.name AS source_name"
                 " FROM content c JOIN sources s ON s.id = c.source_id"
                 f" WHERE c.id IN ({','.join('?' * len(ids))})",

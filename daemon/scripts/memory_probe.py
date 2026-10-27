@@ -110,7 +110,7 @@ def main() -> int:
     results: dict[str, dict[str, Any]] = {}
     for view in VIEWS:
         proc = subprocess.run(
-            [sys.executable, __file__, "--db", str(args.db), "--limit", str(args.limit),
+            [sys.executable, __file__, "--db", str(args.db), "--limit", str(args.limit),  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args -- reruns this script with its own parsed args
              "--child", view],
             capture_output=True,
             text=True,

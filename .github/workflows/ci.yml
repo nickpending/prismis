@@ -17,6 +17,10 @@ on:
 #
 # One job, not one per language: verify.sh runs every unit in a single invocation, so the
 # runner needs uv, Python and Go all present at once.
+# The gate only reads the repository.
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: verify (ruff + mypy + pytest + go vet/test/staticcheck, every unit)
@@ -28,6 +32,8 @@ jobs:
           # (gh #70) walks every commit with `gitleaks git`, and a depth-1 checkout
           # would let a secret introduced and later removed pass unseen.
           fetch-depth: 0
+          # Nothing here pushes, so the token is not left in .git/config for later steps.
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:

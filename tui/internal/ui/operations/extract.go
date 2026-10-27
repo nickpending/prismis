@@ -10,7 +10,7 @@ import (
 // ExtractOperationMsg represents the result of an on-demand deep extraction request.
 type ExtractOperationMsg struct {
 	ContentID      string
-	DeepExtraction map[string]interface{}
+	DeepExtraction map[string]any
 	Success        bool
 	Error          error
 }
@@ -38,7 +38,7 @@ func ExtractContent(contentID string) tea.Cmd {
 			}
 		}
 
-		de, _ := data["deep_extraction"].(map[string]interface{})
+		de, _ := data["deep_extraction"].(map[string]any)
 		return ExtractOperationMsg{
 			ContentID:      contentID,
 			DeepExtraction: de,

@@ -291,7 +291,7 @@ func TestUpdateSource_Success(t *testing.T) {
 	defer server.Close()
 	setupRemoteConfig(t, server.URL)
 
-	result := UpdateSource(testSourceID, map[string]interface{}{
+	result := UpdateSource(testSourceID, map[string]any{
 		"url":  "https://example.com/feed.xml",
 		"type": "rss",
 		"name": "Renamed Feed",
@@ -312,7 +312,7 @@ func TestUpdateSource_Success(t *testing.T) {
 func TestUpdateSource_MissingURL(t *testing.T) {
 	setupRemoteConfig(t, "http://127.0.0.1:1")
 
-	result := UpdateSource(testSourceID, map[string]interface{}{"type": "rss"})()
+	result := UpdateSource(testSourceID, map[string]any{"type": "rss"})()
 	msg, ok := result.(SourceOperationMsg)
 	if !ok {
 		t.Fatalf("expected SourceOperationMsg, got %T", result)

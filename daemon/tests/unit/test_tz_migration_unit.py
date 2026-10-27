@@ -141,7 +141,7 @@ def _dump(path: Path) -> dict[str, list[tuple]]:
     conn = _connect(path)
     try:
         return {
-            table: conn.execute(f"SELECT * FROM {table} ORDER BY 1, 2").fetchall()
+            table: conn.execute(f"SELECT * FROM {table} ORDER BY 1, 2").fetchall()  # nosec B608 -- table names are the test's own constants
             for table in TIMESTAMP_COLUMNS
         }
     finally:
@@ -155,7 +155,7 @@ def _all_values(path: Path) -> list[tuple[str, str, str]]:
         for table, cols in TIMESTAMP_COLUMNS.items():
             for col in cols:
                 for (v,) in conn.execute(
-                    f"SELECT {col} FROM {table} WHERE {col} IS NOT NULL"
+                    f"SELECT {col} FROM {table} WHERE {col} IS NOT NULL"  # nosec B608 -- table and column names are the test's own constants
                 ):
                     out.append((table, col, v))
         return out
@@ -259,7 +259,8 @@ def test_migration_recreated_triggers_write_offset_updated_at(tmp_path: Path) ->
             ("categories", "cat-1"),
         ):
             (value,) = conn.execute(
-                f"SELECT updated_at FROM {table} WHERE id = ?", (key,)
+                f"SELECT updated_at FROM {table} WHERE id = ?",  # nosec B608 -- table names are the test's own constants
+                (key,),
             ).fetchone()
             assert value.endswith("+00:00"), f"{table} trigger wrote {value!r}"
             assert datetime.fromisoformat(value).tzinfo is not None

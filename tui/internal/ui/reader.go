@@ -42,7 +42,7 @@ func parseMetadata(analysisJSON string) ContentMetadata {
 		return ContentMetadata{}
 	}
 
-	var analysis map[string]interface{}
+	var analysis map[string]any
 	if err := json.Unmarshal([]byte(analysisJSON), &analysis); err != nil {
 		return ContentMetadata{}
 	}
@@ -50,7 +50,7 @@ func parseMetadata(analysisJSON string) ContentMetadata {
 	metadata := ContentMetadata{}
 
 	// Extract quotes
-	if quotes, ok := analysis["quotes"].([]interface{}); ok {
+	if quotes, ok := analysis["quotes"].([]any); ok {
 		for _, quote := range quotes {
 			if str, ok := quote.(string); ok {
 				metadata.Quotes = append(metadata.Quotes, str)
@@ -59,7 +59,7 @@ func parseMetadata(analysisJSON string) ContentMetadata {
 	}
 
 	// Extract tools
-	if tools, ok := analysis["tools"].([]interface{}); ok {
+	if tools, ok := analysis["tools"].([]any); ok {
 		for _, tool := range tools {
 			if str, ok := tool.(string); ok {
 				metadata.Tools = append(metadata.Tools, str)
@@ -68,7 +68,7 @@ func parseMetadata(analysisJSON string) ContentMetadata {
 	}
 
 	// Extract URLs
-	if urls, ok := analysis["urls"].([]interface{}); ok {
+	if urls, ok := analysis["urls"].([]any); ok {
 		for _, url := range urls {
 			if str, ok := url.(string); ok {
 				metadata.URLs = append(metadata.URLs, str)
@@ -224,10 +224,7 @@ func (m *Model) updateReaderContent() tea.Cmd {
 
 	// Calculate content pane dimensions (same as in RenderList)
 	contentHeight := m.height - 5
-	sidebarWidth := m.width / 4
-	if sidebarWidth < 30 {
-		sidebarWidth = 30
-	}
+	sidebarWidth := max(m.width/4, 30)
 	contentWidth := m.width - sidebarWidth - 1
 
 	// Viewport dimensions - account for reader header and metadata

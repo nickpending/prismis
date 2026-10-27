@@ -116,7 +116,7 @@ func TestExecutePrune_Success(t *testing.T) {
 	if len(requests) != 1 {
 		t.Errorf("expected only POST /api/prune to be requested, got %v", requests)
 	}
-	if _, has := reflect.TypeOf(PruneResultMsg{}).FieldByName("Count"); has {
+	if _, has := reflect.TypeFor[PruneResultMsg]().FieldByName("Count"); has {
 		t.Error("PruneResultMsg must not declare a Count field: nothing reads it")
 	}
 }

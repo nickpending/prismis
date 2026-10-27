@@ -83,10 +83,7 @@ func (m HelpModal) View(theme StyleTheme) string {
 	title := "KEYBOARD SHORTCUTS"
 	// Center the title
 	titleWidth := lipgloss.Width(title)
-	titlePadding := (m.width - 4 - titleWidth) / 2
-	if titlePadding < 0 {
-		titlePadding = 0
-	}
+	titlePadding := max((m.width-4-titleWidth)/2, 0)
 	centeredTitle := strings.Repeat(" ", titlePadding) + title
 	content.WriteString(titleStyle.Render(centeredTitle))
 	content.WriteString("\n\n")
@@ -96,10 +93,7 @@ func (m HelpModal) View(theme StyleTheme) string {
 		Foreground(theme.Gray).
 		Italic(true)
 	introText := "Press : to enter command mode. Use Tab to complete commands and fabric patterns."
-	introPadding := (m.width - 4 - lipgloss.Width(introText)) / 2
-	if introPadding < 0 {
-		introPadding = 0
-	}
+	introPadding := max((m.width-4-lipgloss.Width(introText))/2, 0)
 	centeredIntro := strings.Repeat(" ", introPadding) + introText
 	content.WriteString(introStyle.Render(centeredIntro))
 	content.WriteString("\n\n")
@@ -145,10 +139,7 @@ func (m HelpModal) View(theme StyleTheme) string {
 	// Helper function to create section headers
 	sectionHeader := func(title string) string {
 		headerText := "── " + title + " "
-		remainingWidth := m.width - 8 - lipgloss.Width(headerText)
-		if remainingWidth < 0 {
-			remainingWidth = 0
-		}
+		remainingWidth := max(m.width-8-lipgloss.Width(headerText), 0)
 		return sectionStyle.Render(headerText + strings.Repeat("─", remainingWidth))
 	}
 
@@ -215,10 +206,7 @@ func (m HelpModal) View(theme StyleTheme) string {
 		Foreground(theme.Gray).
 		Italic(true)
 	footerText := "Press ESC or ? to close"
-	footerPadding := (m.width - 4 - lipgloss.Width(footerText)) / 2
-	if footerPadding < 0 {
-		footerPadding = 0
-	}
+	footerPadding := max((m.width-4-lipgloss.Width(footerText))/2, 0)
 	centeredFooter := strings.Repeat(" ", footerPadding) + footerText
 	content.WriteString(footerStyle.Render(centeredFooter))
 

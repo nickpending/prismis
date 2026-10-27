@@ -149,30 +149,30 @@ func (t StyleTheme) ToGlamourStyle() ansi.StyleConfig {
 	style := styles.DraculaStyleConfig
 
 	// Remove document margin for proper modal rendering
-	style.Document.Margin = uintPtr(0)
+	style.Document.Margin = new(uint(0))
 
 	// Map our theme colors to glamour's markdown elements
-	style.Document.StylePrimitive.Color = stringPtr(string(t.White))
-	style.Heading.StylePrimitive.Color = stringPtr(string(t.Cyan))
-	style.Heading.StylePrimitive.Bold = boolPtr(true)
+	style.Document.StylePrimitive.Color = new(string(t.White))
+	style.Heading.StylePrimitive.Color = new(string(t.Cyan))
+	style.Heading.StylePrimitive.Bold = new(true)
 
 	// Make H1 stand out more than H2
-	style.H1.StylePrimitive.Color = stringPtr(string(t.Cyan))
-	style.H1.StylePrimitive.Bold = boolPtr(true)
+	style.H1.StylePrimitive.Color = new(string(t.Cyan))
+	style.H1.StylePrimitive.Bold = new(true)
 	style.H1.StylePrimitive.Prefix = ""
 	style.H1.Prefix = "▸ " // Replace ## with arrow
 	style.H1.Suffix = ""   // Remove any suffix
 	style.H1.Format = ""   // Clear the ## format
 
 	// H2 headers
-	style.H2.StylePrimitive.Color = stringPtr(string(t.Cyan))
-	style.H2.StylePrimitive.Bold = boolPtr(true)
+	style.H2.StylePrimitive.Color = new(string(t.Cyan))
+	style.H2.StylePrimitive.Bold = new(true)
 	style.H2.Prefix = "▸ " // Replace ## with arrow
 	style.H2.Suffix = ""
 	style.H2.Format = ""
 
 	// H3 headers
-	style.H3.StylePrimitive.Color = stringPtr(string(t.Cyan))
+	style.H3.StylePrimitive.Color = new(string(t.Cyan))
 	style.H3.Prefix = "▸ " // Replace ### with arrow
 	style.H3.Suffix = ""
 	style.H3.Format = ""
@@ -188,42 +188,37 @@ func (t StyleTheme) ToGlamourStyle() ansi.StyleConfig {
 	style.H6.Suffix = ""
 	style.H6.Format = ""
 
-	style.Link.Color = stringPtr(string(t.Purple))
-	style.LinkText.Color = stringPtr(string(t.Purple))
-	style.Code.Color = stringPtr(string(t.Green))
-	style.CodeBlock.StylePrimitive.Color = stringPtr(string(t.Green))
-	style.Emph.Color = stringPtr(string(t.Orange))
-	style.Strong.Color = stringPtr(string(t.Red))
+	style.Link.Color = new(string(t.Purple))
+	style.LinkText.Color = new(string(t.Purple))
+	style.Code.Color = new(string(t.Green))
+	style.CodeBlock.StylePrimitive.Color = new(string(t.Green))
+	style.Emph.Color = new(string(t.Orange))
+	style.Strong.Color = new(string(t.Red))
 
 	// List styling - subtle indent, normal text color
-	style.List.StyleBlock.Indent = uintPtr(1)                               // Small indent for lists
-	style.List.StyleBlock.IndentToken = stringPtr("  ")                     // 2 spaces for wrapped lines
-	style.List.StyleBlock.StylePrimitive.Color = stringPtr(string(t.White)) // Normal white text
-	style.List.LevelIndent = 4                                              // Indent nested lists more
+	style.List.StyleBlock.Indent = new(uint(1))                       // Small indent for lists
+	style.List.StyleBlock.IndentToken = new("  ")                     // 2 spaces for wrapped lines
+	style.List.StyleBlock.StylePrimitive.Color = new(string(t.White)) // Normal white text
+	style.List.LevelIndent = 4                                        // Indent nested lists more
 
 	// Item styling - simple and clean
-	style.Item.BlockPrefix = "• "                 // Bullet prefix
-	style.Item.Color = stringPtr(string(t.White)) // White text for items
-	style.Item.Format = ""                        // Clear any default format
+	style.Item.BlockPrefix = "• "           // Bullet prefix
+	style.Item.Color = new(string(t.White)) // White text for items
+	style.Item.Format = ""                  // Clear any default format
 
 	// Enumeration (numbered lists) - normal color
-	style.Enumeration.Color = stringPtr(string(t.White)) // White for numbered lists too
+	style.Enumeration.Color = new(string(t.White)) // White for numbered lists too
 
 	// Task list items
 	style.Task.Ticked = "[✓] "
 	style.Task.Unticked = "[ ] "
 
 	// Make blockquotes lighter - use a lighter gray or dim white
-	style.BlockQuote.StylePrimitive.Color = stringPtr("#999999") // Lighter gray for better readability
-	style.BlockQuote.StylePrimitive.Italic = boolPtr(true)
+	style.BlockQuote.StylePrimitive.Color = new("#999999") // Lighter gray for better readability
+	style.BlockQuote.StylePrimitive.Italic = new(true)
 
 	return style
 }
-
-// Helper functions for creating pointers
-func stringPtr(s string) *string { return &s }
-func uintPtr(u uint) *uint       { return &u }
-func boolPtr(b bool) *bool       { return &b }
 
 // RenderWithGradientBackground renders text with a gradient background
 func RenderWithGradientBackground(text string, width int, startColor, endColor string) string {

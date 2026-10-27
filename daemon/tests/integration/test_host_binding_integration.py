@@ -93,7 +93,7 @@ def test_host_config_uvicorn_binding() -> None:
         config = Config.from_file(config_path)
 
         uvicorn_config = uvicorn.Config(app, host=config.api_host, port=8989)
-        assert uvicorn_config.host == "0.0.0.0", (
+        assert uvicorn_config.host == "0.0.0.0", (  # nosec B104 -- asserts the configured LAN binding, binds nothing
             f"Should bind to all interfaces, got {uvicorn_config.host}"
         )
 

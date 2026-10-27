@@ -23,7 +23,10 @@ e2ffa94fd3c04ecd1b01d8492c34fc725138bb95:daemon/tests/integration/test_analyzer_
 # (recorded-youtube-tests, gh #60), replaced by the r/linux re-record at 60eca5c: 46
 # Reddit media `s=` URL signatures (sourcegraph-access-token) and one analytics
 # clientToken a public page ships to every browser (generic-api-key). Neither is a
-# credential; the record hook in daemon/tests/conftest.py now scrubs both.
+# credential; the record hook in daemon/tests/conftest.py now scrubs both. Betterleaks
+# adds two more from the same recording: the page's PostHog project key, also shipped to
+# every browser (posthog-project-api-key, now scrubbed too), and `password:!0` inside
+# minified analytics JavaScript (generic-password), which is no value at all.
 2615b8e14f7006a41d80a3abfc37f7ba31d9cd7e:daemon/tests/fixtures/http_cassettes/test_reddit_fetcher_integration/test_fetch_reddit_filters_image_posts.yaml:generic-api-key:16314
 2615b8e14f7006a41d80a3abfc37f7ba31d9cd7e:daemon/tests/fixtures/http_cassettes/test_reddit_fetcher_integration/test_fetch_reddit_filters_image_posts.yaml:sourcegraph-access-token:2852
 2615b8e14f7006a41d80a3abfc37f7ba31d9cd7e:daemon/tests/fixtures/http_cassettes/test_reddit_fetcher_integration/test_fetch_reddit_filters_image_posts.yaml:sourcegraph-access-token:2853
@@ -71,6 +74,8 @@ e2ffa94fd3c04ecd1b01d8492c34fc725138bb95:daemon/tests/integration/test_analyzer_
 2615b8e14f7006a41d80a3abfc37f7ba31d9cd7e:daemon/tests/fixtures/http_cassettes/test_reddit_fetcher_integration/test_fetch_reddit_filters_image_posts.yaml:sourcegraph-access-token:16450
 2615b8e14f7006a41d80a3abfc37f7ba31d9cd7e:daemon/tests/fixtures/http_cassettes/test_reddit_fetcher_integration/test_fetch_reddit_filters_image_posts.yaml:sourcegraph-access-token:16451
 2615b8e14f7006a41d80a3abfc37f7ba31d9cd7e:daemon/tests/fixtures/http_cassettes/test_reddit_fetcher_integration/test_fetch_reddit_filters_image_posts.yaml:sourcegraph-access-token:16452
+2615b8e14f7006a41d80a3abfc37f7ba31d9cd7e:daemon/tests/fixtures/http_cassettes/test_reddit_fetcher_integration/test_fetch_reddit_filters_image_posts.yaml:generic-password:11625
+2615b8e14f7006a41d80a3abfc37f7ba31d9cd7e:daemon/tests/fixtures/http_cassettes/test_reddit_fetcher_integration/test_fetch_reddit_filters_image_posts.yaml:posthog-project-api-key:9178
 
 # apiconf's pinned git commit SHA (a commit hash, not a credential) in
 # daemon/tests/unit/test_dep_pin_unit.py's _APICONF_VALIDATED_SHA, added at 5dc7101 and

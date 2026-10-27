@@ -65,19 +65,19 @@ def _migrate_1_tz_aware_timestamps(conn: sqlite3.Connection) -> None:
     for table, columns in _TIMESTAMP_COLUMNS.items():
         for col in columns:
             conn.execute(
-                f"UPDATE {table} SET {col} = replace(substr({col}, 1, 19), ' ', 'T')"
+                f"UPDATE {table} SET {col} = replace(substr({col}, 1, 19), ' ', 'T')"  # nosec B608 -- table and column names come from _TIMESTAMP_COLUMNS, not input
                 f" || substr({col}, 20) || '+00:00'"
                 f" WHERE {_NAIVE_SHAPE.format(c=col)}"
             )
             conn.execute(
-                f"UPDATE {table} SET {col} = replace(substr({col}, 1, 19), ' ', 'T')"
+                f"UPDATE {table} SET {col} = replace(substr({col}, 1, 19), ' ', 'T')"  # nosec B608 -- table and column names come from _TIMESTAMP_COLUMNS, not input
                 f" || substr({col}, 20)"
                 f" WHERE {_AWARE_SPACE_SHAPE.format(c=col)}"
             )
 
     for table in ("sources", "categories", "content"):
         conn.execute(
-            f"CREATE TRIGGER update_{table}_timestamp AFTER UPDATE ON {table} BEGIN "
+            f"CREATE TRIGGER update_{table}_timestamp AFTER UPDATE ON {table} BEGIN "  # nosec B608 -- table names are the three literals in this loop
             f"UPDATE {table} SET updated_at = {_TZ_TRIGGER_EXPR} WHERE id = NEW.id; END"
         )
 
@@ -85,7 +85,7 @@ def _migrate_1_tz_aware_timestamps(conn: sqlite3.Connection) -> None:
     for table, columns in _TIMESTAMP_COLUMNS.items():
         for col in columns:
             (count,) = conn.execute(
-                f"SELECT COUNT(*) FROM {table}"
+                f"SELECT COUNT(*) FROM {table}"  # nosec B608 -- table and column names come from _TIMESTAMP_COLUMNS, not input
                 f" WHERE {col} IS NOT NULL AND NOT ({_AWARE_SHAPE.format(c=col)})"
             ).fetchone()
             if count:

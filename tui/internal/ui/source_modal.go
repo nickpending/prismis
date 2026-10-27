@@ -91,10 +91,7 @@ func (m *SourceModal) SetSize(width, height int) {
 
 	// Update viewport size to fill the modal
 	// Account for: border (2) + padding (2) + header (2) + status bar (1) = 7
-	vpHeight := modalHeight - 7
-	if vpHeight < 3 {
-		vpHeight = 3
-	}
+	vpHeight := max(modalHeight-7, 3)
 	m.viewport.Width = modalWidth - 4 // Account for padding
 	m.viewport.Height = vpHeight
 	m.ready = true
@@ -113,10 +110,7 @@ func (m *SourceModal) LoadSources(sources []db.Source) {
 	}
 	// Ensure viewport is initialized if not ready
 	if !m.ready && m.height > 0 {
-		vpHeight := m.height - 7
-		if vpHeight < 3 {
-			vpHeight = 3
-		}
+		vpHeight := max(m.height-7, 3)
 		m.viewport.Width = m.width - 4
 		m.viewport.Height = vpHeight
 		m.ready = true
@@ -231,7 +225,7 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 				}
 
 				// Build updates map for the update command
-				updates := map[string]interface{}{
+				updates := map[string]any{
 					"url":  url,
 					"type": source.Type, // Keep same type
 				}
@@ -403,10 +397,7 @@ func (m SourceModal) View(theme StyleTheme) string {
 		// Calculate spacing
 		leftWidth := lipgloss.Width(titleText)
 		rightWidth := lipgloss.Width(countRendered)
-		spacing := m.width - 4 - leftWidth - rightWidth
-		if spacing < 1 {
-			spacing = 1
-		}
+		spacing := max(m.width-4-leftWidth-rightWidth, 1)
 
 		content.WriteString(titleText + strings.Repeat(" ", spacing) + countRendered)
 	} else {
@@ -545,14 +536,8 @@ func (m SourceModal) renderListContentOnly(theme StyleTheme) string {
 			}
 
 			// Calculate padding based on actual string length (not styled width)
-			titlePadding := titleWidth - len(displayName)
-			if titlePadding < 0 {
-				titlePadding = 0
-			}
-			typePadding := typeWidth - len(strings.ToUpper(source.Type))
-			if typePadding < 0 {
-				typePadding = 0
-			}
+			titlePadding := max(titleWidth-len(displayName), 0)
+			typePadding := max(typeWidth-len(strings.ToUpper(source.Type)), 0)
 
 			// Build columnar line
 			line := fmt.Sprintf("%s%s %s%s %s%s %s",

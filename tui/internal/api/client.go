@@ -51,9 +51,9 @@ type SourceRequest struct {
 
 // APIResponse represents the standard API response format
 type APIResponse struct {
-	Success bool                   `json:"success"`
-	Message string                 `json:"message"`
-	Data    map[string]interface{} `json:"data,omitempty"`
+	Success bool           `json:"success"`
+	Message string         `json:"message"`
+	Data    map[string]any `json:"data,omitempty"`
 }
 
 // Source represents a content source
@@ -133,9 +133,9 @@ func (t *apiTime) UnmarshalJSON(b []byte) error {
 
 // EntriesResponse represents the response from GET /api/entries
 type EntriesResponse struct {
-	Items          []ContentItem          `json:"items"`
-	Total          int                    `json:"total"`
-	FiltersApplied map[string]interface{} `json:"filters_applied"`
+	Items          []ContentItem  `json:"items"`
+	Total          int            `json:"total"`
+	FiltersApplied map[string]any `json:"filters_applied"`
 }
 
 // NewClient creates a new API client with config loading (local mode)
@@ -288,7 +288,7 @@ func decodeAndCheckAuth(status int, body []byte) (APIResponse, error) {
 // sendJSON marshals request and sends it through doRequest — the "marshal,
 // check the error, then call doRequest" preamble every JSON-bodied method
 // above shares, identically down to the wrapped marshal-error message.
-func (c *APIClient) sendJSON(method, path string, request interface{}, timeout time.Duration) (int, []byte, error) {
+func (c *APIClient) sendJSON(method, path string, request any, timeout time.Duration) (int, []byte, error) {
 	jsonData, err := json.Marshal(request)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -538,7 +538,7 @@ func (c *APIClient) GetSources() (*SourceListResponse, error) {
 
 	// Extract the sources from the data field
 	var sourceList SourceListResponse
-	if data, ok := apiResp.Data["sources"].([]interface{}); ok {
+	if data, ok := apiResp.Data["sources"].([]any); ok {
 		// Convert []interface{} to []Source
 		sources := make([]Source, 0, len(data))
 		for _, item := range data {
@@ -826,7 +826,7 @@ func (c *APIClient) GenerateAudioBriefing() (*AudioBriefingResponse, error) {
 // ExtractEntry triggers on-demand deep extraction for a content entry.
 // Returns the data field from the API response, which contains the
 // deep_extraction object on success (idempotent: repeat calls return cached result).
-func (c *APIClient) ExtractEntry(contentID string) (map[string]interface{}, error) {
+func (c *APIClient) ExtractEntry(contentID string) (map[string]any, error) {
 	// Deep extraction can take 10-30 seconds (LLM call); use a longer timeout.
 	status, body, err := c.doRequest("POST", "/api/entries/"+contentID+"/extract", nil, 60*time.Second)
 	if err != nil {

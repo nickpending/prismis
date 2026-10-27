@@ -166,10 +166,7 @@ func RenderList(m Model) string {
 	contentHeight := height - 5
 
 	// Left sidebar (25% width)
-	sidebarWidth := width / 4
-	if sidebarWidth < 30 {
-		sidebarWidth = 30
-	}
+	sidebarWidth := max(width/4, 30)
 
 	// Right content (75% width)
 	contentWidth := width - sidebarWidth - 1
@@ -597,10 +594,10 @@ func formatTime(d time.Duration) string {
 func extractDomain(url string) string {
 	// Handle URL with or without protocol
 	cleanURL := url
-	if strings.HasPrefix(url, "http://") {
-		cleanURL = strings.TrimPrefix(url, "http://")
-	} else if strings.HasPrefix(url, "https://") {
-		cleanURL = strings.TrimPrefix(url, "https://")
+	if after, ok := strings.CutPrefix(url, "http://"); ok {
+		cleanURL = after
+	} else if after, ok := strings.CutPrefix(url, "https://"); ok {
+		cleanURL = after
 	}
 
 	// Split by "/" to get domain part
@@ -757,13 +754,6 @@ func renderReaderContent(m Model, width, height int, theme StyleTheme) string {
 	content.WriteString(m.viewport.View())
 
 	return content.String()
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // getMemoryUsage returns current memory usage

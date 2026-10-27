@@ -285,12 +285,9 @@ class Storage:
         # pattern for a hardcoded (never user-input) dynamic SQL fragment (see
         # PRUNE_EXCLUSION_WHERE and every `query +=` above).
         cursor = self.conn.execute(
-            """
-            SELECT c.*, s.name as source_name, s.type as source_type
-            FROM content c
-            LEFT JOIN sources s ON c.source_id = s.id
-            """
-            + where_sql,
+            "SELECT c.*, s.name as source_name, s.type as source_type"  # nosec B608 -- where_sql is a fixed fragment with ? placeholders
+            " FROM content c"
+            " LEFT JOIN sources s ON c.source_id = s.id " + where_sql,
             tuple(params),
         )
         return self._map_content_rows(cursor.fetchall(), omit=omit)
@@ -1060,7 +1057,7 @@ class Storage:
         where, params = self._content_list_where(**filters)
         try:
             row = self.conn.execute(
-                "SELECT COUNT(*) FROM (SELECT 1 FROM content c"
+                "SELECT COUNT(*) FROM (SELECT 1 FROM content c"  # nosec B608 -- where is built from fixed fragments with ? placeholders
                 " JOIN sources s ON c.source_id = s.id"
                 f"{where} LIMIT ?)",
                 (*params, limit),

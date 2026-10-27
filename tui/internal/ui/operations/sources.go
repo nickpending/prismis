@@ -202,7 +202,7 @@ func EditSourceName(identifier string, newName string) tea.Cmd {
 		}
 
 		// Update with current URL/Type and new name
-		updates := map[string]interface{}{
+		updates := map[string]any{
 			"url":  currentURL,
 			"type": currentType,
 			"name": newName,
@@ -214,7 +214,7 @@ func EditSourceName(identifier string, newName string) tea.Cmd {
 }
 
 // UpdateSource updates a source with the given changes
-func UpdateSource(sourceID string, updates map[string]interface{}) tea.Cmd {
+func UpdateSource(sourceID string, updates map[string]any) tea.Cmd {
 	return func() tea.Msg {
 		apiClient, errMsg := newClientOrErrMsg()
 		if errMsg != nil {

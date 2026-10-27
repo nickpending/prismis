@@ -29,10 +29,10 @@ func TestPoolSingletonStress(t *testing.T) {
 
 	var wg sync.WaitGroup
 	errors := make(chan error, numGoroutines*opsPerGoroutine)
-	poolInstances := make(chan interface{}, numGoroutines)
+	poolInstances := make(chan any, numGoroutines)
 
 	// Launch many goroutines simultaneously
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -48,7 +48,7 @@ func TestPoolSingletonStress(t *testing.T) {
 			poolInstances <- db
 
 			// Perform multiple operations
-			for j := 0; j < opsPerGoroutine; j++ {
+			for range opsPerGoroutine {
 				// Simple query to verify pool works
 				var result int
 				err := db.QueryRow("SELECT 1").Scan(&result)
@@ -80,7 +80,7 @@ func TestPoolSingletonStress(t *testing.T) {
 	}
 
 	// Verify singleton property - all should get same instance
-	var firstInstance interface{}
+	var firstInstance any
 	instanceCount := 0
 	for instance := range poolInstances {
 		instanceCount++

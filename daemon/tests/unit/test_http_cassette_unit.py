@@ -24,6 +24,7 @@ import yaml
 
 from conftest import (
     ACCESS_TOKEN_PLACEHOLDER,
+    ANALYTICS_KEY_PLACEHOLDER,
     CLIENT_TOKEN_PLACEHOLDER,
     HTTP_CASSETTES_DIR,
     MEDIA_SIGNATURE_PLACEHOLDER,
@@ -263,6 +264,8 @@ def assert_cassette_holds_no_credential(cassette: dict[str, Any], text: str) -> 
         )
     for value in _client_token_values(text):
         assert value == CLIENT_TOKEN_PLACEHOLDER, f"unscrubbed clientToken: {value!r}"
+    for value in _analytics_key_values(text):
+        assert value == ANALYTICS_KEY_PLACEHOLDER, f"unscrubbed PostHog key: {value!r}"
 
 
 def _access_token_values(text: str) -> list[str]:
@@ -284,6 +287,12 @@ def _client_token_values(text: str) -> list[str]:
     import re
 
     return re.findall(r"clientToken\\?[\"']?\s*[:=]\s*\\?[\"']([^\"'\\]+)", text)
+
+
+def _analytics_key_values(text: str) -> list[str]:
+    import re
+
+    return re.findall(r"phc_[A-Za-z0-9]+", text)
 
 
 def test_every_committed_cassette_holds_no_credential() -> None:
@@ -331,7 +340,7 @@ _SIGNED_BODY = (
     b'9b8f00e83095daaa5e14", "html": "<a href=\\"https://preview.redd.it/m2i.png?width=1920'
     b'&amp;format=png&amp;s=87695aaf9302a08de5d0283ebeeb8f9a05b8f217\\">", '
     b'"page": "DD_RUM.init({clientToken: \'fake-browser-token\', '
-    b'site: \'x\'})", "icon": "https://styles.redditmedia.com/t5/icon.png?width=256&s=5e99'
+    b'site: \'x\'}); posthog.init("phc_FakeProjectKey0123456789abcdef")", "icon": "https://styles.redditmedia.com/t5/icon.png?width=256&s=5e99'
     b'f497418f31f47439c0e8de10553ea9150a00", "kept": "https://example.com/?s=abc"}'
 )
 
@@ -345,9 +354,11 @@ def test_the_record_hook_replaces_media_signatures_and_client_tokens() -> None:
         "87695aaf9302a08de5d0283ebeeb8f9a05b8f217",
         "5e99f497418f31f47439c0e8de10553ea9150a00",
         "fake-browser-token",
+        "phc_FakeProjectKey0123456789abcdef",
     ):
         assert secret not in text
     assert text.count(MEDIA_SIGNATURE_PLACEHOLDER) == 3, "replaced, not dropped"
     assert CLIENT_TOKEN_PLACEHOLDER in text
+    assert ANALYTICS_KEY_PLACEHOLDER in text
     assert "https://example.com/?s=abc" in text, "only Reddit media URLs are touched"
     assert_cassette_holds_no_credential({"interactions": []}, text)

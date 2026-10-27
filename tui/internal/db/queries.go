@@ -56,7 +56,7 @@ func queryContentWithFilter(priorityFilter string, readFilter *bool, showUnprior
 	// Build query with proper JOIN to get source info
 	query := contentSelectBase
 
-	var args []interface{}
+	var args []any
 
 	// Add read filter if specified
 	if readFilter != nil {
@@ -202,7 +202,7 @@ func GetContentWithFilters(priority string, showUnprioritized bool, showAll bool
 	// Build query with proper JOIN to get source info
 	query := contentSelectBase
 
-	var args []interface{}
+	var args []any
 
 	// Add archived filter (default excludes archived)
 	if showArchived {
@@ -536,7 +536,7 @@ func SetUserFeedback(contentID string, vote string) error {
 	}
 
 	// Use NULL for empty string to match database schema
-	var voteValue interface{}
+	var voteValue any
 	if vote == "" {
 		voteValue = nil
 	} else {

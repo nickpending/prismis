@@ -641,7 +641,7 @@ func TestConcurrentFavoriteOperations(t *testing.T) {
 			return
 		}
 
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			// Toggle item 1's favorite status
 			_, _ = db.Exec("UPDATE content SET favorited = 1 - favorited WHERE id = ?", "1")
 		}
@@ -651,7 +651,7 @@ func TestConcurrentFavoriteOperations(t *testing.T) {
 	// Goroutine 2: Read favorites count repeatedly
 	counts := make([]int, 0)
 	go func() {
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			count, err := GetFavoritesCount()
 			if err == nil {
 				counts = append(counts, count)

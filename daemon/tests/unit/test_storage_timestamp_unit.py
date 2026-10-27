@@ -65,7 +65,7 @@ def _assert_all_aware(conn: sqlite3.Connection) -> list[tuple[str, str]]:
     columns = _timestamp_columns(conn)
     for table, column in columns:
         for (value,) in conn.execute(
-            f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL"
+            f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL"  # nosec B608 -- table and column names are the test's own constants
         ):
             parsed = datetime.fromisoformat(value)
             assert parsed.tzinfo is not None, f"{table}.{column} holds naive {value!r}"
@@ -184,7 +184,7 @@ def test_every_timestamp_column_is_tz_aware_after_every_write_path(
         )
         for table, column in columns:
             (written,) = storage.conn.execute(
-                f"SELECT COUNT(*) FROM {table} WHERE {column} IS NOT NULL"
+                f"SELECT COUNT(*) FROM {table} WHERE {column} IS NOT NULL"  # nosec B608 -- table and column names are the test's own constants
             ).fetchone()
             assert written, f"{table}.{column} was never written by the exercised paths"
     finally:

@@ -241,10 +241,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Height = msg.Height - 8
 		m.ready = true
 		// Set sources viewport size (sidebar is 1/4 width)
-		sidebarWidth := msg.Width / 4
-		if sidebarWidth < 30 {
-			sidebarWidth = 30
-		}
+		sidebarWidth := max(msg.Width/4, 30)
 		m.sourcesViewport.Width = sidebarWidth - 2 // Padding for borders
 		// Sources take ~65% of sidebar height (after stats section)
 		sidebarHeight := msg.Height - 6 // Account for header/footer
@@ -1088,9 +1085,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Success && msg.DeepExtraction != nil {
 			for i, item := range m.items {
 				if item.ID == msg.ContentID {
-					var analysis map[string]interface{}
+					var analysis map[string]any
 					if err := json.Unmarshal([]byte(item.Analysis), &analysis); err != nil {
-						analysis = make(map[string]interface{})
+						analysis = make(map[string]any)
 					}
 					analysis["deep_extraction"] = msg.DeepExtraction
 					if updated, err := json.Marshal(analysis); err == nil {
@@ -1803,7 +1800,7 @@ func extractReadingSummary(analysisJSON string) string {
 		return ""
 	}
 
-	var analysis map[string]interface{}
+	var analysis map[string]any
 	if err := json.Unmarshal([]byte(analysisJSON), &analysis); err != nil {
 		return ""
 	}

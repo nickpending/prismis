@@ -1,0 +1,108 @@
+{
+  "workOrder": "menubar-app",
+  "what": "Job 1 of the menu-bar app: the web view (daemon/src/prismis_daemon/static/index.html) opens one item's detail panel when its URL carries #item=<id>, at load once an API key is held (at init, or right after the key modal saves one) and on every later hashchange, through the existing openDetail; an id that is not a canonical lowercase UUID opens nothing and makes no request; closing the panel removes the hash without a new history entry; API.md documents the link. Job 2, the Swift menu-bar app, is its own work order.",
+  "why": "The design is docs/work/menubar-app/design.md. The menu-bar app (#102) opens a clicked or notified item in the web view's detail panel, which holds prismis's reading summary and deep synthesis, and today nothing can open the web view at one item. The id comes from a URL anyone can craft and is interpolated into openDetail's authenticated request path, so its shape is checked before any request.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "the real app under uvicorn over a database holding items whose ids are canonical UUIDs, and a browser whose localStorage holds the API key",
+      "when": "Chromium loads the page at #item=../prune/count, at #item=<a valid id in uppercase>, at #item= with nothing after it, at #item=<a valid id>%2F..%2Fprune, and at #item=<a well-formed UUID that names no item>",
+      "then": "for the first four the detail panel stays hidden and no request goes to any /api/entries/<id> path or to /api/prune, recorded through the page's request events; for the unknown UUID one request goes to /api/entries/<that id> and the panel shows the existing load-failure state; in every case the feed list loads as it does today."
+    },
+    {
+      "id": "C2",
+      "given": "the same app and a stored API key",
+      "when": "Chromium loads the page at #item=<an existing item's id>",
+      "then": "the detail panel is visible and shows that item's title and reading summary, and the feed list behind it loads."
+    },
+    {
+      "id": "C3",
+      "given": "the page loaded without a hash and the panel closed",
+      "when": "location.hash is set to #item=<an existing item's id>, then to #item=<another existing item's id>",
+      "then": "the panel opens the first item, then shows the second, each through one request to its /api/entries/<id>."
+    },
+    {
+      "id": "C4",
+      "given": "a browser with no API key in localStorage",
+      "when": "Chromium loads the page at #item=<an existing item's id>, then the key is typed into the key modal and saved",
+      "then": "before the save the key modal shows, the panel stays hidden and no /api/entries/<id> request is made; after the save the panel opens that item."
+    },
+    {
+      "id": "C5",
+      "given": "the panel opened from #item=<an existing item's id>",
+      "when": "the panel's close control is clicked, and then the page is reloaded",
+      "then": "after the close location.hash is empty and history.length is what it was before the close; after the reload the panel stays hidden and the feed shows."
+    },
+    {
+      "id": "C6",
+      "given": "API.md",
+      "when": "it is read",
+      "then": "it documents the #item=<id> link: that it opens the item's detail panel in the web view, that the id must be the item's canonical lowercase UUID and anything else is ignored, and that the link carries no API key."
+    },
+    {
+      "id": "C7",
+      "given": "the job's worktree",
+      "when": "the repository gate runs (ember verify)",
+      "then": "it ends verify: PASS."
+    }
+  ],
+  "mutations": [
+    {
+      "id": "M1",
+      "change": "Remove the canonical-UUID check so any hash value reaches openDetail; C1 must go red."
+    },
+    {
+      "id": "M2",
+      "change": "Drop the hashchange listener; C3 must go red."
+    },
+    {
+      "id": "M3",
+      "change": "Clear the hash with location.hash = '' instead of a history-replacing call; C5 must go red."
+    }
+  ],
+  "walks": [
+    {
+      "criterion": "C2",
+      "when": "after the daemon on the operator's remote host runs this commit, the operator opens <their [remote] url>/#item=<the id of a current HIGH item> in their browser",
+      "then": "the web view opens straight to that item's detail panel."
+    }
+  ],
+  "issues": [],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "Installing needs Xcode's command-line tools and a local build; there is no ready-built, notarized app."
+    },
+    {
+      "kind": "cost",
+      "summary": "The app is macOS only."
+    },
+    {
+      "kind": "cost",
+      "summary": "Marking read is not offered in the menu; it stays in the web view and TUI."
+    },
+    {
+      "kind": "cost",
+      "summary": "An item re-scored to HIGH more than 30 days after its first alert can alert again."
+    },
+    {
+      "kind": "cost",
+      "summary": "A HIGH item that arrives and is read within one five-minute poll never alerts."
+    },
+    {
+      "kind": "cost",
+      "summary": "The daemon's fixed local port 8989 is repeated in the app, as the CLI and TUI already repeat it; changing the daemon's port means changing all three."
+    }
+  ],
+  "stakes": [
+    "The web view opens the detail panel of the item a `#item=<id>` link names, at load and on hash change, once an API key is held.",
+    "An item id that is not a canonical lowercase UUID opens nothing and makes no request.",
+    "Closing the panel opened from a link removes the hash without a new history entry.",
+    "The app reaches the daemon named by [remote] url and key when present, otherwise the local daemon at http://127.0.0.1:8989 with [api] key, and refuses a config readable by others or plain http off loopback.",
+    "The app shows the count and list of unread HIGH items from GET /api/entries, and each listed item opens its web detail panel.",
+    "The app sends exactly one notification per HIGH item across polls and restarts, and none on its first poll.",
+    "A failed poll shows the daemon as unreachable, keeps the last list, and sends no notification.",
+    "`make install-menubar` builds, self-signs and installs the app; installing never enables launch at login.",
+    "CI runs the Swift unit on macOS through .specify/verify.sh, and verify.sh on Linux reports the unit uncovered instead of passing it."
+  ]
+}

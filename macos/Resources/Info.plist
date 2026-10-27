@@ -29,6 +29,8 @@
 	</dict>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Prismis reads your new HIGH items from your prismis daemon, which may run on another machine on your network.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

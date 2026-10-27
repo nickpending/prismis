@@ -1,0 +1,24 @@
+# swift-format owns trailing commas, multi-line brace placement and where a long closure's
+# parameters wrap; these keep SwiftLint from fighting it.
+disabled_rules:
+  - trailing_comma
+  - closure_parameter_position
+opening_brace:
+  ignore_multiline_type_headers: true
+  ignore_multiline_statement_conditions: true
+  ignore_multiline_function_signatures: true
+# Short names are this codebase's style for tight scopes (a closure's s, a file's fd, a toggle's on);
+# the rule still checks casing and the upper bound.
+identifier_name:
+  min_length: 1
+# The gate runs --strict, which fails on SwiftLint's warnings; this holds SwiftLint's own error
+# threshold instead, so a test helper can return a poll's snapshot with the two recorders it filled.
+large_tuple:
+  warning: 3
+  error: 4
+# The list envelope's payload reads best nested in the decoder that is its only user.
+nesting:
+  type_level: 2
+# A message split mid-sentence to fit is harder to find by grep than one long line.
+line_length:
+  ignores_interpolated_strings: true

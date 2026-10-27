@@ -14,7 +14,9 @@
 # runs the unmodified verify.sh against it, and asserts on the gate's own
 # `FAILED: gitleaks(.)` line and the planted filename — exactly what `run_step`
 # prints when the gate's real gitleaks invocation fails. Then it removes the
-# file and asserts that line is gone. macOS bash 3.2 safe.
+# file and asserts that line is gone. Output is matched through a here-string, never
+# `printf | grep -q`: under pipefail grep's early exit breaks printf's pipe and a match reads
+# as a miss. macOS bash 3.2 safe.
 #
 # The credential is generated at runtime and never echoed: verify.sh's own
 # gitleaks invocation already runs with --redact, and only its output is printed.
@@ -53,11 +55,11 @@ FAIL=0
 # gitleaks step fail, and the gate's own failure line must name the file — a
 # check that fails without saying where is not one anyone can act on.
 OUT="$(run_gate)"
-if ! printf '%s\n' "$OUT" | grep -qF 'FAILED: gitleaks(.)'; then
+if ! grep -qF 'FAILED: gitleaks(.)' <<<"$OUT"; then
 	echo "FAIL: the gate did not report FAILED: gitleaks(.) with the planted credential present"
 	printf '%s\n' "$OUT" | sed 's/^/  | /'
 	FAIL=1
-elif ! printf '%s\n' "$OUT" | grep -q "$PLANTED_REL"; then
+elif ! grep -q "$PLANTED_REL" <<<"$OUT"; then
 	echo "FAIL: the gate failed gitleaks but did not name the planted file ($PLANTED_REL)"
 	printf '%s\n' "$OUT" | sed 's/^/  | /'
 	FAIL=1
@@ -69,7 +71,7 @@ fi
 # failure — proving the failure above was the planted file, not something else.
 rm -f "$PLANTED"
 OUT2="$(run_gate)"
-if printf '%s\n' "$OUT2" | grep -qF 'FAILED: gitleaks(.)'; then
+if grep -qF 'FAILED: gitleaks(.)' <<<"$OUT2"; then
 	echo "FAIL: the gate still reported FAILED: gitleaks(.) after the planted file was removed"
 	printf '%s\n' "$OUT2" | sed 's/^/  | /'
 	FAIL=1

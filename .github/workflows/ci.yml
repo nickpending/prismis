@@ -15,16 +15,27 @@ on:
 # enough for the code to drift out from under them. A unit added later is gated here
 # automatically, with no list to keep in step.
 #
-# One job, not one per language: verify.sh runs every unit in a single invocation, so the
-# runner needs uv, Python and Go all present at once.
+# One job per runner OS, not one per language: verify.sh runs every unit in a single invocation,
+# so each runner needs uv, Python and Go all present at once. The macOS runner is there for the
+# Swift unit (macos/), which verify.sh runs only on Darwin and reports uncovered elsewhere; it runs
+# every other unit too, so each OS gates the whole tree.
 # The gate only reads the repository.
 permissions:
   contents: read
 
 jobs:
   verify:
-    name: verify (ruff + mypy + pytest + go vet/test/staticcheck, every unit)
-    runs-on: ubuntu-latest
+    name: verify on ${{ matrix.os }} (every unit)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Each OS is its own verdict: a Linux failure must not cancel the macOS run, or the reverse.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            playwright-cache: ~/.cache/ms-playwright
+          - os: macos-latest
+            playwright-cache: ~/Library/Caches/ms-playwright
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -112,7 +123,8 @@ jobs:
       - name: Cache the Playwright browser
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/ms-playwright
+          # Where Playwright keeps browsers on this runner's OS.
+          path: ${{ matrix.playwright-cache }}
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
       - name: Install Chromium for the browser tests
@@ -126,9 +138,11 @@ jobs:
         # invocation could therefore let CI report success having gated on strictly less
         # than a local run — a unit that loses its typechecker config would pass silently.
         #
-        # So CI holds itself to a stricter bar than the script: any VERIFY_UNCOVERED line is
-        # a failure here. The script is cross-project infrastructure and is not edited; this
-        # is the caller adding its own requirement on top of the script's exit code.
+        # So CI holds itself to a stricter bar than the script: any VERIFY_UNCOVERED entry is
+        # a failure here, with one exception. On Linux the gate reports a Swift unit uncovered
+        # (`swift(<dir>): macOS only ...`) because Swift runs only on macOS, and the macOS job
+        # in this matrix runs it; that entry alone is tolerated, and only on Linux. This is the
+        # caller adding its own requirement on top of the script's exit code.
         run: |
           set +e
           bash .specify/verify.sh 2>&1 | tee /tmp/verify.out
@@ -138,9 +152,13 @@ jobs:
             echo "::error::the verification gate failed"
             exit "$status"
           fi
-          if grep -q '^VERIFY_UNCOVERED:' /tmp/verify.out; then
+          uncovered="$(sed -n 's/^VERIFY_UNCOVERED: //p' /tmp/verify.out | tr ';' '\n' | sed 's/^ *//')"
+          if [ "$RUNNER_OS" = Linux ]; then
+            uncovered="$(printf '%s\n' "$uncovered" | grep -v '^swift([^)]*): macOS only' || true)"
+          fi
+          if [ -n "$uncovered" ]; then
             echo "::error::gate passed but did not cover every check — CI must not gate on less than a local run"
-            grep '^VERIFY_UNCOVERED:' /tmp/verify.out
+            printf '%s\n' "$uncovered"
             exit 1
           fi
 
@@ -159,5 +177,8 @@ jobs:
         #
         # Runs `go tool gitleaks` from tui/ (where the tool directive lives) against the
         # repo root, so the config and ignore paths are given relative to tui/.
+        #
+        # History is the same on every runner, so one scan, on Linux, is enough.
+        if: runner.os == 'Linux'
         working-directory: tui
         run: go tool gitleaks git .. --redact --no-banner --config ../.gitleaks.toml --gitleaks-ignore-path ../.betterleaksignore

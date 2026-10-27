@@ -35,6 +35,10 @@ venv.bak/
 vendor/
 go.work
 go.work.sum
+# Swift (SwiftPM build output and its per-package state, macos/)
+.build/
+.swiftpm/
+
 # Binary artifacts
 /prismis
 /prismis-tui

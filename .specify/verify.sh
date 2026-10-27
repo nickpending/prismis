@@ -101,6 +101,48 @@ while IFS= read -r cg; do
 	run_step "cargo test($rel)" env -C "$d" cargo test || true
 done < <(find "$ROOT" -name Cargo.toml -not -path '*/target/*' -not -path "$ROOT/.claude/worktrees/*" -maxdepth 3 | sort)
 
+# ----------------------------------------------------------------- Swift units
+# The `swift test` flags ember's gate passes (its swiftTestArgs), so both gates agree on this Mac. On
+# Command Line Tools (a developer dir named CommandLineTools holding Testing.framework) SwiftPM does not
+# find Testing itself: the compiler gets its framework dir, the linker its rpaths, and, where those tools
+# hold it, the macro plugin dir every @Test needs to expand. Under Xcode, or without xcode-select, nothing
+# is added. A change to where Command Line Tools keeps Testing must reach both copies.
+swift_test_flags() {
+	local dev frameworks plugins
+	dev="$(xcode-select -p 2>/dev/null)" || return 0
+	[ "$(basename "$dev")" = CommandLineTools ] || return 0
+	frameworks="$dev/Library/Developer/Frameworks"
+	[ -d "$frameworks/Testing.framework" ] || return 0
+	printf '%s\n' -Xswiftc "-F$frameworks" -Xlinker -rpath -Xlinker "$frameworks" \
+		-Xlinker -rpath -Xlinker "$dev/Library/Developer/usr/lib"
+	plugins="$dev/usr/lib/swift/host/plugins/testing"
+	if [ -d "$plugins" ]; then printf '%s\n' -Xswiftc -plugin-path -Xswiftc "$plugins"; fi
+}
+
+# Every Package.swift outside SwiftPM's own build output is a unit. Swift with Testing and the Apple SDKs
+# is a macOS toolchain here, so elsewhere the unit is reported uncovered, never passed unrun.
+HOST_OS="$(uname -s)"
+SWIFT_TEST_FLAGS=()
+while IFS= read -r sp; do
+	d="$(dirname "$sp")"
+	rel="${d#"$ROOT"/}"
+	[ "$rel" = "$d" ] && rel="."
+	UNITS_FOUND=$((UNITS_FOUND + 1))
+	if [ "$HOST_OS" != Darwin ]; then
+		note_uncovered "swift($rel): macOS only — swift format, swift build and swift test do not run on $HOST_OS"
+		continue
+	fi
+	if [ "${#SWIFT_TEST_FLAGS[@]}" -eq 0 ]; then
+		while IFS= read -r flag; do SWIFT_TEST_FLAGS+=("$flag"); done < <(swift_test_flags)
+	fi
+	run_step "swift format($rel)" env -C "$d" swift format lint --strict --recursive . || true
+	run_step "swift build($rel)" env -C "$d" swift build || true
+	# ${a[@]+...}: bash 3.2 treats an empty array as unset under `set -u`.
+	run_step "swift test($rel)" env -C "$d" swift test ${SWIFT_TEST_FLAGS[@]+"${SWIFT_TEST_FLAGS[@]}"} || true
+done < <(find "$ROOT" -name Package.swift -not -path '*/.build/*' \
+	-not -path '*/.venv/*' -not -path '*/node_modules/*' \
+	-not -path "$ROOT/.claude/worktrees/*" | sort)
+
 # ------------------------------------------------------------------- JS/TS units
 while IFS= read -r pj; do
 	d="$(dirname "$pj")"
@@ -109,7 +151,9 @@ while IFS= read -r pj; do
 	UNITS_FOUND=$((UNITS_FOUND + 1))
 	grep -q '"typecheck"' "$pj" && { run_step "typecheck($rel)" env -C "$d" bun run typecheck || true; }
 	grep -q '"check"' "$pj" && { run_step "check($rel)" env -C "$d" bun run check || true; }
-	if find "$d" -name '*.test.ts' -not -path '*/node_modules/*' | grep -q .; then
+	# -print -quit, not `find | grep -q .`: under pipefail grep's early exit can kill find and
+	# read a unit with many test files as one with none.
+	if [ -n "$(find "$d" -name '*.test.ts' -not -path '*/node_modules/*' -print -quit)" ]; then
 		run_step "bun test($rel)" env -C "$d" bun test || true
 	fi
 done < <(find "$ROOT" -name package.json -not -path '*/node_modules/*' -not -path "$ROOT/.claude/worktrees/*" | sort)
@@ -146,16 +190,18 @@ trap - EXIT
 
 # ------------------------------------------------------------ Gate self-tests
 # Prove the checks above rather than trust them: the plant test shows the scan catches a
-# planted credential, the wiring test shows this script's own failure paths. Without
-# these runs both are one-time manual checks. Both drive this very script in throwaway
-# repos; the plant test sets VERIFY_IN_PLANT_TEST so its nested run does not start the
-# self-tests again. That skip is recorded as uncovered, never silent, and outside that
-# nested run a missing script is a failure, never a skip.
+# planted credential, the wiring test shows this script's own failure paths, and the swift
+# unit test shows the Swift unit runs with the Command Line Tools flags on macOS and is
+# reported uncovered elsewhere. Without these runs all three are one-time manual checks.
+# All drive this very script in throwaway repos; the plant test sets VERIFY_IN_PLANT_TEST so
+# its nested run does not start the self-tests again. That skip is recorded as uncovered,
+# never silent, and outside that nested run a missing script is a failure, never a skip.
 if [ -n "${VERIFY_IN_PLANT_TEST:-}" ]; then
-	note_uncovered "gitleaks-plant(.), gate-wiring(.): not run — nested inside the plant test (VERIFY_IN_PLANT_TEST is set)"
+	note_uncovered "gitleaks-plant(.), gate-wiring(.), swift-unit(.): not run — nested inside the plant test (VERIFY_IN_PLANT_TEST is set)"
 else
 	run_step "gitleaks-plant(.)" bash "$ROOT/.specify/tests/gitleaks_plant_test.sh" || true
 	run_step "gate-wiring(.)" bash "$ROOT/.specify/tests/gate_wiring_test.sh" || true
+	run_step "swift-unit(.)" bash "$ROOT/.specify/tests/swift_unit_test.sh" || true
 fi
 
 # ----------------------------------------------------------------- the verdict
@@ -163,7 +209,7 @@ fi
 # a project not yet written — the sentinel tells the consuming gate not to send a fixer
 # after the absence of code. No units WITH source present is broken discovery.
 if [ "$UNITS_FOUND" -eq 0 ]; then
-	if [ -z "$(find "$ROOT" \( -name '*.py' -o -name '*.go' -o -name '*.ts' -o -name '*.rs' \) \
+	if [ -z "$(find "$ROOT" \( -name '*.py' -o -name '*.go' -o -name '*.ts' -o -name '*.rs' -o -name '*.swift' \) \
 		-not -path '*/.venv/*' -not -path '*/node_modules/*' \
 		-not -path "$ROOT/.claude/worktrees/*" -print -quit)" ]; then
 		echo "VERIFY_NOT_YET: no verifiable unit and no source files — nothing has been written yet"

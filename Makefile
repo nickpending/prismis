@@ -169,6 +169,21 @@ install-tui: check-deps build-tui ## Install TUI only (for remote machines)
 	@echo "Usage: prismis --remote http://server:8989"
 	@echo "Or configure [remote] section in ~/.config/prismis/config.toml"
 
+# The menu-bar app (macOS only). The recipe is plain POSIX sh, so it runs under make's default shell.
+# Installing copies the app and never registers it as a login item: Launch at Login stays off until it is
+# turned on from the app's menu.
+MENUBAR_INSTALL_DIR ?= $(HOME)/Applications
+MENUBAR_BUILD_DIR := $(CURDIR)/dist
+
+.PHONY: install-menubar
+install-menubar: ## Build, self-sign and install Prismis.app to MENUBAR_INSTALL_DIR (macOS)
+	PRISMIS_OUT_DIR='$(MENUBAR_BUILD_DIR)' macos/scripts/build-app.sh
+	mkdir -p '$(MENUBAR_INSTALL_DIR)'
+	rm -rf '$(MENUBAR_INSTALL_DIR)/Prismis.app'
+	cp -R '$(MENUBAR_BUILD_DIR)/Prismis.app' '$(MENUBAR_INSTALL_DIR)/Prismis.app'
+	@echo "✓ Installed $(MENUBAR_INSTALL_DIR)/Prismis.app"
+	@echo "Open it once; Launch at Login is off until you turn it on in its menu"
+
 .PHONY: install-config
 install-config: ## Create .env template (config.toml created by daemon on first run)
 	@echo "Setting up configuration..."

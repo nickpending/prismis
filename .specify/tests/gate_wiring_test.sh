@@ -9,8 +9,10 @@
 #   3. with VERIFY_IN_PLANT_TEST set the stub is NOT run and the skip is reported as
 #      uncovered, not silent;
 #   4. a Go unit whose go.mod has no tool directive fails staticcheck loudly.
-# The throwaway repos carry a stub gate-wiring test so a nested gate does not recurse
-# into this script. macOS bash 3.2 safe.
+# The throwaway repos carry stub gate-wiring and swift-unit tests so a nested gate does not
+# recurse into this script or rerun the Swift proof. Output is matched through a here-string,
+# never `printf | grep -q`: under pipefail grep's early exit breaks printf's pipe and a match
+# reads as a miss. macOS bash 3.2 safe.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -48,6 +50,7 @@ mk_tree() {
 	printf 'package main\n\nfunc main() {}\n' >"$t/tui/main.go"
 	printf '#!/usr/bin/env bash\ntouch "%s/plant-ran"\n' "$t" >"$t/.specify/tests/gitleaks_plant_test.sh"
 	printf '#!/usr/bin/env bash\nexit 0\n' >"$t/.specify/tests/gate_wiring_test.sh"
+	printf '#!/usr/bin/env bash\nexit 0\n' >"$t/.specify/tests/swift_unit_test.sh"
 }
 
 run_gate() { # run_gate DIR [ENV=VAL...]
@@ -61,9 +64,9 @@ T1="$WORK/missing"
 mk_tree "$T1"
 rm "$T1/.specify/tests/gitleaks_plant_test.sh"
 OUT="$(run_gate "$T1")"
-if printf '%s\n' "$OUT" | grep -qF 'FAILED: gitleaks-plant(.)' &&
-	printf '%s\n' "$OUT" | grep -q '^VERIFY_COVERED:.*gitleaks-plant(\.)' &&
-	printf '%s\n' "$OUT" | grep -q '^verify: FAIL'; then
+if grep -qF 'FAILED: gitleaks-plant(.)' <<<"$OUT" &&
+	grep -q '^VERIFY_COVERED:.*gitleaks-plant(\.)' <<<"$OUT" &&
+	grep -q '^verify: FAIL' <<<"$OUT"; then
 	ok "a missing plant script fails the gate and is listed as covered"
 else
 	fail "missing plant script did not fail the gate as gitleaks-plant(.)" "$OUT"
@@ -76,9 +79,9 @@ mk_tree "$T2"
 OUT="$(run_gate "$T2" VERIFY_TOOL_MODULE_DIR=/nonexistent-module-dir)"
 if [ ! -e "$T2/plant-ran" ]; then
 	fail "the gate did not run the plant script" "$OUT"
-elif ! printf '%s\n' "$OUT" | grep -q '^VERIFY_COVERED:.*staticcheck(tui).*gitleaks(\.).*gitleaks-plant(\.)'; then
+elif ! grep -q '^VERIFY_COVERED:.*staticcheck(tui).*gitleaks(\.).*gitleaks-plant(\.)' <<<"$OUT"; then
 	fail "VERIFY_COVERED lacks staticcheck(tui), gitleaks(.) or gitleaks-plant(.)" "$OUT"
-elif ! printf '%s\n' "$OUT" | grep -q '^verify: PASS'; then
+elif ! grep -q '^verify: PASS' <<<"$OUT"; then
 	fail "the gate did not pass with no scanner binary on PATH" "$OUT"
 else
 	ok "the gate runs the plant script and passes with no staticcheck/gitleaks on PATH"
@@ -90,7 +93,7 @@ mk_tree "$T3"
 OUT="$(run_gate "$T3" VERIFY_IN_PLANT_TEST=1)"
 if [ -e "$T3/plant-ran" ]; then
 	fail "the plant script ran although VERIFY_IN_PLANT_TEST was set" "$OUT"
-elif ! printf '%s\n' "$OUT" | grep -q '^VERIFY_UNCOVERED:.*gitleaks-plant(\.)'; then
+elif ! grep -q '^VERIFY_UNCOVERED:.*gitleaks-plant(\.)' <<<"$OUT"; then
 	fail "the guarded skip was not reported as uncovered" "$OUT"
 else
 	ok "the guard skips the plant script and reports it as uncovered"
@@ -103,8 +106,8 @@ mkdir "$T4/other"
 printf 'module example.com/other\n\ngo 1.24\n' >"$T4/other/go.mod"
 printf 'package main\n\nfunc main() {}\n' >"$T4/other/main.go"
 OUT="$(run_gate "$T4")"
-if printf '%s\n' "$OUT" | grep -qF 'FAILED: staticcheck(other)' &&
-	printf '%s\n' "$OUT" | grep -q '^verify: FAIL'; then
+if grep -qF 'FAILED: staticcheck(other)' <<<"$OUT" &&
+	grep -q '^verify: FAIL' <<<"$OUT"; then
 	ok "a Go unit without the tool directive fails staticcheck loudly"
 else
 	fail "a Go unit without the tool directive did not fail staticcheck(other)" "$OUT"
@@ -122,8 +125,8 @@ printf 'dependencies = ["six"]\n' >"$WORK/dep.txt"
 sed -i.bak '/^requires-python/r '"$WORK/dep.txt" "$T5/py/pyproject.toml"
 rm -f "$T5/py/pyproject.toml.bak"
 OUT="$(run_gate "$T5" "PATH=$(dirname "$(command -v uv)"):$GATE_PATH")"
-if printf '%s\n' "$OUT" | grep -qF 'FAILED: ruff(py)' &&
-	printf '%s\n' "$OUT" | grep -q 'needs to be updated' &&
+if grep -qF 'FAILED: ruff(py)' <<<"$OUT" &&
+	grep -q 'needs to be updated' <<<"$OUT" &&
 	[ "$LOCK_BEFORE" = "$(cat "$T5/py/uv.lock")" ]; then
 	ok "a stale uv.lock fails the Python unit and is not rewritten"
 else

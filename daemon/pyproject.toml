@@ -68,6 +68,11 @@ dev = [
     "vcrpy>=8.3.0",
 ]
 
+[tool.uv]
+# Resolve no release younger than a week, so a compromised upload has time to be pulled
+# before it can reach a lock.
+exclude-newer = "7 days"
+
 [tool.ruff]
 # scripts/ holds operator tools (e.g. model_playtest.py) that are not part of the shipped package.
 exclude = ["scripts"]

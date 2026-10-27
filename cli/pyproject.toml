@@ -75,6 +75,9 @@ ignore_missing_imports = true
 
 [tool.uv]
 package = true
+# Resolve no release younger than a week, so a compromised upload has time to be pulled
+# before it can reach a lock.
+exclude-newer = "7 days"
 
 [tool.uv.sources]
 prismis-daemon = { path = "../daemon", editable = true }

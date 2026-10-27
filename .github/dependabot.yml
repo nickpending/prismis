@@ -14,11 +14,17 @@ updates:
     directory: /
     multi-ecosystem-group: pinned-deps
     patterns: ["*"]
+    # Matches the uv locks' 7-day floor: no release younger than a week is proposed.
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: gomod
     directory: /tui
     multi-ecosystem-group: pinned-deps
     patterns: ["*"]
+    # Matches the uv locks' 7-day floor: no release younger than a week is proposed.
+    cooldown:
+      default-days: 7
     allow:
       - dependency-type: direct
       - dependency-name: honnef.co/go/tools

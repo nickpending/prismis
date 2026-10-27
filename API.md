@@ -33,6 +33,27 @@ FastAPI provides auto-generated interactive docs:
 - **Swagger UI**: http://localhost:8989/docs
 - **ReDoc**: http://localhost:8989/redoc
 
+## Linking to an Item
+
+The web view at `/` opens one item's detail panel when its URL carries the item's id in the
+fragment:
+
+```
+http://localhost:8989/#item=123e4567-e89b-12d3-a456-426614174000
+```
+
+- The panel opens at load, and on a later change to the fragment in an open page. It loads the
+  item through [Get Entry Detail](#get-entry-detail); an id no item has shows the panel's
+  load-failure state.
+- The id must be the item's canonical lowercase UUID, the `id` the API returns. Anything else,
+  uppercase or carrying extra characters included, is ignored: no panel opens and no request
+  is sent.
+- The link carries no API key. The page uses the key stored in the browser, and asks for one
+  first when none is stored, then opens the item.
+- The id travels in the fragment, so it is never sent to the daemon or written to its access log.
+- Closing the panel removes the fragment without adding a history entry, so a reload shows the
+  feed.
+
 ## Common Response Format
 
 All endpoints return JSON with this structure:

@@ -14,7 +14,7 @@ names `playwright install chromium` and the run fails.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -217,6 +217,7 @@ class PageFactory:
         self._contexts: list[BrowserContext] = []
         self.blocked_hosts: list[str] = []
         self.failed_requests: dict[str, str] = {}
+        self.request_paths: list[str] = []
 
     def _guard(self, route: Route) -> None:
         host = urlparse(route.request.url).hostname
@@ -226,10 +227,16 @@ class PageFactory:
             self.blocked_hosts.append(str(host))
             route.abort()
 
-    def open(self, *, key: str | None = TEST_API_KEY, width: int = 1024) -> Page:
+    def open(
+        self, *, key: str | None = TEST_API_KEY, width: int = 1024, fragment: str = ""
+    ) -> Page:
         context = self._browser.new_context(viewport={"width": width, "height": 800})
         self._contexts.append(context)
         context.route("**/*", self._guard)
+        context.on(
+            "request",
+            lambda request: self.request_paths.append(urlparse(request.url).path),
+        )
         context.on(
             "requestfailed",
             lambda request: self.failed_requests.__setitem__(
@@ -241,7 +248,7 @@ class PageFactory:
                 f"localStorage.setItem('prismis_api_key', {key!r});"
             )
         page = context.new_page()
-        page.goto(self._base_url + "/")
+        page.goto(self._base_url + "/" + fragment)
         return page
 
     def close(self) -> None:
@@ -822,3 +829,157 @@ def test_hostile_summary_is_sanitized_and_runs_nothing(
     page.wait_for_timeout(500)  # an image error handler would have fired by now
     assert page.evaluate("window.__xss") is None
     assert "evil.example" not in pages.blocked_hosts
+
+
+# ------------------------------------------------------------------------- item link
+
+# Well-formed and canonical, but no seeded item has it: storage ids are uuid4s.
+UNKNOWN_ID = "00000000-0000-4000-8000-000000000000"
+
+
+def _detail_requests(pages: PageFactory, item_id: str | None = None) -> list[str]:
+    """Paths of the requests sent to any /api/entries/<id> path, or to one item's path."""
+    if item_id is None:
+        return [p for p in pages.request_paths if p.startswith("/api/entries/")]
+    return [p for p in pages.request_paths if p == f"/api/entries/{item_id}"]
+
+
+def _prune_requests(pages: PageFactory) -> list[str]:
+    return [p for p in pages.request_paths if p.startswith("/api/prune")]
+
+
+def _expect_detail_title(page: Page, title: str) -> None:
+    expect(page.locator("#detailPanel")).to_be_visible()
+    expect(page.locator("#detailContent .detail-title")).to_have_text(title)
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        pytest.param(lambda ids: "../prune/count", id="path-traversal"),
+        pytest.param(lambda ids: ids["h3"].upper(), id="uppercase"),
+        pytest.param(lambda ids: "", id="empty"),
+        pytest.param(lambda ids: f"{ids['h3']}%2F..%2Fprune", id="encoded-suffix"),
+    ],
+)
+def test_item_link_with_a_non_canonical_id_opens_nothing_and_requests_nothing(
+    pages: PageFactory,
+    seeded_ids: dict[str, str],
+    fragment: Callable[[dict[str, str]], str],
+) -> None:
+    """
+    INVARIANT: #item=<x> where x is not a canonical lowercase UUID leaves the detail
+               panel hidden and sends no request to any /api/entries/<id> path or to
+               /api/prune; the feed loads as it does without a hash
+    BREAKS: a crafted link steers openDetail's authenticated fetch to another daemon path
+    NOTE: the hash is read at init, synchronously after loadContent starts, so any detail
+          request it caused is already sent once the feed has rendered. The unknown-id
+          test below is the positive control: the same recorder sees a request that is sent.
+    """
+    page = pages.open(fragment=f"#item={fragment(seeded_ids)}")
+    _loaded(page)
+    assert "/api/entries" in pages.request_paths
+    assert _detail_requests(pages) == []
+    assert _prune_requests(pages) == []
+    expect(page.locator("#detailPanel")).to_be_hidden()
+
+
+def test_item_link_to_an_unknown_id_requests_it_once_and_shows_the_failure(
+    pages: PageFactory,
+) -> None:
+    """
+    INVARIANT: #item=<a canonical UUID no item has> sends one request to its
+               /api/entries/<id> and the panel shows the load-failure state; the feed loads
+    BREAKS: a link to a pruned item shows a blank panel, or the shape check rejects ids it
+            should accept
+    """
+    page = pages.open(fragment=f"#item={UNKNOWN_ID}")
+    _loaded(page)
+    expect(page.locator("#detailPanel")).to_be_visible()
+    expect(page.locator("#detailContent .detail-error")).to_have_text(
+        "Failed to load: HTTP 404"
+    )
+    assert _detail_requests(pages, UNKNOWN_ID) == [f"/api/entries/{UNKNOWN_ID}"]
+    assert _prune_requests(pages) == []
+
+
+def test_item_link_opens_that_items_detail_panel_at_load(
+    pages: PageFactory, seeded_ids: dict[str, str]
+) -> None:
+    """
+    INVARIANT: loading the page at #item=<an item's id> opens its detail panel with its
+               title and reading summary, and the feed behind it loads
+    BREAKS: the menu-bar app's links land on the feed instead of the item clicked
+    """
+    page = pages.open(fragment=f"#item={seeded_ids['titled']}")
+    _expect_detail_title(page, TITLES["titled"])
+    summary = page.locator("#detailContent .detail-summary")
+    expect(summary.locator("h2")).to_have_text("Overview")
+    expect(summary).to_contain_text("A paragraph under the overview.")
+    _loaded(page)
+
+
+def test_hash_change_opens_each_linked_item_through_one_request(
+    pages: PageFactory, seeded_ids: dict[str, str]
+) -> None:
+    """
+    INVARIANT: on a loaded page with the panel closed, setting location.hash to
+               #item=<id> opens that item, and setting it to another id shows the second,
+               each through one request to its /api/entries/<id>
+    BREAKS: a link opened into an already-open tab changes the URL and nothing else
+    """
+    page = pages.open()
+    _loaded(page)
+    expect(page.locator("#detailPanel")).to_be_hidden()
+    first, second = seeded_ids["h3"], seeded_ids["m1"]
+
+    page.evaluate(f"location.hash = '#item={first}'")
+    _expect_detail_title(page, TITLES["h3"])
+    page.evaluate(f"location.hash = '#item={second}'")
+    _expect_detail_title(page, TITLES["m1"])
+
+    assert _detail_requests(pages, first) == [f"/api/entries/{first}"]
+    assert _detail_requests(pages, second) == [f"/api/entries/{second}"]
+
+
+def test_item_link_waits_for_the_key_and_opens_once_it_is_saved(
+    pages: PageFactory, seeded_ids: dict[str, str]
+) -> None:
+    """
+    INVARIANT: with no stored key, #item=<id> shows the key modal, keeps the panel hidden
+               and sends no /api/entries/<id> request; saving the key opens that item
+    BREAKS: a first visit from a link fires an unauthenticated request, or loses the link
+            once the key is entered
+    """
+    item_id = seeded_ids["h3"]
+    page = pages.open(key=None, fragment=f"#item={item_id}")
+    expect(page.locator("#apiKeyModal")).to_be_visible()
+    expect(page.locator("#detailPanel")).to_be_hidden()
+    assert _detail_requests(pages) == []
+
+    page.locator("#apiKeyInput").fill(TEST_API_KEY)
+    page.locator("#saveApiKey").click()
+    _expect_detail_title(page, TITLES["h3"])
+    assert _detail_requests(pages, item_id) == [f"/api/entries/{item_id}"]
+
+
+def test_closing_a_linked_panel_clears_the_hash_without_a_history_entry(
+    pages: PageFactory, seeded_ids: dict[str, str]
+) -> None:
+    """
+    INVARIANT: closing the panel opened from #item=<id> leaves location.hash empty and
+               history.length unchanged; a reload then shows the feed with the panel hidden
+    BREAKS: a reload reopens the item just closed, or Back steps through closed panels
+    """
+    page = pages.open(fragment=f"#item={seeded_ids['h3']}")
+    _expect_detail_title(page, TITLES["h3"])
+    length_before = page.evaluate("history.length")
+
+    page.locator("#detailClose").click()
+    expect(page.locator("#detailPanel")).to_be_hidden()
+    assert page.evaluate("location.hash") == ""
+    assert page.evaluate("history.length") == length_before
+
+    page.reload()
+    _loaded(page)
+    expect(page.locator("#detailPanel")).to_be_hidden()

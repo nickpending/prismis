@@ -1086,6 +1086,9 @@
             ALLOWED_ATTR: ['href', 'title', 'align']
         };
 
+        // A link to one item: #item=<id>, the id a canonical lowercase UUID.
+        const ITEM_LINK = /^#item=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
         class PrismisWebapp {
             constructor() {
                 this.apiKey = localStorage.getItem('prismis_api_key');
@@ -1139,6 +1142,7 @@
                     this.loadKinds();
                     this.loadVersion();
                     this.loadContent();
+                    this.openItemFromHash();
                     this.startAutoRefresh();
                 }
             }
@@ -1184,6 +1188,9 @@
 
                 // Detail panel close button
                 document.getElementById('detailClose').addEventListener('click', () => this.closeDetail());
+
+                // A #item=<id> link followed into an already-open page
+                window.addEventListener('hashchange', () => this.openItemFromHash());
 
                 // Help modal: header button, close button, backdrop click
                 document.getElementById('helpOpen').addEventListener('click', () => this.openHelp());
@@ -1285,6 +1292,7 @@
                 this.loadKinds();
                 this.loadVersion();
                 this.loadContent();
+                this.openItemFromHash();
                 this.startAutoRefresh();
             }
 
@@ -2116,10 +2124,28 @@
                 }
             }
 
+            // Opens the item a #item=<id> link names. The id is interpolated into
+            // openDetail's authenticated request path, so only a canonical lowercase
+            // UUID, the form storage gives every item, is let through; anything else
+            // opens nothing and sends no request. Does nothing without a key: init and
+            // saveApiKey call it once one is held, and a hashchange before then is ignored.
+            openItemFromHash() {
+                if (!this.apiKey) return;
+                const match = ITEM_LINK.exec(window.location.hash);
+                if (match) {
+                    this.openDetail(match[1]);
+                }
+            }
+
             closeDetail() {
                 document.getElementById('detailPanel').classList.add('hidden');
                 document.getElementById('detailContent').innerHTML = '';
                 this.detailOpen = false;
+                // Drop a #item= link without a new history entry, so a reload does not
+                // reopen the panel just closed.
+                if (window.location.hash) {
+                    history.replaceState(null, '', window.location.pathname + window.location.search);
+                }
             }
 
             escapeHtml(text) {

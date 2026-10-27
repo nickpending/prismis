@@ -1,7 +1,7 @@
 # gitleaks config — `.specify/verify.sh` runs `gitleaks dir --redact` over a mirror of
 # exactly what `git ls-files` would track (never .venv, sibling worktrees, caches or
 # local DBs) as a named gate check (gh #70). CI separately scans full git history with
-# its own `.gitleaksignore` for the historical findings that only exist in old commits.
+# `.betterleaksignore` for the historical findings that only exist in old commits.
 #
 # These allowlists match the fixture VALUES, deliberately — not the files that hold
 # them. Allowlisting a whole test file or directory would mean a real key pasted into

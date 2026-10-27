@@ -151,12 +151,13 @@ jobs:
         # checkout above, with the same .gitleaks.toml allowlist the working-tree
         # scan uses.
         #
-        # .gitleaksignore fingerprints the one historical finding .gitleaks.toml's
-        # value-anchored allowlist cannot reach: a fake credential in a test file
-        # that no longer exists in the working tree, so there is no live line left to
-        # attach a `gitleaks:allow` comment to. Any other finding fails this step.
+        # .betterleaksignore fingerprints the historical findings .gitleaks.toml's
+        # value-anchored allowlist cannot reach: values in files that no longer hold
+        # them in the working tree, so there is no live line left to attach a
+        # `gitleaks:allow` comment to. Any other finding fails this step. The ember
+        # gate's betterleaks scan reads the same file from the root.
         #
         # Runs `go tool gitleaks` from tui/ (where the tool directive lives) against the
         # repo root, so the config and ignore paths are given relative to tui/.
         working-directory: tui
-        run: go tool gitleaks git .. --redact --no-banner --config ../.gitleaks.toml --gitleaks-ignore-path ../.gitleaksignore
+        run: go tool gitleaks git .. --redact --no-banner --config ../.gitleaks.toml --gitleaks-ignore-path ../.betterleaksignore

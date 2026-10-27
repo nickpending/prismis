@@ -1,0 +1,154 @@
+{
+  "workOrder": "menubar-mac",
+  "what": "Job 2 of the menu-bar app (#102): the SwiftPM package in macos/ (PrismisCore and the Prismis MenuBarExtra app), its self-signing build script, make install-menubar, and the gate and CI coverage for the Swift unit, as docs/work/menubar-mac/design.md describes.",
+  "why": "The design is docs/work/menubar-mac/design.md, job 2 of the accepted docs/work/menubar-app/design.md. Job 1's #item link is live (2e8ea9b, walked in docs/work/menubar-app/evidence.md); the daemon's only alert path reaches no one when the daemon runs elsewhere (57 HIGH batches undelivered on the operator's remote daemon, 2026-10-16..22), and the operator asked for the app built and installed.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "config.toml files in a temporary home: one with [remote] url https://example.test and key R beside [api] key A; one with only [api] key A and host 0.0.0.0; one readable by group or other; one whose [remote] url is http:// to a non-loopback host; one with no key in the section in use",
+      "when": "PrismisCore's config load reads each",
+      "then": "the first gives base url https://example.test and key R, the second http://127.0.0.1:8989 and key A, and the last three are refused with errors that name, respectively, the file's mode, the plaintext url, and the missing key, each a distinct error case.",
+      "mutations": [
+        {
+          "id": "M1",
+          "change": "Read keys without tracking their [section], as earshot's parser does, so the last `key` in the file wins; the first two cases must go red."
+        }
+      ]
+    },
+    {
+      "id": "C2",
+      "given": "a real local HTTP server that records each request and answers GET /api/entries with two list-view items",
+      "when": "one poll runs against it with key K",
+      "then": "exactly one request was made, GET /api/entries with priority=high, unread_only=true, view=list and sort_by=date and the X-API-Key header K, and the poll returns both items with their id, title and source_name."
+    },
+    {
+      "id": "C3",
+      "given": "the same server, an alerted-items store in a temporary directory with no file yet, and a notification centre stand-in behind the core's notifier protocol (the operating system's centre is the boundary)",
+      "when": "a poll returns items X and Y; then a poll returns X, Y and Z; then a new store instance is opened on the same file and a poll returns X, Y and Z",
+      "then": "the first poll posts no notification and the store file then holds X and Y; the second posts exactly one, for Z; the third posts none.",
+      "mutations": [
+        {
+          "id": "M2",
+          "change": "Skip seeding on the first poll so every listed item counts as new; C3 must go red."
+        },
+        {
+          "id": "M3",
+          "change": "Keep the alerted set in memory only, never written; C3's third poll must go red."
+        }
+      ]
+    },
+    {
+      "id": "C4",
+      "given": "a server answering 500, one answering 403, and a closed port, after a poll that succeeded with items X and Y",
+      "when": "the next poll runs against each",
+      "then": "each poll ends in a failed state whose reason distinguishes a refused key (403) from an unreachable daemon (closed port) and a server error (500), the last good list X and Y is still what the app shows, no notification is posted, and the failure is logged with its reason."
+    },
+    {
+      "id": "C5",
+      "given": "a store file holding an entry first alerted 31 days ago and one alerted today",
+      "when": "a poll writes the store",
+      "then": "the 31-day-old entry is gone and today's remains, and the file is replaced atomically (written to a temporary file in the same directory and renamed), so an interrupted write never leaves a partial store."
+    },
+    {
+      "id": "C6",
+      "given": "base urls https://example.test and https://example.test/ and item id 5d937428-3c20-4b87-b342-c7f7a7f615cd",
+      "when": "the core builds the item's link and the dropdown action and the notification-click handler each open an item through the core's opener protocol",
+      "then": "both bases give https://example.test/#item=5d937428-3c20-4b87-b342-c7f7a7f615cd, and both the dropdown action and the notification-click handler hand that exact URL to the opener."
+    },
+    {
+      "id": "C7",
+      "given": "the job's worktree on this Mac (Command Line Tools only) and a throwaway signing keychain named through the build script's environment",
+      "when": "macos/scripts/build-app.sh runs",
+      "then": "it writes Prismis.app, `codesign --verify --strict` passes on it, its signature carries the hardened runtime flag, and its Info.plist sets LSUIElement and the bundle identifier."
+    },
+    {
+      "id": "C8",
+      "given": "the worktree and an install directory named through the target's variable",
+      "when": "make install-menubar runs under make's default shell",
+      "then": "it builds and signs the app and copies it to that directory, its recipe uses no bash-only syntax, and nothing in the install path registers a login item; the app's launch-at-login state starts off and changes only through the menu toggle, shown with a stand-in for the login-item service."
+    },
+    {
+      "id": "C9",
+      "given": "the worktree on this Mac, and the same tree with `uname -s` answering Linux through a stub on PATH",
+      "when": ".specify/verify.sh runs",
+      "then": "on this Mac VERIFY_COVERED names the macos unit's swift format, swift build and swift test steps and they pass, swift test getting the Command Line Tools Testing flags; under the Linux stub no swift step runs and VERIFY_UNCOVERED names the macos unit instead of the run passing it silently.",
+      "mutations": [
+        {
+          "id": "M4",
+          "change": "Drop the Command Line Tools flags from verify.sh's swift test; C9 must go red on this Mac."
+        }
+      ]
+    },
+    {
+      "id": "C10",
+      "given": ".github/workflows/ci.yml",
+      "when": "actionlint and zizmor run on it",
+      "then": "both pass, and a job on a macos runner runs bash .specify/verify.sh beside the existing ubuntu job, with contents: read and no persisted checkout credentials."
+    },
+    {
+      "id": "C11",
+      "given": "the job's worktree",
+      "when": "the repository gate runs (ember verify)",
+      "then": "it ends verify: PASS."
+    }
+  ],
+  "walks": [
+    {
+      "criterion": "C2",
+      "when": "after make install-menubar on the operator's Mac, the app is opened",
+      "then": "the menu-bar icon's count equals the number of items GET /api/entries?priority=high&unread_only=true returns from the operator's [remote] daemon, and the dropdown lists them."
+    },
+    {
+      "criterion": "C6",
+      "when": "the operator clicks an item in the dropdown",
+      "then": "the default browser opens that item's detail panel on the remote daemon's web view."
+    },
+    {
+      "criterion": "C10",
+      "when": "the commit is pushed to main",
+      "then": "CI's macOS job runs verify.sh and passes."
+    }
+  ],
+  "issues": [
+    102
+  ],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "Installing needs Xcode's command-line tools and a local build; there is no ready-built, notarized app."
+    },
+    {
+      "kind": "cost",
+      "summary": "The app is macOS only."
+    },
+    {
+      "kind": "cost",
+      "summary": "Marking read is not offered in the menu; it stays in the web view and TUI."
+    },
+    {
+      "kind": "cost",
+      "summary": "An item re-scored to HIGH more than 30 days after its first alert can alert again."
+    },
+    {
+      "kind": "cost",
+      "summary": "A HIGH item that arrives and is read within one five-minute poll never alerts."
+    },
+    {
+      "kind": "cost",
+      "summary": "The daemon's fixed local port 8989 is repeated in the app, as the CLI and TUI already repeat it; changing the daemon's port means changing all three."
+    },
+    {
+      "kind": "cost",
+      "summary": "verify.sh repeats the Command Line Tools flags ember's gate computes for swift test, so a change to where Command Line Tools keeps Testing must reach both."
+    }
+  ],
+  "stakes": [
+    "The app reaches the daemon named by [remote] url and key when present, otherwise the local daemon at http://127.0.0.1:8989 with [api] key, and refuses a config readable by others or plain http off loopback.",
+    "The app shows the count and list of unread HIGH items from GET /api/entries, and each listed item opens its web detail panel.",
+    "The app sends exactly one notification per HIGH item across polls and restarts, and none on its first poll.",
+    "A failed poll shows the daemon as unreachable, keeps the last list, and sends no notification.",
+    "`make install-menubar` builds, self-signs and installs the app; installing never enables launch at login.",
+    "CI runs the Swift unit on macOS through .specify/verify.sh, and verify.sh on Linux reports the unit uncovered instead of passing it.",
+    "Clicking an item's notification opens its web detail panel, as clicking it in the dropdown does."
+  ]
+}

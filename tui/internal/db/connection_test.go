@@ -1,6 +1,7 @@
 package db
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -49,4 +50,30 @@ func TestConnectionPool(t *testing.T) {
 	}
 
 	t.Log("✅ Connection pool singleton working correctly")
+}
+
+func TestCloseDBClearsAFailedOpen(t *testing.T) {
+	resetDBForTest(t)
+	originalDBPathFunc := dbPathFunc
+	defer func() { dbPathFunc = originalDBPathFunc }()
+
+	missing := filepath.Join(t.TempDir(), "absent", "prismis.db")
+	dbPathFunc = func() (string, error) { return missing, nil }
+	if _, err := GetDB(); err == nil {
+		t.Fatal("opening a database in a directory that does not exist should fail")
+	}
+
+	if err := CloseDB(); err != nil {
+		t.Fatalf("CloseDB after a failed open: %v", err)
+	}
+	dbPath := createTestDB(t)
+	dbPathFunc = func() (string, error) { return dbPath, nil }
+	db, err := GetDB()
+	if err != nil {
+		t.Fatalf("GetDB after CloseDB must open the database now present, got the earlier failure: %v", err)
+	}
+	var one int
+	if err := db.QueryRow("SELECT 1").Scan(&one); err != nil || one != 1 {
+		t.Fatalf("the reopened pool does not answer: %v", err)
+	}
 }

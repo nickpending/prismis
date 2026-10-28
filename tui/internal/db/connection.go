@@ -77,13 +77,14 @@ func GetDB() (*sql.DB, error) {
 // CloseDB closes the singleton database connection pool.
 // This should only be called when the application is shutting down.
 func CloseDB() error {
+	var err error
 	if dbPool != nil {
-		err := dbPool.Close()
-		dbPool = nil
-		dbErr = nil
-		// Reset the once so a new pool can be created
-		dbOnce = sync.Once{}
-		return err
+		err = dbPool.Close()
 	}
-	return nil
+	// A failed open leaves no pool but a cached error; resetting only when a pool existed kept that
+	// error for every later GetDB, so a database that appeared after a failed open was never reached.
+	dbPool = nil
+	dbErr = nil
+	dbOnce = sync.Once{}
+	return err
 }

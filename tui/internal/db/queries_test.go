@@ -3,7 +3,6 @@ package db
 import (
 	"database/sql"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -13,12 +12,7 @@ import (
 // resetDBForTest resets the singleton database connection for test isolation
 func resetDBForTest(t *testing.T) {
 	t.Helper()
-	if dbPool != nil {
-		dbPool.Close()
-	}
-	dbPool = nil
-	dbOnce = sync.Once{}
-	dbErr = nil
+	_ = CloseDB()
 }
 
 // createTestDB creates a temporary test database with sample data

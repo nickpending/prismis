@@ -3,7 +3,7 @@ import Testing
 
 @testable import PrismisCore
 
-/// C6: the item's link, and the two ways the app opens it.
+/// C8: the item's link, and the panel's two ways into the web view through the opener.
 @Suite struct ItemLinkTests {
   static let id = "5d937428-3c20-4b87-b342-c7f7a7f615cd"
   static let expected = "https://example.test/#item=5d937428-3c20-4b87-b342-c7f7a7f615cd"
@@ -15,40 +15,19 @@ import Testing
     #expect(url.absoluteString == Self.expected)
   }
 
-  @Test func theDropdownActionOpensTheLink() throws {
-    let opener = RecordingOpener()
-    let opening = ItemOpening(
-      base: try #require(URL(string: "https://example.test/")), opener: opener)
-    opening.openItem(item(Self.id, "X"))
-    #expect(opener.opened.map(\.absoluteString) == [Self.expected])
-  }
-
-  /// The notice a real poll posts, clicked: its userInfo is what the notification centre hands back.
-  @Test func clickingAPostedNotificationOpensTheLink() async throws {
+  /// A row a real poll listed, clicked, then the footer's Open prismis.
+  @Test(arguments: ["https://example.test", "https://example.test/"])
+  func aRowOpensItsItemAndOpenPrismisOpensTheWebView(_ base: String) async throws {
     let server = try await FakeServer()
     defer { server.stop() }
-    let notifier = RecordingNotifier()
-    let p = poller(
-      server, store: try tempDirectory("link").appendingPathComponent("alerted.json"),
-      notifier: notifier)
-    await p.poll()
     server.list([item(Self.id, "X")])
-    await p.poll()
-    let notice = try #require(notifier.posted.first)
+    let row = try #require(await poller(server, store: try lastLookedFile(nil)).poll().rows.first)
 
     let opener = RecordingOpener()
-    let opening = ItemOpening(
-      base: try #require(URL(string: "https://example.test")), opener: opener)
-    let userInfo: [AnyHashable: Any] = notice.userInfo
-    #expect(opening.openNotification(userInfo))
-    #expect(opener.opened.map(\.absoluteString) == [Self.expected])
-  }
+    let opening = ItemOpening(base: try #require(URL(string: base)), opener: opener)
+    opening.openItem(row.item)
+    opening.openPrismis()
 
-  @Test func aNotificationWithoutAnItemOpensNothing() throws {
-    let opener = RecordingOpener()
-    let opening = ItemOpening(
-      base: try #require(URL(string: "https://example.test")), opener: opener)
-    #expect(!opening.openNotification(["other": "x"]))
-    #expect(opener.opened.isEmpty)
+    #expect(opener.opened.map(\.absoluteString) == [Self.expected, "https://example.test/"])
   }
 }

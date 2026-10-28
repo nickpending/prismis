@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build Prismis.app with the installed Swift toolchain (Command Line Tools is enough) and sign it with the
-# stable self-signed "Prismis Signing" identity, so macOS keeps the notification grant across rebuilds (an
-# ad-hoc signature changes every build).
+# stable self-signed "Prismis Signing" identity, so the app keeps one code identity across rebuilds for the
+# per-app grants macOS ties to it, such as Local Network access (an ad-hoc signature changes every build).
 #
 # The identity lives in prismis's own keychain, created with a generated password, never the login
 # keychain: that is what lets the key's partition list be set and `codesign` run with no password prompt.

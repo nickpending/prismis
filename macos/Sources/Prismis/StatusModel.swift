@@ -2,7 +2,6 @@ import AppKit
 import Foundation
 import Observation
 import PrismisCore
-import UserNotifications
 import os
 
 /// Unified log (`log show --predicate 'subsystem == "info.voidwire.Prismis"'`): every unattended decision, at
@@ -16,17 +15,15 @@ struct BrowserOpener: ItemOpener {
   }
 }
 
-/// What the menu bar shows, and the loop that feeds it: a poll at launch, every five minutes after, and on
-/// demand from the menu.
+/// What the icon and the panel show, and the loop that feeds them: a poll at launch, every five minutes
+/// after, and on demand from the panel.
 @MainActor
 @Observable
 final class StatusModel {
   private static let interval: Duration = .seconds(300)
 
-  /// The last good list, newest first.
-  private(set) var items: [Item] = []
-  /// Why the latest poll failed, shown as the daemon being unreachable.
-  private(set) var failure: String?
+  /// The latest poll's rows, new count and failure.
+  private(set) var snapshot = PollSnapshot()
   /// Why the config could not be used; nothing is polled until it can.
   private(set) var configProblem: String?
 
@@ -35,17 +32,15 @@ final class StatusModel {
   private(set) var loginNote: String?
   private let loginItem = LaunchAtLogin(service: LoginItem())
 
+  /// The row the pointer is over, whose summary the panel reveals. It lives here because the Command Line
+  /// Tools toolchain has no SwiftUI macro plugin, so a view cannot hold `@State`.
+  private(set) var hoveredRow: String?
+
   private var poller: Poller?
   private var opening: ItemOpening?
-  private var clicks: NotificationClicks?
   private var started = false
 
-  var countLabel: String { configProblem == nil ? "\(items.count)" : "!" }
-
-  var symbol: String {
-    if configProblem != nil || failure != nil { return "exclamationmark.triangle" }
-    return items.isEmpty ? "tray" : "tray.full"
-  }
+  var icon: IconState { IconState(snapshot: snapshot, configRefused: configProblem != nil) }
 
   func start() {
     guard !started else { return }
@@ -55,13 +50,32 @@ final class StatusModel {
     Task { await loop() }
   }
 
-  /// Poll now, from the menu. A config that failed to load is read again first.
+  /// Poll now, from the panel. A config that failed to load is read again first.
   func refresh() {
     if poller == nil { configure() }
     Task { await pollOnce() }
   }
 
   func open(_ item: Item) { opening?.openItem(item) }
+
+  func openPrismis() { opening?.openPrismis() }
+
+  /// The pointer entered or left the row `id`. Leaving one row never clears the row it entered next.
+  func hover(_ id: String, inside: Bool) {
+    if inside {
+      hoveredRow = id
+    } else if hoveredRow == id {
+      hoveredRow = nil
+    }
+  }
+
+  /// The panel is showing `snapshot`: its rows are on screen with their dots, so the last-looked time can
+  /// move to the newest of them for the next poll.
+  func panelShown() {
+    guard let poller else { return }
+    let shown = snapshot
+    Task { await poller.panelOpened(showing: shown) }
+  }
 
   // MARK: Launch at login
 
@@ -91,13 +105,9 @@ final class StatusModel {
       return
     }
     configProblem = nil
-    let opening = ItemOpening(base: config.baseURL, opener: BrowserOpener())
-    self.opening = opening
-    let clicks = NotificationClicks(opening: opening)
-    self.clicks = clicks
-    UNUserNotificationCenter.current().delegate = clicks
+    opening = ItemOpening(base: config.baseURL, opener: BrowserOpener())
     poller = Poller(
-      client: APIClient(config: config), store: AlertedStore(), notifier: Notifier(),
+      client: APIClient(config: config), store: LastLookedStore(),
       log: { log.notice("\($0, privacy: .public)") })
     log.notice("polling \(config.baseURL.absoluteString, privacy: .public)")
   }
@@ -111,8 +121,6 @@ final class StatusModel {
 
   private func pollOnce() async {
     guard let poller else { return }
-    let snapshot = await poller.poll()
-    items = snapshot.items
-    failure = snapshot.failure?.description
+    snapshot = await poller.poll()
   }
 }

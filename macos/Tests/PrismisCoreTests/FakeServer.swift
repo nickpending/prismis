@@ -61,20 +61,54 @@ final class FakeServer: @unchecked Sendable {
   /// Always answers `status` with an empty body.
   func answer(_ status: Int) { reply = { _ in (status, Data()) } }
 
-  /// Answers 200 with `items` as the daemon's list view.
+  /// Answers 200 with `items`, in the order given, as the daemon's list view answers its query: with
+  /// `since`, only the items whose `fetched_at` is after it, compared to the whole second as SQLite's
+  /// `datetime()` compares them; then the first `limit`.
   func list(_ items: [Item]) {
-    let body = Self.entries(items)
-    reply = { _ in (200, body) }
+    reply = { request in
+      var listed = items
+      if let since = request.query["since"] {
+        guard let mark = Self.daemonTime(since) else { return (422, Data()) }
+        listed = listed.filter { item in
+          guard let fetched = item.fetchedAt else { return false }
+          return fetched.timeIntervalSince1970.rounded(.down)
+            > mark.timeIntervalSince1970.rounded(.down)
+        }
+      }
+      if let limit = request.query["limit"].flatMap(Int.init) {
+        listed = Array(listed.prefix(limit))
+      }
+      return (200, Self.entries(listed))
+    }
+  }
+
+  /// The daemon's own reading of an ISO 8601 query parameter.
+  private static func daemonTime(_ text: String) -> Date? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+  }
+
+  /// A time as the daemon writes it: Python's `isoformat()`, six fractional digits and `+00:00`.
+  static func pythonTime(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(identifier: "UTC")
+    formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
+    return formatter.string(from: date) + "+00:00"
   }
 
   /// The daemon's `GET /api/entries` envelope around `items`, with the list view's other fields present so
-  /// the client is shown to ignore them.
+  /// the client is shown to ignore them. A nil kind, summary or time is written as null.
   static func entries(_ items: [Item]) -> Data {
     let rows: [[String: Any]] = items.map { item in
       [
         "id": item.id, "title": item.title, "source_name": item.sourceName as Any,
         "source_type": "rss", "url": "https://example.com/\(item.id)", "priority": "high",
-        "read": false, "summary": "s", "analysis": ["kind": "analysis"],
+        "read": false, "summary": item.summary as Any, "kind": item.kind as Any,
+        "analysis": ["kind": item.kind as Any, "kind_confidence": 0.9],
+        "fetched_at": item.fetchedAt.map(pythonTime) as Any,
+        "published_at": item.publishedAt.map(pythonTime) as Any,
       ]
     }
     let envelope: [String: Any] = [
@@ -152,14 +186,6 @@ final class LockedBox<T>: @unchecked Sendable {
   func mutate(_ f: (inout T) -> Void) { lock.withLock { f(&v) } }
 }
 
-/// The notification centre's stand-in: records every notice it is handed.
-final class RecordingNotifier: ItemNotifier, @unchecked Sendable {
-  private let lock = NSLock()
-  private var _posted: [ItemNotice] = []
-  var posted: [ItemNotice] { lock.withLock { _posted } }
-  func post(_ notice: ItemNotice) async throws { lock.withLock { _posted.append(notice) } }
-}
-
 /// The browser's stand-in: records every URL it is asked to open.
 final class RecordingOpener: ItemOpener, @unchecked Sendable {
   private let lock = NSLock()
@@ -183,6 +209,45 @@ func tempDirectory(_ name: String) throws -> URL {
   return dir
 }
 
-func item(_ id: String, _ title: String, source: String? = "Feed") -> Item {
-  Item(id: id, title: title, sourceName: source)
+func item(
+  _ id: String, _ title: String, source: String? = "Feed", kind: String? = nil,
+  summary: String? = nil, fetched: Date? = nil, published: Date? = nil
+) -> Item {
+  Item(
+    id: id, title: title, sourceName: source, kind: kind, summary: summary, fetchedAt: fetched,
+    publishedAt: published)
+}
+
+/// A UUID-shaped item id, distinct for each `n`.
+func itemID(_ n: Int) -> String {
+  String(format: "00000000-0000-4000-8000-%012d", n)
+}
+
+/// A last-looked file holding `time`, in a new directory.
+func lastLookedFile(_ time: Date?) throws -> URL {
+  let file = try tempDirectory("last-looked").appendingPathComponent("last-looked.json")
+  if let time {
+    var store = LastLookedStore(file: file)
+    try store.store(time)
+  }
+  return file
+}
+
+/// The last-looked time the file at `file` holds, read by a new store, as a restart reads it.
+func storedTime(_ file: URL) -> Date? {
+  LastLookedStore(file: file).lastLooked
+}
+
+func poller(
+  _ server: FakeServer, key: String = "K", store file: URL, log: RecordingLog = RecordingLog()
+) -> Poller {
+  let config = PrismisConfig(baseURL: server.url, key: key)
+  return Poller(
+    client: APIClient(config: config), store: LastLookedStore(file: file), log: log.sink)
+}
+
+/// Whether `a` and `b` are the same instant to the millisecond, the precision the store keeps.
+func sameInstant(_ a: Date?, _ b: Date?) -> Bool {
+  guard let a, let b else { return a == nil && b == nil }
+  return abs(a.timeIntervalSince(b)) < 0.001
 }

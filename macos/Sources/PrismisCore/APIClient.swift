@@ -1,20 +1,83 @@
 import Foundation
 
+/// The daemon's clock as the API writes it: ISO 8601 with an offset, with or without fractional seconds.
+public enum DaemonTime {
+  /// Nil for text that is not an ISO 8601 time with an offset.
+  public static func parse(_ text: String) -> Date? {
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = fractional.date(from: text) { return date }
+    return ISO8601DateFormatter().date(from: text)
+  }
+
+  /// UTC with milliseconds and a `Z`, which a query string carries unescaped, where `+00:00` would read
+  /// back as a space.
+  public static func format(_ date: Date) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: date)
+  }
+
+  /// Whether `time` falls after `mark` the way the daemon's `since` filter decides it: SQLite's
+  /// `datetime()` drops fractional seconds on both sides, so a time in the same second as the mark is not
+  /// after it.
+  public static func isAfter(_ time: Date, _ mark: Date) -> Bool {
+    time.timeIntervalSince1970.rounded(.down) > mark.timeIntervalSince1970.rounded(.down)
+  }
+}
+
 /// One unread HIGH item, as the list view of `GET /api/entries` gives it.
 public struct Item: Sendable, Equatable, Identifiable, Decodable {
   public let id: String
   public let title: String
   public let sourceName: String?
+  /// The daemon's kind, mirrored from the analysis; nil when the item has none.
+  public let kind: String?
+  public let summary: String?
+  /// When the daemon fetched it, on the daemon's clock: what newness and the last-looked time are read
+  /// from.
+  public let fetchedAt: Date?
+  public let publishedAt: Date?
 
-  public init(id: String, title: String, sourceName: String?) {
+  public init(
+    id: String, title: String, sourceName: String?, kind: String? = nil, summary: String? = nil,
+    fetchedAt: Date? = nil, publishedAt: Date? = nil
+  ) {
     self.id = id
     self.title = title
     self.sourceName = sourceName
+    self.kind = kind
+    self.summary = summary
+    self.fetchedAt = fetchedAt
+    self.publishedAt = publishedAt
   }
 
   enum CodingKeys: String, CodingKey {
-    case id, title
+    case id, title, kind, summary, analysis
     case sourceName = "source_name"
+    case fetchedAt = "fetched_at"
+    case publishedAt = "published_at"
+  }
+
+  private struct Analysis: Decodable { let kind: String? }
+
+  /// Only the id and the title are required. Every other field that is missing, null or of the wrong type
+  /// is nil, so one odd item never fails the poll.
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    title = try c.decode(String.self, forKey: .title)
+    sourceName = try? c.decodeIfPresent(String.self, forKey: .sourceName)
+    summary = try? c.decodeIfPresent(String.self, forKey: .summary)
+    let analysis = try? c.decodeIfPresent(Analysis.self, forKey: .analysis)
+    let named = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? analysis?.kind
+    kind = named?.isEmpty == false ? named : nil
+    fetchedAt = Self.time(c, .fetchedAt)
+    publishedAt = Self.time(c, .publishedAt)
+  }
+
+  private static func time(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Date? {
+    (try? c.decodeIfPresent(String.self, forKey: key)).flatMap(DaemonTime.parse)
   }
 }
 
@@ -72,17 +135,21 @@ public struct APIClient: Sendable {
     let data: Payload
   }
 
-  /// The request a poll makes: the four filters and the key in `X-API-Key`.
-  public var request: URLRequest {
+  /// The request a poll makes: the four filters, at most `limit` items, only those fetched after `since`
+  /// when it is set, and the key in `X-API-Key`.
+  public func request(since: Date? = nil, limit: Int) -> URLRequest {
     var root = config.baseURL.absoluteString
     while root.hasSuffix("/") { root.removeLast() }
     var components = URLComponents(string: "\(root)/api/entries")
-    components?.queryItems = [
+    var query = [
       URLQueryItem(name: "priority", value: "high"),
       URLQueryItem(name: "unread_only", value: "true"),
       URLQueryItem(name: "view", value: "list"),
       URLQueryItem(name: "sort_by", value: "date"),
+      URLQueryItem(name: "limit", value: String(limit)),
     ]
+    if let since { query.append(URLQueryItem(name: "since", value: DaemonTime.format(since))) }
+    components?.queryItems = query
     var request = URLRequest(url: components?.url ?? config.baseURL, timeoutInterval: Self.timeout)
     request.httpMethod = "GET"
     request.setValue(config.key, forHTTPHeaderField: "X-API-Key")
@@ -91,11 +158,12 @@ public struct APIClient: Sendable {
   }
 
   /// The listed items, or a `PollFailure` saying why there are none to show.
-  public func highUnread() async throws(PollFailure) -> [Item] {
+  public func highUnread(since: Date? = nil, limit: Int) async throws(PollFailure) -> [Item] {
     let data: Data
     let response: URLResponse
     do {
-      (data, response) = try await session.data(for: request, delegate: RefuseRedirects())
+      (data, response) = try await session.data(
+        for: request(since: since, limit: limit), delegate: RefuseRedirects())
     } catch {
       throw .unreachable(error.localizedDescription)
     }

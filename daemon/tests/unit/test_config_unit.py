@@ -1,5 +1,6 @@
 """Unit tests for config loading logic."""
 
+import logging
 import tempfile
 from pathlib import Path
 import pytest
@@ -45,7 +46,6 @@ def test_config_loading_with_all_files_present() -> None:
         assert config.fetch_interval == 45
         assert config.max_items_rss == 15
         assert config.llm_light_service == "openrouter"
-        assert config.high_priority_only is True
         assert config.api_key == TEST_API_KEY
 
         # Verify context loaded
@@ -173,8 +173,6 @@ def test_config_structure_contains_all_expected_fields() -> None:
         "llm_light_service",
         "llm_deep_service",
         "api_key",
-        "high_priority_only",
-        "notification_command",
         "context",
     ):
         assert hasattr(config, name), f"Config is missing {name}"
@@ -239,9 +237,43 @@ def test_config_default_values() -> None:
     assert config.llm_deep_service is None
     assert config.auto_extract == "none"
 
-    # Verify notification defaults
-    assert config.high_priority_only is True
-    assert config.notification_command == "terminal-notifier"
+
+def test_a_leftover_notifications_section_is_ignored_with_one_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    INVARIANT: a config.toml that still has [notifications] loads with every other
+               setting intact and logs exactly one WARNING naming the section and the
+               menu-bar app; the same file without the section logs nothing about it
+    BREAKS: an existing install either stops starting over a section it wrote itself,
+            or keeps a dead section and never learns where new HIGH items went
+    """
+    without = _write_config(tmp_path, fetch_interval=45, max_items_rss=15)
+    text = without.read_text()
+    assert text.count("[api]\n") == 1, "template layout moved"
+    with_section = tmp_path / "with-notifications.toml"
+    with_section.write_text(
+        text.replace(
+            "[api]\n",
+            '[notifications]\nhigh_priority_only = true\ncommand = "terminal-notifier"\n'
+            "\n[api]\n",
+        )
+    )
+
+    with caplog.at_level(logging.WARNING, logger="prismis_daemon.config"):
+        loaded_with = Config.from_file(with_section)
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="prismis_daemon.config"):
+        loaded_without = Config.from_file(without)
+
+    assert len(warnings) == 1, warnings
+    assert "[notifications]" in warnings[0]
+    assert "menu-bar app" in warnings[0]
+    assert not [r for r in caplog.records if "notifications" in r.getMessage()]
+    assert loaded_with == loaded_without
+    assert (loaded_with.fetch_interval, loaded_with.max_items_rss) == (45, 15)
+    assert loaded_with.api_key == TEST_API_KEY
 
 
 def test_fetch_allow_private_hosts_defaults_to_empty_and_reads_the_key() -> None:

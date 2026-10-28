@@ -39,10 +39,6 @@ client_secret = "test-secret"
 user_agent = "test-agent"
 max_comments = 5
 
-[notifications]
-high_priority_only = true
-command = "echo"
-
 [api]
 key = "test-api-key"
 

@@ -26,7 +26,6 @@ from prismis_daemon.config import Config
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.llm_call import MAX_CONTENT_BYTES
 from prismis_daemon.models import ContentItem
-from prismis_daemon.notifier import Notifier
 from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
@@ -132,7 +131,6 @@ def _orchestrator(
         file_fetcher=_NullFetcher(),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
     )
     source = {"id": source_id, "type": "rss", "name": "Feed", "url": "x"}

@@ -72,9 +72,8 @@ def test_sc5_the_dark_links_now_call_obs_log() -> None:
     SC-5, run as the work order's own script writes it.
     BREAKS: a link ships dark again and only a manual grep would notice.
     """
-    for name in ("embeddings.py", "notifier.py"):
-        source = (_REPO_ROOT / "daemon/src/prismis_daemon" / name).read_text()
-        assert source.count("obs_log(") > 0, f"{name} emits no observability event"
+    source = (_REPO_ROOT / "daemon/src/prismis_daemon/embeddings.py").read_text()
+    assert source.count("obs_log(") > 0, "embeddings.py emits no observability event"
 
 
 # --- SC-4 ------------------------------------------------------------------------------

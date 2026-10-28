@@ -44,7 +44,6 @@ def test_daemon_orchestration_with_test_database(
     from prismis_daemon.fetchers.file import FileFetcher
     from prismis_daemon.summarizer import ContentSummarizer
     from prismis_daemon.evaluator import ContentEvaluator
-    from prismis_daemon.notifier import Notifier
     from prismis_daemon.config import Config
     from io import StringIO
     from rich.console import Console
@@ -62,12 +61,6 @@ def test_daemon_orchestration_with_test_database(
     file_fetcher = FileFetcher()
     summarizer = ContentSummarizer(config_obj.llm_light_service)
     evaluator = ContentEvaluator(config_obj.llm_light_service)
-    notifier = Notifier(
-        {
-            "high_priority_only": config_obj.high_priority_only,
-            "command": config_obj.notification_command,
-        }
-    )
 
     # Capture console output
     output = StringIO()
@@ -87,7 +80,6 @@ def test_daemon_orchestration_with_test_database(
         file_fetcher=file_fetcher,
         summarizer=summarizer,
         evaluator=evaluator,
-        notifier=notifier,
         config=config_obj,
         console=test_console,
     )
@@ -208,7 +200,6 @@ def test_scheduler_runs_jobs_at_intervals(test_db) -> None:
     from prismis_daemon.fetchers.file import FileFetcher
     from prismis_daemon.summarizer import ContentSummarizer
     from prismis_daemon.evaluator import ContentEvaluator
-    from prismis_daemon.notifier import Notifier
     from prismis_daemon.config import Config
     from io import StringIO
     from rich.console import Console
@@ -225,7 +216,6 @@ def test_scheduler_runs_jobs_at_intervals(test_db) -> None:
     file_fetcher = FileFetcher()
     summarizer = ContentSummarizer(config_obj.llm_light_service)
     evaluator = ContentEvaluator(config_obj.llm_light_service)
-    notifier = Notifier()
 
     # Track execution times
     execution_times = []
@@ -250,7 +240,6 @@ def test_scheduler_runs_jobs_at_intervals(test_db) -> None:
         file_fetcher=file_fetcher,
         summarizer=summarizer,
         evaluator=evaluator,
-        notifier=notifier,
         config=config_obj,
         console=test_console,
     )
@@ -323,7 +312,6 @@ def test_scheduler_graceful_shutdown(test_db) -> None:
     from prismis_daemon.fetchers.file import FileFetcher
     from prismis_daemon.summarizer import ContentSummarizer
     from prismis_daemon.evaluator import ContentEvaluator
-    from prismis_daemon.notifier import Notifier
     from prismis_daemon.config import Config
     from io import StringIO
     from rich.console import Console
@@ -340,7 +328,6 @@ def test_scheduler_graceful_shutdown(test_db) -> None:
     file_fetcher = FileFetcher()
     summarizer = ContentSummarizer(config_obj.llm_light_service)
     evaluator = ContentEvaluator(config_obj.llm_light_service)
-    notifier = Notifier()
 
     # Capture output
     output = StringIO()
@@ -354,7 +341,6 @@ def test_scheduler_graceful_shutdown(test_db) -> None:
         file_fetcher=file_fetcher,
         summarizer=summarizer,
         evaluator=evaluator,
-        notifier=notifier,
         config=config_obj,
         console=test_console,
     )

@@ -27,7 +27,6 @@ from prismis_daemon.config import Config
 from prismis_daemon.defaults import DEFAULT_CONFIG_TOML
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.models import ContentItem
-from prismis_daemon.notifier import Notifier
 from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
@@ -136,7 +135,6 @@ def test_run_once_sends_no_learned_preferences_whatever_the_switch(
         file_fetcher=_NoItems(),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
     )
 

@@ -52,10 +52,6 @@ max_comments = 5  # Number of top comments to include in LLM analysis (0 = unlim
 [hackernews]
 max_comments = 5  # Number of top comments to read per Hacker News story (0 = unlimited)
 
-[notifications]
-high_priority_only = true  # only notify for HIGH priority items
-command = "terminal-notifier"  # notification command (Mac)
-
 [api]
 key = "{api_key}"  # API key for REST endpoints (auto-generated)
 host = "127.0.0.1"  # API server host binding (127.0.0.1=localhost only, 0.0.0.0=all interfaces/LAN)

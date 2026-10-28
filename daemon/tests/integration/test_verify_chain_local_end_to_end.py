@@ -69,7 +69,33 @@ def test_chain_runs_every_default_link_against_local_services(
     # test_verify_chain_source_unit.py, which asserts the extractor is not even built
     # without --full; that is the test which reddens when the gate is reverted.
     assert by_name["deep_extract"].status == "skipped-by-flag"
-    assert by_name["notify"].status == "skipped-by-flag"
+    assert "notify" not in by_name, "the daemon has no notifier to report"
     assert exit_code == 0, f"a clean local run must exit 0, got {exit_code}"
 
     assert by_name["summarize"].model, "the answering model must be reported"
+
+
+def test_full_chain_deep_extracts_and_reports_no_notify_link(
+    local_pipeline_stub: str, isolated_xdg_env: Path, tmp_path: Path
+) -> None:
+    """
+    INVARIANT: --full still runs and reports deep extraction, and reports no notify
+               link, against local services
+    BREAKS: removing the notifier takes --full's deep extraction with it, or the report
+            keeps a link for a notifier that no longer exists
+    """
+    cfg_home = Path(os.environ["XDG_CONFIG_HOME"])
+    configure_local_services(cfg_home, local_pipeline_stub)
+    os.environ["XDG_DATA_HOME"] = str(tmp_path / "data")
+
+    exit_code, links = execute_chain(
+        f"{local_pipeline_stub}/feed.xml",
+        "rss",
+        full=True,
+        console=Console(quiet=True),
+    )
+
+    by_name = {link.name: link for link in links}
+    assert by_name["deep_extract"].status == "ran", by_name["deep_extract"].detail
+    assert "notify" not in by_name, "the daemon has no notifier to report"
+    assert exit_code == 0, f"a clean local run must exit 0, got {exit_code}"

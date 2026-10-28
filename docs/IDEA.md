@@ -14,7 +14,7 @@ started: 2025-10-01
 
 **What specific problem does this solve?**
 
-Current Prismis is over-engineered for personal use - PostgreSQL server requirement, Docker complexity, Auth0 authentication, multi-user architecture, subscription tiers, hosting overhead. Even as the creator, it has too much friction to use daily. Need something that runs locally with zero ops, integrates with existing terminal tools (fabric, yt-dlp, terminal-notifier), has a sexy TUI for daily consumption, and works offline with complete data ownership.
+Current Prismis is over-engineered for personal use - PostgreSQL server requirement, Docker complexity, Auth0 authentication, multi-user architecture, subscription tiers, hosting overhead. Even as the creator, it has too much friction to use daily. Need something that runs locally with zero ops, integrates with existing terminal tools (fabric, yt-dlp), has a sexy TUI for daily consumption, and works offline with complete data ownership.
 
 The deeper problem: Prismis should be a data layer for AI assistants, not just human consumption. Your content intelligence is trapped - when you want to ask "what did that article say about Rust?" or have automation trigger based on content patterns, there's no way to query it programmatically.
 
@@ -79,11 +79,10 @@ Prismis becomes your automated research department. It's constantly reading, ana
    - Dedupe via content_hash, store with full text + summary + analysis JSON
    - Indexes on priority, read status, published date for fast queries
 
-4. **Desktop Notifications**
-   - Configurable priority threshold (default: HIGH only)
-   - Use terminal-notifier (Mac): "3 new HIGH priority items"
-   - Click notification → launches TUI directly to HIGH view
-   - Respect quiet hours if configured
+4. **New HIGH Items on a Mac**
+   - The macOS menu-bar app (`make install-menubar`) polls the daemon's API for unread HIGH items
+   - It marks the ones that arrived since you last looked; the daemon itself sends no desktop notifications
+   - Click a row → the item opens in the web view
 
 5. **TUI Interface (Bubbletea)**
    - Launch: `prismis` → TUI starts in <100ms
@@ -112,8 +111,8 @@ Morning:
   → q when done (5-10 min session)
 
 Throughout Day:
-  → Desktop notification: "2 new HIGH priority items"
-  → Click → TUI opens directly to new content
+  → Menu-bar app: "Prismis: new HIGH items"
+  → Click a row → the item opens in the web view
   → Quick consume, back to work
 
 Evening:
@@ -177,7 +176,7 @@ Evening:
 
 **What is the absolute minimum viable version?**
 
-A Python daemon that fetches RSS/Reddit/YouTube/Papers, analyzes with LLM for priority, stores in SQLite, sends Mac notifications for HIGH priority, and provides a beautiful Go TUI for consumption. Plus manual content ingestion and pipe-to-Fabric integration for deeper analysis.
+A Python daemon that fetches RSS/Reddit/YouTube/Papers, analyzes with LLM for priority, stores in SQLite, surfaces new HIGH priority items in a macOS menu-bar app, and provides a beautiful Go TUI for consumption. Plus manual content ingestion and pipe-to-Fabric integration for deeper analysis.
 
 **MVP Scope**
 
@@ -402,7 +401,7 @@ These future features maintain the core philosophy: **Prismis as your automated 
 - 📋 LLM content analysis and prioritization
 - 📋 SQLite storage with WAL mode for concurrency
 - 📋 Go TUI with Bubbletea/Lipgloss (<100ms launch)
-- 📋 Desktop notifications with configurable priority threshold
+- 📋 New HIGH items shown in the macOS menu-bar app
 - 📋 Personal context in Markdown
 - 📋 Source management CLI
 - 📋 Daily dossier generation
@@ -424,7 +423,6 @@ Single tool keeps it simple for v1 - one daemon, one TUI, one database. Future i
 - SQLite3 (pre-installed on Mac/Linux)
 - LLM API keys (OpenAI or Anthropic)
 - Reddit API credentials (optional, falls back to public)
-- terminal-notifier (Mac) or notify-send (Linux)
 - Optional: fabric for advanced analysis patterns (future)
 
 **Integration Requirements**
@@ -511,7 +509,6 @@ prismis-local/
 │   │   └── youtube.py       # yt-dlp for transcripts
 │   ├── analyzer.py          # LiteLLM, batch processing, retry logic
 │   ├── storage.py           # SQLite with WAL, retry on lock
-│   ├── notifier.py          # terminal-notifier/notify-send
 │   └── config.py            # Pydantic settings from TOML/env
 │
 ├── tui/                     # Go 1.21+ single binary
@@ -667,7 +664,6 @@ tui/
 
 **Phase 3: Complete Workflow (Week 3)**
 - Add Reddit (PRAW) and YouTube (yt-dlp) sources
-- Desktop notifications with terminal-notifier
 - **Dossier feature**: Daily summary generation with:
   - Key insights from the day
   - Topic trend analysis  
@@ -725,8 +721,8 @@ RSS/Reddit/YouTube → Fetcher (parallel)
                          ↓
                   SQLite (WAL mode)
                     ↓         ↓
-            Notifications    TUI
-            (if HIGH)    (on demand)
+             Menu-bar app    TUI
+             (HIGH, macOS) (on demand)
                               ↓
                     Future: API/MCP
                               ↓
@@ -802,7 +798,7 @@ def write_with_retry(query, params, retries=3):
   - Flux: Manage tasks/ideas
   - Momentum: Drive development
   - Prose: Assist writing
-- Notification strategy: Instant desktop alerts for HIGH priority only
+- HIGH-item signal: the macOS menu-bar app polls the daemon's API; the daemon sends no desktop alerts
 
 ## Open Questions
 
@@ -861,7 +857,6 @@ def write_with_retry(query, params, retries=3):
 - WAL mode and retry logic for SQLite
 - Batch LLM calls and cache summaries
 - Fallback to title/description if no transcript
-- Abstract notification system for cross-platform
 
 ---
 
@@ -887,7 +882,6 @@ def write_with_retry(query, params, retries=3):
 - yt-dlp for YouTube transcript extraction
 - MarkItDown/Trafilatura for full article content
 - Bubbletea for instant-launch TUI (<100ms)
-- terminal-notifier/notify-send for desktop alerts
 - APScheduler for daemon scheduling (every 30 min)
 - Rich library for beautiful CLI progress indicators
 

@@ -36,7 +36,6 @@ from prismis_daemon.config import Config
 from prismis_daemon.defaults import DEFAULT_CONFIG_TOML
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.models import ContentItem
-from prismis_daemon.notifier import Notifier
 from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
@@ -149,7 +148,6 @@ def test_no_kind_classifier_makes_no_call_and_stores_no_kind(
         file_fetcher=_NullFetcher(),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
         # No kind_classifier passed at all -- the default, and what __main__.py's own
         # `if config.llm_kind_service:` gate produces when the key is unset.

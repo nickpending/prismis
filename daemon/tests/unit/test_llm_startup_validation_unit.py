@@ -49,10 +49,6 @@ client_secret = "env:REDDIT_CLIENT_SECRET"
 user_agent = "test"
 max_comments = 100
 
-[notifications]
-high_priority_only = true
-command = "echo"
-
 [api]
 key = "test-api-key"
 
@@ -88,10 +84,6 @@ client_id = "env:REDDIT_CLIENT_ID"
 client_secret = "env:REDDIT_CLIENT_SECRET"
 user_agent = "test"
 max_comments = 100
-
-[notifications]
-high_priority_only = true
-command = "echo"
 
 [api]
 key = "test-api-key"
@@ -129,10 +121,6 @@ client_secret = "env:REDDIT_CLIENT_SECRET"
 user_agent = "test"
 max_comments = 100
 
-[notifications]
-high_priority_only = true
-command = "echo"
-
 [api]
 key = "test-api-key"
 
@@ -169,10 +157,6 @@ client_id = "env:REDDIT_CLIENT_ID"
 client_secret = "env:REDDIT_CLIENT_SECRET"
 user_agent = "test"
 max_comments = 100
-
-[notifications]
-high_priority_only = true
-command = "echo"
 
 [api]
 key = "test-api-key"
@@ -279,10 +263,6 @@ client_id = "env:REDDIT_CLIENT_ID"
 client_secret = "env:REDDIT_CLIENT_SECRET"
 user_agent = "test"
 max_comments = 100
-
-[notifications]
-high_priority_only = true
-command = "echo"
 
 [api]
 key = "test-api-key"

@@ -31,7 +31,6 @@ from .fetchers.reddit import RedditFetcher
 from .fetchers.rss import RSSFetcher
 from .fetchers.youtube import YouTubeFetcher
 from .locking import acquire_daemon_lock
-from .notifier import Notifier
 from .observability import get_logger as get_obs_logger
 from .orchestrator import DaemonOrchestrator
 from .refetch import REFETCH_TYPES, RefetchReport, run_refetch
@@ -125,7 +124,7 @@ def build_orchestrator(config: Config, storage: Storage) -> DaemonOrchestrator:
     """Wire every pipeline component into a DaemonOrchestrator for one config+storage.
 
     Shared by run_scheduler and the --once branch of main: both built the same
-    fetchers, summarizer, evaluator, notifier and optional deep_extractor/
+    fetchers, summarizer, evaluator and optional deep_extractor/
     kind_classifier from the same config fields, in the same order, then diverged
     only after (one calls build_scheduler, the other calls run_once()).
     """
@@ -134,14 +133,8 @@ def build_orchestrator(config: Config, storage: Storage) -> DaemonOrchestrator:
     youtube_fetcher = YouTubeFetcher(config=config)
     file_fetcher = FileFetcher(config=config, storage=storage)
 
-    notification_config = {
-        "high_priority_only": config.high_priority_only,
-        "command": config.notification_command,
-    }
-
     summarizer = ContentSummarizer(config.llm_light_service)
     evaluator = ContentEvaluator(config.llm_light_service)
-    notifier = Notifier(notification_config)
 
     # Optional deep extractor — only when llm_deep_service is configured.
     deep_extractor = None
@@ -165,7 +158,6 @@ def build_orchestrator(config: Config, storage: Storage) -> DaemonOrchestrator:
         file_fetcher=file_fetcher,
         summarizer=summarizer,
         evaluator=evaluator,
-        notifier=notifier,
         config=config,
         console=console,
         deep_extractor=deep_extractor,
@@ -785,7 +777,7 @@ def verify(
     ] = "rss",
     full: Annotated[
         bool,
-        typer.Option("--full", help="Also deep-extract and notify (--chain only)"),
+        typer.Option("--full", help="Also deep-extract (--chain only)"),
     ] = False,
 ) -> None:
     """Run post-deployment smoke check: config, services, sources, context.md.

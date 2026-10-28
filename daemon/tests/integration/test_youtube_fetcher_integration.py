@@ -32,10 +32,6 @@ client_secret = "env:REDDIT_CLIENT_SECRET"
 user_agent = "test-agent"
 max_comments = 5
 
-[notifications]
-high_priority_only = true
-command = "echo"
-
 [api]
 key = "test-api-key"
 

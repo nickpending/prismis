@@ -28,7 +28,6 @@ from prismis_daemon.__main__ import app
 from prismis_daemon.config import Config
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.models import ContentItem
-from prismis_daemon.notifier import Notifier
 from prismis_daemon.observability import get_logger as get_obs_logger
 from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.readability import (
@@ -77,7 +76,6 @@ def _build_orchestrator(
         file_fetcher=poison,
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
     )
 

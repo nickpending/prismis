@@ -15,7 +15,6 @@ from .embeddings import Embedder
 from .evaluator import ContentEvaluator
 from .kind_classifier import KindClassifier
 from .models import ContentItem
-from .notifier import Notifier
 from .observability import log as obs_log
 from .readability import is_readable
 from .storage import Storage
@@ -37,7 +36,6 @@ class DaemonOrchestrator:
         file_fetcher,
         summarizer: ContentSummarizer,
         evaluator: ContentEvaluator,
-        notifier: Notifier,
         config: Config,
         console: Console | None = None,
         embedder: Embedder | None = None,
@@ -54,7 +52,6 @@ class DaemonOrchestrator:
             youtube_fetcher: YouTube fetcher instance
             summarizer: Summarizer instance for content analysis
             evaluator: Evaluator instance for priority evaluation
-            notifier: Notifier instance for desktop notifications
             config: Configuration object with all daemon settings
             console: Optional Rich console for output
             embedder: Optional Embedder instance for semantic search (created if not provided)
@@ -70,7 +67,6 @@ class DaemonOrchestrator:
         self.file_fetcher = file_fetcher
         self.summarizer = summarizer
         self.evaluator = evaluator
-        self.notifier = notifier
         self.config = config
         self.console = console or Console()
         self.embedder = embedder or Embedder()
@@ -328,7 +324,7 @@ class DaemonOrchestrator:
             force_refetch: If True, process all items regardless of existence
 
         Returns:
-            Dict with processing stats: items_fetched, items_processed, items_new, items_updated, new_high_priority_items
+            Dict with processing stats: items_fetched, items_processed, items_new, items_updated
         """
         stats: dict[str, Any] = {
             "items_fetched": 0,
@@ -343,7 +339,6 @@ class DaemonOrchestrator:
             # Items stored without a kind because the classifier call itself failed;
             # kept out of "errors" for the same reason (INV-002).
             "kind_classify_failures": [],
-            "new_high_priority_items": [],  # Track new HIGH priority items for notifications
         }
 
         try:
@@ -523,14 +518,10 @@ class DaemonOrchestrator:
                         )
 
                     is_new = result["is_new"]
-                    item_dict = result["item_dict"]
                     evaluation = result["evaluation"]
 
                     if is_new:
                         stats["items_new"] += 1
-                        # Track new HIGH priority items for notifications
-                        if evaluation.priority and evaluation.priority.value == "high":
-                            stats["new_high_priority_items"].append(item_dict)
                     else:
                         stats["items_updated"] += 1
 
@@ -589,7 +580,6 @@ class DaemonOrchestrator:
             "errors": [],
             "deep_extract_failures": [],
             "kind_classify_failures": [],
-            "new_high_priority_items": [],  # Aggregate new HIGH priority items
         }
 
         # Score this cycle against context.md as it is on disk now.
@@ -632,9 +622,6 @@ class DaemonOrchestrator:
                 stats["kind_classify_failures"].extend(
                     source_stats["kind_classify_failures"]
                 )
-                stats["new_high_priority_items"].extend(
-                    source_stats["new_high_priority_items"]
-                )
 
                 # fetch_source_content reports a failed fetch in its stats rather than
                 # raising, so the except below never sees it (#75).
@@ -653,13 +640,6 @@ class DaemonOrchestrator:
                 stats["errors"].append(error_msg)
                 # Update source fetch status (failure)
                 self.storage.update_source_fetch_status(source["id"], False, str(e))
-
-        # Send notifications for NEW HIGH priority content only
-        if stats["new_high_priority_items"]:
-            self.console.print(
-                f"🔔 Sending notification for {len(stats['new_high_priority_items'])} new HIGH priority items..."
-            )
-            self.notifier.notify_new_content(stats["new_high_priority_items"])
 
         # Summary with enhanced stats
         self.console.print("\n[bold green]✅ Processing complete[/bold green]")

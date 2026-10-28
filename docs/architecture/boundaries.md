@@ -4,8 +4,8 @@ subtype: boundaries
 project: "prismis"
 status: active
 created: "2026-04-07"
-updated: "2026-10-06"
-last_change: "cli-parity (report rendered in CLI, daemon report formatters removed, TUI hydration), fetch-address-guard, title-only-reasons ([2026-10-04]). Prior: tz-aware-timestamps (+00:00 storage, user_version migration, _rfc3339 simplified) ([2026-10-03]). Prior: verify.sh tool-directive pinning (go tool staticcheck/gitleaks), uv --locked, gate self-tests. Prior: content-kind (#77): new Daemon <-> OpenRouter Decisions and kind-filter contracts. Prior: openai-sdk-migration: the daemon's LLM boundary is now a direct openai-SDK client (llm_client.py), not a separate library; see decisions.md [2026-09-25]"
+updated: "2026-10-28"
+last_change: "remove-notifier (#103): the notifier's opt-in live test is gone with the notifier ([2026-10-28]). Prior: cli-parity (report rendered in CLI, daemon report formatters removed, TUI hydration), fetch-address-guard, title-only-reasons ([2026-10-04]). Prior: tz-aware-timestamps (+00:00 storage, user_version migration, _rfc3339 simplified) ([2026-10-03]). Prior: verify.sh tool-directive pinning (go tool staticcheck/gitleaks), uv --locked, gate self-tests. Prior: content-kind (#77): new Daemon <-> OpenRouter Decisions and kind-filter contracts. Prior: openai-sdk-migration: the daemon's LLM boundary is now a direct openai-SDK client (llm_client.py), not a separate library; see decisions.md [2026-09-25]"
 tags: [architecture, boundaries]
 ---
 
@@ -27,7 +27,7 @@ Interface contracts between components and external systems.
 
 Failure modes a recording cannot reproduce are produced locally rather than replayed: a stalled peer is a loopback listener that never answers (`hung_peer`), a 429 or a page that is not a feed is a loopback server answering it (`local_http_server`), and a host that does not resolve is the reserved `.invalid` TLD. Third-party changes (a feed's format, Reddit's API shape, yt-dlp's output) are therefore not seen until the recordings are refreshed with the commands above.
 
-Opt-in live runs, outside the gate: `daemon/tests/integration/test_llm_client_live_integration.py` (4 tests, `PRISMIS_LIVE_LLM_TESTS=1`), `daemon/tests/integration/test_llm_startup_validation_integration.py` (2 tests, which skip unless `OPENAI_API_KEY` and a `prismis-openai` service are configured) and `daemon/tests/integration/test_notifier_integration.py` (1 test, a macOS binary). `uv run pytest -q -rs` reports exactly these 7 as skipped.
+Opt-in live runs, outside the gate: `daemon/tests/integration/test_llm_client_live_integration.py` (4 tests, `PRISMIS_LIVE_LLM_TESTS=1`) and `daemon/tests/integration/test_llm_startup_validation_integration.py` (2 tests, which skip unless `OPENAI_API_KEY` and a `prismis-openai` service are configured). `uv run pytest -q -rs` reports exactly these 6 as skipped.
 
 ## Observability JSONL event schema (run_id attribution)
 

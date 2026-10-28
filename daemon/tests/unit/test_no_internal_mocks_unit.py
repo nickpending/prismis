@@ -134,7 +134,7 @@ class _Scanner(ast.NodeVisitor):
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     self.own_names.add(target.id)
-        # `notifier._send = fake`: a function replacing a method on one of our objects.
+        # `embedder._load = fake`: a function replacing a method on one of our objects.
         # Assigning an object (`app.state.deep_extractor = extractor`) is injection, not a fake.
         value = node.value
         replaces_behavior = (
@@ -223,9 +223,9 @@ def test_no_test_patches_prismis_internals() -> None:
             "Storage.get_active_sources",
         ),
         (
-            "from prismis_daemon.notifier import Notifier\n"
-            "def t():\n    n = Notifier({})\n    n._send_notification = lambda items: None\n",
-            "n._send_notification",
+            "from prismis_daemon.embeddings import Embedder\n"
+            "def t():\n    e = Embedder()\n    e.generate_embedding = lambda text: []\n",
+            "e.generate_embedding",
         ),
         (
             'def t(monkeypatch):\n    monkeypatch.setattr("cli.extract.APIClient", object)\n',

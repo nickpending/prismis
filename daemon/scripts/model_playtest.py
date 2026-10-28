@@ -226,7 +226,7 @@ def scoreboard(all_results: dict[str, list[dict]], usage: dict) -> str:
         lines.append(
             f"  HIGH volume: baseline {base_high} -> candidate {cand_high}"
             + (
-                f"  ({cand_high / base_high:.1f}x notification load)"
+                f"  ({cand_high / base_high:.1f}x HIGH load)"
                 if base_high
                 else ""
             )

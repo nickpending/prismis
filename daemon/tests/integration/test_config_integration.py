@@ -9,20 +9,26 @@ survives here is the one thing that is genuinely an integration: ensure_config()
 config that Config.from_file() can then load.
 """
 
+import logging
 import shutil
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from prismis_daemon.config import Config
 from prismis_daemon.defaults import ensure_config
 
 
-def test_ensure_config_produces_a_loadable_config(monkeypatch) -> None:
+def test_ensure_config_produces_a_loadable_config(
+    monkeypatch, caplog: pytest.LogCaptureFixture
+) -> None:
     """
     INVARIANT: the config ensure_config() writes on a fresh install is one from_file()
-    can load and validate.
+    can load and validate, with no [notifications] section and no warning about one.
     BREAKS: a fresh install starts, writes its own default config, and then refuses to
-    read it — the daemon cannot boot at all.
+    read it — the daemon cannot boot at all; or a fresh install warns about a section
+    its own template wrote.
     """
     temp_home = tempfile.mkdtemp()
 
@@ -37,15 +43,17 @@ def test_ensure_config_produces_a_loadable_config(monkeypatch) -> None:
         assert (config_dir / "config.toml").exists()
         assert (config_dir / "context.md").exists()
 
-        # The written config loads and passes validation (from_file calls validate()).
-        config_obj = Config.from_file(config_dir / "config.toml")
+        assert "[notifications]" not in (config_dir / "config.toml").read_text()
 
+        # The written config loads and passes validation (from_file calls validate()).
+        with caplog.at_level(logging.WARNING, logger="prismis_daemon.config"):
+            config_obj = Config.from_file(config_dir / "config.toml")
+
+        assert not [r for r in caplog.records if "notifications" in r.getMessage()]
         assert config_obj.fetch_interval == 30
         assert config_obj.max_items_rss == 25
         assert config_obj.max_days_lookback == 30
         assert config_obj.llm_light_service == "openrouter"
-        assert config_obj.high_priority_only is True
-        assert config_obj.notification_command == "terminal-notifier"
 
         # A generated api_key is present and non-empty — validate() requires it.
         assert config_obj.api_key

@@ -168,9 +168,6 @@ def create_api_client_with_config(
         reddit_client_secret=full_config.reddit_client_secret,
         reddit_user_agent=full_config.reddit_user_agent,
         reddit_max_comments=full_config.reddit_max_comments,
-        # Notification settings
-        high_priority_only=full_config.high_priority_only,
-        notification_command=full_config.notification_command,
         # API settings
         api_key=full_config.api_key,
         api_host=full_config.api_host,

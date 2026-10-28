@@ -8,7 +8,7 @@ combine summary + synthesis so search reflects the richer content.
 
 Real collaborators throughout: the real Summarizer and Evaluator drive the real
 llm-core `complete()` against a local HTTP stub standing in for the LLM (the one
-collaborator the constitution permits faking), the real Notifier, and the real Config
+collaborator the constitution permits faking), and the real Config
 loaded from the sealed XDG config. Storage is real, over the sealed test database --
 what actually landed is read back through Storage's own public methods, not tracked by
 patching create_or_update_content.
@@ -25,6 +25,8 @@ SC-4's job, covering the three dedicated deep-extraction test files.
 from __future__ import annotations
 
 import http.server
+import importlib.util
+import inspect
 import json as _json
 import os
 import threading
@@ -37,7 +39,6 @@ from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.config import Config
 from prismis_daemon.embeddings import Embedder
 from prismis_daemon.evaluator import ContentEvaluator
-from prismis_daemon.notifier import Notifier
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
 
@@ -138,6 +139,23 @@ def clean_circuit_registry() -> Iterator[None]:
     reset_circuit_breaker()
 
 
+class _RecordingEmbedder(Embedder):
+    """Records the text= argument instead of running the real sentence-transformers
+    model, through the orchestrator's constructor-injected embedder seam."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.recorded_texts: list[str] = []
+
+    def generate_embedding(self, text: str, title: str = "") -> list[float]:
+        self.recorded_texts.append(text)
+        # Return a minimal 384-dim zero vector so add_embedding doesn't error
+        return [0.0] * 384
+
+    def get_dimension(self) -> int:
+        return 384
+
+
 def _real_config(base_url: str) -> Config:
     """Wire the sealed config's light/deep services at the local stub and load it."""
     cfg_home = Path(os.environ["XDG_CONFIG_HOME"])
@@ -197,7 +215,6 @@ def test_inv002_deep_failure_does_not_block_storage(
         file_fetcher=_NullFetcher(),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
         deep_extractor=failing_extractor,
     )
@@ -281,21 +298,6 @@ def test_sc5_embedding_combines_summary_and_synthesis(
                 "extracted_at": "2026-04-27T12:00:00+00:00",
             }
 
-    # Embedder subclass that records the text= argument instead of running the real
-    # sentence-transformers model.
-    class _RecordingEmbedder(Embedder):
-        def __init__(self) -> None:
-            super().__init__()
-            self.recorded_texts: list[str] = []
-
-        def generate_embedding(self, text: str, title: str = "") -> list[float]:
-            self.recorded_texts.append(text)
-            # Return a minimal 384-dim zero vector so add_embedding doesn't error
-            return [0.0] * 384
-
-        def get_dimension(self) -> int:
-            return 384
-
     from prismis_daemon.models import ContentItem as CI
 
     pipeline_item = CI(
@@ -328,7 +330,6 @@ def test_sc5_embedding_combines_summary_and_synthesis(
         file_fetcher=_NullFetcher(),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
         deep_extractor=_SucceedingExtractor(config.llm_deep_service),
         embedder=recording_embedder,
@@ -357,3 +358,73 @@ def test_sc5_embedding_combines_summary_and_synthesis(
     assert summary_pos < synthesis_pos, (
         "SC-5: summary must precede synthesis in embedding text"
     )
+
+
+def test_a_cycle_with_new_high_items_sends_no_notification(
+    test_db: Path,
+    isolated_xdg_env: Path,
+    high_priority_llm_stub: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    INVARIANT: the daemon has no notifier — no prismis_daemon.notifier module, no
+               notifier argument on DaemonOrchestrator, no new_high_priority_items in
+               run_once's stats, and no notification command run by a cycle that
+               stores a new HIGH item
+    BREAKS: a server daemon keeps queueing desktop banners nobody sees, and a Mac
+            daemon double-signals what the menu-bar app already shows
+
+    A `terminal-notifier` that records its own invocation sits first on PATH, so a
+    notification command run anywhere in the cycle leaves the marker behind.
+    """
+    from prismis_daemon.models import ContentItem
+    from prismis_daemon.orchestrator import DaemonOrchestrator
+
+    marker = tmp_path / "notification-command-ran"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for command in ("terminal-notifier", "notify-send"):
+        fake = bin_dir / command
+        fake.write_text(f'#!/bin/sh\necho "$0 $*" >> "{marker}"\n')
+        fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    assert importlib.util.find_spec("prismis_daemon.notifier") is None
+    assert "notifier" not in inspect.signature(DaemonOrchestrator).parameters
+
+    config = _real_config(high_priority_llm_stub)
+    storage = Storage(test_db)
+    source_id = storage.add_source("https://feeds.example.com/rss", "rss", "Test Feed")
+    item = ContentItem(
+        source_id=source_id,
+        external_id="high-001",
+        title="High Priority Article",
+        url="https://example.com/high",
+        content="Substantial article content that the evaluator scores HIGH.",
+    )
+
+    class _OneItemFetcher:
+        def fetch_content(self, source, **kw):
+            return [item]
+
+    orchestrator = DaemonOrchestrator(
+        storage=storage,
+        rss_fetcher=_OneItemFetcher(),
+        reddit_fetcher=_NullFetcher(),
+        youtube_fetcher=_NullFetcher(),
+        file_fetcher=_NullFetcher(),
+        summarizer=ContentSummarizer(config.llm_light_service),
+        evaluator=ContentEvaluator(config.llm_light_service),
+        config=config,
+        embedder=_RecordingEmbedder(),
+    )
+
+    stats = orchestrator.run_once()
+
+    assert stats["total_new"] == 1, stats
+    assert [row["external_id"] for row in storage.get_content_by_priority("high")] == [
+        "high-001"
+    ], "the cycle stored the item as a new HIGH item"
+    assert "new_high_priority_items" not in stats, sorted(stats)
+    assert not marker.exists(), marker.read_text()

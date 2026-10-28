@@ -31,7 +31,6 @@ from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.config import Config
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.models import ContentItem
-from prismis_daemon.notifier import Notifier
 from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
@@ -174,7 +173,6 @@ def _orchestrator(
         file_fetcher=_NullFetcher(),
         summarizer=summarizer or ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
         embedder=embedder,
     )

@@ -44,7 +44,7 @@ _SERVICE = "verify-chain-test-service"
 #
 # The walk below skips relative imports, so every real collaborator the chain drives
 # (the orchestrator, storage, the fetchers, the summarizer, evaluator, embedder,
-# notifier, config, database, observability, deep extractor) sits outside this set by
+# config, database, observability, deep extractor) sits outside this set by
 # construction and needs no entry here.
 _ALLOWED_IMPORTS = {
     "dataclasses",
@@ -64,7 +64,6 @@ def _stats(**overrides) -> dict:
         "items_new": 0,
         "items_updated": 0,
         "errors": [],
-        "new_high_priority_items": [],
     }
     stats.update(overrides)
     return stats
@@ -326,9 +325,21 @@ def test_embed_link_reports_its_own_events() -> None:
 # --- --full gating (SC-6) -------------------------------------------------------------
 
 
-def test_default_run_reports_deep_and_notify_as_skipped_by_flag() -> None:
+_LINK_NAMES = [
+    "fetch",
+    "dedup",
+    "summarize",
+    "evaluate",
+    "kind",
+    "deep_extract",
+    "store",
+    "embed",
+]
+
+
+def test_default_run_reports_deep_extract_as_skipped_by_flag() -> None:
     """
-    SC-6: without --full those two links are skipped-by-flag, not absent and not empty.
+    SC-6: without --full deep extraction is skipped-by-flag, not absent and not empty.
     BREAKS: the operator cannot tell "I did not ask for this" from "this produced
     nothing", which is the distinction SC-6 names.
     """
@@ -337,18 +348,26 @@ def test_default_run_reports_deep_and_notify_as_skipped_by_flag() -> None:
     )
 
     assert links["deep_extract"].status == "skipped-by-flag"
-    assert links["notify"].status == "skipped-by-flag"
-    assert [link.name for link in render_report(_stats(), [], _SOURCE_ID, False)] == [
-        "fetch",
-        "dedup",
-        "summarize",
-        "evaluate",
-        "kind",
-        "deep_extract",
-        "store",
-        "embed",
-        "notify",
-    ]
+    assert [link.name for link in render_report(_stats(), [], _SOURCE_ID, False)] == (
+        _LINK_NAMES
+    )
+
+
+def test_full_run_reports_the_same_links_with_no_notify() -> None:
+    """
+    INVARIANT: --full adds deep extraction and nothing else; there is no notify link
+    BREAKS: the report keeps a link for a notifier the daemon no longer has
+    """
+    links = render_report(
+        _stats(items_fetched=1, items_processed=1),
+        [_fetch_complete(1), _llm_success("deep_extract", cost=0.4)],
+        _SOURCE_ID,
+        full=True,
+        deep_service="deep-svc",
+    )
+
+    assert [link.name for link in links] == _LINK_NAMES
+    assert _by_name(links)["deep_extract"].status == "ran"
 
 
 def test_full_without_a_deep_service_is_skipped_not_skipped_by_flag() -> None:
@@ -390,53 +409,6 @@ def test_full_with_a_deep_service_reports_the_deep_calls() -> None:
     assert links["deep_extract"].status == "ran"
     assert links["deep_extract"].cost_usd == pytest.approx(0.4)
     assert "auto_extract=all" in links["deep_extract"].detail
-
-
-def test_full_notify_with_no_high_priority_items_is_empty() -> None:
-    """
-    SC-6 / Principle II: production only calls the notifier when there is something to
-    send, so the chain reports that as empty rather than as a notification that failed.
-
-    BREAKS: a run with nothing HIGH looks like a broken notifier.
-    """
-    stats = _stats(items_fetched=1, items_processed=1, new_high_priority_items=[])
-
-    links = _by_name(
-        render_report(
-            stats, [_fetch_complete(1)], _SOURCE_ID, full=True, deep_service=None
-        )
-    )
-
-    assert links["notify"].status == "empty"
-    assert "no HIGH priority items" in links["notify"].detail
-
-
-def test_full_notify_reports_the_notification_event() -> None:
-    """
-    SC-6: with something to send, the notify link reports the real event.
-    BREAKS: the notify link is blank on the runs where it actually did something.
-    """
-    events = [
-        _fetch_complete(1),
-        {
-            "event": "notification.send",
-            "status": "success",
-            "count": 2,
-            "duration_ms": 15,
-        },
-    ]
-    stats = _stats(
-        items_fetched=1,
-        items_processed=1,
-        new_high_priority_items=[{"title": "a"}, {"title": "b"}],
-    )
-
-    links = _by_name(
-        render_report(stats, events, _SOURCE_ID, full=True, deep_service=None)
-    )
-
-    assert links["notify"].status == "ran"
-    assert links["notify"].detail == "2 item(s) notified"
 
 
 # --- Attribution guard ----------------------------------------------------------------

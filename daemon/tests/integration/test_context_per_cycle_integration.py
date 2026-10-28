@@ -19,7 +19,6 @@ from prismis_daemon.config import Config
 from prismis_daemon.defaults import DEFAULT_CONTEXT_MD
 from prismis_daemon.evaluator import ContentEvaluator
 from prismis_daemon.models import ContentItem
-from prismis_daemon.notifier import Notifier
 from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
@@ -102,7 +101,6 @@ def cycle_env(
         file_fetcher=_NoItems(),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
     )
     return orchestrator, context_path

@@ -122,10 +122,6 @@ class Config:
     reddit_user_agent: str
     reddit_max_comments: int  # Max comments to fetch per post (0 = unlimited)
 
-    # Notification settings
-    high_priority_only: bool
-    notification_command: str
-
     # API settings
     api_key: str
     api_host: str
@@ -325,7 +321,6 @@ class Config:
         llm = config_dict.get("llm", {})
         reddit = config_dict.get("reddit", {})
         hackernews = config_dict.get("hackernews", {})
-        notifications = config_dict.get("notifications", {})
         api = config_dict.get("api", {})
         audio = config_dict.get("audio", {})
         archival = config_dict.get("archival", {})
@@ -350,6 +345,13 @@ class Config:
                 "config.toml [context] keys %s are ignored: the context.md auto-updater "
                 "was removed. Delete them.",
                 ", ".join(retired),
+            )
+
+        if "notifications" in config_dict:
+            logger.warning(
+                "config.toml [notifications] section is ignored: the daemon's desktop "
+                "notifier was removed, and the macOS menu-bar app "
+                "(make install-menubar) shows new HIGH items. Delete the section."
             )
 
         # Helper function to expand environment variables
@@ -396,8 +398,6 @@ class Config:
                 reddit_user_agent=reddit["user_agent"],
                 reddit_max_comments=reddit["max_comments"],
                 hackernews_max_comments=hackernews.get("max_comments", 5),
-                high_priority_only=notifications["high_priority_only"],
-                notification_command=notifications["command"],
                 api_key=api.get("key"),  # No default - must be explicitly set
                 api_host=api.get(
                     "host", "127.0.0.1"

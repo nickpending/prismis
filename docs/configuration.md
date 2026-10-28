@@ -138,13 +138,19 @@ key = "the daemon's [api] key"
 The daemon listens on port 8989. With `[remote]` set, both `prismis-cli` and the TUI talk to that
 daemon instead of localhost; `prismis --remote http://server:8989` does the same for one run.
 
-## Notifications and audio
+## New HIGH items on a Mac
+
+The daemon sends no desktop notifications. On a Mac, the Prismis menu-bar app shows unread HIGH
+items and marks the ones that arrived since you last looked; install it with
+`make install-menubar`. It reads this machine's config.toml: the `[remote]` url and key when they
+are set, otherwise the local daemon with the `[api]` key.
+
+A `[notifications]` section left from an older release is ignored, with a warning in the daemon's
+log at startup; delete it.
+
+## Audio
 
 ```toml
-[notifications]
-high_priority_only = true
-command = "terminal-notifier"   # macOS
-
 [audio]
 provider = "system"      # free native TTS, or "elevenlabs" with ELEVENLABS_API_KEY set
 # voice = "Rachel"

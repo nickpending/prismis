@@ -33,7 +33,6 @@ from prismis_daemon.fetchers.rss import RSSFetcher
 from prismis_daemon.fetchers.youtube import YouTubeFetcher
 from prismis_daemon.llm_client import CompleteResult, TokenUsage
 from prismis_daemon.models import ContentItem
-from prismis_daemon.notifier import Notifier
 from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.readability import (
     RSS_NO_CONTENT_FALLBACK,
@@ -143,7 +142,6 @@ def _build_orchestrator(
         file_fetcher=_NullFetcher(),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
     )
 

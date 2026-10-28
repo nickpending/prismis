@@ -32,7 +32,6 @@ from .fetchers.reddit import RedditFetcher
 from .fetchers.rss import RSSFetcher
 from .fetchers.youtube import YouTubeFetcher
 from .kind_classifier import KindClassifier
-from .notifier import Notifier
 from .observability import get_logger, set_run_id
 from .orchestrator import DaemonOrchestrator
 from .storage import Storage
@@ -59,7 +58,7 @@ class LinkStatus:
     """One pipeline link's outcome in the rendered report.
 
     name: "fetch" | "dedup" | "summarize" | "evaluate" | "kind" | "deep_extract"
-          | "store" | "embed" | "notify"
+          | "store" | "embed"
     status: "ran" | "empty" | "never-reached" | "skipped-by-flag"
             | "skipped" | "circuit-open" | "error"
     """
@@ -406,44 +405,6 @@ def _embed_link(events: list[dict[str, Any]], stats: dict[str, Any]) -> LinkStat
     )
 
 
-def _notify_link(
-    events: list[dict[str, Any]], stats: dict[str, Any], full: bool
-) -> LinkStatus:
-    if not full:
-        return LinkStatus("notify", "skipped-by-flag", None, "run with --full to send")
-
-    if not stats.get("new_high_priority_items"):
-        return LinkStatus(
-            "notify",
-            "empty",
-            None,
-            "no HIGH priority items — production gates the call the same way",
-        )
-
-    matching = [e for e in events if e.get("event") == "notification.send"]
-    failures = [e for e in matching if e.get("status") == "error"]
-    if failures:
-        return LinkStatus(
-            "notify",
-            "error",
-            _sum_durations(matching),
-            str(failures[0].get("error") or "notification command failed"),
-        )
-    skipped = [e for e in matching if e.get("status") == "skipped"]
-    if skipped:
-        return LinkStatus(
-            "notify", "skipped", None, str(skipped[0].get("reason", "skipped"))
-        )
-    if matching:
-        return LinkStatus(
-            "notify",
-            "ran",
-            _sum_durations(matching),
-            f"{matching[0].get('count', 0)} item(s) notified",
-        )
-    return LinkStatus("notify", "empty", None, "notifier produced no event")
-
-
 def render_report(
     stats: dict[str, Any],
     events: list[dict[str, Any]],
@@ -544,7 +505,6 @@ def render_report(
         deep,
         _store_link(events, stats),
         _embed_link(events, stats),
-        _notify_link(events, stats, full),
     ]
 
 
@@ -618,12 +578,6 @@ def build_orchestrator(
         file_fetcher=FileFetcher(config=config, storage=storage),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(
-            {
-                "high_priority_only": config.high_priority_only,
-                "command": config.notification_command,
-            }
-        ),
         config=config,
         console=console,
         embedder=Embedder(),
@@ -666,9 +620,6 @@ def execute_chain(
         orchestrator = build_orchestrator(config, storage, console, full=full)
 
         stats = orchestrator.fetch_source_content(source)
-
-        if full and stats["new_high_priority_items"]:
-            orchestrator.notifier.notify_new_content(stats["new_high_priority_items"])
     finally:
         set_run_id(None)
 

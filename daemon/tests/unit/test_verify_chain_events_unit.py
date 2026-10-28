@@ -124,7 +124,6 @@ def test_a_foreign_runs_cost_never_reaches_the_report(seeded_log) -> None:
         "items_new": 1,
         "items_updated": 0,
         "errors": [],
-        "new_high_priority_items": [],
     }
 
     events = read_run_events(base_dir, run_id)

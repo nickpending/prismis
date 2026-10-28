@@ -21,7 +21,6 @@ reconciled_at: 63b9bfb39d2adc238ebd82f893cd28d2d3f37e1c
 - **Storage** — SQLite: content, dedup, archival; tz-aware (+00:00) timestamps, versioned migrations.
 - **Embeddings** — Local all-MiniLM-L6-v2 (384-dim) for semantic search.
 - **Audio Briefings** — Spoken daily briefings via LLM + TTS.
-- **Notifier** — Desktop notifications for new HIGH items.
 - **Observability** — JSONL event logger, cross-cutting across daemon modules.
 - **Source Validator** — Pre-add validation of RSS/Reddit/YouTube/file.
 - **TUI** — Go reading/triage UI; slim list items hydrated on open; `:extract` deep extraction.

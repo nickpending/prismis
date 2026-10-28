@@ -364,7 +364,6 @@ def test_a_recovering_circuit_is_not_read_as_one_that_opened_here() -> None:
             "(quota exhausted). Recovery in 3600s"
             for n in range(1, _ITEM_COUNT + 1)
         ],
-        "new_high_priority_items": [],
     }
 
     links = {
@@ -416,7 +415,6 @@ def test_failures_that_never_opened_the_circuit_stay_an_error() -> None:
         "items_new": 0,
         "items_updated": 0,
         "errors": errors,
-        "new_high_priority_items": [],
     }
 
     links = {

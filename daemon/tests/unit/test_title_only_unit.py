@@ -25,7 +25,6 @@ from prismis_daemon.circuit_breaker import reset_circuit_breaker
 from prismis_daemon.config import Config
 from prismis_daemon.evaluator import ContentEvaluation, ContentEvaluator
 from prismis_daemon.models import ContentItem
-from prismis_daemon.notifier import Notifier
 from prismis_daemon.orchestrator import DaemonOrchestrator
 from prismis_daemon.readability import (
     DISCUSSION_HEADER,
@@ -229,7 +228,6 @@ def test_title_only_true_for_unreadable_false_for_readable(
         file_fetcher=_NullFetcher(),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
     )
 
@@ -309,7 +307,6 @@ def test_title_only_item_never_deep_extracts_even_when_priority_passes_gate(
         file_fetcher=_NullFetcher(),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
         deep_extractor=ContentDeepExtractor(config.llm_deep_service),
     )
@@ -674,7 +671,6 @@ def _orchestrator(
         file_fetcher=_NullFetcher(),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
-        notifier=Notifier(),
         config=config,
     )
 

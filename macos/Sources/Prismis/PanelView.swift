@@ -2,54 +2,33 @@ import AppKit
 import PrismisCore
 import SwiftUI
 
-/// The CleanCyber colours of the approved panel mockup.
-private enum Palette {
-  static let panel = Color(rgb: 0x10141B)
-  static let border = Color(rgb: 0x00D9FF, opacity: 0.18)
-  static let divider = Color(rgb: 0x1F2630)
-  static let hover = Color(rgb: 0x18202B)
-  static let text = Color(rgb: 0xEEEEEE)
-  static let textDim = Color(rgb: 0xB7BFCA)
-  static let muted = Color(rgb: 0x9AA4B2)
-  static let accent = Color(rgb: 0x00D9FF)
-  static let amber = Color(rgb: 0xFF8800)
-  static let neutralChip: UInt32 = 0x9AA4B2
-}
-
-extension Color {
-  /// A colour from `0xRRGGBB`.
-  init(rgb: UInt32, opacity: Double = 1) {
-    self.init(
-      .sRGB, red: Double((rgb >> 16) & 0xFF) / 255, green: Double((rgb >> 8) & 0xFF) / 255,
-      blue: Double(rgb & 0xFF) / 255, opacity: opacity)
-  }
-}
-
-/// The menu-bar glyph of the icon mockup, drawn for each `IconState`. The quiet glyph is a template, so
-/// the menu bar tints it; the other two carry their own colours.
+/// The menu-bar glyph for each `IconState`, built on an SF Symbol so it sits with the system's own. The quiet
+/// glyph is a template, so the menu bar tints it; new adds a dot in the user's accent colour, and failed an
+/// orange one.
 enum MenuBarIcon {
   static func image(_ state: IconState) -> NSImage {
-    let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
-      let glyph = NSBezierPath()
-      glyph.move(to: NSPoint(x: 9, y: 3))
-      glyph.line(to: NSPoint(x: 15, y: 14))
-      glyph.line(to: NSPoint(x: 3, y: 14))
-      glyph.close()
-      glyph.move(to: NSPoint(x: 9, y: 7))
-      glyph.line(to: NSPoint(x: 9, y: 14))
-      glyph.lineWidth = 1.4
-      glyph.lineJoinStyle = .round
-      (state == .failed ? NSColor.tertiaryLabelColor : NSColor.labelColor).setStroke()
-      glyph.stroke()
+    let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+    let glyph = NSImage(systemSymbolName: "triangle", accessibilityDescription: nil)?
+      .withSymbolConfiguration(config)
+    let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+      if let glyph {
+        let tinted = glyph.copy() as? NSImage ?? glyph
+        tinted.isTemplate = false
+        let size = tinted.size
+        let origin = NSPoint(x: (rect.width - size.width) / 2, y: (rect.height - size.height) / 2)
+        (state == .failed ? NSColor.tertiaryLabelColor : NSColor.labelColor).set()
+        tinted.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
+        NSRect(origin: origin, size: size).fill(using: .sourceIn)
+      }
       switch state {
       case .quiet:
         break
       case .new:
-        NSColor(srgbRed: 0, green: 0xD9 / 255, blue: 1, alpha: 1).setFill()
-        NSBezierPath(ovalIn: NSRect(x: 12, y: 1, width: 6, height: 6)).fill()
+        NSColor.controlAccentColor.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 12, y: 11, width: 6, height: 6)).fill()
       case .failed:
-        NSColor(srgbRed: 1, green: 0x88 / 255, blue: 0, alpha: 1).setFill()
-        NSBezierPath(ovalIn: NSRect(x: 11, y: 10, width: 7, height: 7)).fill()
+        NSColor.systemOrange.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 11.5, y: 0.5, width: 6.5, height: 6.5)).fill()
       }
       return true
     }
@@ -66,22 +45,20 @@ enum MenuBarIcon {
   }
 }
 
-/// The window-style panel: the header's count and check time, the newest rows, and the footer.
+/// The window-style panel, drawn as the system draws its own menu-bar panels: the window's material, system
+/// type and label colours, SF Symbols, and the user's accent colour for what is new.
 struct PanelView: View {
   let model: StatusModel
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       header
-      Palette.divider.frame(height: 1).padding(.horizontal, 18)
+      Divider().padding(.horizontal, 12)
       rows
-      Palette.divider.frame(height: 1).padding(.horizontal, 18)
+      Divider().padding(.horizontal, 12)
       footer
     }
-    .frame(width: 380)
-    .background(Palette.panel)
-    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Palette.border))
-    .environment(\.colorScheme, .dark)
+    .frame(width: 340)
     // The rows are on screen with their dots before the last-looked time moves. A window-style panel is
     // ordered out between looks rather than rebuilt, so each later look arrives as its window becoming
     // key; this accessory app has no other window.
@@ -94,45 +71,46 @@ struct PanelView: View {
   private var snapshot: PollSnapshot { model.snapshot }
 
   @ViewBuilder private var header: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 8) {
+    HStack(alignment: .firstTextBaseline, spacing: 4) {
       if let problem = model.configProblem {
         reason("Config: \(problem)")
       } else if let failure = snapshot.failure {
         reason(failure.description)
       } else {
-        Text(PanelPresentation.countLabel(snapshot.newCount))
-          .font(.system(size: 22, weight: .semibold, design: .monospaced))
-          .foregroundStyle(snapshot.newCount > 0 ? Palette.accent : Palette.muted)
-        Text("new since you last looked")
-          .font(.system(size: 14, weight: .medium))
-          .foregroundStyle(Palette.text)
+        Text("\(PanelPresentation.countLabel(snapshot.newCount)) new")
+          .font(.headline)
+          .foregroundStyle(snapshot.newCount > 0 ? Color.accentColor : Color.secondary)
+        Text("since you last looked")
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
       }
       Spacer(minLength: 8)
       if let checked = snapshot.checkedAt {
         TimelineView(.periodic(from: .now, by: 30)) { context in
           Text(PanelPresentation.checkedLabel(checked, now: context.date))
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(Palette.muted)
+            .font(.caption)
+            .foregroundStyle(.tertiary)
         }
       }
     }
-    .padding(EdgeInsets(top: 16, leading: 18, bottom: 10, trailing: 18))
+    .padding(EdgeInsets(top: 12, leading: 14, bottom: 10, trailing: 14))
   }
 
   private func reason(_ text: String) -> some View {
-    Text(text)
-      .font(.system(size: 13, weight: .medium))
-      .foregroundStyle(Palette.amber)
+    Label(text, systemImage: "exclamationmark.triangle.fill")
+      .font(.subheadline)
+      .foregroundStyle(.orange)
       .fixedSize(horizontal: false, vertical: true)
   }
 
   @ViewBuilder private var rows: some View {
-    VStack(alignment: .leading, spacing: 2) {
+    VStack(alignment: .leading, spacing: 0) {
       if snapshot.rows.isEmpty {
         Text(snapshot.checkedAt == nil ? "Checking…" : "No unread HIGH items")
-          .font(.system(size: 13))
-          .foregroundStyle(Palette.muted)
-          .padding(14)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 10)
       }
       ForEach(snapshot.rows) { row in
         Button {
@@ -144,39 +122,27 @@ struct PanelView: View {
         .onHover { inside in model.hover(row.id, inside: inside) }
       }
     }
-    .padding(.vertical, 8)
-    .padding(.horizontal, 6)
+    .padding(6)
   }
 
   private var footer: some View {
-    HStack(spacing: 2) {
+    HStack(spacing: 12) {
       Button {
         model.openPrismis()
       } label: {
-        HStack(spacing: 8) {
-          Text("Open prismis")
-          Image(systemName: "arrow.up.right")
-        }
-        .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(Palette.accent)
-        .padding(.horizontal, 16)
-        .frame(height: 44)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.accent))
-        .contentShape(Rectangle())
+        Label("Open Prismis", systemImage: "arrow.up.forward.app")
       }
-      .buttonStyle(.plain)
+      .buttonStyle(.borderless)
       Spacer()
       Button {
         model.refresh()
       } label: {
         Image(systemName: "arrow.clockwise")
-          .frame(width: 44, height: 44)
-          .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
-      .foregroundStyle(Palette.muted)
+      .buttonStyle(.borderless)
       .keyboardShortcut("r")
       .help("Refresh now")
+      .accessibilityLabel("Refresh now")
       Menu {
         Toggle(
           "Launch at Login",
@@ -186,15 +152,17 @@ struct PanelView: View {
         Button("Quit Prismis") { NSApplication.shared.terminate(nil) }
           .keyboardShortcut("q")
       } label: {
-        Image(systemName: "gearshape")
+        Image(systemName: "ellipsis.circle")
       }
       .menuStyle(.borderlessButton)
       .menuIndicator(.hidden)
       .fixedSize()
-      .frame(width: 44, height: 44)
       .help("Settings")
+      .accessibilityLabel("Settings")
     }
-    .padding(EdgeInsets(top: 10, leading: 18, bottom: 12, trailing: 12))
+    .font(.subheadline)
+    .foregroundStyle(.secondary)
+    .padding(EdgeInsets(top: 8, leading: 14, bottom: 10, trailing: 14))
   }
 }
 
@@ -204,62 +172,78 @@ private struct RowView: View {
   let hovered: Bool
 
   var body: some View {
-    HStack(alignment: .top, spacing: 12) {
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
       Circle()
-        .fill(row.isNew ? Palette.accent : .clear)
-        .frame(width: 7, height: 7)
-        .padding(.top, 6)
-        .frame(width: 8)
-      VStack(alignment: .leading, spacing: 6) {
+        .fill(row.isNew ? Color.accentColor : .clear)
+        .frame(width: 6, height: 6)
+        .alignmentGuide(.firstTextBaseline) { $0[.bottom] }
+      VStack(alignment: .leading, spacing: 3) {
         Text(row.item.title)
-          .font(.system(size: 13.5, weight: row.isNew ? .medium : .regular))
-          .foregroundStyle(row.isNew ? Palette.text : Palette.textDim)
+          .font(.body.weight(row.isNew ? .semibold : .regular))
+          .foregroundStyle(row.isNew ? .primary : .secondary)
           .lineLimit(2)
           .multilineTextAlignment(.leading)
         meta
         if hovered, let summary = row.item.summary, !summary.isEmpty {
           Text(summary)
-            .font(.system(size: 12))
-            .foregroundStyle(Palette.textDim)
+            .font(.caption)
+            .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 2)
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .padding(EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14))
-    .background(hovered ? Palette.hover : .clear, in: RoundedRectangle(cornerRadius: 10))
+    .padding(.horizontal, 8)
+    .padding(.vertical, 6)
+    .background(
+      hovered ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6)
+    )
     .contentShape(Rectangle())
   }
 
   private var meta: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: 6) {
       if let source = row.item.sourceName { Text(source).lineLimit(1) }
-      if let chip = PanelPresentation.chip(for: row.item.kind) { ChipView(chip: chip) }
+      if let chip = PanelPresentation.chip(for: row.item.kind) {
+        Text("·")
+        ChipView(chip: chip)
+      }
       Spacer(minLength: 4)
       TimelineView(.periodic(from: .now, by: 60)) { context in
         Text(PanelPresentation.age(of: row.item, now: context.date) ?? "")
       }
     }
-    .font(.system(size: 11, design: .monospaced))
-    .foregroundStyle(Palette.muted)
+    .font(.caption)
+    .foregroundStyle(.secondary)
   }
 }
 
+/// The kind, in the system's small caption type with a faint wash of its tint; the label stays a label
+/// colour so it reads in light and dark mode alike.
 private struct ChipView: View {
   let chip: KindChip
 
   var body: some View {
-    let (text, base): (UInt32, UInt32) =
+    let tint: Color =
       switch chip.style {
-      case .tint(let text, let base): (text, base)
-      case .neutral: (Palette.neutralChip, Palette.neutralChip)
+      case .tint(_, let base): Color(rgb: base)
+      case .neutral: .secondary
       }
     Text(chip.label)
-      .font(.system(size: 10.5, design: .monospaced))
-      .foregroundStyle(Color(rgb: text))
-      .padding(.horizontal, 7)
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+      .padding(.horizontal, 5)
       .padding(.vertical, 1)
-      .background(Capsule().fill(Color(rgb: base, opacity: 0.12)))
-      .overlay(Capsule().stroke(Color(rgb: base, opacity: 0.35)))
+      .background(Capsule().fill(tint.opacity(0.18)))
+  }
+}
+
+extension Color {
+  /// A colour from `0xRRGGBB`, used only for a kind's tint wash.
+  init(rgb: UInt32) {
+    self.init(
+      .sRGB, red: Double((rgb >> 16) & 0xFF) / 255, green: Double((rgb >> 8) & 0xFF) / 255,
+      blue: Double(rgb & 0xFF) / 255)
   }
 }

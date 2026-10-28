@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Menu-bar icon states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#00D9FF}a:hover{color:#7FEBFF}
+</style>
+</helmet>
+<div style="width: 520px; height: 300px; box-sizing: border-box; padding: 32px; background: #07090D; color: #EEEEEE; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: flex; flex-direction: column; gap: 22px;">
+  <h1 style="margin: 0; font-size: 16px; font-weight: 600;">Menu-bar icon</h1>
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
+    <div style="display: flex; flex-direction: column; gap: 12px; align-items: flex-start;">
+      <span style="display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 30px; border-radius: 7px; background: #14171D; border: 1px solid #1F242C;">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="#9AA4B2" stroke-width="1.4" aria-hidden="true"><path d="M8 2 L14 13 L2 13 Z"></path><path d="M8 6 L8 13"></path></svg>
+      </span>
+      <span style="font-size: 13px; font-weight: 500;">Quiet</span>
+      <span style="font-size: 12px; line-height: 1.45; color: #9AA4B2;">Nothing new since you last opened the panel.</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 12px; align-items: flex-start;">
+      <span style="display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 30px; border-radius: 7px; background: #14171D; border: 1px solid #1F242C; position: relative;">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="#EEEEEE" stroke-width="1.4" aria-hidden="true"><path d="M8 2 L14 13 L2 13 Z"></path><path d="M8 6 L8 13"></path></svg>
+        <span style="position: absolute; top: 4px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: {{accent}}; box-shadow: 0 0 6px {{accent}};"></span>
+      </span>
+      <span style="font-size: 13px; font-weight: 500;">New</span>
+      <span style="font-size: 12px; line-height: 1.45; color: #9AA4B2;">HIGH items arrived since you last looked. A dot, not a number.</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 12px; align-items: flex-start;">
+      <span style="display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 30px; border-radius: 7px; background: #14171D; border: 1px solid #1F242C; position: relative;">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="#5C6470" stroke-width="1.4" aria-hidden="true"><path d="M8 2 L14 13 L2 13 Z"></path><path d="M8 6 L8 13"></path></svg>
+        <span style="position: absolute; bottom: 3px; right: 4px; width: 9px; height: 9px; border-radius: 50%; background: #FF8800; border: 2px solid #14171D;"></span>
+      </span>
+      <span style="font-size: 13px; font-weight: 500;">Can't reach daemon</span>
+      <span style="font-size: 12px; line-height: 1.45; color: #9AA4B2;">Dimmed, with an amber mark; the panel says why.</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#00D9FF","options":["#00D9FF","#9F4DFF","#00FF88","#FF8800"]},"$preview":{"width":520,"height":300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#00D9FF' };
+  }
+}
+</script>
+</body>
+</html>

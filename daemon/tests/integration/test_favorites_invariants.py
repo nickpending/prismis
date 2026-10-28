@@ -162,6 +162,13 @@ def test_orphaned_favorites_remain_queryable(test_db: Path) -> None:
     assert orphaned["url"] == "https://deleted-source.com/1"
 
 
+# busy_timeout is 5 s of retry budget, but how long SQLite takes to spend it depends on its
+# build: one whose busy handler sleeps in whole seconds overshoots, and the macos-latest runner
+# raised the lock error after 8.75 s (CI run 40611027346). The ceiling bounds a hang, not the
+# build's sleep granularity.
+_LOCK_WAIT_CEILING = 15
+
+
 def test_database_lock_during_update(test_db: Path) -> None:
     """
     FAILURE MODE: Database locked during update
@@ -197,14 +204,14 @@ def test_database_lock_during_update(test_db: Path) -> None:
         try:
             another_storage.update_content_status(content_id, favorited=True)
             elapsed = time.time() - start_time
-            # If it succeeded, it waited for lock
-            assert elapsed < 6, "Should timeout within 5 seconds + overhead"
+            # If it succeeded, it waited for the lock and did not hang
+            assert elapsed < _LOCK_WAIT_CEILING, f"update hung for {elapsed:.2f}s"
         except sqlite3.Error as e:
-            # A lock error raised after busy_timeout (5s) elapsed, not at once
+            # A lock error raised after busy_timeout (5s) elapsed, not at once, and not never
             elapsed = time.time() - start_time
             assert "locked" in str(e).lower()
-            assert 4 <= elapsed < 6, (
-                f"lock error after {elapsed:.2f}s, not at busy_timeout"
+            assert 4 <= elapsed < _LOCK_WAIT_CEILING, (
+                f"lock error after {elapsed:.2f}s, not after busy_timeout"
             )
     finally:
         # Release the lock

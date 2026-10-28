@@ -1,10 +1,13 @@
 # prismis
 
 Local-first content pipeline: a Python daemon (`daemon/`), a Go TUI (`tui/`), a Python CLI
-(`cli/`). Vision in `docs/IDEA.md`; code-law in `.specify/memory/constitution.md`.
+(`cli/`), and a macOS menu-bar app (`macos/`). Vision in `docs/IDEA.md`; code-law in
+`.specify/memory/constitution.md`.
 
-Verification is `./.specify/verify.sh` — it discovers its own units, runs every check, collects
-every failure, and reports what it covered. CI runs that same script.
+The gate is `ember verify`, which ember's pre-push hook runs on every push: it discovers the units,
+runs every check (type, lint, format, tests, secret and dependency scans), and reports what it
+covered. CI runs `./.specify/verify.sh`, which covers fewer checks, so a green CI does not stand in
+for a passing `ember verify`.
 
 ## Learned Patterns
 

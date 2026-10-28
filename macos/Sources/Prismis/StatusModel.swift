@@ -20,8 +20,6 @@ struct BrowserOpener: ItemOpener {
 @MainActor
 @Observable
 final class StatusModel {
-  private static let interval: Duration = .seconds(300)
-
   /// The latest poll's rows, new count and failure.
   private(set) var snapshot = PollSnapshot()
   /// Why the config could not be used; nothing is polled until it can.
@@ -113,9 +111,12 @@ final class StatusModel {
   }
 
   private func loop() async {
+    var retries = 0
     while !Task.isCancelled {
       await pollOnce()
-      try? await Task.sleep(for: Self.interval)
+      let delay = PollSchedule.delay(after: snapshot.failure, retriesSoFar: retries)
+      retries = delay < PollSchedule.interval ? retries + 1 : 0
+      try? await Task.sleep(for: .seconds(delay))
     }
   }
 

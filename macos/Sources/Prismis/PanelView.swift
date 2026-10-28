@@ -2,37 +2,31 @@ import AppKit
 import PrismisCore
 import SwiftUI
 
-/// The menu-bar glyph for each `IconState`, built on an SF Symbol so it sits with the system's own. The quiet
-/// glyph is a template, so the menu bar tints it; new adds a dot in the user's accent colour, and failed an
-/// orange one.
+/// The menu-bar glyph for each `IconState`: always a template image, so the menu bar paints it in the same
+/// colour as every other menu-bar icon in light and dark bars alike. A template carries no colour of its own,
+/// so new is the glyph with a dot cut beside it and failed is the warning variant of the symbol.
 enum MenuBarIcon {
   static func image(_ state: IconState) -> NSImage {
     let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-    let glyph = NSImage(systemSymbolName: "triangle", accessibilityDescription: nil)?
+    let name = state == .failed ? "exclamationmark.triangle" : "triangle"
+    let glyph = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
       .withSymbolConfiguration(config)
-    let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+    let image = NSImage(size: NSSize(width: 20, height: 18), flipped: false) { rect in
       if let glyph {
-        let tinted = glyph.copy() as? NSImage ?? glyph
-        tinted.isTemplate = false
-        let size = tinted.size
-        let origin = NSPoint(x: (rect.width - size.width) / 2, y: (rect.height - size.height) / 2)
-        (state == .failed ? NSColor.tertiaryLabelColor : NSColor.labelColor).set()
-        tinted.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
-        NSRect(origin: origin, size: size).fill(using: .sourceIn)
+        let size = glyph.size
+        glyph.draw(
+          in: NSRect(
+            x: (rect.height - size.width) / 2, y: (rect.height - size.height) / 2,
+            width: size.width,
+            height: size.height))
       }
-      switch state {
-      case .quiet:
-        break
-      case .new:
-        NSColor.controlAccentColor.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 12, y: 11, width: 6, height: 6)).fill()
-      case .failed:
-        NSColor.systemOrange.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 11.5, y: 0.5, width: 6.5, height: 6.5)).fill()
+      if state == .new {
+        NSColor.black.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 14, y: 11, width: 6, height: 6)).fill()
       }
       return true
     }
-    image.isTemplate = state == .quiet
+    image.isTemplate = true
     return image
   }
 
@@ -166,7 +160,7 @@ struct PanelView: View {
   }
 }
 
-/// One row: the new dot, the title on at most two lines, the meta line, and the summary on hover.
+/// One row: the new dot, the title on at most two lines, and the meta line.
 private struct RowView: View {
   let row: PollSnapshot.Row
   let hovered: Bool
@@ -184,13 +178,6 @@ private struct RowView: View {
           .lineLimit(2)
           .multilineTextAlignment(.leading)
         meta
-        if hovered, let summary = row.item.summary, !summary.isEmpty {
-          Text(summary)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, 2)
-        }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }

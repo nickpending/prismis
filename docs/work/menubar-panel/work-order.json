@@ -1,0 +1,120 @@
+{
+  "workOrder": "menubar-panel",
+  "what": "Redesign the menu-bar app (macos/) per docs/work/menubar-panel/design.md: no notifications; a last-looked time kept on the daemon's clock; a quiet, new-dot or failed icon; a window-style SwiftUI panel of the newest five unread HIGH items with new ones marked, summaries on hover, row clicks to the #item link, and Open prismis, Refresh and settings in the footer.",
+  "why": "The design is docs/work/menubar-panel/design.md (gh #105). The shipped app badged 50 of 6,718 unread HIGH items, listed them as a wall of raw titles, and would have sent about 20 banners a day; the operator chose a quiet signal and approved the panel mockup at https://claude.ai/artifact/1Dd1vDXAd1XiaXWitQCBqt.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "the macos package after the change",
+      "when": "it is built and its tests run",
+      "then": "no file under macos/Sources imports UserNotifications or sets a notification delegate, the Poller takes no notifier, and Info.plist declares no notification usage; a poll that finds new items returns a snapshot and posts nothing."
+    },
+    {
+      "id": "C2",
+      "given": "no last-looked file and a real local server listing five unread HIGH items whose newest fetched_at is F",
+      "when": "the first poll runs",
+      "then": "the snapshot holds the five rows with none marked new, the new count is 0, the icon state is quiet, and the last-looked file then holds F."
+    },
+    {
+      "id": "C3",
+      "given": "a last-looked time T and a server whose newest-five listing has two items fetched after T and three before, and whose since=T listing returns those two; the two new items' published_at is older than T",
+      "when": "a poll runs",
+      "then": "the poll made one request with since=T and one for the newest five (priority=high, unread_only=true, view=list, sort_by=date, limit=5, the key in X-API-Key), the new count is 2, exactly those two rows are marked new, and the icon state is new.",
+      "mutations": [
+        {
+          "id": "M1",
+          "change": "Decide a row's newness from published_at instead of fetched_at; C3 must go red."
+        }
+      ]
+    },
+    {
+      "id": "C4",
+      "given": "the state C3 leaves, on a server whose fetched_at values run an hour ahead of the Mac's clock",
+      "when": "the panel-open action runs after the rows are shown, and then another poll runs whose since listing is empty for the stored time",
+      "then": "the stored last-looked time equals the newest fetched_at among the rows and new items the panel held, the second poll reports a new count of 0 and the icon state quiet, and the file survives a new store instance reading it.",
+      "mutations": [
+        {
+          "id": "M2",
+          "change": "Store the Mac's current time on panel open instead of the newest fetched_at; C4 must go red."
+        }
+      ]
+    },
+    {
+      "id": "C5",
+      "given": "a poll that succeeded with rows and a new count, then a server answering 500, then 403, then a closed port",
+      "when": "each next poll runs",
+      "then": "each snapshot keeps the last good rows and new count, carries a failure that distinguishes a server error, a refused key and an unreachable daemon, the icon state is failed, and the failure is logged with its reason."
+    },
+    {
+      "id": "C6",
+      "given": "a since listing that returns 100 items, and one that returns 7",
+      "when": "the header's count is rendered from each poll",
+      "then": "it reads 99+ for the first and 7 for the second."
+    },
+    {
+      "id": "C7",
+      "given": "list-view items with kind vulnerability, a kind the app does not know, no kind, and no summary",
+      "when": "they are decoded and given a chip style",
+      "then": "every item decodes, missing kind and summary become nil without failing the poll, a known kind gets its own tint, an unknown kind gets the neutral chip, and an item with no kind gets no chip."
+    },
+    {
+      "id": "C8",
+      "given": "base url https://example.test and a row for item 5d937428-3c20-4b87-b342-c7f7a7f615cd",
+      "when": "the row's action and the footer's Open prismis action run through the core's opener protocol",
+      "then": "the row hands https://example.test/#item=5d937428-3c20-4b87-b342-c7f7a7f615cd to the opener and Open prismis hands https://example.test/."
+    },
+    {
+      "id": "C9",
+      "given": "the job's worktree",
+      "when": "the repository gate runs (ember verify)",
+      "then": "it ends verify: PASS."
+    }
+  ],
+  "walks": [
+    {
+      "criterion": "C2",
+      "when": "after make install-menubar on the operator's Mac the app is reopened",
+      "then": "the icon is quiet, and the panel lists the same five items GET /api/entries?priority=high&unread_only=true&view=list&sort_by=date&limit=5 returns from the operator's daemon, laid out as the mockup shows."
+    },
+    {
+      "criterion": "C3",
+      "when": "a HIGH item is fetched on the operator's daemon after the panel was last opened",
+      "then": "within one poll the icon shows the dot and the panel marks that item new."
+    },
+    {
+      "criterion": "C4",
+      "when": "the operator opens the panel and the next poll runs with nothing newer fetched",
+      "then": "the dot is gone."
+    }
+  ],
+  "issues": [
+    105
+  ],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "No banners at all: a HIGH item reaches the operator only when they glance at the icon."
+    },
+    {
+      "kind": "cost",
+      "summary": "The panel shows five items; the rest are one click away in the web view."
+    },
+    {
+      "kind": "cost",
+      "summary": "The new count stops at 100 per check, shown as 99+."
+    },
+    {
+      "kind": "cost",
+      "summary": "The panel's look is verified by eye against the mockup, not by a test."
+    }
+  ],
+  "stakes": [
+    "The app posts no notifications.",
+    "The icon shows a dot exactly when the daemon reports HIGH unread items fetched after the last time the operator opened the panel, and none on a fresh install's first check.",
+    "Opening the panel moves the last-looked time to the newest fetched_at the panel holds, so the next check shows no dot until something fetched later arrives.",
+    "The panel lists the newest five unread HIGH items with two-line titles, source, a kind chip when the item has a kind, and age; items fetched since the last look are marked; hovering a row shows its summary; clicking it opens its web detail panel.",
+    "The header shows the new count (99+ past 99) and when the app last checked; a failed check shows its reason there, keeps the last rows and dims the icon with an amber mark.",
+    "The footer opens the daemon's web view, refreshes now, and holds Launch at Login and Quit.",
+    "The last-looked time survives a restart and is written atomically."
+  ]
+}

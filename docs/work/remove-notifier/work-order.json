@@ -1,0 +1,72 @@
+{
+  "workOrder": "remove-notifier",
+  "what": "Remove the daemon's desktop notifier per docs/work/remove-notifier/design.md: notifier.py and its tests, the orchestrator's notifier and new-HIGH tracking, Config's notification fields and the template's [notifications] section (an existing one is ignored with a warning), the verify chain's notify link, and the docs that describe it.",
+  "why": "The design is docs/work/remove-notifier/design.md (gh #103). The notifier never reached the operator once the daemon ran on a server (57 HIGH batches undelivered, 2026-10-16..22), the macOS menu-bar app now carries the HIGH signal (#102, #105), the exploration decided to remove it outright once the app shipped, and its integration test fails on the macos-latest CI runner.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "the daemon package after the change",
+      "when": "its sources are imported and a full fetch cycle runs through DaemonOrchestrator.run_once with new HIGH items",
+      "then": "no module named prismis_daemon.notifier exists, DaemonOrchestrator takes no notifier argument, the cycle's stats carry no new_high_priority_items key, and no subprocess is started for a notification during the cycle."
+    },
+    {
+      "id": "C2",
+      "given": "a config.toml holding a [notifications] section with high_priority_only and command beside the usual sections, and one without it",
+      "when": "Config.from_file loads each",
+      "then": "both load with every other setting intact; the first logs exactly one WARNING naming [notifications] as ignored and the menu-bar app as its replacement, and the second logs no warning about notifications.",
+      "mutations": [
+        {
+          "id": "M1",
+          "change": "Drop the [notifications] warning so the section is silently ignored; C2 must go red."
+        }
+      ]
+    },
+    {
+      "id": "C3",
+      "given": "a fresh XDG config home",
+      "when": "the daemon writes its default config.toml",
+      "then": "the file has no [notifications] section and loads without the warning."
+    },
+    {
+      "id": "C4",
+      "given": "the verify chain run with --full and without it on the existing recorded-provider fixtures",
+      "when": "its report is built",
+      "then": "no link named notify appears in either report, and the deep_extract link is reported with --full and skipped-by-flag without it."
+    },
+    {
+      "id": "C5",
+      "given": "the repository's documentation",
+      "when": "docs/configuration.md, docs/architecture/*.md, README.md and docs/IDEA.md are read",
+      "then": "none documents [notifications] or a daemon desktop notification as a current feature, and docs/configuration.md names the macOS menu-bar app for new-HIGH signals."
+    },
+    {
+      "id": "C6",
+      "given": "the job's worktree",
+      "when": "the repository gate runs (ember verify)",
+      "then": "it ends verify: PASS."
+    }
+  ],
+  "walks": [
+    {
+      "criterion": "C2",
+      "when": "after deploying to the operator's remote host, whose config.toml still has [notifications], the daemon restarts",
+      "then": "it starts, its log shows the one ignored-section warning, and the next cycle completes with no notification.send events."
+    }
+  ],
+  "issues": [
+    103
+  ],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "A daemon on a Mac without the menu-bar app no longer shows a desktop banner for new HIGH items."
+    }
+  ],
+  "stakes": [
+    "No daemon code path sends a desktop notification or runs a notification command.",
+    "A config.toml with a [notifications] section loads, keeps every other setting, and logs one warning naming the section and its replacement; one without it logs nothing about it.",
+    "A new install's config template has no [notifications] section.",
+    "The verify chain reports no notify link, and --full still runs and reports deep extraction.",
+    "No document describes the daemon notifier as a current feature."
+  ]
+}

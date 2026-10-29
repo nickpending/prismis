@@ -1,0 +1,143 @@
+{
+  "workOrder": "retire-speckit",
+  "what": "Retire spec-kit from prismis: delete .specify/, make ember verify (the pre-push hook) the only gate, have make test run each unit's own checks and CI run that target as proof, push releases through the hook, and carry the constitution's four prismis constraints into docs/constitution.json.",
+  "why": "docs/work/retire-speckit/design.md",
+  "issues": [],
+  "stakes": [
+    "No tracked file outside docs/work/ names .specify after the change: `git ls-files | grep -v '^docs/work/' | xargs grep -l '\\.specify'` prints nothing.",
+    "make test runs, in daemon, cli and packaging/homebrew, ruff check, ruff format --check, mypy and pytest; in tui gofmt, go vet, staticcheck and go test; and on Darwin swift format lint, swift build and swift test in macos; it runs every check before exiting, names each failure, and exits non-zero when any fails; on Linux it reports macos skipped and passes on the rest.",
+    "macos/scripts/test.sh runs swift format lint, swift build and the Swift tests on this Mac's Command Line Tools (every @Test expands and runs) and under Xcode with no flags.",
+    "CI's test step is make test on ubuntu-latest and macos-latest, the history secret scan stays on Linux, and CI is green on both runners at the merge commit.",
+    "scripts/release.sh has no --no-verify and no verify step; it pushes main and the tag in one push; a refused push leaves origin untouched and prints the undo line; scripts/tests/test_make_release.sh proves both with a pre-push hook in the clone, and fails when release.sh pushes with --no-verify.",
+    "docs/constitution.json holds exactly the four Project Constraints as articles and ember loads it without refusal (`ember verify --plan` and `ember shape step` on this repo succeed).",
+    "CLAUDE.md names docs/constitution.json and ember verify as the only gate; README's Development says what make test runs and needs.",
+    "ember verify passes on the tree."
+  ],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "verify.sh's three self-tests (gitleaks plant, gate wiring, swift unit) go with no replacement in this repo: they proved verify.sh, which no longer exists, and ember's gate carries its own proofs in ember's repo.",
+      "frequency": {
+        "kind": "not-a-case",
+        "reason": "Each self-test drives .specify/verify.sh in a throwaway repo (verify.sh:202-204); with the script deleted there is nothing left for them to prove."
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "make test and CI list the units by hand; a new unit reaches CI only when someone adds it there, though ember's gate discovers and runs it regardless.",
+      "frequency": {
+        "kind": "measured",
+        "command": "git log --diff-filter=A --name-only --format= -- '*pyproject.toml' '*go.mod' '*Package.swift' | grep -v /.venv/ | sort -u",
+        "records": "unit manifests added to prismis since its first commit on 2025-08-12",
+        "count": 5,
+        "total": 5
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "CI does not run ember's pinned-tool checks (ty, betterleaks, zizmor, actionlint, osv-scanner, opengrep, bandit, swiftlint, govulncheck, shellcheck, shfmt, duplication, docs, redact): those are the gate's, run before every push from a maintainer's machine, and a pull request shows only the unit-declared checks until then.",
+      "frequency": {
+        "kind": "measured",
+        "command": "gh pr list --state all --limit 200 --json author -q '[.[] | select(.author.login != \"nickpending\" and .author.login != \"app/dependabot\")] | length'",
+        "records": "every pull request ever opened on nickpending/prismis",
+        "count": 10,
+        "total": 16
+      }
+    }
+  ],
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "the tree after the change",
+      "when": "`git ls-files | grep -v '^docs/work/' | xargs grep -l '\\.specify'` runs at the repo root, and `ls .specify` runs",
+      "then": "the grep prints nothing (a tracked file outside docs/work/ still naming .specify fails this), and .specify does not exist; .gitignore holds no Spec Kit lines and .gitleaks.toml's header names betterleaks and CI's history scan as its readers."
+    },
+    {
+      "id": "C2",
+      "given": "docs/constitution.json",
+      "when": "it is validated against ~/.local/share/ember/checkout/shared/constitution/schema.json (bun, with ember's validateStandalone from shared/emission/src/validate.ts, or python jsonschema)",
+      "then": "it validates and holds exactly four articles with ids local-first-zero-ops, three-components-one-contract, pipeline-runs-unattended and llm-providers-only-external-boundary, each rule carrying the text of the matching Project Constraint of the deleted .specify/memory/constitution.md (lines 112-132 before deletion), and none of Core Principles I-VIII, Security Requirements, Quality Gates or Governance."
+    },
+    {
+      "id": "C3",
+      "given": "the Makefile's test target on this Mac (Darwin)",
+      "when": "`make test` runs on a clean tree, then again with a ruff finding planted in cli (an unused import) and a failing test planted in packaging/homebrew at the same time",
+      "then": "the clean run exits 0 after running ruff check, ruff format --check, mypy and pytest in daemon, cli and packaging/homebrew, gofmt, go vet, go tool staticcheck and go test in tui, and macos/scripts/test.sh; the planted run exits non-zero and names both lint(cli) and tests(packaging/homebrew) in one run, so a single run reports every failure rather than stopping at the first.",
+      "mutations": [
+        {
+          "id": "C3-M1",
+          "change": "Make the test target stop at the first failing check (drop the collect-every-failure form): the planted run names only the first failure, and the criterion's own two-failure assertion goes red."
+        }
+      ]
+    },
+    {
+      "id": "C4",
+      "given": "the Makefile's test target with its host OS overridden (`make test HOST_OS=Linux`, the variable defaulting to `uname -s`)",
+      "when": "it runs on a clean tree",
+      "then": "it prints that macos is skipped because it needs macOS, runs every other unit's checks, and exits 0; it never runs swift."
+    },
+    {
+      "id": "C5",
+      "given": "macos/scripts/test.sh on this Mac, where xcode-select names the Command Line Tools",
+      "when": "it runs, then runs again with the plugin-path flags removed from its derivation",
+      "then": "the first run passes swift format lint, swift build and swift test with every @Test in macos/Tests expanded and run (the test count matches `grep -rc '@Test' macos/Tests` summed); the second run fails in swift test with the macro-expansion error, proving the flags are load-bearing; and when xcode-select names an Xcode developer directory the script adds no flags (asserted by running its flag derivation with DEVELOPER_DIR pointed at a directory not named CommandLineTools).",
+      "mutations": [
+        {
+          "id": "C5-M1",
+          "change": "Delete the plugin-path flag lines from test.sh's derivation: swift test on this Mac's Command Line Tools fails to expand @Test."
+        }
+      ]
+    },
+    {
+      "id": "C6",
+      "given": "scripts/release.sh and scripts/tests/test_make_release.sh, whose clones each carry a pre-push hook that appends one line to a gate log and exits 1 when GATE_FAIL is set",
+      "when": "`bash scripts/tests/test_make_release.sh` runs (and through `uv run --locked pytest -q packaging/homebrew/tests/test_make_release.py`)",
+      "then": "a valid release leaves exactly one line in the gate log and main and the tag on the remote; with GATE_FAIL set the push is refused, the remote holds neither the release commit nor the tag, the clone holds both, and the output carries `git tag -d` and `git reset --hard HEAD~1`; release.sh contains no --no-verify, no RELEASE_TEST and no RELEASE_VERIFY_CMD, and runs no verify step of its own; the existing malformed-version, dirty-tree, wrong-branch, existing-tag, rejected-push and failing-publish cases still pass.",
+      "mutations": [
+        {
+          "id": "C6-M1",
+          "change": "Put --no-verify back on release.sh's push: the GATE_FAIL case goes red because the push lands."
+        },
+        {
+          "id": "C6-M2",
+          "change": "Split release.sh's push into `git push origin main` then `git push origin $TAG`: the valid-release case goes red because the gate log holds two lines."
+        }
+      ]
+    },
+    {
+      "id": "C7",
+      "given": ".github/workflows/ci.yml",
+      "when": "it is read, and `ember verify` runs its actionlint(.) and zizmor(.) checks over it",
+      "then": "its test step runs `make test` on both ubuntu-latest and macos-latest, no VERIFY_UNCOVERED handling remains, the checkout, uv, Go, embedding-model cache, Playwright and full-history secret scan steps are unchanged, its header says CI is proof (outside eyes, Linux, macOS) and the gate is ember's pre-push hook, and both checks pass."
+    },
+    {
+      "id": "C8",
+      "given": "CLAUDE.md, README.md, docs/architecture/components.md and docs/architecture/boundaries.md",
+      "when": "they are read",
+      "then": "CLAUDE.md points at docs/constitution.json as the project's own articles beside ember's universal ones and names ember verify, run by the pre-push hook, as the only gate with CI as proof; README's Development says make test runs every unit's own checks, the command CI runs, needing Go, uv and Python plus Xcode or the Command Line Tools for the menu-bar app's checks on a Mac; the two architecture docs describe make test and CI where they described verify.sh; and the gate's docs(.) check passes on all of them."
+    },
+    {
+      "id": "C9",
+      "given": "the job's worktree at its final commit",
+      "when": "`ember verify` runs in it",
+      "then": "every check passes, including shellcheck(.) and shfmt(.) over the changed Makefile, scripts and macos/scripts/test.sh."
+    }
+  ],
+  "walks": [
+    {
+      "criterion": "C7",
+      "when": "the merge commit is pushed to main and GitHub runs CI",
+      "then": "both the ubuntu-latest and macos-latest jobs complete green with make test as their test step."
+    },
+    {
+      "criterion": "C2",
+      "when": "after merge, `ember shape step --slug <any open shape>` or `ember lane status` runs in the main checkout",
+      "then": "ember loads docs/constitution.json without refusal and the four articles appear where ember renders a project's constitution."
+    },
+    {
+      "criterion": "C9",
+      "when": "the merge is pushed from the main checkout",
+      "then": "the pre-push hook's ember verify passes on the merged tree."
+    }
+  ]
+}

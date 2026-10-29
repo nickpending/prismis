@@ -33,7 +33,7 @@ Spec-kit leaves prismis: ember verify, run by the pre-push hook, is the only gat
 
 - No tracked file outside docs/work/ and the dated decisions log names .specify after the change: `git ls-files | grep -v '^docs/work/' | grep -v '^docs/architecture/decisions.md$' | xargs grep -l '\.specify'` prints nothing; docs/architecture/decisions.md keeps its dated entries as written and gains one dated entry recording this change.
 - make test runs, in daemon, cli and packaging/homebrew, ruff check, ruff format --check, mypy and pytest; in tui gofmt, go vet, staticcheck and go test; and on Darwin swift format lint, swift build and swift test in macos; it runs every check before exiting, names each failure, and exits non-zero when any fails; on Linux it reports macos skipped and passes on the rest.
-- macos/scripts/test.sh runs swift format lint, swift build and the Swift tests on this Mac's Command Line Tools (every @Test expands and runs) and under Xcode with no flags.
+- macos/scripts/test.sh runs swift format lint, swift build and the Swift tests on this Mac's Command Line Tools with every @Test expanded and run, derives exactly the framework, rpath and plugin-path flags for a developer directory named CommandLineTools and no flags under Xcode (a standing test asserts both from its --print-test-flags output), and runs plain swift test under Xcode.
 - CI's test step is make test on ubuntu-latest and macos-latest, the history secret scan stays on Linux, and CI is green on both runners at the merge commit.
 - scripts/release.sh has no --no-verify and no verify step; it pushes main and the tag in one push; a refused push leaves origin untouched and prints the undo line; scripts/tests/test_make_release.sh proves both with a pre-push hook in the clone, and fails when release.sh pushes with --no-verify.
 - docs/constitution.json holds exactly the four Project Constraints as articles and ember loads it without refusal (`ember verify --plan` and `ember shape step` on this repo succeed).
@@ -48,7 +48,7 @@ Spec-kit leaves prismis: ember verify, run by the pre-push hook, is the only gat
 
 ## Risk
 
-The release test's hook stub proves the push goes through a pre-push hook, not that ember verify is what the hook runs; that is ember init's job, and doctor reports a push that went out without a passing run. A contributor on a Mac with only the Command Line Tools depends on test.sh's flag derivation; if Apple moves Testing again, swift test fails loudly there rather than passing unrun.
+The release test's hook stub proves the push goes through a pre-push hook, not that ember verify is what the hook runs; that is ember init's job, and doctor reports a push that went out without a passing run. A contributor on a Mac with only the Command Line Tools depends on test.sh's flag derivation; if Apple moves Testing again, swift test fails loudly there rather than passing unrun. A flagless swift test on the Command Line Tools passes or fails by what was built earlier on the machine (measured 2026-10-29: fresh @Suite content failed, rebuilt content passed), so no standing test asserts that a flagless run fails; the flag derivation is what is guarded.
 
 ## Licensed by
 

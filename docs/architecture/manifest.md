@@ -28,7 +28,7 @@ reconciled_at: 63b9bfb39d2adc238ebd82f893cd28d2d3f37e1c
 - **CLI** — Python admin/batch ops against the daemon API; renders reports client-side.
 - **LLM Validator** — Dual-service startup health check (light fatal, deep non-fatal).
 - **Refetch** — `refetch` backfill: re-extract and re-analyse unreadable stored items.
-- **Secret Scan** — gitleaks gate (go.mod tool pin) in verify.sh and CI history scan.
+- **Secret Scan** — betterleaks in ember verify (the pre-push gate); gitleaks (go.mod tool pin) history scan in CI, which runs `make test`.
 - **Verify Chain** — `verify --chain`: real orchestrator run, throwaway DB, per-link report.
 
 ## Where to look

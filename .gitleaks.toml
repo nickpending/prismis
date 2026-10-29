@@ -1,6 +1,6 @@
-# gitleaks config — `.specify/verify.sh` runs `gitleaks dir --redact` over a mirror of
-# exactly what `git ls-files` would track (never .venv, sibling worktrees, caches or
-# local DBs) as a named gate check (gh #70). CI separately scans full git history with
+# gitleaks config, read by two scanners (gh #70): betterleaks, which ember's gate
+# (`ember verify`, run by the pre-push hook) runs over the tracked files as its
+# betterleaks(.) check, and CI's full-history `go tool gitleaks git` scan, which adds
 # `.betterleaksignore` for the historical findings that only exist in old commits.
 #
 # These allowlists match the fixture VALUES, deliberately — not the files that hold

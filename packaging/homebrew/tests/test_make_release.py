@@ -2,7 +2,7 @@
 
 scripts/tests/test_make_release.sh drives the real Makefile target and release script in
 throwaway clones of a local bare remote. Collecting it here is what makes it a standing
-check: verify.sh discovers this pytest unit, and nothing else would run the script.
+check: ember verify and make test run this unit's pytest, and nothing else runs the script.
 """
 
 import subprocess

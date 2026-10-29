@@ -5,27 +5,27 @@ on:
     branches: [main]
   pull_request:
 
-# CI runs the SAME gate as local: `.specify/verify.sh`. Not a reimplementation of its
-# checks — the script itself, so the two can never disagree about what "green" means.
+# CI is proof, never the gate. The gate is ember's pre-push hook, which runs `ember verify`
+# on the maintainer's machine before every push; ember is private, so CI cannot run it.
+# CI shows outside eyes (a pull request), Linux and macOS that every unit's own checks pass,
+# by running `make test`, the same command a contributor runs. It does not run the gate's
+# pinned-tool checks (ty, swiftlint, shellcheck, the dependency scans), so green here does
+# not stand in for a passing `ember verify`.
 #
-# The install step walks the same self-discovery verify.sh does (`find` for
-# pyproject.toml and go.mod, with the same exclusions) rather than hand-listing
-# [daemon, cli, tui]. A hand-maintained enumeration silently omits a unit: this repo
-# already lost twelve daemon test files to a gap like that, and they sat unexecuted long
-# enough for the code to drift out from under them. A unit added later is gated here
-# automatically, with no list to keep in step.
+# The install step finds every pyproject.toml and go.mod rather than hand-listing the
+# units, so a unit's dependencies are present even before `make test` names it.
 #
-# One job per runner OS, not one per language: verify.sh runs every unit in a single invocation,
-# so each runner needs uv, Python and Go all present at once. The macOS runner is there for the
-# Swift unit (macos/), which verify.sh runs only on Darwin and reports uncovered elsewhere; it runs
-# every other unit too, so each OS gates the whole tree.
-# The gate only reads the repository.
+# One job per runner OS, not one per language: `make test` runs every unit in a single
+# invocation, so each runner needs uv, Python and Go all present at once. The macOS runner is
+# there for the menu-bar app (macos/), whose swift checks `make test` runs only on Darwin and
+# reports skipped elsewhere; it runs every other unit too.
+# CI only reads the repository.
 permissions:
   contents: read
 
 jobs:
-  verify:
-    name: verify on ${{ matrix.os }} (every unit)
+  test:
+    name: make test on ${{ matrix.os }} (every unit)
     runs-on: ${{ matrix.os }}
     strategy:
       # Each OS is its own verdict: a Linux failure must not cancel the macOS run, or the reverse.
@@ -86,8 +86,8 @@ jobs:
             hf-${{ runner.os }}-
 
       - name: Install every unit's dependencies
-        # verify.sh assumes dependencies are already present; these two loops mirror its
-        # own unit discovery (the pyproject.toml and go.mod `find` walks).
+        # `make test` assumes dependencies are already present; these two loops install
+        # them for every pyproject.toml and go.mod in the tree.
         #
         # staticcheck and gitleaks need no install step: they are `tool` directives in
         # tui/go.mod, so `go tool` builds them at the version pinned there, verified
@@ -131,43 +131,16 @@ jobs:
         working-directory: daemon
         run: uv run --frozen playwright install --with-deps chromium
 
-      - name: Verify
-        # The gate's own contract treats an uncovered check as a notice, not a failure:
-        # verify.sh prints VERIFY_UNCOVERED and falls through to `verify: PASS`, and its
-        # only non-zero exits are an empty COVERED set and a real failure. A bare
-        # invocation could therefore let CI report success having gated on strictly less
-        # than a local run — a unit that loses its typechecker config would pass silently.
-        #
-        # So CI holds itself to a stricter bar than the script: any VERIFY_UNCOVERED entry is
-        # a failure here, with one exception. On Linux the gate reports a Swift unit uncovered
-        # (`swift(<dir>): macOS only ...`) because Swift runs only on macOS, and the macOS job
-        # in this matrix runs it; that entry alone is tolerated, and only on Linux. This is the
-        # caller adding its own requirement on top of the script's exit code.
-        run: |
-          set +e
-          bash .specify/verify.sh 2>&1 | tee /tmp/verify.out
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            echo "::error::the verification gate failed"
-            exit "$status"
-          fi
-          uncovered="$(sed -n 's/^VERIFY_UNCOVERED: //p' /tmp/verify.out | tr ';' '\n' | sed 's/^ *//')"
-          if [ "$RUNNER_OS" = Linux ]; then
-            uncovered="$(printf '%s\n' "$uncovered" | grep -v '^swift([^)]*): macOS only' || true)"
-          fi
-          if [ -n "$uncovered" ]; then
-            echo "::error::gate passed but did not cover every check — CI must not gate on less than a local run"
-            printf '%s\n' "$uncovered"
-            exit 1
-          fi
+      - name: make test
+        # Every check runs, each failure is named, and the step fails when any check did.
+        # On Linux the menu-bar app's swift checks are reported skipped; the macOS job runs them.
+        run: make test
 
       - name: Secret scan (full git history)
-        # The Verify step above only scans today's working tree (verify.sh's
-        # gitleaks(.) check, gh #70); a secret introduced and later deleted never
-        # shows up there. This walks every commit instead, over the full-depth
-        # checkout above, with the same .gitleaks.toml allowlist the working-tree
-        # scan uses.
+        # The gate's betterleaks(.) check scans only today's tracked files (gh #70); a
+        # secret introduced and later deleted never shows up there. This walks every
+        # commit instead, over the full-depth checkout above, with the same
+        # .gitleaks.toml allowlist the gate's scan uses.
         #
         # .betterleaksignore fingerprints the historical findings .gitleaks.toml's
         # value-anchored allowlist cannot reach: values in files that no longer hold

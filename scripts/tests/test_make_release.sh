@@ -4,17 +4,20 @@
 # local bare remote (no network, no mocks):
 #   - a malformed version, a dirty tree, a branch other than main, and an existing tag
 #     (local or on origin) each exit non-zero and leave files, HEAD, tags and the remote
-#     exactly as they were;
-#   - a valid version sets both pyproject versions, relocks both units, runs the gate,
-#     commits, makes an annotated tag and pushes main then the tag;
-#   - a failing gate stops before any commit, and a rejected push exits non-zero;
+#     exactly as they were, without reaching the push;
+#   - a valid version sets both pyproject versions, relocks both units, commits, makes an
+#     annotated tag and pushes main and the tag in one push, so the clone's pre-push hook
+#     runs exactly once;
+#   - a pre-push hook that fails refuses the push: origin holds neither the release commit
+#     nor the tag, the clone holds both, and the output names the undo line;
+#   - a push origin rejects, whole or only for the tag, exits non-zero and leaves origin
+#     untouched;
 #   - the real release_notes.py writes the notes and they are handed to `gh release create`
-#     for the new tag, and a failing publish exits non-zero after the push;
-#   - RELEASE_VERIFY_CMD is ignored unless RELEASE_TEST is set, so the real gate path runs.
-# The real gate is replaced by RELEASE_VERIFY_CMD (honoured only under RELEASE_TEST), and
-# `gh`, the one external service a release reaches, by a stub first on PATH that records
-# its calls; the repos carry two dependency-free units so `uv lock` runs for real. macOS
-# bash 3.2 safe.
+#     for the new tag, and a failing publish exits non-zero after the push.
+# Each clone's pre-push hook stands in for the gate ember's hook runs: it appends one line to
+# the clone's gate log in WORK and exits 1 when GATE_FAIL is set. `gh`, the one external
+# service a release reaches, is a stub first on PATH that records its calls; the repos carry
+# two dependency-free units so `uv lock` runs for real. macOS bash 3.2 safe.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -49,32 +52,38 @@ export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 
 # mk_remote NAME — a bare remote seeded with main holding the real Makefile and release
-# script, two units at version 0.1.0 with committed locks, and a stub gate.
+# script and two units at version 0.1.0 with committed locks.
 mk_remote() {
 	local bare="$WORK/$1.git" seed="$WORK/$1-seed"
 	git init -q --bare -b main "$bare"
 	git init -q -b main "$seed"
-	mkdir -p "$seed/scripts" "$seed/.specify" "$seed/daemon" "$seed/cli" "$seed/packaging/homebrew"
+	mkdir -p "$seed/scripts" "$seed/daemon" "$seed/cli" "$seed/packaging/homebrew"
 	cp "$ROOT/Makefile" "$seed/Makefile"
 	cp "$ROOT/scripts/release.sh" "$seed/scripts/release.sh"
 	cp "$ROOT/packaging/homebrew/release_notes.py" "$seed/packaging/homebrew/release_notes.py"
-	printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../real-gate-ran"\n' >"$seed/.specify/verify.sh"
-	chmod +x "$seed/scripts/release.sh" "$seed/.specify/verify.sh"
+	chmod +x "$seed/scripts/release.sh"
 	for u in daemon cli; do
 		printf '3.13\n' >"$seed/$u/.python-version"
 		printf '[project]\nname = "fake-%s"\nversion = "0.1.0"\nrequires-python = ">=3.13"\ndependencies = []\n' "$u" >"$seed/$u/pyproject.toml"
 		(cd "$seed/$u" && uv lock -q)
 	done
-	printf 'real-gate-ran\ngate-stub-ran\noverride-ran\n' >"$seed/.gitignore"
 	git -C "$seed" add -A
 	git -C "$seed" commit -q -m seed
 	git -C "$seed" remote add origin "$bare"
 	git -C "$seed" push -q origin main
 }
 
-# mk_clone REMOTE NAME — a clean clone on main.
+# mk_clone REMOTE NAME — a clean clone on main whose pre-push hook appends one line to
+# WORK/NAME.gate.log per push and refuses the push when GATE_FAIL is set.
 mk_clone() {
 	git clone -q "$WORK/$1.git" "$WORK/$2"
+	printf '#!/bin/sh\necho "pre-push $1" >>"%s"\n[ -z "${GATE_FAIL:-}" ]\n' "$WORK/$2.gate.log" >"$WORK/$2/.git/hooks/pre-push"
+	chmod +x "$WORK/$2/.git/hooks/pre-push"
+}
+
+# gate_runs NAME — how many pushes the clone's pre-push hook saw.
+gate_runs() {
+	if [ -e "$WORK/$1.gate.log" ]; then wc -l <"$WORK/$1.gate.log" | tr -d ' '; else echo 0; fi
 }
 
 # state DIR — everything a refused release must leave alone.
@@ -87,50 +96,50 @@ state() {
 	cat "$1/daemon/pyproject.toml" "$1/cli/pyproject.toml" "$1/daemon/uv.lock" "$1/cli/uv.lock"
 }
 
-# refused DESC DIR VERSION — release must exit non-zero and change nothing.
+# refused DESC NAME VERSION — release must exit non-zero, change nothing and never push.
 refused() {
-	local desc="$1" dir="$2" version="$3" before after out rc=0
+	local desc="$1" dir="$WORK/$2" version="$3" before after out rc=0
 	before="$(state "$dir")"
-	out="$(cd "$dir" && RELEASE_TEST=1 RELEASE_VERIFY_CMD='touch gate-stub-ran' make release VERSION="$version" 2>&1)" || rc=$?
+	out="$(cd "$dir" && make release VERSION="$version" 2>&1)" || rc=$?
 	after="$(state "$dir")"
 	if [ "$rc" -eq 0 ]; then
 		fail "$desc: exited zero" "$out"
 	elif [ "$before" != "$after" ]; then
 		fail "$desc: changed the clone or the remote" "$out"
-	elif [ -e "$dir/gate-stub-ran" ] || [ -e "$dir/real-gate-ran" ]; then
-		fail "$desc: reached the gate" "$out"
+	elif [ "$(gate_runs "$2")" != 0 ]; then
+		fail "$desc: reached the push" "$out"
 	else ok "$desc"; fi
 }
 
 mk_remote r1
 
 mk_clone r1 malformed
-refused "a malformed version is refused" "$WORK/malformed" "1.2"
-refused "an empty version is refused" "$WORK/malformed" ""
-refused "a v-prefixed version is refused" "$WORK/malformed" "v1.2.3"
+refused "a malformed version is refused" malformed "1.2"
+refused "an empty version is refused" malformed ""
+refused "a v-prefixed version is refused" malformed "v1.2.3"
 
 mk_clone r1 dirty
 printf 'x\n' >"$WORK/dirty/untracked.txt"
-refused "a dirty tree is refused" "$WORK/dirty" "1.2.3"
+refused "a dirty tree is refused" dirty "1.2.3"
 
 mk_clone r1 offmain
 git -C "$WORK/offmain" checkout -q -b topic
-refused "a branch other than main is refused" "$WORK/offmain" "1.2.3"
+refused "a branch other than main is refused" offmain "1.2.3"
 
 mk_clone r1 localtag
 git -C "$WORK/localtag" tag v1.2.3
-refused "an existing local tag is refused" "$WORK/localtag" "1.2.3"
+refused "an existing local tag is refused" localtag "1.2.3"
 
 mk_clone r1 remotetag
 git -C "$WORK/r1.git" tag v1.2.4 main
-refused "an existing tag on origin is refused" "$WORK/remotetag" "1.2.4"
+refused "an existing tag on origin is refused" remotetag "1.2.4"
 
 # Valid release, with one change since the seed for the notes to carry.
 mk_clone r1 good
 printf 'x\n' >"$WORK/good/change.txt"
 git -C "$WORK/good" add change.txt
 git -C "$WORK/good" commit -q -m "api: make it work"
-out="$(cd "$WORK/good" && RELEASE_TEST=1 RELEASE_VERIFY_CMD='touch gate-stub-ran' make release VERSION=1.2.3 2>&1)" ||
+out="$(cd "$WORK/good" && make release VERSION=1.2.3 2>&1)" ||
 	{ fail "a valid release exited non-zero" "$out"; }
 G="$WORK/good"
 if grep -qx 'version = "1.2.3"' "$G/daemon/pyproject.toml" && grep -qx 'version = "1.2.3"' "$G/cli/pyproject.toml"; then
@@ -139,7 +148,8 @@ else fail "pyproject versions not set" "$out"; fi
 if grep -q 'version = "1.2.3"' "$G/daemon/uv.lock" && grep -q 'version = "1.2.3"' "$G/cli/uv.lock"; then
 	ok "both units are relocked"
 else fail "locks not relocked" "$out"; fi
-[ -e "$G/gate-stub-ran" ] && ok "the gate command ran" || fail "the gate command did not run" "$out"
+[ "$(gate_runs good)" = 1 ] && ok "main and the tag went out in one push through the pre-push hook" ||
+	fail "the pre-push hook ran $(gate_runs good) times, not once" "$out"
 [ "$(git -C "$G" cat-file -t v1.2.3 2>/dev/null)" = "tag" ] && ok "v1.2.3 is an annotated tag" || fail "v1.2.3 is not an annotated tag"
 [ "$(git -C "$G" log -1 --format=%s)" = "Release v1.2.3" ] && ok "the release commit is the tip" || fail "tip is not the release commit"
 [ -z "$(git -C "$G" status --porcelain)" ] && ok "the tree is clean after the release" || fail "tree dirty after release"
@@ -153,54 +163,56 @@ if grep -q '^- api: make it work ' "$WORK/published/good.md" && ! grep -q 'Relea
 	ok "the published notes list the change and not the release commit"
 else fail "the published notes are wrong" "$(cat "$WORK/published/good.md" 2>/dev/null)"; fi
 
-# The gate override is ignored without RELEASE_TEST: the stub verify.sh must run instead.
-mk_clone r1 noflag
-out="$(cd "$WORK/noflag" && RELEASE_VERIFY_CMD='touch override-ran' make release VERSION=1.3.0 2>&1)" ||
-	fail "release with the stub gate exited non-zero" "$out"
-if [ -e "$WORK/noflag/real-gate-ran" ] && [ ! -e "$WORK/noflag/override-ran" ]; then
-	ok "RELEASE_VERIFY_CMD is ignored without RELEASE_TEST"
-else fail "override honoured without RELEASE_TEST" "$out"; fi
-
-# A failing gate stops before the commit, the tag and any push.
+# A failing pre-push hook refuses the push: the release stays local and the output says how
+# to undo it.
 mk_remote r2
 mk_clone r2 badgate
 BEFORE_REMOTE="$(git -C "$WORK/r2.git" for-each-ref)"
 rc=0
-out="$(cd "$WORK/badgate" && RELEASE_TEST=1 RELEASE_VERIFY_CMD=false make release VERSION=1.2.3 2>&1)" || rc=$?
-if [ "$rc" -ne 0 ] && [ "$(git -C "$WORK/badgate" rev-list --count HEAD)" = "1" ] &&
-	[ -z "$(git -C "$WORK/badgate" tag -l)" ] && [ "$(git -C "$WORK/r2.git" for-each-ref)" = "$BEFORE_REMOTE" ]; then
-	ok "a failing gate stops before commit, tag and push"
-else fail "failing gate did not stop the release" "$out"; fi
+out="$(cd "$WORK/badgate" && GATE_FAIL=1 make release VERSION=1.2.3 2>&1)" || rc=$?
+B="$WORK/badgate"
+if [ "$rc" -ne 0 ] && [ "$(gate_runs badgate)" = 1 ] && [ "$(git -C "$WORK/r2.git" for-each-ref)" = "$BEFORE_REMOTE" ] &&
+	[ -z "$(git -C "$WORK/r2.git" tag -l)" ]; then
+	ok "a failing pre-push hook refuses the push and origin holds neither the commit nor the tag"
+else fail "a failing pre-push hook did not stop the push" "$out"; fi
+if [ "$(git -C "$B" log -1 --format=%s)" = "Release v1.2.3" ] && [ "$(git -C "$B" cat-file -t v1.2.3 2>/dev/null)" = "tag" ]; then
+	ok "the refused release keeps its commit and tag in the clone"
+else fail "the refused release lost its commit or tag" "$out"; fi
+if grep -qF 'git tag -d v1.2.3' <<<"$out" && grep -qF 'git reset --hard HEAD~1' <<<"$out"; then
+	ok "the refused push names the undo line"
+else fail "the refused push does not name the undo line" "$out"; fi
 
-# A rejected push of main exits non-zero and never pushes the tag.
+# A push origin rejects outright exits non-zero and pushes nothing.
 mk_remote r3
 mk_clone r3 rejected
 printf '#!/bin/sh\nexit 1\n' >"$WORK/r3.git/hooks/pre-receive"
 chmod +x "$WORK/r3.git/hooks/pre-receive"
+BEFORE_REMOTE="$(git -C "$WORK/r3.git" for-each-ref)"
 rc=0
-out="$(cd "$WORK/rejected" && RELEASE_TEST=1 RELEASE_VERIFY_CMD=true make release VERSION=1.2.3 2>&1)" || rc=$?
-if [ "$rc" -ne 0 ] && [ -z "$(git -C "$WORK/r3.git" tag -l)" ]; then
-	ok "a rejected main push exits non-zero and pushes no tag"
+out="$(cd "$WORK/rejected" && make release VERSION=1.2.3 2>&1)" || rc=$?
+if [ "$rc" -ne 0 ] && [ "$(git -C "$WORK/r3.git" for-each-ref)" = "$BEFORE_REMOTE" ]; then
+	ok "a rejected push exits non-zero and pushes neither main nor the tag"
 else fail "rejected push not caught" "$out"; fi
 
-# A rejected tag push (main accepted) also exits non-zero.
+# A push origin rejects only for the tag lands nothing either: main and the tag go together.
 mk_remote r4
 mk_clone r4 tagrejected
-printf '#!/bin/sh\nwhile read old new ref; do case "$ref" in refs/tags/*) exit 1;; esac; done\n' >"$WORK/r4.git/hooks/pre-receive"
-chmod +x "$WORK/r4.git/hooks/pre-receive"
+printf '#!/bin/sh\ncase "$1" in refs/tags/*) exit 1 ;; esac\n' >"$WORK/r4.git/hooks/update"
+chmod +x "$WORK/r4.git/hooks/update"
+BEFORE_REMOTE="$(git -C "$WORK/r4.git" for-each-ref)"
 rc=0
-out="$(cd "$WORK/tagrejected" && RELEASE_TEST=1 RELEASE_VERIFY_CMD=true make release VERSION=1.2.3 2>&1)" || rc=$?
-if [ "$rc" -ne 0 ] && [ "$(git -C "$WORK/r4.git" rev-parse main)" = "$(git -C "$WORK/tagrejected" rev-parse HEAD)" ]; then
-	ok "a rejected tag push exits non-zero after main was pushed"
-else fail "rejected tag push not caught" "$out"; fi
+out="$(cd "$WORK/tagrejected" && make release VERSION=1.2.3 2>&1)" || rc=$?
+if [ "$rc" -ne 0 ] && [ "$(git -C "$WORK/r4.git" for-each-ref)" = "$BEFORE_REMOTE" ]; then
+	ok "a rejected tag exits non-zero and main does not reach origin without it"
+else fail "a rejected tag left origin changed or exited zero" "$out"; fi
 
 # A failing publish exits non-zero after main and the tag are pushed, and says how to retry.
 mk_remote r5
 mk_clone r5 ghfail
 rc=0
-out="$(cd "$WORK/ghfail" && GH_FAIL=1 RELEASE_TEST=1 RELEASE_VERIFY_CMD=true make release VERSION=1.2.3 2>&1)" || rc=$?
+out="$(cd "$WORK/ghfail" && GH_FAIL=1 make release VERSION=1.2.3 2>&1)" || rc=$?
 if [ "$rc" -ne 0 ] && [ "$(git -C "$WORK/r5.git" rev-parse 'v1.2.3^{commit}' 2>/dev/null)" = "$(git -C "$WORK/ghfail" rev-parse HEAD)" ] &&
-	printf '%s' "$out" | grep -q 'publishing the release notes failed; main and v1.2.3 are pushed (retry: gh release create'; then
+	grep -q 'publishing the release notes failed; main and v1.2.3 are pushed (retry: gh release create' <<<"$out"; then
 	ok "a failing publish exits non-zero after the push and names the retry"
 else fail "failing publish not caught" "$out"; fi
 

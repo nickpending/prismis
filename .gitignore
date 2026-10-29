@@ -220,11 +220,6 @@ __marimo__/
 # Agent workspace
 .corpus/
 
-# Spec Kit — ephemeral extension state only; everything else under .specify/ is committed
-.specify/extensions/.cache/
-.specify/extensions/.backup/
-.specify/extensions/*/local-config.yml
-
 # Model playtest run artifacts
 playtest-runs/
 .claude/worktrees/

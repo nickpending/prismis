@@ -173,12 +173,16 @@ Optional extras: [Fabric](https://github.com/danielmiessler/fabric) for `:fabric
 ## Development
 
 ```bash
-make test       # runs .specify/verify.sh, the same gate CI runs
+make test       # every unit's own checks, the command CI runs
 make dev        # one daemon fetch cycle from source
 make dev-tui    # the TUI from source
 ```
 
-The gate needs only Go, uv and Python. Issues and pull requests are welcome at
+`make test` runs ruff, ruff format, mypy and pytest in `daemon/`, `cli/` and `packaging/homebrew/`;
+gofmt, go vet, staticcheck and go test in `tui/`; and, on a Mac, swift format, swift build and swift
+test for the menu-bar app in `macos/`. It runs every check and names each one that failed. It needs
+Go, uv and Python, plus Xcode or the Command Line Tools for the menu-bar app's checks on a Mac;
+elsewhere it reports `macos` skipped. Issues and pull requests are welcome at
 [github.com/nickpending/prismis/issues](https://github.com/nickpending/prismis/issues).
 
 ## Status

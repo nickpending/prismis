@@ -1,13 +1,13 @@
 # prismis
 
 Local-first content pipeline: a Python daemon (`daemon/`), a Go TUI (`tui/`), a Python CLI
-(`cli/`), and a macOS menu-bar app (`macos/`). Vision in `docs/IDEA.md`; code-law in
-`.specify/memory/constitution.md`.
+(`cli/`), and a macOS menu-bar app (`macos/`). Vision in `docs/IDEA.md`; code-law is ember's
+universal constitution plus this project's own articles in `docs/constitution.json`.
 
-The gate is `ember verify`, which ember's pre-push hook runs on every push: it discovers the units,
-runs every check (type, lint, format, tests, secret and dependency scans), and reports what it
-covered. CI runs `./.specify/verify.sh`, which covers fewer checks, so a green CI does not stand in
-for a passing `ember verify`.
+The only gate is `ember verify`, which ember's pre-push hook runs on every push: it discovers the
+units, runs every check (type, lint, format, tests, secret and dependency scans), and reports what
+it covered. CI runs `make test` (every unit's own checks) on Linux and macOS as proof, never as a
+gate: it covers fewer checks, so a green CI does not stand in for a passing `ember verify`.
 
 ## Learned Patterns
 

@@ -2,20 +2,20 @@
 # Cut a release: `make release VERSION=X.Y.Z`.
 #
 # Refuses (before changing anything) a malformed version, a dirty tree, a branch other than
-# main, or an existing tag. Then sets both pyproject versions, relocks daemon and cli, runs
-# the verification gate, commits, tags, writes the release notes, pushes main and then the
-# tag, and publishes the notes as the tag's GitHub Release. Every step's exit status is
-# checked directly, never through a pipe; the first failure stops the release. The tag push
-# is what starts .github/workflows/release.yml.
+# main, or an existing tag. Then sets both pyproject versions, relocks daemon and cli,
+# commits, tags, writes the release notes, pushes main and the tag in one atomic push, and
+# publishes the notes as the tag's GitHub Release. Every step's exit status is checked
+# directly, never through a pipe; the first failure stops the release. The tag push is what
+# starts .github/workflows/release.yml.
+#
+# The gate is the pre-push hook ember installs, which runs ember verify over the release
+# commit during that one push. This script runs no gate of its own and never skips the
+# hook: a refused push leaves origin untouched and the release commit and tag local.
 #
 # The notes come from packaging/homebrew/release_notes.py (the previous v* tag, or the root
 # commit for a first release, up to the new tag), run on the Python uv provides rather than
 # whatever python3 the shell finds, and are published with the local `gh`, so the release
 # workflow keeps a read-only GITHUB_TOKEN.
-#
-# RELEASE_TEST=1 lets scripts/tests/test_make_release.sh replace the gate with
-# RELEASE_VERIFY_CMD, since running the real gate inside a throwaway repo proves nothing.
-# Without RELEASE_TEST the override is ignored.
 set -euo pipefail
 
 VERSION="${1:-}"
@@ -62,12 +62,6 @@ for unit in daemon cli; do
 	(cd "$unit" && uv lock) || die "uv lock failed in $unit"
 done
 
-if [ -n "${RELEASE_TEST:-}" ] && [ -n "${RELEASE_VERIFY_CMD:-}" ]; then
-	bash -c "$RELEASE_VERIFY_CMD" || die "verification failed; the version bump is left uncommitted in the tree"
-else
-	./.specify/verify.sh || die "verification failed; the version bump is left uncommitted in the tree"
-fi
-
 PREV="$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null)" ||
 	PREV="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
 
@@ -81,8 +75,10 @@ NOTES="$(mktemp)"
 uv run --quiet --no-project --python 3.13 python packaging/homebrew/release_notes.py "$PREV" "$TAG" ${REPO_SLUG:+--repo "$REPO_SLUG"} >"$NOTES" ||
 	die "writing the release notes failed; nothing was pushed (undo with: git tag -d $TAG && git reset --hard HEAD~1)"
 
-git push --no-verify origin main || die "pushing main failed; $TAG is tagged locally only"
-git push --no-verify origin "$TAG" || die "pushing $TAG failed; main was pushed"
+# --atomic: origin takes both refs or neither, so a refused push never leaves main released
+# without its tag.
+git push --atomic origin main "$TAG" ||
+	die "the push was refused, nothing reached origin; undo with: git tag -d $TAG && git reset --hard HEAD~1"
 gh release create "$TAG" --title "$TAG" --notes-file "$NOTES" --verify-tag ||
 	die "publishing the release notes failed; main and $TAG are pushed (retry: gh release create $TAG --title $TAG --notes-file $NOTES --verify-tag)"
 rm -f "$NOTES"

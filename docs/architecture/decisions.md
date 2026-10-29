@@ -13,6 +13,12 @@ tags: [architecture, decisions]
 
 Architectural decisions and their rationale. Most recent first.
 
+## Spec-kit retired: ember verify is the only gate, make test and CI are proof (retire-speckit) [2026-10-29]
+
+**Context:** Two gates ran side by side. Ember's pre-push hook ran `ember verify` on every push, while `.specify/verify.sh` was what `make test`, CI and `make release` (which pushed with `--no-verify`) ran, covering fewer checks. The code-law lived in spec-kit's `.specify/memory/constitution.md`, whose principles ember's universal constitution already carries.
+**Choice:** `.specify/` is deleted whole, with its three gate self-tests. `make test` replaces `verify.sh`: it runs each unit's own checks (ruff, ruff format, mypy and pytest in daemon, cli and packaging/homebrew; gofmt, go vet, staticcheck and go test in tui; and on Darwin `macos/scripts/test.sh`, which holds the one copy of the Command Line Tools' Swift Testing flags), runs every check before exiting and names each failure. CI's test step is `make test` on ubuntu-latest and macos-latest, with no `VERIFY_UNCOVERED` handling, and its full-history secret scan stays on Linux. `scripts/release.sh` runs no gate of its own and pushes main and the tag in one atomic push with no `--no-verify`, so the pre-push hook gates the release commit once; a refused push leaves origin untouched and prints the undo line. The constitution's four Project Constraints move to `docs/constitution.json` as articles beside ember's universal ones.
+**Why:** One gate, and every other caller says what it actually runs. Accepted costs: `make test` and CI list the units by hand, so a new unit reaches them only when added there (ember's gate discovers it regardless); CI runs none of the gate's pinned-tool checks, so a pull request shows only the unit-declared checks until a maintainer pushes. Supersedes the [2026-09-22] and [2026-09-03] verify.sh decisions below.
+
 ## The daemon sends no desktop notifications; the macOS menu-bar app carries new HIGH items (remove-notifier, #103) [2026-10-28]
 
 **Context:** The daemon's `Notifier` ran `terminal-notifier` at the end of each fetch cycle that stored new HIGH items. Once the daemon ran on a server it reached no one — 57 HIGH batches went undelivered between 2026-10-16 and 2026-10-22 — and its integration test failed on the macos-latest CI runner. The macOS menu-bar app (#102, #105) now shows the HIGH signal from the daemon's API wherever the daemon runs.

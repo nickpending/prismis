@@ -1,0 +1,18 @@
+[
+  {
+    "id": "local-first-zero-ops",
+    "rule": "Local-first, zero-ops. prismis runs entirely on the operator's own machines against SQLite. There is no server tier to fall back on and no ops team to page. A failure that requires manual intervention to recover from has already failed, which is what makes destructive-is-recoverable (recoverable destructive operations) and unattended-leaves-record (unattended behavior leaves a record) load-bearing rather than aspirational here."
+  },
+  {
+    "id": "three-components-one-contract",
+    "rule": "Three components, one contract. The Python daemon (`daemon/`), the Go TUI (`tui/`), and the Python CLI (`cli/`) are separate units that meet at the daemon's HTTP API and the SQLite schema. Under dependencies-point-one-way, the daemon never imports from the TUI or CLI, and under additive-change, that API and schema change additively — the TUI and CLI are deployed independently and will be running an older build when the daemon changes."
+  },
+  {
+    "id": "pipeline-runs-unattended",
+    "rule": "The pipeline runs unattended. Fetching, summarization, evaluation and deep extraction execute on a schedule with nobody watching. Under failures-distinguishable, a content item that failed to summarize and one that legitimately produced nothing must be distinguishable in storage — degraded output that still looks like output is the characteristic failure of this system, and it is invisible unless the distinction is represented."
+  },
+  {
+    "id": "llm-providers-only-external-boundary",
+    "rule": "LLM providers are the true external boundary. They are the one collaborator tests-prove-logic permits mocking, and the only one. The database, the HTTP API, and every internal module are exercised for real."
+  }
+]

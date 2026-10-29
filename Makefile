@@ -309,15 +309,45 @@ dev-tui: ## Run TUI in development mode
 dev-cli: ## Run CLI in development mode
 	cd cli && uv run python -m cli
 
+# The units `make test` checks, listed by hand: ember's gate discovers units on its own, so a new
+# unit reaches `make test` and CI only once it is named here.
+PY_UNITS := daemon cli packaging/homebrew
+# The swift checks run only on macOS; `make test HOST_OS=Linux` takes the path a Linux host takes.
+HOST_OS ?= $(shell uname -s)
+
 .PHONY: test
-test: ## Run the full verification gate (the same script CI runs)
-# Delegates rather than re-listing the units: this target used to run pytest in daemon and
-# cli and skip lint, typecheck and staticcheck entirely, so it reported green on a tree the
-# gate rejects. One definition of "tested", three callers — developer, make, CI.
-	bash .specify/verify.sh
+test: ## Run every unit's checks (what CI runs as proof; the push gate is ember's pre-push hook)
+# Every check runs before the target exits, so one run names every failure, not just the first.
+	@failed=(); \
+	check() { \
+		local name="$$1" dir="$$2"; \
+		shift 2; \
+		echo "--- $$name"; \
+		(cd "$$dir" && "$$@") || failed+=("$$name"); \
+	}; \
+	for unit in $(PY_UNITS); do \
+		check "lint($$unit)" "$$unit" uv run --locked ruff check .; \
+		check "format($$unit)" "$$unit" uv run --locked ruff format --check .; \
+		check "typecheck($$unit)" "$$unit" uv run --locked mypy .; \
+		check "tests($$unit)" "$$unit" uv run --locked pytest -q; \
+	done; \
+	check "format(tui)" tui sh -c 'unformatted="$$(gofmt -l .)"; [ -z "$$unformatted" ] || { echo "gofmt would reformat:"; echo "$$unformatted"; exit 1; }'; \
+	check "vet(tui)" tui go vet ./...; \
+	check "staticcheck(tui)" tui go tool staticcheck ./...; \
+	check "tests(tui)" tui go test ./...; \
+	if [ "$(HOST_OS)" = Darwin ]; then \
+		check "swift(macos)" macos ./scripts/test.sh; \
+	else \
+		echo "--- macos skipped: its swift checks need macOS, and this host is $(HOST_OS)"; \
+	fi; \
+	if [ "$${#failed[@]}" -gt 0 ]; then \
+		for name in "$${failed[@]}"; do echo "make test: FAILED $$name"; done; \
+		exit 1; \
+	fi; \
+	echo "make test: PASS"
 
 .PHONY: release
-release: ## Cut a release: make release VERSION=X.Y.Z (bump, relock, verify, commit, tag, push, publish notes)
+release: ## Cut a release: make release VERSION=X.Y.Z (bump, relock, commit, tag, push through the pre-push gate, publish notes)
 	@./scripts/release.sh "$(VERSION)"
 
 .PHONY: clean

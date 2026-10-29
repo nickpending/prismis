@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2015  # `ok` never fails, so `test && ok || fail` is this file's idiom
 # Proves `make test` and macos/scripts/test.sh with real uv, ruff, mypy, pytest, go and swift
-# in a throwaway tree holding the real Makefile and test.sh beside small real units:
+# in a throwaway tree holding the real Makefile and a copy of the real macos/ package beside
+# small real units:
 #   - a clean run exits 0 having run every unit's checks, the menu-bar app's through test.sh on
-#     Darwin, where every @Test in the probe package (inside an @Suite type, the shape
-#     macos/Tests uses) expands and runs;
+#     Darwin, where every @Test in macos/Tests expands and runs (the count swift test reports
+#     matches `grep -rc '@Test'` over them);
 #   - with an unused import planted in cli and a failing test in packaging/homebrew, one run
 #     exits non-zero and names exactly lint(cli) and tests(packaging/homebrew);
 #   - `make test HOST_OS=Linux` reports macos skipped, runs every other unit's checks, never
@@ -37,9 +38,9 @@ fail() {
 }
 ok() { echo "OK: $1"; }
 
-# The tree: the real Makefile, three Python units, a Go unit, and a Swift probe package
-# driven by the real macos/scripts/test.sh.
-mkdir -p "$T/tui" "$T/macos/scripts" "$T/macos/Sources/Probe" "$T/macos/Tests/ProbeTests"
+# The tree: the real Makefile, three small Python units, a small Go unit, and a copy of the
+# real macos/ package with its scripts/test.sh.
+mkdir -p "$T/tui"
 cp "$ROOT/Makefile" "$T/Makefile"
 for u in daemon cli packaging/homebrew; do
 	mkdir -p "$T/$u/tests"
@@ -50,41 +51,11 @@ for u in daemon cli packaging/homebrew; do
 done
 cp "$ROOT/tui/go.mod" "$ROOT/tui/go.sum" "$T/tui/"
 printf 'package main\n\nfunc main() {}\n' >"$T/tui/main.go"
-cp "$ROOT/macos/scripts/test.sh" "$T/macos/scripts/test.sh"
-cat >"$T/macos/Package.swift" <<'SWIFT'
-// swift-tools-version: 6.0
-import PackageDescription
-
-let package = Package(
-  name: "Probe",
-  platforms: [.macOS(.v14)],
-  targets: [
-    .target(name: "Probe"),
-    .testTarget(name: "ProbeTests", dependencies: ["Probe"]),
-  ]
-)
-SWIFT
-cat >"$T/macos/Sources/Probe/Probe.swift" <<'SWIFT'
-/// Twice `value`.
-public func double(_ value: Int) -> Int {
-  value * 2
-}
-SWIFT
-cat >"$T/macos/Tests/ProbeTests/ProbeTests.swift" <<'SWIFT'
-import Probe
-import Testing
-
-@Suite
-struct ProbeTests {
-  @Test func doublesTwo() {
-    #expect(double(2) == 4)
-  }
-
-  @Test func doublesZero() {
-    #expect(double(0) == 0)
-  }
-}
-SWIFT
+# What git would track under macos/, so SwiftPM's .build output never comes along.
+while IFS= read -r -d '' f; do
+	mkdir -p "$T/$(dirname "$f")"
+	cp "$ROOT/$f" "$T/$f"
+done < <(git -C "$ROOT" ls-files -z --cached --others --exclude-standard macos)
 TESTS="$(grep -rc '@Test' "$T/macos/Tests" | awk -F: '{ n += $2 } END { print n }')"
 
 # A swift stub, first on PATH only where a case puts it there, that records each call.
@@ -108,7 +79,7 @@ ran_all() {
 	for c in $CHECKS; do grep -qxF -- "--- $c" "$1" || return 1; done
 }
 
-# 1. A clean run passes, and on Darwin runs the probe's every @Test through test.sh.
+# 1. A clean run passes, and on Darwin runs every @Test in macos/Tests through test.sh.
 rc="$(run_make "$WORK/clean.out")"
 if [ "$rc" = 0 ] && ran_all "$WORK/clean.out" && grep -qx 'make test: PASS' "$WORK/clean.out"; then
 	ok "a clean run runs every unit's checks and exits 0"

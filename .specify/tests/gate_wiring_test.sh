@@ -23,6 +23,24 @@ GOBIN_DIR="$(go env GOROOT)/bin"
 GATE_PATH="$GOBIN_DIR:/usr/bin:/bin"
 FAIL=0
 
+# The uv case 5 hands the gate is the one the shell would run. A mise shim can sit ahead of
+# it on PATH (ember's gate installs a pinned uv through mise, which regenerates the shims);
+# with no version pinned in scope the shim falls through to the next uv on PATH in a normal
+# shell, but on the narrowed PATH below there is nothing to fall through to and it fails
+# with "No version is set for shim". So the shim, a symlink to mise, is skipped for the
+# first real uv, and only when no other uv exists does the shim stand.
+real_uv() {
+	local p
+	while IFS= read -r p; do
+		case "$(readlink "$p" 2>/dev/null)" in
+		mise | */mise) continue ;;
+		esac
+		echo "$p"
+		return 0
+	done < <(which -a uv)
+	command -v uv
+}
+
 # The proofs below mean nothing if a scanner binary is reachable.
 for b in staticcheck gitleaks; do
 	if PATH="$GATE_PATH" command -v "$b" >/dev/null 2>&1; then
@@ -124,7 +142,7 @@ LOCK_BEFORE="$(cat "$T5/py/uv.lock")"
 printf 'dependencies = ["six"]\n' >"$WORK/dep.txt"
 sed -i.bak '/^requires-python/r '"$WORK/dep.txt" "$T5/py/pyproject.toml"
 rm -f "$T5/py/pyproject.toml.bak"
-OUT="$(run_gate "$T5" "PATH=$(dirname "$(command -v uv)"):$GATE_PATH")"
+OUT="$(run_gate "$T5" "PATH=$(dirname "$(real_uv)"):$GATE_PATH")"
 if grep -qF 'FAILED: ruff(py)' <<<"$OUT" &&
 	grep -q 'needs to be updated' <<<"$OUT" &&
 	[ "$LOCK_BEFORE" = "$(cat "$T5/py/uv.lock")" ]; then

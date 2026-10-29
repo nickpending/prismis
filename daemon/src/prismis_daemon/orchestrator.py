@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from rich.markup import escape
@@ -11,7 +11,6 @@ from .analysis import build_llm_analysis, content_basis
 from .config import Config, read_context_text
 from .deep_extractor import ContentDeepExtractor
 from .drift import run_drift_check
-from .embeddings import Embedder
 from .evaluator import ContentEvaluator
 from .kind_classifier import KindClassifier
 from .models import ContentItem
@@ -19,6 +18,9 @@ from .observability import log as obs_log
 from .readability import is_readable
 from .storage import Storage
 from .summarizer import ContentSummarizer
+
+if TYPE_CHECKING:
+    from .embeddings import Embedder
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -38,7 +40,7 @@ class DaemonOrchestrator:
         evaluator: ContentEvaluator,
         config: Config,
         console: Console | None = None,
-        embedder: Embedder | None = None,
+        embedder: "Embedder | None" = None,
         deep_extractor: ContentDeepExtractor | None = None,
         kind_classifier: KindClassifier | None = None,
     ):
@@ -69,7 +71,13 @@ class DaemonOrchestrator:
         self.evaluator = evaluator
         self.config = config
         self.console = console or Console()
-        self.embedder = embedder or Embedder()
+        if embedder is None:
+            # Imported here, not at module load: the embedding stack pulls in torch, which
+            # costs seconds, and `prismis-daemon --help` must not pay for it (#107).
+            from .embeddings import Embedder
+
+            embedder = Embedder()
+        self.embedder = embedder
         self.deep_extractor = deep_extractor
         self.kind_classifier = kind_classifier
         # The context.md text scoring uses: the startup copy until a cycle re-reads it.

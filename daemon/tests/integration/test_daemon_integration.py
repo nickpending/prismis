@@ -111,6 +111,32 @@ def test_daemon_orchestration_with_test_database(
     assert first_item["analysis"] is not None
 
 
+def test_entry_point_import_never_loads_the_model_stack() -> None:
+    """Importing the daemon's entry point must not import sentence-transformers or torch.
+
+    `prismis-daemon --help` pays for every module-level import; the embedding stack costs
+    seconds and timed out the help test on CI (#107). Observed directly in a fresh
+    interpreter: after importing the entry point, neither package is in sys.modules.
+    """
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, prismis_daemon.__main__; "
+            "print(sorted(m for m in ('sentence_transformers', 'torch') if m in sys.modules))",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(Path(__file__).parent.parent.parent),
+        env={**os.environ, "PYTHONPATH": "src"},
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "[]", result.stdout
+
+
 def test_daemon_help_command() -> None:
     """Test daemon shows help correctly."""
 

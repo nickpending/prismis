@@ -25,7 +25,6 @@ from rich.table import Table
 from .config import Config
 from .database import init_db
 from .deep_extractor import ContentDeepExtractor
-from .embeddings import Embedder
 from .evaluator import ContentEvaluator
 from .fetchers.file import FileFetcher
 from .fetchers.reddit import RedditFetcher
@@ -552,6 +551,9 @@ def build_orchestrator(
     test can drive the exact object the CLI drives instead of a second copy of this
     wiring that could drift away from it.
     """
+    # Imported here so the verify subcommand's module load never pulls in torch (#107).
+    from .embeddings import Embedder
+
     # Without --full the deep extractor is not merely unreported, it is not built.
     # The orchestrator decides to deep-extract from its own auto_extract config, so a
     # constructed extractor runs on a HIGH item whatever this command intended — and the

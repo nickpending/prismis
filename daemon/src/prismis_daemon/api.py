@@ -49,7 +49,6 @@ from .auth import verify_api_key
 from .config import Config
 from .context_analyzer import ContextAnalyzer
 from .deep_extractor import CircuitOpenError
-from .embeddings import Embedder
 from .kind_classifier import KINDS
 from .observability import log as obs_log
 from .reports import ReportGenerator
@@ -68,8 +67,11 @@ _extract_locks: dict[str, asyncio.Lock] = {}
 def _embed_text(text: str, title: str = "") -> list[float]:
     """Construct an Embedder and embed `text`; blocking, so call via asyncio.to_thread.
 
-    Construction lives here so the model load happens on the worker thread too.
+    Construction lives here so the model load happens on the worker thread too, and the
+    import lives here so loading this module never pulls in torch (#107).
     """
+    from .embeddings import Embedder
+
     return Embedder().generate_embedding(text=text, title=title)
 
 

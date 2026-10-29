@@ -25,16 +25,17 @@ The question was whether to drop notifications or replace them with something wo
 - **Read status.** The web view never marks an item read on open; it has an explicit Mark Read. The app follows the same rule rather than inventing its own, and may offer a mark-read action in the dropdown.
 - **Distribution.** A ready-built app installed as a cask needs Apple notarization to open cleanly on other people's Macs, which needs a paid Developer ID ($99 a year for an individual). rudy declined the fee. The app builds and signs on the user's own Mac the way earshot's `scripts/build-app.sh` does, with a locally created signing identity so macOS keeps the app's permissions across rebuilds. A locally built app is never quarantined, so it opens without warnings; the cost is that installing needs Xcode's command-line tools and a build step. The prismis tap (`nickpending/prismis`, three formulas) is the only brew tap rudy publishes; the app does not join it as a cask.
 - **The old notifier.** Kept as a fallback was rejected: it only worked with the daemon on the same Mac, and two places deciding what counts as a new HIGH item would drift.
+- **At volume.** The first build followed the decisions below and was unusable: rudy had 6,718 unread HIGH items and <host> scores about 20 a day, so the dropdown was a wall of titles and a banner per item was noise. The menubar-panel work order (`docs/work/menubar-panel/design.md`, 2026-10-28) replaced the alerting and listing decisions with a quiet icon and a panel of the newest five; the revised bullets below say so.
 
 ## Decisions
 
 - A Mac menu-bar app replaces the daemon's notifier for alerting on new HIGH items.
 - The app finds its daemon the way the TUI does: `[remote] url`/`key` in `~/.config/prismis/config.toml` when present, otherwise the local daemon's `[api]` host and key from the same file.
-- It shows a count of unread HIGH items, lists them in its dropdown, and sends a native notification for each it has not alerted on before.
+- It shows a count of unread HIGH items, lists them in its dropdown, and sends a native notification for each it has not alerted on before. Revised 2026-10-28: the app posts no notifications; the menu-bar icon shows a dot when HIGH items were fetched since the operator last opened the panel, and the panel lists the newest five unread HIGH items, with the rest one click away in the web view.
 - It reads items through the existing `GET /api/entries` filters; the daemon gains no endpoint for it.
 - Clicking an item opens that item's detail panel in the daemon's web view, which gains a link that opens straight to one item.
 - Opening an item does not mark it read; marking read stays an explicit action, as in the web view.
-- The app remembers on disk which items it has already alerted on, so a restart or a re-scored item never alerts twice.
+- The app remembers on disk which items it has already alerted on, so a restart or a re-scored item never alerts twice. Revised 2026-10-28: it stores one last-looked time instead, the newest daemon `fetched_at` it has shown, so a restart or a re-scored item never re-marks anything.
 - It checks the daemon every few minutes.
 - It lives in `macos/` in the prismis repository, split as earshot is into a testable core with no UI and the menu-bar app.
 - It builds and self-signs on the user's Mac, as earshot does; no Developer ID, no notarized cask.

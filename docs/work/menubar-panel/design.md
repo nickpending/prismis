@@ -27,12 +27,14 @@ Built on the shipped macos/ package (menubar-mac); the config reader, API client
 
 5. Removed: Notifier, NotificationClicks, the UNUserNotificationCenter delegate, AlertedStore and their tests; Info.plist keeps no notification usage.
 
+Revised after delivery, both at rudy's word: ec95b76 drew the panel natively instead of in the CleanCyber palette of the mockup (the window's own material, light and dark mode, system type and label colours, SF Symbols, the user's accent colour for the new count, the new dots and the icon's dot, and an SF Symbol icon); 0ab23d8 removed the summary that appeared on hovering a row, made every icon state a template image, and added retries 10, 30 and 60 seconds after a launch-time check fails.
+
 ## Commitments
 
 - The app posts no notifications.
 - The icon shows a dot exactly when the daemon reports HIGH unread items fetched after the last time the operator opened the panel, and none on a fresh install's first check.
 - Opening the panel moves the last-looked time to the newest fetched_at the panel holds, so the next check shows no dot until something fetched later arrives.
-- The panel lists the newest five unread HIGH items with two-line titles, source, a kind chip when the item has a kind, and age; items fetched since the last look are marked; hovering a row shows its summary; clicking it opens its web detail panel.
+- The panel lists the newest five unread HIGH items with two-line titles, source, a kind chip when the item has a kind, and age; items fetched since the last look are marked; hovering a row shows its summary (dropped in 0ab23d8; the hover highlight stays); clicking it opens its web detail panel.
 - The header shows the new count (99+ past 99) and when the app last checked; a failed check shows its reason there, keeps the last rows and dims the icon with an amber mark.
 - The footer opens the daemon's web view, refreshes now, and holds Launch at Login and Quit.
 - The last-looked time survives a restart and is written atomically.

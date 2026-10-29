@@ -2,7 +2,7 @@
 
 Prismis reads your RSS feeds, subreddits, YouTube channels and Hacker News, scores every item
 against a plain-markdown description of what you care about, and shows you the few that matter:
-in a terminal UI, a web page, or a CLI built for scripts and agents.
+in a terminal UI, a web page, a Mac menu-bar app, or a CLI built for scripts and agents.
 
 [![Release](https://img.shields.io/github/v/release/nickpending/prismis?style=flat)](https://github.com/nickpending/prismis/releases)
 [![Status](https://img.shields.io/badge/status-alpha-orange?style=flat)](#status)
@@ -54,7 +54,7 @@ The first fetch runs as soon as the daemon starts, then every 30 minutes.
 ```
 sources ──► fetch ──► LLM summary + priority ──► SQLite ◄── TUI / web / CLI / API
                          (your context.md)          │
-                                                    └──► desktop alert (HIGH only)
+                                                    └──► menu-bar app (macOS, new HIGH items)
 ```
 
 The daemon fetches new items, pulls the full article (and the top comments for Reddit and Hacker
@@ -78,6 +78,11 @@ To read from a daemon on another machine, set `[remote]` in `config.toml` or run
 hours, top must-reads, voting, an article detail panel with the deep synthesis, and a generated
 audio briefing. To reach it from your phone, set `host = "0.0.0.0"` under `[api]` in
 `config.toml`; the page asks for the API key from that file.
+
+**Menu bar (macOS).** The Prismis app sits in the menu bar and shows a dot when HIGH items have
+arrived since you last looked. Its panel lists the newest five unread HIGH items, and clicking one
+opens its detail panel in the web view. It talks to the same daemon the TUI does, local or
+`[remote]`, and never sends notifications. See [Installation](#menu-bar-app-macos-from-source).
 
 **CLI.** `prismis-cli` lists, searches, exports and manages everything, and most commands take
 `--json` for scripts and agents:
@@ -134,6 +139,22 @@ brew install nickpending/prismis/prismis-daemon  # the daemon, for the machine t
 ```
 
 `brew upgrade` picks up every tagged release.
+
+### Menu-bar app (macOS, from source)
+
+The app is not notarized, so it builds and signs itself on your Mac instead of installing from
+the tap. Needs the Xcode Command Line Tools (`xcode-select --install`).
+
+```bash
+git clone https://github.com/nickpending/prismis.git
+cd prismis
+make install-menubar    # builds, self-signs and installs ~/Applications/Prismis.app
+open ~/Applications/Prismis.app
+```
+
+It reads `~/.config/prismis/config.toml`: the `[remote]` url and key when set, otherwise the local
+daemon with the `[api]` key. Launch at Login is off until you turn it on in its menu. The first
+poll of a daemon on your LAN asks for Local Network permission.
 
 ### From source (macOS or Linux)
 

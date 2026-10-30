@@ -14,7 +14,7 @@ llm-core `complete()` against a local HTTP stub standing in for the LLM, real St
 over the sealed test database, and a real DaemonOrchestrator with a real KindClassifier.
 Only submit_decision -- kind_classifier's own provider boundary, the decisions
 endpoint isn't chat-completions shaped so it never goes through llm_client.complete()
--- is stood in for, per Principle I. What actually landed is read back through
+-- is stood in for, per tests-prove-logic. What actually landed is read back through
 Storage's own public methods, and observability events are read back through the real
 JSONL log, not tracked by patching either.
 """
@@ -42,7 +42,7 @@ from prismis_daemon.storage import Storage
 from prismis_daemon.summarizer import ContentSummarizer
 from prismis_daemon.verify_chain import read_run_events
 
-# The decisions-endpoint provider boundary itself (Principle I's one permitted fake).
+# The decisions-endpoint provider boundary itself (tests-prove-logic's one permitted fake).
 _PATCH_SUBMIT = (
     "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
 )

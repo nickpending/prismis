@@ -23,7 +23,7 @@ _HEALTH_CHECK_MOCK = (
 )
 
 # The kind service has no llm_client.health_check equivalent (gh #82's "why"): the
-# only provider boundary here is submit_decision itself, per Principle I --
+# only provider boundary here is submit_decision itself, per tests-prove-logic --
 # llm_validator's own validate_llm_services and __main__'s validate_llm_config both
 # run for real.
 _SUBMIT_DECISION_MOCK = (

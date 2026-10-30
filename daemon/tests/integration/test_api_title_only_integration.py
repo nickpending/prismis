@@ -9,7 +9,7 @@ Invariants protected:
   the web card's "other items show none" half of SC-6 depends on that default,
   not just on the true case.
 
-Real Storage against a real sealed test database throughout (Principle I).
+Real Storage against a real sealed test database throughout (tests-prove-logic).
 """
 
 from datetime import datetime, timezone

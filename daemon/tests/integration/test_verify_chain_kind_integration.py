@@ -10,7 +10,7 @@ Real collaborators throughout: the real RSSFetcher over HTTP against
 against that same stub, real Storage, real Embedder, the real DaemonOrchestrator built
 by the chain's own `build_orchestrator`. Only `submit_decision` -- kind_classifier's
 own provider boundary, since the decisions endpoint isn't chat-completions shaped and
-never goes through llm_client.complete() -- is stood in for, per Principle I.
+never goes through llm_client.complete() -- is stood in for, per tests-prove-logic.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from prismis_daemon.verify_chain import execute_chain
 
 from conftest import configure_local_services
 
-# The decisions-endpoint provider boundary itself (Principle I's one permitted fake).
+# The decisions-endpoint provider boundary itself (tests-prove-logic's one permitted fake).
 _PATCH_SUBMIT = (
     "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
 )

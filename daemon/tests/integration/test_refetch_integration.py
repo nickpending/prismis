@@ -3,7 +3,7 @@
 Drives `refetch.run_refetch` directly -- house convention for a typer command's
 logic (verify_chain.execute_chain is the same shape, tested the same way,
 never through the CLI wrapper) -- over a real Storage, a real
-DaemonOrchestrator and real fetcher code. Per Principle I: the RSS recovery
+DaemonOrchestrator and real fetcher code. Per tests-prove-logic: the RSS recovery
 path's outbound article fetch goes through a real local HTTP server; the
 YouTube recovery path runs a real subprocess stand-in for yt-dlp (mirrors
 test_youtube_fetcher_unit.py's own pattern); only the LLM is faked, via the
@@ -44,7 +44,7 @@ from prismis_daemon.summarizer import ContentSummarizer
 
 from conftest import configure_local_services
 
-# complete() -- the LLM provider boundary Principle I permits faking (it backs
+# complete() -- the LLM provider boundary tests-prove-logic permits faking (it backs
 # every "complete" attribute the internal-mock guard allowlists), patched at
 # the name llm_call.py actually calls.
 _PATCH_COMPLETE = "prismis_daemon.llm_call.complete"  # claudex-guard: allow-mock

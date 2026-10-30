@@ -10,7 +10,7 @@ pushes the kind filter into the storage query itself (`json_extract(c.analysis,
 '$.kind') IN (...)`), so it narrows the candidates the SQL `LIMIT` is taken from,
 rather than the rows that already survived it.
 
-Real Storage against a real sealed test database throughout (Principle I).
+Real Storage against a real sealed test database throughout (tests-prove-logic).
 """
 
 from datetime import datetime, timedelta, timezone

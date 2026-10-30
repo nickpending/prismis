@@ -78,7 +78,7 @@ class SourceValidator:
         `add_source` wraps it in a ValidationError that leaves as a 422. Several of the
         messages are built from arbitrary exception text, and an exception raised
         anywhere under PRAW can carry the value it was authenticating with. The
-        constitution's Security Requirements put secrets out of responses without
+        constitution's security article put secrets out of responses without
         qualification, so the redaction sits at the point where the message is made
         rather than at the outcomes currently known to carry one.
 

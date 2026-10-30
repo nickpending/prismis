@@ -38,7 +38,7 @@ from prismis_daemon.observability import get_logger, set_run_id
 from prismis_daemon.verify_chain import read_run_events
 
 # Patch target -- the decisions-endpoint provider boundary itself, which the
-# constitution permits standing in for (Principle I).
+# constitution permits standing in for (tests-prove-logic).
 _PATCH_SUBMIT = (
     "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
 )

@@ -6,7 +6,7 @@ Without the offload the call runs on the loop thread and every other request wai
 
 Shape (same as test_extract_endpoint_race.py): the ASGI app under httpx, the slow
 request and a probe request as two tasks in one event loop. Nothing of prismis is
-replaced (constitution Principle I); the slowness is produced at the real boundary
+replaced (constitution article tests-prove-logic); the slowness is produced at the real boundary
 each call crosses, and every one of those blocks the calling thread:
 - LLM calls (briefing script, context analysis): the local stub LLM server sleeps
   before answering, triggered by a delay marker in the item title that travels into

@@ -10,7 +10,7 @@ Protects:
 - A period that is malformed or beyond 720 hours exits non-zero with a message
   and sends no request.
 
-Per constitution Principle I, the real Typer app runs against a real local HTTP
+Per constitution article tests-prove-logic, the real Typer app runs against a real local HTTP
 server standing in only for the network boundary, wired through the sealed
 config's [remote] section -- same technique as test_title_only_display_unit.py.
 """

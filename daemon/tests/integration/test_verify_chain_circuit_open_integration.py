@@ -222,7 +222,7 @@ def test_circuit_open_is_reported_from_a_real_run(quota_exhausted_run) -> None:
     state, and the downstream links say they were never reached rather than empty.
 
     BREAKS: a run that stopped because the operator's quota is gone is reported as a
-    generic error or an empty result — the Principle II collapse SC-3 exists to
+    generic error or an empty result — the failures-distinguishable collapse SC-3 exists to
     prevent, and the one an operator would act on wrongly.
     """
     stats, events = quota_exhausted_run

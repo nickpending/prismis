@@ -18,7 +18,7 @@ Also protects the two behavior risks the triage named for this consolidation:
   keep that — a 200 response with `"success": false` must not raise for these
   two callers, unlike every other method routed through `_send_json`.
 
-Per constitution.md's "Internal code is never mocked" rule (same reading applied
+Per the constitution's tests-prove-logic article ("Internal code ... never faked") (same reading applied
 by test_list_kind_filter_unit.py), every test here drives the real `APIClient`
 against a real local HTTP server standing in for the daemon — no `unittest.mock`,
 no monkeypatched APIClient method.

@@ -4,7 +4,7 @@ Protects:
 - `get <id> --json` requests `include=content` and prints the content.
 - The formatted mode still requests the summary shape (no `include`).
 
-Per constitution Principle I, the real `get` Typer command runs against a real
+Per constitution article tests-prove-logic, the real `get` Typer command runs against a real
 local HTTP server standing in only for the network boundary.
 """
 

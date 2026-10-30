@@ -24,7 +24,7 @@ Protects:
   learned-preferences block to the provider or stores a preference_influenced key,
   with cerebro's vote pattern in the database and learn_from_votes on or off.
 
-Per constitution Principle I (daemon/tests/unit/test_no_internal_mocks_unit.py),
+Per constitution article tests-prove-logic (daemon/tests/unit/test_no_internal_mocks_unit.py),
 submit_decision (kind_classifier's decisions-endpoint boundary) and
 prismis_daemon.llm_call.complete (the shared LLM-call boundary summarizer and
 evaluator now go through, cluster 11) are the only things stood in for. Storage,
@@ -56,7 +56,7 @@ from prismis_daemon.storage import Storage
 
 from conftest import TEST_API_KEY
 
-# The decisions-endpoint provider boundary itself (Principle I permits faking it) --
+# The decisions-endpoint provider boundary itself (tests-prove-logic permits faking it) --
 # same patch target kind_classifier's own unit tests use.
 _PATCH_SUBMIT = (
     "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock

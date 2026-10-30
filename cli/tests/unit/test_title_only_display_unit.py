@@ -8,7 +8,7 @@ Protects:
 - `--json` for both carries `title_only` and `title_only_reason` as the API returned
   them.
 
-Per constitution Principle I, the real `list` and `get` Typer commands run against a
+Per constitution article tests-prove-logic, the real `list` and `get` Typer commands run against a
 real local HTTP server standing in only for the network boundary, wired through the
 sealed config's [remote] section -- same technique as test_list_kind_filter_unit.py.
 """

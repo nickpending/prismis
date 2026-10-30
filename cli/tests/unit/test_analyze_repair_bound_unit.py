@@ -7,7 +7,7 @@ Invariants protected:
 - an item under the bound, repaired the same way, carries no `content_bounded` key
 - the model is sent no more than MAX_CONTENT_BYTES bytes of the article
 
-Per constitution Principle I only `prismis_daemon.llm_call.complete` (the shared LLM-call
+Per constitution article tests-prove-logic only `prismis_daemon.llm_call.complete` (the shared LLM-call
 boundary) is stood in for; Storage, Config, ContentSummarizer and ContentEvaluator run
 for real against a real temp database and a real sealed config.toml.
 """

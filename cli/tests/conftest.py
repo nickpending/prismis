@@ -283,7 +283,7 @@ def live_daemon_deep(isolated_xdg_env: Path) -> Iterator[LiveDaemon]:
     """A real daemon wired to a real (local, stubbed) deep-extraction LLM.
 
     The LLM is the one collaborator the constitution permits standing in for
-    (Principle I); everything else here is real: real Storage, real Config,
+    (tests-prove-logic); everything else here is real: real Storage, real Config,
     real ContentDeepExtractor, real CircuitBreaker keyed to a fresh per-test
     service name so no test can leak circuit state into another.
 

@@ -41,7 +41,7 @@ _NAV_HTML = b"""<!doctype html>
 @pytest.fixture
 def link_post_article_server() -> Iterator[str]:
     """A local server standing in for the external site a Reddit link post
-    points at (Principle I: real HTTP boundary, local server, not a mock).
+    points at (tests-prove-logic: real HTTP boundary, local server, not a mock).
     `/article` is a readable article, `/nav` extracts to navigation text only,
     anything else is a 404."""
 

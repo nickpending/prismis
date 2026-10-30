@@ -2,7 +2,7 @@
 
 Both commands were left with zero coverage when the SQLite-era integration tests were
 deleted. The parts that hold a real decision are called directly here — no mocks, per
-constitution.md:42-43 ("Internal code is never mocked") and :130-132 (LLM providers are
+the constitution's tests-prove-logic article ("Internal code ... never faked") and llm-providers-only-external-boundary (LLM providers are
 the only permitted mock). The `APIClient` calls that remain in those commands are
 one-line pass-throughs and are recorded as glue in the plan's Constitution Check table.
 """

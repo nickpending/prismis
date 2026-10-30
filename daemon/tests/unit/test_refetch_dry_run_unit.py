@@ -8,7 +8,7 @@ ObservabilityLogger, real JSONL files) and drive
 `upper_bound_cost_estimate`/`run_refetch` against it, rather than reading
 the arithmetic off the source.
 
-Real Storage and a real DaemonOrchestrator throughout (Principle I); the
+Real Storage and a real DaemonOrchestrator throughout (tests-prove-logic); the
 youtube/reddit fetchers are poisoned to raise if ever invoked, which is how
 "makes no extraction" is proved rather than merely read off run_refetch's
 dry-run branch.

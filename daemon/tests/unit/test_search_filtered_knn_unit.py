@@ -1,7 +1,7 @@
 """Unit tests for search_content's kind/source filter constraining the KNN candidate
 query itself -- search-kind-filter work order, job 1 (SC-1).
 
-Real sqlite-vec database throughout (Principle I: only the LLM provider may be faked,
+Real sqlite-vec database throughout (tests-prove-logic: only the LLM provider may be faked,
 and search needs none -- embeddings are seeded directly as unit vectors, the same
 pattern test_search_min_score_unit.py already uses).
 

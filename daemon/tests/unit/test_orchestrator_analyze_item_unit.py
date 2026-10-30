@@ -7,7 +7,7 @@ that takes an item and its source and returns what it stored. This file drives
 that method directly, not through fetch_source_content -- the seam job 2's
 refetch command reuses.
 
-Real collaborators throughout, per Principle I: real Storage over a sealed test
+Real collaborators throughout, per tests-prove-logic: real Storage over a sealed test
 database, the real ContentSummarizer/ContentEvaluator driven through llm-core's
 real `complete()` against a local HTTP stub (the one collaborator the
 constitution permits faking), and a hand-written stand-in kind classifier

@@ -42,7 +42,7 @@ from prismis_daemon.summarizer import ContentSummarizer
 
 from conftest import TEST_API_KEY, configure_local_services
 
-# The decisions-endpoint provider boundary itself (Principle I permits faking it);
+# The decisions-endpoint provider boundary itself (tests-prove-logic permits faking it);
 # patched here only to prove it is never called, never to supply a canned answer.
 _PATCH_SUBMIT = (
     "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock

@@ -1,6 +1,6 @@
 """Unit tests for the title_only flag and its deep-extraction gate (SC-3).
 
-Real collaborators throughout, per Principle I: real Storage over a sealed test
+Real collaborators throughout, per tests-prove-logic: real Storage over a sealed test
 database, the real ContentSummarizer/ContentEvaluator/ContentDeepExtractor driven
 through llm-core's real `complete()` against a local HTTP stub (the one collaborator
 the constitution permits faking), and a hand-written stand-in RSS fetcher passed

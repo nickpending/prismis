@@ -9,7 +9,7 @@ which only speaks the chat-completions shape. 89% accurate on the 72% of items i
 confident (>= CONFIDENCE_THRESHOLD) about; below the threshold, or a choice that isn't
 one of the ten kinds, comes back unclassified rather than forced into a wrong bucket.
 
-submit_decision is the one provider boundary here (Principle I: the provider is the
+submit_decision is the one provider boundary here (tests-prove-logic: the provider is the
 only thing a test may stand in for). It raises on anything that means the call itself
 failed -- unreachable endpoint, non-2xx status, a body that isn't even JSON -- exactly
 like llm_client.complete() raises on provider failure, so callers can tell "the call

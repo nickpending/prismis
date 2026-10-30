@@ -6,7 +6,7 @@ Invariants protected:
   unclassified items, an empty list (not an error) when there are none, and
   requires the API key like /api/entries.
 
-Real Storage against a real sealed test database throughout (Principle I).
+Real Storage against a real sealed test database throughout (tests-prove-logic).
 """
 
 from datetime import datetime, timedelta, timezone

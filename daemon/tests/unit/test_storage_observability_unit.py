@@ -12,7 +12,7 @@ Invariants protected:
   - A database error emits db.insert with status "error" and still raises
 
 Success criteria covered:
-  SC-3 (the store link reports a real state), Principle III
+  SC-3 (the store link reports a real state), the unattended-leaves-record article
 
 Real collaborators: real Storage against the real SQLite test database.
 """
@@ -83,7 +83,7 @@ def test_create_and_update_emit_distinguishable_events(test_db) -> None:
 
 def test_database_error_emits_error_event_and_still_raises(test_db) -> None:
     """
-    Principle II: a store that failed is a third answer, distinct from created and
+    the failures-distinguishable article: a store that failed is a third answer, distinct from created and
     updated. The source id below violates the content table's foreign key, which the
     connection enforces (PRAGMA foreign_keys=ON), so this is a real sqlite3 error.
 

@@ -39,7 +39,7 @@ _HEALTH_CHECK_MOCK = (
 
 # The kind service has no equivalent to llm_client.health_check (gh #82's "why"):
 # the only boundary standing in for the provider here is submit_decision itself,
-# per Principle I -- verify()'s own kind-service check runs for real.
+# per tests-prove-logic -- verify()'s own kind-service check runs for real.
 _SUBMIT_DECISION_MOCK = (
     "prismis_daemon.kind_classifier.submit_decision"  # claudex-guard: allow-mock
 )

@@ -9,7 +9,7 @@ Protects:
 - INV: the rendered table shows each returned item's `kind` field, and shows a dash
   for an item that carries no kind (unclassified), never crashing on the missing key.
 
-Per constitution.md:42-43 ("Internal code is never mocked... a test against a mock
+Per the constitution's tests-prove-logic article ("Internal code ... never faked ... a test against a mock
 proves the mock, not the system"), every test here drives the real APIClient / the
 real `list` Typer command against a real local HTTP server standing in only for the
 network boundary — no `unittest.mock`, no monkeypatched APIClient method. This is the

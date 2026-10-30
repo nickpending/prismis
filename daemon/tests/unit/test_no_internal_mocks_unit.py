@@ -1,4 +1,4 @@
-"""No test patches prismis's own code (constitution Principle I).
+"""No test patches prismis's own code (constitution article tests-prove-logic).
 
 Invariant protected:
   - no test in daemon/tests or cli/tests replaces anything under prismis_daemon or cli
@@ -21,7 +21,7 @@ _REPO = Path(__file__).resolve().parents[3]
 _TEST_ROOTS = (_REPO / "daemon" / "tests", _REPO / "cli" / "tests")
 _OWN_PACKAGES = ("prismis_daemon", "cli")
 
-# The LLM provider is the one boundary Principle I permits faking. submit_decision is
+# The LLM provider is the one boundary tests-prove-logic permits faking. submit_decision is
 # kind_classifier's own provider-boundary call -- the decisions endpoint isn't
 # chat-completions shaped, so it doesn't go through llm_client.complete().
 _ALLOWED_ATTRS = frozenset({"complete", "health_check", "submit_decision"})

@@ -3,7 +3,7 @@
 fetchers/rss.py's `_extract_full_content` used to be the only place that called
 trafilatura's `fetch_url`/`extract`; SC-2 moves that call into one helper both the
 RSS and Reddit fetchers call, and title-only-reasons SC-2 makes it report fetch
-failure, empty extraction and success as three outcomes. Per Principle I, the HTTP
+failure, empty extraction and success as three outcomes. Per tests-prove-logic, the HTTP
 side of this is exercised against a real local server, not a mock.
 """
 

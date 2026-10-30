@@ -2,7 +2,7 @@
 
 Drives the real orchestrator, a real RSSFetcher, and real Storage over two fetch
 cycles against a local HTTP server standing in for both the feed and the articles
-it links to (Principle I). Only the LLM is faked, via the same local-stub pattern
+it links to (tests-prove-logic). Only the LLM is faked, via the same local-stub pattern
 `conftest.local_pipeline_stub` and the deep-extraction test files use.
 """
 

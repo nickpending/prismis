@@ -410,6 +410,7 @@ class APIClient:
         source: str | None = None,
         min_score: float | None = None,
         kind: str | None = None,
+        author: str | None = None,
     ) -> list[dict[str, Any]]:
         """Search content using semantic similarity.
 
@@ -420,6 +421,7 @@ class APIClient:
             source: Filter by source name (case-insensitive substring match)
             min_score: Minimum relevance score override (None uses server default)
             kind: Filter by kind, single value or comma-separated list
+            author: Filter by author (case-insensitive substring match)
 
         Returns:
             List of content items with relevance scores
@@ -436,6 +438,8 @@ class APIClient:
             params["min_score"] = min_score
         if kind:
             params["kind"] = kind
+        if author:
+            params["author"] = author
 
         data = self._send_json("GET", "/api/search", params=params)
         return data.get("data", {}).get("items", [])

@@ -28,6 +28,12 @@ def search(
         "-k",
         help="Filter by kind (single or comma-separated, e.g. release,question)",
     ),
+    author: str = typer.Option(
+        None,
+        "--author",
+        "-a",
+        help="Filter by author (case-insensitive substring)",
+    ),
     compact: bool = typer.Option(
         False, "--compact", help="Compact format (excludes content and analysis)"
     ),
@@ -45,6 +51,7 @@ def search(
         limit: Maximum number of results to return (1-50)
         source: Filter results to sources containing this substring
         kind: Filter by kind (single or comma-separated, e.g. "release,question")
+        author: Filter results to items whose author contains this substring
         compact: Return compact format for LLM consumption
         min_score: Minimum relevance score override (None uses server default)
         output_json: If True, output raw JSON instead of formatted table
@@ -69,6 +76,7 @@ def search(
             source=source,
             min_score=min_score,
             kind=kind,
+            author=author,
         )
 
         if output_json:

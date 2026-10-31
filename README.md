@@ -90,6 +90,7 @@ opens its detail panel in the web view. It talks to the same daemon the TUI does
 ```bash
 prismis-cli list --priority high --unread
 prismis-cli search "prompt injection" --kind research,tutorial
+prismis-cli search "local-first databases" --author "simon willison"
 prismis-cli get <id> --raw | fabric --pattern extract_wisdom
 prismis-cli list --priority high --unread --json | llm "Summarize my reading queue"
 ```

@@ -1249,6 +1249,9 @@ async def semantic_search(
         None,
         description="Filter by kind(s) (SC-3). Single: 'release' or comma-separated: 'release,question'",
     ),
+    author: str | None = Query(
+        None, description="Filter by author (case-insensitive substring match)"
+    ),
     compact: bool = Query(
         False, description="Return compact format (excludes content and analysis)"
     ),
@@ -1268,6 +1271,9 @@ async def semantic_search(
         kind: Filter by kind(s) (SC-3). Single value or comma-separated, from the ten
               kinds declared in kind_classifier.KINDS. Constrains the KNN candidate
               query itself (SC-1), same as /api/entries' validation (SC-3).
+        author: Filter results to items whose analysis.metrics.author contains this
+            substring (case-insensitive). Constrains the KNN candidate query like
+            kind; an item with no stored author never matches.
         compact: Return compact format for LLM consumption
         storage: Storage instance injected by FastAPI
 
@@ -1291,6 +1297,7 @@ async def semantic_search(
             min_score=min_score,
             source_filter=source,
             kind_filter=kinds or None,
+            author_filter=author,
         )
 
         # SC-3/SC-5: mirror kind onto the top level the way /api/entries already
@@ -1323,6 +1330,7 @@ async def semantic_search(
                     "min_score": min_score,
                     "source": source,
                     "kind": kind,
+                    "author": author,
                     "compact": compact,
                 },
             ),

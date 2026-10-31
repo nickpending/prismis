@@ -82,7 +82,9 @@ def _one_line(text: str | None) -> str:
 def build_prompt(entry: dict[str, Any], starter: str, remote_url: str | None) -> str:
     """The text the agent starts with: the article, how to fetch the rest, a starter.
 
-    Whitespace runs in the title and summary collapse to single spaces. The fetch
+    Whitespace runs in the title, URL and summary collapse to single spaces: all three
+    come from the publisher, and a line break in any of them would end its line and
+    let the rest pose as more of the prompt, such as a forged fetch command. The fetch
     commands carry `--remote <url>` only when the launching CLI was given it; without
     it the agent's prismis-cli resolves the daemon from config.toml, as this one did.
     """
@@ -93,7 +95,7 @@ def build_prompt(entry: dict[str, Any], starter: str, remote_url: str | None) ->
         f"I'm reading an article in prismis (item {item_id}).",
         "",
         f"Title: {_one_line(entry.get('title'))}",
-        f"URL: {entry.get('url', '')}",
+        f"URL: {_one_line(entry.get('url'))}",
         f"Summary: {summary}",
         "",
         "For more, run:",

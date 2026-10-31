@@ -1,0 +1,122 @@
+{
+  "workOrder": "browser-ua",
+  "what": "A per-source `naughty` flag that makes every HTTP request prismis itself makes for that source (feed, articles, add-time validation) carry a current browser user-agent, stored with the source, set from the CLI and API, shown wherever sources are listed.",
+  "why": "docs/work/browser-ua/design.md",
+  "issues": [
+    34
+  ],
+  "stakes": [
+    "A source added with `naughty` (CLI flag or API field) is stored with naughty=1, survives a daemon restart, and GET /api/sources, `source list` and the TUI show it; an unmarked source stores naughty=0 and is listed as today.",
+    "`prismis-cli source update <id> --naughty` and `--no-naughty` flip the stored flag through PATCH /api/sources/{id}, and a PATCH without the field leaves it unchanged.",
+    "For a marked RSS source, the feed GET and every extract_article call for its items send `_BROWSER_USER_AGENT`; for an unmarked source they send what they send today; proven against a real local HTTP server that returns 403 to any user-agent containing 'prismis' or 'httpx' and 200 to the browser string, through the real RSSFetcher and the real add-source validation.",
+    "A marked file source's GET sends the browser string; a Reddit post's linked article and a refetched RSS row send it when their source is marked.",
+    "Adding a marked RSS source whose feed 403s the validator's identifier succeeds; adding the same feed unmarked is refused as today.",
+    "An existing database migrates to the new column with its rows intact (user_version advances by one, every source keeps its fields, naughty reads 0), and a fresh database needs no migration.",
+    "A TUI or CLI built before this change keeps working against the new daemon: the new field is optional on requests and additional on responses.",
+    "ember verify passes."
+  ],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "The browser user-agent string is a constant that goes stale as Chrome releases move; it is bumped by hand.",
+      "frequency": {
+        "kind": "not-a-case",
+        "reason": "Chrome's reduced user-agent keeps the string's shape valid across releases, and the 141 'HTTP 403' items on <host> all failed under the prismis identifier, none under a browser string of any age; no observed case keys on the exact Chrome major."
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "The TUI shows the mark but cannot set it; setting is CLI and API only.",
+      "frequency": {
+        "kind": "measured",
+        "command": "sqlite3 ~/.local/share/prismis/prismis.db \"SELECT count(*) FROM sources WHERE last_error LIKE '%403%'\" (on <host>, 2026-10-30)",
+        "records": "the 49 sources on <host>, the only install with history",
+        "count": 0,
+        "total": 49
+      }
+    }
+  ],
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "a daemon with a fresh database, and a real local HTTP server that answers 403 to any request whose User-Agent contains 'prismis' or 'httpx' and 200 (a valid feed, and an article page) to the browser string from article_extractor",
+      "when": "a source for that server's feed is added through POST /api/sources with naughty=true, and the daemon runs one fetch cycle",
+      "then": "the add succeeds (the validator's request to the server carried the browser string), the fetch stores the feed's items with extracted content (the server's request log shows the feed GET and each article GET carried the browser string), and the same feed added with naughty absent is refused by validation with the 403; failing first: a source added unmarked is stored and fetched with today's identifiers, which the server's log shows.",
+      "mutations": [
+        {
+          "id": "C1-M1",
+          "change": "Make RSSFetcher's feed GET ignore the source's flag (send user_agent(False) always): the marked source's cycle fails on the feed 403 and the criterion's content assertion goes red."
+        },
+        {
+          "id": "C1-M2",
+          "change": "Make extract_article ignore browser_ua: the marked source's items store no content and the server log shows the prismis identifier on article GETs."
+        },
+        {
+          "id": "C1-M3",
+          "change": "Make the validator ignore browser_ua: adding the marked source is refused with the 403."
+        }
+      ]
+    },
+    {
+      "id": "C2",
+      "given": "a marked file source, a marked Reddit post with a linked article on that same 403 server (through the real RedditFetcher's extract path with a stubbed submission), and a stored RSS row of a marked source that refetch selects",
+      "when": "the file fetch, the Reddit linked-article extraction and `prismis-daemon refetch --type rss` run",
+      "then": "each request the server logs carried the browser string; with the source unmarked each carried today's identifier.",
+      "mutations": [
+        {
+          "id": "C2-M1",
+          "change": "Make refetch pass browser_ua=False for every row: the refetched row's request carries the prismis identifier and the assertion goes red."
+        }
+      ]
+    },
+    {
+      "id": "C3",
+      "given": "a database created by the previous release's schema holding sources and content rows (a copy made before the change, user_version 2)",
+      "when": "the daemon opens it",
+      "then": "user_version is 3, every source row keeps its id, url, type, name, active, error_count, last_error and timestamps, naughty reads 0 for all of them, a backup was written beside the file, and a fresh database created from schema.sql has the column with no migration run; failing first: opening the old database without the migration makes the 11-column SELECT raise.",
+      "mutations": [
+        {
+          "id": "C3-M1",
+          "change": "Remove _migrate_3_source_naughty from _MIGRATIONS: opening the pre-change database raises on the sources SELECT and the criterion goes red."
+        }
+      ]
+    },
+    {
+      "id": "C4",
+      "given": "the running API",
+      "when": "a source is added with naughty=true, listed, patched with naughty=false, patched again with only a name, and listed each time",
+      "then": "GET /api/sources shows naughty true, then false, then still false after the name-only patch; a POST without the field stores false; a request from a pre-change client shape (url, type, name only) is accepted."
+    },
+    {
+      "id": "C5",
+      "given": "prismis-cli against the running API",
+      "when": "`source add --naughty <url>`, `source list`, `source list --json`, `source update <id> --no-naughty` and `source update <id> --name X` run",
+      "then": "the table shows a UA column reading browser then prismis, the JSON carries naughty, update flips exactly the flag or exactly the name, and the existing source-list tests pass with the seventh column."
+    },
+    {
+      "id": "C6",
+      "given": "the TUI's source modal against a sources list holding one marked and one unmarked source",
+      "when": "the list renders",
+      "then": "the marked source's line carries `[browser UA]` after its name and the unmarked line does not; Source and SourceRequest round-trip the field in the client's JSON tests."
+    },
+    {
+      "id": "C7",
+      "given": "API.md, README.md and docs/architecture/components.md",
+      "when": "they are read",
+      "then": "Create, List and Update Source document `naughty`; README's Sources section shows `source add --naughty` with one line on when to use it; components.md's fetcher entry names the per-source user-agent and the one helper that chooses it; the docs(.) check passes."
+    },
+    {
+      "id": "C8",
+      "given": "the job's worktree at its final commit",
+      "when": "`ember verify` runs in it",
+      "then": "every check passes."
+    }
+  ],
+  "walks": [
+    {
+      "criterion": "C3",
+      "when": "after merge, the change is deployed to the operator's Linux host and the daemon restarts",
+      "then": "its database reports user_version 3 with a backup beside it, every source keeps its fields, and the next fetch cycle completes with the same sources active as before."
+    }
+  ]
+}

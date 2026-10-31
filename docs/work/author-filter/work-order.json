@@ -1,0 +1,124 @@
+{
+  "workOrder": "author-filter",
+  "what": "An `author` filter on semantic search. The RSS fetcher stores each entry's author, the entry's own or an Atom feed's, in analysis.metrics.author, the key Reddit already fills. GET /api/search takes an optional `author`, a case-insensitive substring that narrows the KNN candidate subquery beside `source` and `kind`. `prismis-cli search` takes `--author/-a`, and API.md, README and components.md document it.",
+  "why": "docs/work/author-filter/design.md",
+  "issues": [37],
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "a fresh database and a real local HTTP server serving two feeds. The RSS 2.0 feed has an entry with <dc:creator>Simon Willison</dc:creator>, an entry with <author>jane@example.com (Jane Doe)</author>, an entry with two dc:creator values 'A One' and 'B Two', and an entry with no author under a channel <managingEditor>ed@example.com (Ed Itor)</managingEditor>. The Atom feed declares <author><name>Feed Writer</name></author> at feed level only and has one entry with no author of its own",
+      "when": "both feeds are fetched through the real RSSFetcher and every item is stored through the real DaemonOrchestrator.analyze_and_store_item, with only the LLM provider stood in and the real Embedder, and GET /api/search is then called through the real app over that database with author=jane doe, author=b two, author=SIMON, author=feed writer and author=ed itor (min_score=0.0)",
+      "then": "the stored rows' analysis.metrics.author are exactly 'Simon Willison', 'Jane Doe', 'A One, B Two' and 'Feed Writer', and the managingEditor entry's row has no metrics.author. Each author search returns exactly the one matching item, and author=ed itor returns none. Failing first: before the change, no stored row carries metrics.author and every author search returns all five items, because the parameter is ignored. No row is written with metrics.author by the test itself.",
+      "mutations": [
+        {
+          "id": "C1-M1",
+          "change": "Make _entry_author read feedparser's entry.author instead of entry.authors: the two-author row stores 'B Two' and the Jane row stores 'jane@example.com (Jane Doe)', so the stored-author assertions go red."
+        },
+        {
+          "id": "C1-M2",
+          "change": "Remove the Atom feed-level fallback from _entry_author: the Atom entry stores no author and author=feed writer returns nothing."
+        },
+        {
+          "id": "C1-M3",
+          "change": "Drop the Atom-only check so any feed's feed.authors is inherited: the managingEditor entry stores 'Ed Itor' and author=ed itor returns it."
+        },
+        {
+          "id": "C1-M4",
+          "change": "Delete the author condition from search_content's candidate subquery (keep the parameter): author=jane doe returns every item."
+        }
+      ]
+    },
+    {
+      "id": "C2",
+      "given": "a real database holding one item whose analysis.metrics.author is 'Simon Willison' and whose embedding is farther from the query than 100 other items' embeddings, none of which carry that author",
+      "when": "GET /api/search is called through the real app with the query, limit=50, min_score=0.0 and author=simon, and again without author",
+      "then": "with author=simon, Simon's item is returned. Without author, it is not among the results, which proves it lies outside the unfiltered top-100 candidates. Failing first: a filter applied after the KNN's LIMIT 100 returns nothing for author=simon.",
+      "mutations": [
+        {
+          "id": "C2-M1",
+          "change": "Drop the author clause from search_content's candidate subquery and apply the author match only as a post-filter over the top-100 candidate rows: author=simon returns no item and C2's test goes red."
+        }
+      ]
+    },
+    {
+      "id": "C3",
+      "given": "a real database with four items sharing one embedding: author 'Jane Doe' under source 'Blog A' with kind 'tutorial', author 'Jane Doe' under source 'Blog B' with kind 'release', author 'Other Person' under source 'Blog A' with kind 'tutorial', and one item with no author under 'Blog A'",
+      "when": "GET /api/search is called through the real app with author=jane&source=blog a, then author=jane&kind=release, then author=jane alone",
+      "then": "author with source returns only the Blog A Jane Doe item, author with kind returns only the release Jane Doe item, and author alone returns both Jane Doe items and nothing else. Failing first: an author filter that replaces rather than joins the other conditions returns the Blog B item for author=jane&source=blog a.",
+      "mutations": [
+        {
+          "id": "C3-M1",
+          "change": "In search_content, add the source and kind conditions only when no author is given (an elif): author=jane&source=blog a returns both Jane Doe items and C3's test goes red."
+        }
+      ]
+    },
+    {
+      "id": "C4",
+      "given": "the C3 database",
+      "when": "GET /api/search is called through the real app with min_score=0.0 and no author, and again with author=jane",
+      "then": "without author, all four items are returned, the authorless one included, and data.filters_applied.author is null. With author=jane, filters_applied.author is 'jane'. Failing first: an author clause added unconditionally drops the authorless item from the unfiltered search.",
+      "mutations": [
+        {
+          "id": "C4-M1",
+          "change": "Make search_content add the author condition even when author_filter is None, binding an empty string: the authorless item drops out of the unfiltered search."
+        },
+        {
+          "id": "C4-M2",
+          "change": "Omit 'author' from semantic_search's filters_applied: the filters_applied assertions go red."
+        }
+      ]
+    },
+    {
+      "id": "C5",
+      "given": "the CLI suite's live_daemon (a real daemon over a real database in an isolated XDG home) seeded with a 'Jane Doe' item and an 'Other Person' item that share one embedding, and the existing param_probe local HTTP server for the wire check",
+      "when": "`prismis-cli search <q> --author jane --min-score 0.0` runs against live_daemon, with and without --json, and APIClient.search runs against param_probe with author given and with it absent",
+      "then": "the table shows only Jane Doe's item and the --json output holds only it. The probe receives author=jane when given, and no author key at all when absent. Failing first: before the change, --author is an unknown option and the command exits 2.",
+      "mutations": [
+        {
+          "id": "C5-M1",
+          "change": "Make search() not pass author to APIClient.search: both outputs show both items."
+        },
+        {
+          "id": "C5-M2",
+          "change": "Make APIClient.search always set params['author'] = author or '': the probe receives an author key when none was given."
+        }
+      ]
+    },
+    {
+      "id": "C6",
+      "given": "the merged docs",
+      "when": "API.md's Semantic Search section, README.md's CLI example block and docs/architecture/components.md's Fetchers and API Server entries are read",
+      "then": "API.md lists `author` (case-insensitive substring) with the sources that carry an author (Reddit posts, and RSS items fetched from now on, Atom feed-level authors included) and shows author in the filters_applied example. README shows a `prismis-cli search ... --author` example. components.md says the RSS fetcher stores analysis.metrics.author and lists author among search's filters."
+    },
+    {
+      "id": "C7",
+      "given": "the job's worktree with every change",
+      "when": "ember verify runs",
+      "then": "it passes."
+    }
+  ],
+  "walks": [
+    {
+      "criterion": "C1",
+      "when": "after merge, the change is deployed to the operator's daemon host and one fetch cycle has stored new items from simonwillison.net/atom/everything/",
+      "then": "`prismis-cli search \"<a topic Simon wrote about>\" --author simon --json` returns only Simon Willison items, each fetched after the deploy, and `prismis-cli search <q> --author <a Reddit username>` returns that user's Reddit posts.",
+      "by": "operator"
+    }
+  ],
+  "outOfScope": [
+    {"kind": "cost", "summary": "RSS rows stored before this change carry no author and are never matched by the author filter. No backfill runs; a row gains an author only if it is stored again.", "frequency": {"kind": "measured", "command": "sqlite3 -readonly prismis.db \"SELECT s.type, COUNT(*) ... GROUP BY s.type\" (docs/work/author-filter/shape/host-author-counts.txt)", "records": "every content row on the operator's daemon host, 2026-10-31", "count": 19963, "total": 41863}},
+    {"kind": "cost", "summary": "YouTube and file items carry no author, so the author filter never matches them. A YouTube channel is reached through `--source`, since a YouTube source's name is its channel.", "frequency": {"kind": "measured", "command": "sqlite3 -readonly prismis.db \"SELECT s.type, COUNT(*) ... GROUP BY s.type\" (docs/work/author-filter/shape/host-author-counts.txt)", "records": "every content row on the operator's daemon host, 2026-10-31 (1,073 youtube + 484 file)", "count": 1557, "total": 41863}},
+    {"kind": "cost", "summary": "An RSS item whose feed names no author on its entries gets none, even when the RSS channel names a managingEditor or a channel-level creator, so the author filter never matches it; Hacker News's RSS is one such feed.", "frequency": {"kind": "measured", "command": "feed_author_reach.py over the active RSS sources (docs/work/author-filter/shape/host-feed-author-reach.txt)", "records": "stored RSS rows on the operator's daemon host, by their source's feed class, 2026-10-31 (16 of 29 sources; Hacker News alone 11,625 rows)", "count": 12332, "total": 19963}},
+    {"kind": "cost", "summary": "Case folding is ASCII-only, as SQLite's LOWER is for the source filter: an author name's non-ASCII letters match only in the case typed.", "frequency": {"kind": "measured", "command": "sqlite3 -readonly prismis.db \"SELECT COUNT(*), SUM(json_extract(analysis,'$.metrics.author') GLOB '*[^ -~]*') FROM content WHERE json_extract(analysis,'$.metrics.author') IS NOT NULL\" (docs/work/author-filter/shape/host-feed-author-reach.txt)", "records": "every stored author on the operator's daemon host, 2026-10-31", "count": 0, "total": 20343}}
+  ],
+  "stakes": [
+    "A real local HTTP server serves an RSS 2.0 feed and an Atom feed. They are fetched through the real RSSFetcher and stored through the real DaemonOrchestrator.analyze_and_store_item, with only the LLM provider stood in. The RSS feed has a dc:creator entry 'Simon Willison', an <author>jane@example.com (Jane Doe)</author> entry, an entry with two dc:creator values 'A One' and 'B Two', and an entry with no author under a channel <managingEditor>ed@example.com (Ed Itor)</managingEditor>. The Atom feed declares <author><name>Feed Writer</name></author> at feed level only and has one entry with no author of its own. The stored rows carry analysis.metrics.author 'Simon Willison', 'Jane Doe', 'A One, B Two' and, for the Atom entry, 'Feed Writer'. The RSS entry under the managingEditor has no metrics.author.",
+    "Over those same rows, GET /api/search?q=...&author=jane doe through the real app and real sqlite-vec database returns only Jane Doe's item. author=b two returns only the two-author item, author=SIMON only Simon Willison's, author=feed writer only the Atom entry, and author=ed itor nothing.",
+    "An item whose metrics.author matches lies outside the top-100 nearest neighbours of the unfiltered query. It is still returned when `author` is given.",
+    "`author` together with `source`, or with `kind`, returns only items that satisfy every given filter. An item that matches the author under a different source or kind is excluded.",
+    "Without `author`, /api/search returns the same items as before the change. Items with no stored author are excluded only when `author` is given. filters_applied reports the author value, or null when none is given.",
+    "`prismis-cli search <q> --author <name>` against a real running daemon (the CLI suite's live_daemon) shows only that author's items, in both the table and the --json output, and APIClient.search sends no `author` param when none is given.",
+    "API.md, README.md and docs/architecture/components.md describe the filter and where authors come from, as the form says.",
+    "ember verify passes."
+  ]
+}

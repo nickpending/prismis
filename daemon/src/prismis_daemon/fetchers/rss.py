@@ -89,6 +89,9 @@ class RSSFetcher:
                     )
                 },
             )
+            # A refused or failed GET is the source's failure, never an empty feed:
+            # its error body parses as zero entries.
+            response.raise_for_status()
             feed = feedparser.parse(response.text)
 
             # Check for feed errors

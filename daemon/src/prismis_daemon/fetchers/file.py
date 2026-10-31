@@ -56,6 +56,9 @@ class FileFetcher:
 
         Returns:
             List with 0 or 1 ContentItem (only if content changed)
+
+        Raises:
+            Exception: If the GET fails or answers non-2xx (wrapped with context)
         """
         start_time = time.time()
 
@@ -112,7 +115,9 @@ class FileFetcher:
                 duration_ms=duration_ms,
                 status="error",
             )
-            return []
+            # The source's failure, for the orchestrator to record: an empty list would
+            # read as an unchanged file.
+            raise Exception(f"Failed to fetch file {url}: {e}") from e
 
         # Calculate content hash
         current_hash = hashlib.sha256(current_content.encode()).hexdigest()

@@ -161,13 +161,15 @@ def _config(stub_url: str) -> Config:
     return Config.from_file()
 
 
-def _orchestrator(config: Config, storage: Storage) -> DaemonOrchestrator:
+def _orchestrator(
+    config: Config, storage: Storage, file_fetcher: FileFetcher | None = None
+) -> DaemonOrchestrator:
     return DaemonOrchestrator(
         storage=storage,
         rss_fetcher=RSSFetcher(config=config),
         reddit_fetcher=_NullFetcher(),
         youtube_fetcher=_NullFetcher(),
-        file_fetcher=_NullFetcher(),
+        file_fetcher=file_fetcher or _NullFetcher(),
         summarizer=ContentSummarizer(config.llm_light_service),
         evaluator=ContentEvaluator(config.llm_light_service),
         config=config,
@@ -257,33 +259,76 @@ def test_an_unmarked_rss_source_is_fetched_with_todays_identifiers(
     assert not any(_ARTICLE_PHRASE in c for c in contents), contents
 
 
+def test_a_refused_feed_get_is_recorded_as_a_fetch_failure(
+    test_db: Path, local_pipeline_stub: str, site: _GatedSite
+) -> None:
+    """
+    INVARIANT: a feed GET the site answers with 403 fails the source's cycle, counted in
+               error_count with the status in last_error, and stores nothing
+    BREAKS: the 403 body parses as an empty feed, so a source the site refuses reads as
+            a healthy feed with nothing new, every cycle, and is never deactivated
+    """
+    config = _config(local_pipeline_stub)
+    storage = Storage(test_db)
+    source_id = storage.add_source(f"{site.base_url}/feed.xml", "rss", "Gated")
+
+    _orchestrator(config, storage).run_once()
+
+    (row,) = [s for s in storage.get_all_sources() if s["id"] == source_id]
+    assert row["error_count"] == 1, row
+    assert "403" in (row["last_error"] or ""), row
+    assert row["last_fetched_at"] is None, row
+    assert _stored_contents(storage, source_id) == []
+    assert site.agents("/article/") == []
+
+
 # --- C2: a file source, a Reddit link post, a refetched RSS row -----------------------
 
 
-@pytest.mark.parametrize(
-    ("naughty", "items", "expected_ua"),
-    [(True, 1, _BROWSER_USER_AGENT), (False, 0, _HTTPX_DEFAULT_PREFIX)],
-    ids=["marked", "unmarked"],
-)
-def test_a_file_source_get_follows_the_flag(
-    test_db: Path, site: _GatedSite, naughty: bool, items: int, expected_ua: str
+def test_a_marked_file_source_get_carries_the_browser_user_agent(
+    test_db: Path, site: _GatedSite
 ) -> None:
     """
     INVARIANT: a marked file source's GET carries the browser string and its file is
-               read; an unmarked one's carries httpx's default and is refused
+               read
     BREAKS: a marked CHANGELOG behind a UA filter never produces an entry
     """
     storage = Storage(test_db)
     source_id = storage.add_source(
-        f"{site.base_url}/notes.md", "file", "Notes", naughty=naughty
+        f"{site.base_url}/notes.md", "file", "Notes", naughty=True
     )
     fetcher = FileFetcher(config=make_config(), storage=storage)
 
     fetched = fetcher.fetch_content(_source(storage, source_id))
 
-    assert len(fetched) == items
+    assert len(fetched) == 1
+    assert site.agents("/notes.md") == [_BROWSER_USER_AGENT]
+
+
+def test_an_unmarked_file_source_refused_by_the_site_is_a_fetch_failure(
+    test_db: Path, local_pipeline_stub: str, site: _GatedSite
+) -> None:
+    """
+    INVARIANT: an unmarked file source's GET carries httpx's default; the site's 403
+               fails the source's cycle, counted in error_count with the status in
+               last_error
+    BREAKS: the refused GET reads as an unchanged file, so the source looks healthy
+            every cycle and is never deactivated
+    """
+    config = _config(local_pipeline_stub)
+    storage = Storage(test_db)
+    source_id = storage.add_source(f"{site.base_url}/notes.md", "file", "Notes")
+
+    _orchestrator(
+        config, storage, file_fetcher=FileFetcher(config=config, storage=storage)
+    ).run_once()
+
     (ua,) = site.agents("/notes.md")
-    assert ua.startswith(expected_ua), ua
+    assert ua.startswith(_HTTPX_DEFAULT_PREFIX), ua
+    (row,) = [s for s in storage.get_all_sources() if s["id"] == source_id]
+    assert row["error_count"] == 1, row
+    assert "403" in (row["last_error"] or ""), row
+    assert _stored_contents(storage, source_id) == []
 
 
 class _Subreddit:

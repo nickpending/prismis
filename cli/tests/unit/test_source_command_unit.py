@@ -111,6 +111,23 @@ def test_the_naughty_flag_through_add_list_and_update(live_daemon: LiveDaemon) -
     assert _listed(source_id) == {**renamed, "naughty": True}
 
 
+def test_source_edit_renames_and_keeps_the_flag(live_daemon: LiveDaemon) -> None:
+    """
+    INVARIANT: `source edit <id> <name>` changes exactly the name; a marked source
+               stays marked
+    BREAKS: the older rename command clears a source's browser user-agent
+    """
+    added = _json(
+        _invoke("add", "--naughty", "--json", "https://example.com/CHANGELOG.md")
+    )
+    assert isinstance(added, dict), added
+    before = _listed(added["id"])
+
+    _invoke("edit", added["id"], "Edited")
+
+    assert _listed(added["id"]) == {**before, "name": "Edited"}
+
+
 def test_source_update_with_nothing_to_change_is_refused(
     live_daemon: LiveDaemon,
 ) -> None:

@@ -291,22 +291,6 @@ class APIClient:
         params = {"days": days} if days is not None else {}
         return self._send_json("POST", "/api/prune", params=params, check_success=False)
 
-    def edit_source(self, source_id: str, name: str) -> bool:
-        """Edit a source's name via API.
-
-        Args:
-            source_id: UUID of source to edit
-            name: New name for the source
-
-        Returns:
-            True if successful
-
-        Raises:
-            RuntimeError: If API request fails
-        """
-        self._send_json("PATCH", f"/api/sources/{source_id}", json={"name": name})
-        return True
-
     def get_entry(self, entry_id: str, include_content: bool = False) -> dict[str, Any]:
         """Get a single content entry by ID.
 

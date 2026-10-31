@@ -294,7 +294,7 @@ def edit(
     """Edit a source's name."""
     try:
         api_client = APIClient()
-        api_client.edit_source(source_id, name)
+        api_client.update_source(source_id, name=name)
         console.print(f"[green]✅ Updated source name to:[/green] {escape(str(name))}")
 
     except typer.Exit:

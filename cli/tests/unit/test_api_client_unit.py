@@ -1,9 +1,9 @@
 """Unit tests for APIClient's consolidated `_send`/`_send_json` HTTP helper.
 
 Protects the httpx-level round-trip triage's cluster 3 found untested: `add_source`,
-`remove_source`, `pause_source`, `resume_source`, `count_unprioritized`,
-`prune_unprioritized`, `edit_source`, `get_entry`, `get_entry_raw`,
-`get_archive_status`, `get_statistics`, `get_sources` — 13 of `APIClient`'s methods
+`update_source`, `remove_source`, `pause_source`, `resume_source`,
+`count_unprioritized`, `prune_unprioritized`, `get_entry`, `get_entry_raw`,
+`get_archive_status`, `get_statistics`, `get_sources` — 12 of `APIClient`'s methods
 that had no direct httpx-level test before this file (docs/work/dedup-triage.md's
 cluster 3 "Gap"). `search`'s `min_score` param (test_api_client_search_params.py),
 `get_content`'s `kind` param (test_list_kind_filter_unit.py), and `extract_entry`
@@ -273,17 +273,6 @@ def test_prune_unprioritized_does_not_raise_when_success_false(
     result = client.prune_unprioritized()
 
     assert result == {"success": False, "deleted": 0}
-
-
-def test_edit_source_patches_name_and_returns_true(recording_server: str) -> None:
-    client = _make_client(recording_server)
-
-    result = client.edit_source("src-1", "New Name")
-
-    assert result is True
-    assert _RecordingHandler.received_method == "PATCH"
-    assert _RecordingHandler.received_path == "/api/sources/src-1"
-    assert _RecordingHandler.received_body == {"name": "New Name"}
 
 
 def test_get_entry_returns_data(recording_server: str) -> None:

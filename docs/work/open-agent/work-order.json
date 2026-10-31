@@ -1,0 +1,225 @@
+{
+  "workOrder": "open-agent",
+  "what": "An open-in-agent action: `prismis-cli open <id>` starts the operator's configured agent (claude, pi, or a herdr pane) with a prompt naming the article and the prismis-cli commands to fetch the rest, and the TUI's `A` and `:agent` hand the focused item to that command through ExecProcess.",
+  "why": "docs/work/open-agent/design.md — issue #47: asking an agent about an article the operator just read means copying it into a separately started session, and prismis is meant to be a data layer for AI assistants.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "the real TUI Model built in remote mode over the existing detail-server fixture serving one item, run in a real tea.Program whose input is the read end of an os.Pipe, and a stub `prismis-cli` first on PATH that writes its argv NUL-separated to a record file, writes `opened prismis-abcd1234 in pane w9:p9` to the path that follows `--status-file`, and exits 0",
+      "when": "the test writes `A` to the pipe; then, in a second run, writes `:agent` and Enter; then, in a third run, does the same with a Model not in remote mode",
+      "then": "Failing first: before the change, `A` is unbound and the record file is never written. After it, each `A` or `:agent` runs the stub exactly once. In remote mode its argv is exactly [`--remote`, <fixture URL>, `open`, <item id>, `--status-file`, <a path>]; without remote mode, [`open`, <item id>, `--status-file`, <a path>]. The program's status line then reads `opened prismis-abcd1234 in pane w9:p9`, and the status file no longer exists.",
+      "mutations": [
+        {
+          "id": "C1-M1",
+          "change": "Make OpenInAgent return a Cmd that does nothing instead of tea.ExecProcess: the stub is never run and the argv assertion goes red."
+        },
+        {
+          "id": "C1-M2",
+          "change": "Drop the `--remote <url>` arguments the TUI passes in remote mode: the remote-mode argv assertion goes red."
+        }
+      ]
+    },
+    {
+      "id": "C2",
+      "given": "the same Program and fixture, with a stub `prismis-cli` that writes `No agent configured: set [agent] target = \"claude\", \"pi\" or \"herdr\" in config.toml` to the status file and exits 1; and, separately, a PATH with no prismis-cli on it",
+      "when": "the test writes `A` to the pipe, then writes `j`",
+      "then": "Failing first: before the change, nothing is shown. After it, with the failing stub the status line reads exactly that line, and the following `j` still moves the cursor down one item. With no prismis-cli on PATH, no process runs and the status line reads ``prismis-cli is not installed; `A` needs it``.",
+      "mutations": [
+        {
+          "id": "C2-M1",
+          "change": "Make the ExecProcess callback ignore the status file and report only the exit error: the status-line assertion for the failing stub goes red."
+        },
+        {
+          "id": "C2-M2",
+          "change": "Remove the exec.LookPath check: the missing-CLI status line becomes the exec error and the assertion goes red."
+        }
+      ]
+    },
+    {
+      "id": "C3",
+      "given": "the existing live_daemon fixture (the daemon's own app, real Storage) with one seeded item whose title contains `\"$(touch pwned)\"`, a config.toml with `[agent] target = \"claude\"`, and a stub `claude` first on PATH that writes its argv NUL-separated and exits 0",
+      "when": "`prismis-cli open <id> --status-file <tmp>` runs as a subprocess with its working directory in a temp dir",
+      "then": "Failing first: before the change, `open` is not a command and the CLI exits 2. After it, the stub ran once with exactly one argument, equal byte for byte to the hand-written prompt (design.md, Form 2) for that item with the default starter line, carrying the title's `$(touch pwned)` literally. No `pwned` file exists anywhere under the temp dir, the CLI exits 0, and the status file holds `claude session ended`.",
+      "mutations": [
+        {
+          "id": "C3-M1",
+          "change": "Run the engine through a shell string (`subprocess.run(\" \".join(argv), shell=True)`) instead of an argv list: the argv and `pwned` assertions go red."
+        }
+      ]
+    },
+    {
+      "id": "C4",
+      "given": "live_daemon with one seeded item, `[agent] target = \"pi\"`, `command = \"fakeember pi\"` and `prompt = \"Summarise it.\"`, `PRISMIS_AGENT_PROBE=probe-1` in the CLI's environment, and a stub `fakeember` that records its argv and the value of PRISMIS_AGENT_PROBE",
+      "when": "`prismis-cli open <id>` runs, then `prismis-cli --remote <live_daemon url> open <id>` runs",
+      "then": "Failing first: before the change, `open` is not a command. After it, the first run's stub argv is exactly [`pi`, the hand-written prompt (design.md, Form 2) for that item ending in `Summarise it.`], its fetch lines read `prismis-cli get <id> --json` and `prismis-cli get <id> --raw`, and the recorded probe is `probe-1`. In the second run both fetch lines read `prismis-cli --remote <url> get <id> ...`.",
+      "mutations": [
+        {
+          "id": "C4-M1",
+          "change": "Drop the explicit remote URL from build_prompt: the second run's fetch-line assertion goes red."
+        }
+      ]
+    },
+    {
+      "id": "C5",
+      "given": "live_daemon with one seeded item, `[agent] target = \"herdr\"` and `kind = \"pi\"`, HERDR_ENV=1, and a stub `herdr` that appends each invocation's argv to a record file. It answers `agent list` with JSON whose `.result.agents` name only other agents, `pane split` with `{\"result\":{\"pane\":{\"pane_id\":\"w9:p9\"}}}`, and `agent start` with exit 0",
+      "when": "`prismis-cli open <id> --status-file <tmp>` runs in a known working directory",
+      "then": "Failing first: before the change, `open` is not a command. After it, the record holds exactly three invocations, in order: [`agent`,`list`]; [`pane`,`split`,`--current`,`--direction`,`right`,`--cwd`,<that directory>,`--no-focus`]; [`agent`,`start`,`prismis-<first 8 chars of the id>`,`--kind`,`pi`,`--pane`,`w9:p9`,`--`,the hand-written prompt (design.md, Form 2) for that item]. The CLI exits 0, and the status file holds `opened prismis-<8> in pane w9:p9`.",
+      "mutations": [
+        {
+          "id": "C5-M1",
+          "change": "Read the pane id from `.result.pane_id` instead of `.result.pane.pane_id`: the CLI reports a missing field, no `agent start` is recorded, and the assertion goes red."
+        }
+      ]
+    },
+    {
+      "id": "C6",
+      "given": "the C5 setup, except the stub's `agent list` names `prismis-<8>` among its agents",
+      "when": "`prismis-cli open <id> --status-file <tmp>` runs",
+      "then": "Failing first: before the change, `open` is not a command. After it, the record holds exactly [`agent`,`list`] then [`agent`,`focus`,`prismis-<8>`], with no `pane split`. The CLI exits 0, and the status file holds `prismis-<8> already open — focused it`.",
+      "mutations": [
+        {
+          "id": "C6-M1",
+          "change": "Skip the already-open check: a `pane split` is recorded and the assertion goes red."
+        }
+      ]
+    },
+    {
+      "id": "C7",
+      "given": "the C5 setup in three variants: HERDR_ENV unset; a stub that fails `pane split` with exit 1 and `{\"error\":{\"code\":\"x\",\"message\":\"split refused\"}}` on stdout; and, in-process through typer's CliRunner with HERDR_TIMEOUT_SECONDS set to 1, a stub whose `agent list` sleeps 10 s",
+      "when": "`prismis-cli open <id>` runs in each variant, the third timed by the test's own clock",
+      "then": "Failing first: before the change, `open` is not a command. After it, each variant exits 1. HERDR_ENV unset: no herdr invocation, and the outcome `herdr is not available (HERDR_ENV is not set)`. Failed split: the outcome contains `split refused`, and no `agent start` is recorded. Hanging list: the run returns in under 5 s with the outcome `herdr agent list did not answer within 1 s`, and no `pane split` is recorded.",
+      "mutations": [
+        {
+          "id": "C7-M1",
+          "change": "Remove the timeout argument from run_herdr's subprocess.run: the hanging-list variant outlives 5 s and goes red."
+        }
+      ]
+    },
+    {
+      "id": "C8",
+      "given": "live_daemon with one seeded item, stub `claude`, `pi` and `herdr` on PATH that each record any invocation, and in turn: a config.toml with no [agent] section; one with `target = \"codex\"`; one that is not valid TOML; and a valid claude config asked for an id the daemon lacks",
+      "when": "`prismis-cli open <id>` runs in each case",
+      "then": "Failing first: before the change, `open` is not a command. After it, each case exits 1 and no stub records an invocation. No section: the outcome is `No agent configured: set [agent] target = \"claude\", \"pi\" or \"herdr\" in config.toml`. `codex`: the outcome names `codex`. Invalid TOML: the outcome carries the read error. Unknown id: the outcome starts `Error:`.",
+      "mutations": [
+        {
+          "id": "C8-M1",
+          "change": "Fall back to `claude` when target is unset: the no-section case runs the stub and goes red."
+        }
+      ]
+    },
+    {
+      "id": "C9",
+      "given": "one config.toml with valid [daemon], [llm], [reddit], [archival] and [remote] sections, and the same file plus an `[agent]` table carrying all four keys",
+      "when": "the daemon's Config.from_file, the TUI's config.LoadConfig and the CLI's remote reader each load both files",
+      "then": "Failing first: a strict reader would reject the [agent] file; none does. The daemon returns equal Configs for the two files and logs no warning. The TUI returns no error and the same [remote] URL and key for both. The CLI's get_remote_url and get_remote_key return the same values for both, through read_config_toml, which is the only place remote.py and agent.py open config.toml. The existing remote-config tests still pass.",
+      "mutations": [
+        {
+          "id": "C9-M1",
+          "change": "Make read_config_toml return {} when it fails to parse instead of raising: the existing remote-config test for an unreadable config goes red."
+        }
+      ]
+    },
+    {
+      "id": "C10",
+      "given": "the change's docs/configuration.md and help modal",
+      "when": "the docs gate check runs, and the help modal is rendered in a test",
+      "then": "configuration.md has a section documenting `[agent]` with `target`, `command`, `kind` and `prompt` and their defaults, `A`, `:agent` and `prismis-cli open <id>`. The rendered help modal contains `A / :agent` and `Open in agent`. The docs check passes."
+    }
+  ],
+  "issues": [
+    47
+  ],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "`[agent] command` does not apply to the herdr target: `herdr agent start --kind` names the canonical executable itself, so herdr types `claude` or `pi` into the pane's shell. The operator's `ember claude` wrapper applies there only through their shell's own `claude` function.",
+      "frequency": {
+        "kind": "not-a-case",
+        "reason": "herdr's own CLI has no flag to override the executable a kind runs (herdr-agent-start-help.txt:14); this is a limit of the target, not a usage case."
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "`command` is split on whitespace only: there is no shell quoting, so an executable path containing a space cannot be named.",
+      "frequency": {
+        "kind": "measured",
+        "command": "whence -p claude pi ember herdr (docs/work/open-agent/shape/engine-paths.txt)",
+        "records": "the engine and wrapper executables on the operator's Mac",
+        "count": 0,
+        "total": 4
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "A herdr launch whose title, URL or summary line exceeds 1024 bytes is refused by herdr's canonical-mode check, and its error is shown. Nothing wraps lines to avoid it.",
+      "frequency": {
+        "kind": "measured",
+        "command": "prismis-cli list -p {high,medium,low} -l 100 --json, line lengths in docs/work/open-agent/shape/summary-lengths.txt",
+        "records": "items on the operator's daemon whose title, URL or summary line exceeds 1024 bytes (max 269, 149, 528)",
+        "count": 0,
+        "total": 239
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "An article whose herdr agent was renamed or replaced is not recognised as already open, so `A` opens a second pane for it.",
+      "frequency": {
+        "kind": "not-a-case",
+        "reason": "Occurs only when the operator renames or replaces an agent prismis started; no usage of the feature exists yet to count."
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "A herdr pane whose agent has exited stays open as a shell, and the next `A` on that item splits a new pane instead of reusing it, so panes accumulate until the operator closes them.",
+      "frequency": {
+        "kind": "not-a-case",
+        "reason": "Occurs once per re-open of an item whose agent has exited; no usage of the feature exists yet to count."
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "With the herdr target, the TUI is suspended (its screen gives way to the terminal) for the few seconds the CLI's list, split and start take, because the hand-off runs through ExecProcess like every other launch.",
+      "frequency": {
+        "kind": "not-a-case",
+        "reason": "Every herdr launch takes it; it is the chosen shape of one hand-off path for all targets, not a case that occurs sometimes."
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "A TUI running in local mode reads SQLite directly, but `A` needs the daemon's HTTP API reachable, because prismis-cli fetches the item through it as every prismis-cli command does.",
+      "frequency": {
+        "kind": "measured",
+        "command": "grep -c '^\\[remote\\]' ~/.config/prismis/config.toml (docs/work/open-agent/shape/remote-config-count.txt)",
+        "records": "the operator's TUI configs that run in local mode",
+        "count": 0,
+        "total": 1
+      }
+    }
+  ],
+  "walks": [
+    {
+      "criterion": "C1",
+      "when": "after merge, with the TUI and prismis-cli installed on the operator's Mac and `[agent] target = \"claude\"` (command `ember claude`) in config.toml, the operator presses `A` on an article in the TUI",
+      "then": "Claude Code opens with the prompt naming that article and the two prismis-cli commands; running `prismis-cli get <id> --json` inside it returns the analysis; on exit the TUI returns with `claude session ended` in its status line.",
+      "by": "operator"
+    },
+    {
+      "criterion": "C5",
+      "when": "after merge, with `[agent] target = \"herdr\"`, the operator presses `A` in a TUI running inside herdr, then presses `A` again on the same article",
+      "then": "A pane opens to the right without taking focus, with the configured agent running the prompt; the second `A` focuses that agent and opens no new pane.",
+      "by": "operator"
+    }
+  ],
+  "stakes": [
+    "TUI hands off to the CLI. The real Model runs in a real tea.Program whose input is an os.Pipe (execprocess-spike.txt), over an item served by the existing detail-server fixture.\n- A stub `prismis-cli` first on PATH writes its argv NUL-separated to a record file, writes `opened prismis-abcd1234 in pane w9:p9` to the path after `--status-file`, and exits 0.\n- Writing `A` to the pipe runs the stub once with argv exactly [`--remote`, <fixture URL>, `open`, <item id>, `--status-file`, <a path>]. The status line then reads `opened prismis-abcd1234 in pane w9:p9`, and the status file is gone.\n- Typing `:agent` and Enter gives the same argv.\n- A Model not in remote mode gives [`open`, <item id>, `--status-file`, <a path>].\n- Mutation `tui-noexec`: with OpenInAgent returning a no-op Cmd, this test goes red.",
+    "TUI shows the CLI's failure. When the stub writes `No agent configured: set [agent] target = \"claude\", \"pi\" or \"herdr\" in config.toml` to the status file and exits 1, the status line shows exactly that line. Writing `j` afterwards still moves the cursor. With no prismis-cli on PATH, `A` runs nothing and the status line reads ``prismis-cli is not installed; `A` needs it``. Mutation `tui-nostatusfile`: with the callback ignoring the status file, this test goes red.",
+    "CLI, claude. `prismis-cli open <id>` runs as a subprocess against the existing live_daemon fixture (real daemon API, real Storage), with `[agent] target = \"claude\"`. A stub `claude` first on PATH writes its argv NUL-separated.\n- The stub runs once with exactly one argument, equal byte for byte to the hand-written prompt for the seeded item with the default starter line.\n- The CLI exits 0, and the status file holds `claude session ended`.\n- The seeded title contains `\"$(touch pwned)\"`: the argument carries it literally, and no `pwned` file exists afterwards.",
+    "CLI, command override and remote. With `target = \"pi\"`, `command = \"fakeember pi\"` and `prompt = \"Summarise it.\"`:\n- The stub `fakeember` gets argv [`pi`, <prompt ending in `Summarise it.`>].\n- It records `PRISMIS_AGENT_PROBE`, set in the CLI's environment, so the engine inherits the environment.\n- Run as `prismis-cli --remote <live_daemon url> open <id>`, both fetch lines in the prompt read `prismis-cli --remote <url> get <id> ...`. Without the flag they read `prismis-cli get <id> ...`.",
+    "CLI, herdr new pane. With `target = \"herdr\"`, `kind = \"pi\"` and HERDR_ENV=1, a stub `herdr` records every invocation's argv. It answers `agent list` with JSON naming other agents only, `pane split` with `{\"result\":{\"pane\":{\"pane_id\":\"w9:p9\"}}}`, and `agent start` with exit 0.\n- The CLI makes exactly three invocations, in order: [`agent`,`list`]; [`pane`,`split`,`--current`,`--direction`,`right`,`--cwd`,<the CLI's cwd>,`--no-focus`]; [`agent`,`start`,`prismis-<8>`,`--kind`,`pi`,`--pane`,`w9:p9`,`--`,<prompt>].\n- It exits 0, and the outcome reads `opened prismis-<8> in pane w9:p9`.",
+    "CLI, herdr already open. When the stub's `agent list` names `prismis-<8>`, the CLI makes exactly [`agent`,`list`] then [`agent`,`focus`,`prismis-<8>`], with no split. It exits 0, and the outcome says the agent was already open.",
+    "CLI, herdr failures. Each case records the invocations and checks the outcome.\n- With HERDR_ENV unset: no herdr invocation, the outcome `herdr is not available (HERDR_ENV is not set)`, exit 1.\n- When the stub fails `pane split` with exit 1 and an error JSON on stdout: the outcome carries herdr's error text, no `agent start` is recorded, exit 1.\n- A herdr call that outlives the timeout: in-process through typer's CliRunner, HERDR_TIMEOUT_SECONDS is set to 1, and a stub `agent list` sleeps 10 s. `open` returns in under 5 s by the test's own clock, with the outcome `herdr agent list did not answer within 1 s`, exit 1, and no split recorded.\n- Mutation `cli-notimeout`: with the timeout argument removed from run_herdr, this test goes red.",
+    "CLI, nothing configured. Each of these exits 1 and invokes none of the stub engines or herdr:\n- no [agent] section: prints the one line naming `[agent] target`;\n- an unknown target `codex`: the line names `codex`;\n- an unparseable config.toml: the read error;\n- an id the daemon lacks: `Error: ...`.",
+    "Config tolerance and the shared read.\n- Daemon: `Config.from_file` over a config.toml with an [agent] table of all four keys returns a Config equal to the one from the same file without the table, and logs no warning.\n- TUI: `config.LoadConfig` over the same file returns no error and the same [remote] values.\n- CLI: the existing remote-config tests pass through `read_config_toml()`, which is the only `open(` of config.toml in remote.py and agent.py.",
+    "Docs. docs/configuration.md documents [agent] with all four keys and their defaults, and the help modal lists `A / :agent`. The docs gate check passes."
+  ]
+}

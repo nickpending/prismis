@@ -1669,6 +1669,7 @@ func fetchSourcesRemote(remoteURL string) sourcesLoadedMsg {
 			UnreadCount: 0, // API doesn't provide unread counts
 			LastFetched: apiSource.LastFetched,
 			ErrorCount:  apiSource.ErrorCount,
+			Naughty:     apiSource.Naughty,
 		})
 	}
 

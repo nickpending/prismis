@@ -203,7 +203,10 @@ class RedditFetcher:
 
                 # Convert to ContentItem
                 item = self._to_content_item(
-                    submission, source_id, known_readable_ids=known_readable_ids
+                    submission,
+                    source_id,
+                    known_readable_ids=known_readable_ids,
+                    browser_ua=bool(source.get("naughty")),
                 )
                 items.append(item)
 
@@ -251,7 +254,9 @@ class RedditFetcher:
 
         return items
 
-    def refetch_one(self, external_id: str, source_id: str) -> ContentItem:
+    def refetch_one(
+        self, external_id: str, source_id: str, browser_ua: bool = False
+    ) -> ContentItem:
         """Rebuild one stored item from its permalink via PRAW (job 2, SC-2 of
         refetch-unreadable): the single-item path refetch calls when a stored
         Reddit item's content isn't readable.
@@ -264,6 +269,7 @@ class RedditFetcher:
         Args:
             external_id: The stored item's external_id (its full permalink URL)
             source_id: Source UUID to stamp the rebuilt item with
+            browser_ua: The source's naughty flag, for the linked article's fetch
 
         Returns:
             A freshly built ContentItem for this submission
@@ -285,7 +291,7 @@ class RedditFetcher:
         # private post raises here rather than partway through _to_content_item.
         _ = submission.title
 
-        return self._to_content_item(submission, source_id)
+        return self._to_content_item(submission, source_id, browser_ua=browser_ua)
 
     def _parse_subreddit_name(self, url: str) -> str:
         """Parse subreddit name from various URL formats.
@@ -434,6 +440,7 @@ class RedditFetcher:
         submission,
         source_id: str,
         known_readable_ids: set[str] | None = None,
+        browser_ua: bool = False,
     ) -> ContentItem:
         """Convert Reddit submission to ContentItem.
 
@@ -443,6 +450,8 @@ class RedditFetcher:
             known_readable_ids: external_ids already stored readably (SC-4) --
                 this post's comment read and link-post article fetch are skipped
                 when its external_id is in this set.
+            browser_ua: The source's naughty flag, for the linked article's fetch;
+                PRAW's own requests are not affected.
 
         Returns:
             Standardized ContentItem object
@@ -479,6 +488,7 @@ class RedditFetcher:
                 article = extract_article(
                     submission.url,
                     allowed_private_hosts=self.config.fetch_allow_private_hosts,
+                    browser_ua=browser_ua,
                 )
                 fetch_outcome = article.as_fetch_outcome()
                 article_text = article.text

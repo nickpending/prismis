@@ -177,10 +177,13 @@ def _real_cost_since(base_dir: Path, run_id: str) -> float:
 
 
 def _reextract_item(
-    orchestrator: DaemonOrchestrator, row: dict[str, Any]
+    orchestrator: DaemonOrchestrator, row: dict[str, Any], browser_ua: bool = False
 ) -> ContentItem:
     """Re-run `row`'s source type's own single-item extraction path and
     return an updated ContentItem carrying whatever content it found.
+
+    `browser_ua` is the naughty flag of the row's source: an RSS article and a
+    Reddit post's linked article are requested the way the live fetch requests them.
 
     Never raises for YouTube or RSS -- their extractors return None on
     failure, which becomes empty content here and is caught by the
@@ -209,6 +212,7 @@ def _reextract_item(
             result = extract_article(
                 row["url"],
                 allowed_private_hosts=orchestrator.config.fetch_allow_private_hosts,
+                browser_ua=browser_ua,
             )
             content = result.text or ""
             fetch_outcome = result.as_fetch_outcome()
@@ -218,7 +222,7 @@ def _reextract_item(
             )
     elif source_type == "reddit":
         return orchestrator.reddit_fetcher.refetch_one(
-            row["external_id"], row["source_id"]
+            row["external_id"], row["source_id"], browser_ua=browser_ua
         )
     else:
         raise ValueError(f"refetch does not support source type {source_type!r}")
@@ -240,6 +244,7 @@ def _reextract_item(
 def _refetch_one(
     orchestrator: DaemonOrchestrator,
     row: dict[str, Any],
+    browser_ua: bool = False,
 ) -> RefetchOutcome:
     """Re-extract, and where it recovers re-analyse, one selected row.
 
@@ -250,7 +255,7 @@ def _refetch_one(
     external_id = row["external_id"]
     title = row["title"]
     try:
-        item = _reextract_item(orchestrator, row)
+        item = _reextract_item(orchestrator, row, browser_ua)
 
         if is_readable(item.content):
             source = {"type": row["source_type"], "name": row.get("source_name") or ""}
@@ -328,12 +333,18 @@ def run_refetch(
             estimated_cost=per_item_cost * len(rows),
         )
 
+    naughty = {
+        source["id"]: source["naughty"]
+        for source in orchestrator.storage.get_all_sources()
+    }
     run_id = str(uuid.uuid4())
     set_run_id(run_id)
     try:
         outcomes = []
         for row in rows:
-            outcome = _refetch_one(orchestrator, row)
+            outcome = _refetch_one(
+                orchestrator, row, naughty.get(row["source_id"], False)
+            )
             outcomes.append(outcome)
             obs_log(
                 "refetch.item",

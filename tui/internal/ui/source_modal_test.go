@@ -117,6 +117,38 @@ func TestSourceModal_ErrorMessageDisplay(t *testing.T) {
 	}
 }
 
+// TestSourceModal_MarksANaughtySource: a source the daemon fetches with the browser
+// user-agent carries `[browser UA]` after its name; an unmarked one does not.
+func TestSourceModal_MarksANaughtySource(t *testing.T) {
+	modal := NewSourceModal()
+	modal.SetSize(120, 40)
+	modal.visible = true
+	modal.mode = "list"
+	modal.LoadSources([]db.Source{
+		{ID: "1", Name: "Marked Feed", Type: "rss", Active: true, Naughty: true},
+		{ID: "2", Name: "Plain Feed", Type: "rss", Active: true},
+	})
+
+	lines := map[string]string{}
+	for line := range strings.SplitSeq(modal.View(CleanCyberTheme), "\n") {
+		for _, name := range []string{"Marked Feed", "Plain Feed"} {
+			if strings.Contains(line, name) {
+				lines[name] = line
+			}
+		}
+	}
+	marked, plain := lines["Marked Feed"], lines["Plain Feed"]
+	if marked == "" || plain == "" {
+		t.Fatalf("both sources must render; got %q", lines)
+	}
+	if !strings.Contains(marked, "Marked Feed [browser UA]") {
+		t.Errorf("marked line lacks the marker after its name: %q", marked)
+	}
+	if strings.Contains(plain, "[browser UA]") {
+		t.Errorf("unmarked line carries the marker: %q", plain)
+	}
+}
+
 // TestSourceModal_ErrorVisibleWhateverTheListLength covers gh #87: the list-mode error
 // line used to be the last line inside the scrolled viewport, so with no sources (the
 // "No sources configured" filler) or more sources than the viewport holds it fell below

@@ -119,14 +119,19 @@ Add a new content source (RSS feed, Reddit subreddit, YouTube channel).
 {
   "url": "https://example.com/feed.xml",
   "type": "rss",
-  "name": "My Blog"
+  "name": "My Blog",
+  "naughty": false
 }
 ```
 
 **Parameters:**
 - `url` (string, required): Source URL
 - `type` (string, required): One of: `rss`, `reddit`, `youtube`, `file`
-- `name` (string, required): Display name for the source
+- `name` (string, optional): Display name for the source; derived from the URL when absent
+- `naughty` (boolean, optional, default `false`): Send a browser user-agent instead of
+  prismis's own identifier on every request for this source — the validation request
+  made here, the feed or file GET, and each article extraction. For a site that answers
+  prismis with HTTP 403. Reddit's API and the YouTube lookup are not affected.
 
 **Response:**
 ```json
@@ -134,7 +139,11 @@ Add a new content source (RSS feed, Reddit subreddit, YouTube channel).
   "success": true,
   "message": "Source added successfully",
   "data": {
-    "source_id": "550e8400-e29b-41d4-a716-446655440000"
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "url": "https://example.com/feed.xml",
+    "type": "rss",
+    "name": "My Blog",
+    "naughty": false
   }
 }
 ```
@@ -158,14 +167,19 @@ Get all configured sources.
         "url": "https://example.com/feed.xml",
         "type": "rss",
         "name": "My Blog",
-        "created_at": "2024-01-15T10:30:00Z",
-        "last_fetched": "2024-01-15T11:00:00Z",
-        "paused": false
+        "active": true,
+        "last_fetched": "2024-01-15T11:00:00+00:00",
+        "error_count": 0,
+        "last_error": null,
+        "naughty": false
       }
-    ]
+    ],
+    "total": 1
   }
 }
 ```
+
+`naughty` is `true` for a source fetched with a browser user-agent (see Create Source).
 
 ---
 
@@ -173,21 +187,35 @@ Get all configured sources.
 
 **`PATCH /api/sources/{source_id}`**
 
-Update source name or URL.
+Update a source's name, URL and/or naughty flag. Every field is optional; a field left
+out keeps its stored value, so a rename leaves `naughty` as it was.
 
 **Request Body:**
 ```json
 {
   "name": "Updated Name",
-  "url": "https://new-url.com/feed.xml"
+  "url": "https://new-url.com/feed.xml",
+  "naughty": true
 }
 ```
+
+**Parameters:**
+- `name` (string, optional): New display name
+- `url` (string, optional): New URL, validated before it is stored (with the browser
+  user-agent when the source is, or is being, marked `naughty`)
+- `type` (string, optional): The source's type; the stored type when absent
+- `naughty` (boolean, optional): Set or clear the browser user-agent flag
 
 **Response:**
 ```json
 {
   "success": true,
-  "message": "Source updated successfully"
+  "message": "Source updated successfully",
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Updated Name",
+    "naughty": true
+  }
 }
 ```
 

@@ -125,10 +125,25 @@ def _migrate_2_drift_checks(conn: sqlite3.Connection) -> None:
     conn.execute(_DRIFT_CHECKS_DDL)
 
 
+def _migrate_3_source_naughty(conn: sqlite3.Connection) -> None:
+    """Add sources.naughty, 0 for every existing source. Additive: no row is rewritten.
+
+    schema.sql's CREATE TABLE IF NOT EXISTS leaves an existing sources table as it was,
+    so this adds the column there; a sources table that already has it (one schema.sql
+    created) is left alone, so the migration stands on its own like the others.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(sources)")}
+    if "naughty" not in columns:
+        conn.execute(
+            "ALTER TABLE sources ADD COLUMN naughty INTEGER NOT NULL DEFAULT 0"
+        )
+
+
 # Numbered migrations: entry N takes a database from user_version N-1 to N.
 _MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _migrate_1_tz_aware_timestamps,
     _migrate_2_drift_checks,
+    _migrate_3_source_naughty,
 ]
 
 

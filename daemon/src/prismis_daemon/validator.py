@@ -13,6 +13,7 @@ from prawcore import exceptions as prawcore_exceptions
 from prawcore.sessions import FiniteRetryStrategy
 from praw.models import Subreddit
 
+from .article_extractor import user_agent
 from .config import REDDIT_NOT_CONFIGURED, Config
 from .http_deadline import deadline_session
 from .praw_defaults import pin_praw_defaults
@@ -100,13 +101,16 @@ class SourceValidator:
         return message
 
     def validate_source(
-        self, url: str, source_type: str
+        self, url: str, source_type: str, browser_ua: bool = False
     ) -> tuple[bool, str | None, dict | None]:
         """Validate a source URL based on its type.
 
         Args:
             url: The source URL to validate
             source_type: Type of source ('rss', 'reddit', 'youtube')
+            browser_ua: The source's naughty flag; an RSS feed is then requested with
+                the browser user-agent its fetches will send, so a feed that refuses
+                prismis can be added at all
 
         Returns:
             Tuple of (is_valid, error_message, metadata)
@@ -116,7 +120,7 @@ class SourceValidator:
         """
         try:
             if source_type == "rss":
-                return self._validate_rss(url)
+                return self._validate_rss(url, browser_ua)
             elif source_type == "reddit":
                 return self._validate_reddit(url)
             elif source_type == "youtube":
@@ -131,13 +135,16 @@ class SourceValidator:
             logger.exception("Source validation failed for %s source", source_type)
             return False, self._redact(f"Validation failed: {str(e)}"), None
 
-    def _validate_rss(self, url: str) -> tuple[bool, str | None, dict | None]:
+    def _validate_rss(
+        self, url: str, browser_ua: bool = False
+    ) -> tuple[bool, str | None, dict | None]:
         """Validate an RSS/Atom feed URL.
 
         Fetches the feed and checks if it's valid XML with entries.
 
         Args:
             url: The RSS/Atom feed URL
+            browser_ua: The source's naughty flag, read through `user_agent`
 
         Returns:
             Tuple of (is_valid, error_message, metadata)
@@ -148,7 +155,7 @@ class SourceValidator:
                 url,
                 timeout=self.timeout,
                 follow_redirects=True,
-                headers={"User-Agent": self.user_agent},
+                headers={"User-Agent": user_agent(browser_ua, self.user_agent)},
             )
 
             # Check HTTP status

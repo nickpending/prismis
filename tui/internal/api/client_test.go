@@ -577,6 +577,63 @@ func TestUpdateSourceStatusError(t *testing.T) {
 	}
 }
 
+// TestGetSourcesCarriesTheNaughtyFlag: the daemon's `naughty` reaches Source, and a
+// daemon older than the flag (no field) reads as unmarked.
+func TestGetSourcesCarriesTheNaughtyFlag(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"total":3,"sources":[
+			{"id":"marked","url":"https://a.example","type":"rss","active":true,"error_count":0,"naughty":true},
+			{"id":"plain","url":"https://b.example","type":"rss","active":true,"error_count":0,"naughty":false},
+			{"id":"old-daemon","url":"https://c.example","type":"rss","active":true,"error_count":0}]}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	resp, err := client.GetSources()
+	if err != nil {
+		t.Fatalf("GetSources failed: %v", err)
+	}
+	got := map[string]bool{}
+	for _, s := range resp.Sources {
+		got[s.ID] = s.Naughty
+	}
+	want := map[string]bool{"marked": true, "plain": false, "old-daemon": false}
+	if len(got) != len(want) {
+		t.Fatalf("want %v, got %v", want, got)
+	}
+	for id, flag := range want {
+		if got[id] != flag {
+			t.Errorf("%s: want naughty=%v, got %v", id, flag, got[id])
+		}
+	}
+}
+
+// TestSourceRequestSendsNaughtyOnlyWhenSet: a marked request carries naughty:true and
+// round-trips; an unmarked one leaves the field out, so the TUI's rename (which never
+// sets the flag) does not clear a source's mark through PATCH.
+func TestSourceRequestSendsNaughtyOnlyWhenSet(t *testing.T) {
+	marked, err := json.Marshal(SourceRequest{URL: "https://a.example", Type: "rss", Naughty: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back SourceRequest
+	if err := json.Unmarshal(marked, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(marked), `"naughty":true`) || !back.Naughty {
+		t.Errorf("marked request must carry and round-trip naughty: %s", marked)
+	}
+
+	plain, err := json.Marshal(SourceRequest{URL: "https://a.example", Type: "rss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain), "naughty") {
+		t.Errorf("unmarked request must leave naughty out: %s", plain)
+	}
+}
+
 func TestUpdateContentRequest(t *testing.T) {
 	var gotMethod, gotPath, gotContentType string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

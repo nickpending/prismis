@@ -104,8 +104,13 @@ prismis-cli source add https://news.ycombinator.com/rss              # HN, read 
 prismis-cli source add reddit://programming                          # a subreddit, with top comments
 prismis-cli source add youtube://UC9-y-6csu5WGm29I7JiwpnA            # a channel's transcripts
 prismis-cli source add https://raw.githubusercontent.com/o/r/main/CHANGELOG.md   # a file, one item per change
+prismis-cli source add --naughty https://example.com/feed.xml        # fetched with a browser user-agent
 prismis-cli source list
 ```
+
+Use `--naughty` for a site that refuses prismis's own user-agent — its add fails, or its
+items arrive title-only with `HTTP 403`; `prismis-cli source update <id> --naughty` (or
+`--no-naughty`) sets it on a source you already have.
 
 Every item is also tagged with one of ten kinds (release, news, analysis, vulnerability,
 incident, research, tutorial, experience, question, humor) that the TUI, web view, CLI and API can

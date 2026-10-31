@@ -43,6 +43,7 @@ from .api_models import (
     ContentUpdateRequest,
     SourceRequest,
     SourceResponse,
+    SourceUpdateRequest,
 )
 from .audio import AudioScriptGenerator, LspeakTTSEngine
 from .auth import verify_api_key
@@ -255,18 +256,19 @@ DEDUP_WINDOW = 200
 
 
 async def _validate_source_with_timeout(
-    validator: SourceValidator, url: str, type_: str
+    validator: SourceValidator, url: str, type_: str, browser_ua: bool = False
 ) -> dict | None:
     """Validate a source off the event loop, bounded by SOURCE_VALIDATION_TIMEOUT.
 
-    Shared by add_source and update_source's URL-change branch. Returns the
-    validator's metadata dict (or None) on success; raises ValidationError on a
-    timeout or a validation failure, with the same messages both call sites used
-    before this was one function.
+    Shared by add_source and update_source's URL-change branch. `browser_ua` is the
+    source's naughty flag: the validator's request sends what the fetch will send.
+    Returns the validator's metadata dict (or None) on success; raises
+    ValidationError on a timeout or a validation failure, with the same messages both
+    call sites used before this was one function.
     """
     try:
         is_valid, error_msg, metadata = await asyncio.wait_for(
-            asyncio.to_thread(validator.validate_source, url, type_),
+            asyncio.to_thread(validator.validate_source, url, type_, browser_ua),
             timeout=SOURCE_VALIDATION_TIMEOUT,
         )
     except TimeoutError as e:
@@ -572,7 +574,7 @@ async def add_source(
 
         # Validate the source off the event loop — validate_source blocks on network
         metadata = await _validate_source_with_timeout(
-            validator, normalized_url, request.type
+            validator, normalized_url, request.type, request.naughty
         )
 
         # A bare YouTube custom URL validates through its page and comes back as the
@@ -587,7 +589,9 @@ async def add_source(
             name = metadata["display_name"]
 
         # Add to database
-        source_id = storage.add_source(normalized_url, request.type, name)
+        source_id = storage.add_source(
+            normalized_url, request.type, name, naughty=request.naughty
+        )
 
         return APIResponse(
             success=True,
@@ -597,6 +601,7 @@ async def add_source(
                 "url": normalized_url,
                 "type": request.type,
                 "name": name,
+                "naughty": request.naughty,
             },
         )
 
@@ -628,6 +633,7 @@ async def get_sources(storage: Storage = Depends(get_storage)) -> dict:
                     last_fetched=source.get("last_fetched_at"),
                     error_count=source.get("error_count", 0),
                     last_error=source.get("last_error"),
+                    naughty=source.get("naughty", False),
                 )
             )
 
@@ -648,13 +654,14 @@ async def get_sources(storage: Storage = Depends(get_storage)) -> dict:
 )
 async def update_source(
     source_id: str,
-    request: SourceRequest,
+    request: SourceUpdateRequest,
     storage: Storage = Depends(get_storage),
     validator: SourceValidator = Depends(get_validator),
 ) -> APIResponse:
-    """Update a content source (name and/or URL).
+    """Update a content source (name, URL and/or naughty).
 
-    Updates the source with new name and/or URL.
+    Only the fields the request carries change; an absent field keeps its stored
+    value, so a rename leaves the naughty flag as it was.
     """
     try:
         # Get the existing source first
@@ -665,16 +672,18 @@ async def update_source(
             raise NotFoundError("Source", source_id)
 
         # Prepare update data - only update fields that are provided
-        update_data = {}
+        update_data: dict[str, Any] = {}
+        source_type = request.type or source["type"]
+        naughty = source["naughty"] if request.naughty is None else request.naughty
 
         # Update URL if provided and different
         if request.url and request.url != source["url"]:
             # Normalize the new URL
-            normalized_url = normalize_source_url(request.url, request.type)
+            normalized_url = normalize_source_url(request.url, source_type)
 
             # Validate off the event loop — validate_source blocks on network
             metadata = await _validate_source_with_timeout(
-                validator, normalized_url, request.type
+                validator, normalized_url, source_type, naughty
             )
             if metadata and metadata.get("canonical_url"):
                 normalized_url = metadata["canonical_url"]
@@ -684,6 +693,9 @@ async def update_source(
         # Update name if provided
         if request.name is not None:  # Allow empty string to clear name
             update_data["name"] = request.name
+
+        if request.naughty is not None:
+            update_data["naughty"] = request.naughty
 
         # Only update if there are changes
         if update_data:

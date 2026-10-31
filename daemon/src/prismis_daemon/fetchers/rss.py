@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import feedparser
 import httpx
 
-from ..article_extractor import extract_article
+from ..article_extractor import extract_article, user_agent
 from ..config import Config
 from ..hackernews import fetch_discussion, is_item_link, story_id
 from ..models import ContentItem
@@ -73,6 +73,7 @@ class RSSFetcher:
         known_readable_ids = known_readable_ids or set()
         source_url = source.get("url", "")
         source_id = source.get("id", "")
+        browser_ua = bool(source.get("naughty"))
         items = []
 
         start_time = time.time()
@@ -80,7 +81,14 @@ class RSSFetcher:
         try:
             # Parse RSS feed with timeout via httpx
             logger.info(f"Fetching RSS feed: {source_url}")
-            response = self.client.get(source_url)
+            response = self.client.get(
+                source_url,
+                headers={
+                    "User-Agent": user_agent(
+                        browser_ua, self.client.headers["User-Agent"]
+                    )
+                },
+            )
             feed = feedparser.parse(response.text)
 
             # Check for feed errors
@@ -145,7 +153,9 @@ class RSSFetcher:
                         # is no article to extract, its body comes from the API.
                         content = self._fallback_content(entry)
                     else:
-                        content, fetch_outcome = self._extract_full_content(url, entry)
+                        content, fetch_outcome = self._extract_full_content(
+                            url, entry, browser_ua=browser_ua
+                        )
 
                     # A Hacker News story also gets its top comments, read from HN's
                     # API -- skipped, like the article, for an entry already stored
@@ -290,13 +300,14 @@ class RSSFetcher:
         return None
 
     def _extract_full_content(
-        self, url: str, entry: dict
+        self, url: str, entry: dict, *, browser_ua: bool = False
     ) -> tuple[str, dict[str, str]]:
         """Extract full article content using the shared article extractor.
 
         Args:
             url: Article URL to fetch
             entry: Original feed entry (fallback for content)
+            browser_ua: The source's naughty flag, passed to extract_article
 
         Returns:
             (content, fetch_outcome): the full article text or the summary/
@@ -304,7 +315,9 @@ class RSSFetcher:
         """
         logger.debug(f"Extracting full content from: {url}")
         result = extract_article(
-            url, allowed_private_hosts=self.config.fetch_allow_private_hosts
+            url,
+            allowed_private_hosts=self.config.fetch_allow_private_hosts,
+            browser_ua=browser_ua,
         )
         content = result.text
         if content and is_readable(content):

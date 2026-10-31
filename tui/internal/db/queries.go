@@ -341,6 +341,7 @@ type Source struct {
 	UnreadCount int
 	LastFetched *time.Time // When this source was last fetched
 	ErrorCount  int        // Number of errors
+	Naughty     bool       // Fetched with a browser user-agent
 }
 
 // GetSourcesWithCounts fetches all sources with their unread item counts
@@ -361,10 +362,11 @@ func GetSourcesWithCounts() ([]Source, error) {
 			s.active,
 			COUNT(CASE WHEN c.read = 0 THEN 1 END) as unread_count,
 			s.last_fetched_at,
-			s.error_count
+			s.error_count,
+			s.naughty
 		FROM sources s
 		LEFT JOIN content c ON s.id = c.source_id
-		GROUP BY s.id, s.url, s.name, s.type, s.active, s.last_fetched_at, s.error_count
+		GROUP BY s.id, s.url, s.name, s.type, s.active, s.last_fetched_at, s.error_count, s.naughty
 		ORDER BY s.type, s.name
 	`
 
@@ -390,6 +392,7 @@ func GetSourcesWithCounts() ([]Source, error) {
 			&source.UnreadCount,
 			&lastFetchedStr,
 			&errorCount,
+			&source.Naughty,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)

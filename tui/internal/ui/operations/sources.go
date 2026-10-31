@@ -221,8 +221,9 @@ func UpdateSource(sourceID string, updates map[string]any) tea.Cmd {
 			return errMsg
 		}
 
-		// Build the update request
-		// URL and Type are REQUIRED by the API
+		// Build the update request: URL and Type are always sent. Naughty is never
+		// set here, so it is left out of the PATCH and the daemon keeps the source's
+		// mark (the TUI shows it; the CLI and API set it).
 		request := api.SourceRequest{}
 
 		// Set URL (required)

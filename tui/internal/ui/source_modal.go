@@ -13,6 +13,10 @@ import (
 	"github.com/nickpending/prismis/internal/ui/operations"
 )
 
+// naughtyMarker follows the name of a source the daemon fetches with a browser
+// user-agent (`prismis-cli source update <id> --naughty` sets it).
+const naughtyMarker = " [browser UA]"
+
 // SourceModal represents the source management modal
 type SourceModal struct {
 	Modal    // Embed base modal
@@ -535,8 +539,16 @@ func (m SourceModal) renderListContentOnly(theme StyleTheme) string {
 				nameStr = theme.TextStyle().Render(displayName)
 			}
 
+			// A source the daemon fetches with a browser user-agent is marked after its
+			// name; the marker takes its width out of the name column's padding.
+			markerText := ""
+			if source.Naughty {
+				markerText = naughtyMarker
+				nameStr += theme.MutedStyle().Render(markerText)
+			}
+
 			// Calculate padding based on actual string length (not styled width)
-			titlePadding := max(titleWidth-len(displayName), 0)
+			titlePadding := max(titleWidth-len(displayName)-len(markerText), 0)
 			typePadding := max(typeWidth-len(strings.ToUpper(source.Type)), 0)
 
 			// Build columnar line

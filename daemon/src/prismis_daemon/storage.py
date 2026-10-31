@@ -141,7 +141,7 @@ class Storage:
         """Map a `sources` row to its canonical dict.
 
         get_active_sources and get_all_sources run different WHERE/ORDER BY
-        clauses over the same 10-column SELECT and used to hand-copy this same
+        clauses over the same 11-column SELECT and used to hand-copy this same
         dict literal each; one mapper, both callers.
         """
         return {
@@ -155,6 +155,7 @@ class Storage:
             "last_fetched_at": row["last_fetched_at"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+            "naughty": bool(row["naughty"]),
         }
 
     def _content_item_from_dict(self, item: dict[str, Any]) -> ContentItem:
@@ -389,13 +390,21 @@ class Storage:
                 status="success" if row_count else "not_found",
             )
 
-    def add_source(self, url: str, source_type: str, name: str | None = None) -> str:
+    def add_source(
+        self,
+        url: str,
+        source_type: str,
+        name: str | None = None,
+        naughty: bool = False,
+    ) -> str:
         """Add a new content source to the database.
 
         Args:
             url: The source URL (RSS feed, Reddit sub, YouTube channel, file URL)
             source_type: Type of source ('rss', 'reddit', 'youtube', 'file')
             name: Optional human-readable name for the source
+            naughty: Whether every request for this source sends the browser
+                user-agent instead of prismis's own identifier
 
         Returns:
             The UUID of the inserted source
@@ -422,10 +431,10 @@ class Storage:
             now = utc_now_iso()
             self.conn.execute(
                 """
-                INSERT INTO sources (id, url, type, name, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO sources (id, url, type, name, created_at, updated_at, naughty)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (source_id, url, source_type, name, now, now),
+                (source_id, url, source_type, name, now, now, int(naughty)),
             )
 
             self.conn.commit()
@@ -445,7 +454,7 @@ class Storage:
             cursor = self.conn.execute(
                 """
                 SELECT id, url, type, name, active, error_count, 
-                       last_error, last_fetched_at, created_at, updated_at
+                       last_error, last_fetched_at, created_at, updated_at, naughty
                 FROM sources
                 WHERE active = 1
                 ORDER BY id
@@ -1335,51 +1344,31 @@ class Storage:
             raise sqlite3.Error(f"Failed to update source status: {e}") from e
 
     def update_source(self, source_id: str, update_data: dict) -> bool:
-        """Update source properties (name and/or URL).
+        """Update source properties (name, URL and/or naughty).
 
         Args:
             source_id: UUID of the source to update
-            update_data: Dict with fields to update (name, url)
+            update_data: Dict with fields to update (name, url, naughty); a field
+                absent from it keeps its stored value
 
         Returns:
             True if update was successful, False otherwise
         """
+        # Column names come from this fixed tuple, never from update_data's keys.
+        columns = [c for c in ("name", "url", "naughty") if c in update_data]
+        if not columns:
+            return False
+        values = [
+            int(update_data[c]) if c == "naughty" else update_data[c] for c in columns
+        ]
+        assignments = ", ".join(f"{c} = ?" for c in columns)
         try:
-            # Build UPDATE query with safe parameterized approach
-            now = utc_now_iso()
-            if "name" in update_data and "url" in update_data:
-                # Update both name and URL
-                cursor = self.conn.execute(
-                    """
-                    UPDATE sources
-                    SET name = ?, url = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (update_data["name"], update_data["url"], now, source_id),
-                )
-            elif "name" in update_data:
-                # Update only name
-                cursor = self.conn.execute(
-                    """
-                    UPDATE sources
-                    SET name = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (update_data["name"], now, source_id),
-                )
-            elif "url" in update_data:
-                # Update only URL
-                cursor = self.conn.execute(
-                    """
-                    UPDATE sources
-                    SET url = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (update_data["url"], now, source_id),
-                )
-            else:
-                # No fields to update
-                return False
+            # String concatenation, not an f-string -- this file's pattern for a
+            # hardcoded (never user-input) dynamic SQL fragment.
+            cursor = self.conn.execute(
+                "UPDATE sources SET " + assignments + ", updated_at = ? WHERE id = ?",  # nosec B608 -- column names are the literals above, values are bound
+                (*values, utc_now_iso(), source_id),
+            )
 
             self.conn.commit()
 
@@ -1401,7 +1390,7 @@ class Storage:
             cursor = self.conn.execute(
                 """
                 SELECT id, url, type, name, active, error_count, 
-                       last_error, last_fetched_at, created_at, updated_at
+                       last_error, last_fetched_at, created_at, updated_at, naughty
                 FROM sources
                 ORDER BY created_at DESC
                 """

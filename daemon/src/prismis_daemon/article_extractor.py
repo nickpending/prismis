@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 _DOWNLOAD_TIMEOUT_SECONDS = 30
 _MAX_PAGE_BYTES = 20_000_000
 _USER_AGENT = "Mozilla/5.0 (compatible; prismis-daemon)"
+# A current stable desktop Chrome, sent for a source marked `naughty` whose site
+# refuses non-browser clients. Bumped by hand when Chrome's major version moves on.
+_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    " (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+)
 
 ArticleOutcome = Literal["extracted", "empty", "fetch_failed"]
 
@@ -44,6 +50,17 @@ class ArticleResult:
     def as_fetch_outcome(self) -> dict[str, str]:
         """The `{"outcome", "detail"}` record fetchers store under `fetch_outcome`."""
         return {"outcome": self.outcome, "detail": self.detail}
+
+
+def user_agent(browser: bool, default: str = _USER_AGENT) -> str:
+    """The User-Agent a request for a source sends: the one place that chooses.
+
+    `browser` is the source's `naughty` flag. A marked source sends
+    `_BROWSER_USER_AGENT`; an unmarked one sends `default`, the identifier that
+    client sent before the flag existed (the article fetch's own, unless the caller
+    names its own), so an unmarked source's requests are unchanged.
+    """
+    return _BROWSER_USER_AGENT if browser else default
 
 
 class BlockedAddressError(OSError):
@@ -191,9 +208,11 @@ def _http_only_opener(
 
 
 def extract_article(
-    url: str, *, allowed_private_hosts: Iterable[str] = ()
+    url: str, *, allowed_private_hosts: Iterable[str] = (), browser_ua: bool = False
 ) -> ArticleResult:
     """Fetch `url` and extract its main article text with trafilatura.
+
+    `browser_ua` is the source's `naughty` flag, read through `user_agent`.
 
     Three outcomes: `extracted` (text set), `empty` (the page was fetched but
     trafilatura found nothing) and `fetch_failed` (`detail` is `HTTP <status>`
@@ -208,7 +227,9 @@ def extract_article(
         # One request, no status retries: trafilatura's own downloader retries a 429
         # or 5xx with long backoff and then reports only None, which hides the status
         # this result exists to carry.
-        request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+        request = urllib.request.Request(
+            url, headers={"User-Agent": user_agent(browser_ua)}
+        )
         # The URL is untrusted (a feed entry link, a Reddit post url): only http(s)
         # is fetched, never `file://` or `ftp://`.
         if urllib.parse.urlsplit(url).scheme.lower() not in ("http", "https"):

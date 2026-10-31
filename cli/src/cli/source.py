@@ -10,6 +10,11 @@ from .api_client import APIClient
 app = typer.Typer(help="Manage content sources")
 console = Console()
 
+_NAUGHTY_HELP = (
+    "Fetch this source with a browser user-agent, for a site that refuses "
+    "prismis's own (its items fail with HTTP 403)"
+)
+
 
 def detect_source_type(url: str) -> str:
     """Derive a source's type from the URL the user typed.
@@ -48,11 +53,13 @@ def find_source_by_id(sources: list[dict], source_id: str) -> dict | None:
     return None
 
 
-def format_source_row(source: dict) -> tuple[str, str, str, str, str, str]:
-    """Render one API source dict as the six columns of the `source list` table.
+def format_source_row(source: dict) -> tuple[str, str, str, str, str, str, str]:
+    """Render one API source dict as the seven columns of the `source list` table.
 
     Returns:
-        (id, type, name, active, errors, last_fetched) as display strings
+        (id, type, name, active, errors, last_fetched, ua) as display strings; ua is
+        "browser" for a source marked naughty and "prismis" otherwise, including a
+        source from a daemon that predates the flag and sends no `naughty`
     """
     active_str = "✅ Yes" if source.get("active") else "❌ No"
     error_str = str(source.get("error_count", 0)) if source.get("error_count") else "—"
@@ -74,6 +81,7 @@ def format_source_row(source: dict) -> tuple[str, str, str, str, str, str]:
         active_str,
         error_str,
         str(last_fetched),
+        "browser" if source.get("naughty") else "prismis",
     )
 
 
@@ -85,6 +93,7 @@ def add(
     name: str | None = typer.Option(
         None, "--name", "-n", help="Custom name for the source"
     ),
+    naughty: bool = typer.Option(False, "--naughty", help=_NAUGHTY_HELP),
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Add a new content source to Prismis."""
@@ -100,7 +109,7 @@ def add(
 
         try:
             api_client = APIClient()
-            result = api_client.add_source(url, source_type, name)
+            result = api_client.add_source(url, source_type, name, naughty=naughty)
 
             if output_json:
                 # JSON mode - output raw API response
@@ -174,6 +183,7 @@ def list_sources(
         table.add_column("Active", style="green")
         table.add_column("Errors", style="red")
         table.add_column("Last Fetched", style="dim")
+        table.add_column("UA", style="yellow")
 
         for source in sources:
             table.add_row(*format_source_row(source))
@@ -291,6 +301,28 @@ def edit(
         raise
     except Exception as e:
         console.print(f"[red]❌ Failed to edit source:[/red] {escape(str(e))}")
+        raise typer.Exit(1) from e
+
+
+@app.command()
+def update(
+    source_id: str = typer.Argument(..., help="UUID of the source to update"),
+    name: str | None = typer.Option(None, "--name", "-n", help="New name"),
+    naughty: bool | None = typer.Option(
+        None, "--naughty/--no-naughty", help=_NAUGHTY_HELP
+    ),
+) -> None:
+    """Update a source's name and/or browser user-agent flag; the rest is kept."""
+    if name is None and naughty is None:
+        console.print("[red]❌ Nothing to update:[/red] give --name or --[no-]naughty")
+        raise typer.Exit(1)
+    try:
+        api_client = APIClient()
+        api_client.update_source(source_id, name=name, naughty=naughty)
+        console.print(f"[green]✅ Updated source:[/green] {escape(str(source_id))}")
+
+    except Exception as e:
+        console.print(f"[red]❌ Failed to update source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 

@@ -160,7 +160,11 @@ class APIClient:
             raise RuntimeError(f"Unexpected error: {e}") from e
 
     def add_source(
-        self, url: str, source_type: str, name: str | None = None
+        self,
+        url: str,
+        source_type: str,
+        name: str | None = None,
+        naughty: bool = False,
     ) -> dict[str, Any]:
         """Add a new source via API.
 
@@ -168,6 +172,7 @@ class APIClient:
             url: Source URL
             source_type: Type of source (rss, reddit, youtube)
             name: Optional custom name
+            naughty: Whether the daemon sends a browser user-agent for this source
 
         Returns:
             API response data
@@ -178,9 +183,35 @@ class APIClient:
         data = self._send_json(
             "POST",
             "/api/sources",
-            json={"url": url, "type": source_type, "name": name},
+            json={"url": url, "type": source_type, "name": name, "naughty": naughty},
         )
         return data.get("data", {})
+
+    def update_source(
+        self, source_id: str, name: str | None = None, naughty: bool | None = None
+    ) -> bool:
+        """Update a source's name and/or naughty flag via API.
+
+        Only the fields given are sent; the daemon keeps every field left out.
+
+        Args:
+            source_id: UUID of source to update
+            name: New name, or None to keep the stored one
+            naughty: New naughty flag, or None to keep the stored one
+
+        Returns:
+            True if successful
+
+        Raises:
+            RuntimeError: If API request fails
+        """
+        body: dict[str, Any] = {}
+        if name is not None:
+            body["name"] = name
+        if naughty is not None:
+            body["naughty"] = naughty
+        self._send_json("PATCH", f"/api/sources/{source_id}", json=body)
+        return True
 
     def remove_source(self, source_id: str) -> bool:
         """Remove a source via API.

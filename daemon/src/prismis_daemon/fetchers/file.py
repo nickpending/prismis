@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from ..article_extractor import user_agent
 from ..config import Config
 from ..models import ContentItem
 from ..observability import log as obs_log
@@ -79,7 +80,14 @@ class FileFetcher:
 
         # Fetch current content
         try:
-            response = self.client.get(url)
+            response = self.client.get(
+                url,
+                headers={
+                    "User-Agent": user_agent(
+                        bool(source.get("naughty")), self.client.headers["User-Agent"]
+                    )
+                },
+            )
             response.raise_for_status()
 
             # Validate content type (text/markdown only)

@@ -146,7 +146,47 @@ def test_add_source_posts_body_and_returns_data(recording_server: str) -> None:
         "url": "http://x.com/feed",
         "type": "rss",
         "name": "X Feed",
+        "naughty": False,
     }
+
+
+def test_add_source_posts_the_naughty_flag(recording_server: str) -> None:
+    client = _make_client(recording_server)
+
+    client.add_source("http://x.com/feed", "rss", naughty=True)
+
+    assert _RecordingHandler.received_body == {
+        "url": "http://x.com/feed",
+        "type": "rss",
+        "name": None,
+        "naughty": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "body"),
+    [
+        pytest.param({"naughty": False}, {"naughty": False}, id="flag-only"),
+        pytest.param({"name": "New"}, {"name": "New"}, id="name-only"),
+        pytest.param(
+            {"name": "New", "naughty": True},
+            {"name": "New", "naughty": True},
+            id="both",
+        ),
+    ],
+)
+def test_update_source_patches_only_the_fields_given(
+    recording_server: str, kwargs: dict, body: dict
+) -> None:
+    """A field not given is left out of the PATCH body, so the daemon keeps it."""
+    client = _make_client(recording_server)
+
+    result = client.update_source("src-1", **kwargs)
+
+    assert result is True
+    assert _RecordingHandler.received_method == "PATCH"
+    assert _RecordingHandler.received_path == "/api/sources/src-1"
+    assert _RecordingHandler.received_body == body
 
 
 def test_remove_source_deletes_and_returns_true(recording_server: str) -> None:

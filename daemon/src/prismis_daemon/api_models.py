@@ -16,22 +16,53 @@ def _rfc3339(v: datetime | None) -> str | None:
     return None if v is None else v.isoformat()
 
 
+SourceType = Literal["rss", "reddit", "youtube", "file"]
+
+_NAUGHTY_DESCRIPTION = (
+    "Send a browser user-agent instead of prismis's own identifier on every "
+    "request for this source (feed, articles, validation)"
+)
+
+
+def _clean_url(v: str) -> str:
+    """Basic URL validation and cleanup."""
+    v = v.strip()
+    if not v:
+        raise ValueError("URL cannot be empty")
+    return v
+
+
 class SourceRequest(BaseModel):
     """Request model for adding a content source."""
 
     url: str = Field(..., description="URL of the content source")
-    type: Literal["rss", "reddit", "youtube", "file"] = Field(
-        ..., description="Type of source"
-    )
+    type: SourceType = Field(..., description="Type of source")
     name: str | None = Field(None, description="Optional custom name for the source")
+    # default= by keyword: type checkers read only that spelling as optional, and a
+    # client that predates the field must still construct the request.
+    naughty: bool = Field(default=False, description=_NAUGHTY_DESCRIPTION)
 
     @field_validator("url", mode="before")
     def validate_url(cls, v: str) -> str:
         """Basic URL validation and cleanup."""
-        v = v.strip()
-        if not v:
-            raise ValueError("URL cannot be empty")
-        return v
+        return _clean_url(v)
+
+
+class SourceUpdateRequest(BaseModel):
+    """Request model for updating a content source: every field is optional, and a
+    field left out keeps its stored value."""
+
+    url: str | None = Field(None, description="New URL of the content source")
+    type: SourceType | None = Field(
+        None, description="Type of source; the stored type when absent"
+    )
+    name: str | None = Field(None, description="New name for the source")
+    naughty: bool | None = Field(None, description=_NAUGHTY_DESCRIPTION)
+
+    @field_validator("url", mode="before")
+    def validate_url(cls, v: str | None) -> str | None:
+        """Basic URL validation and cleanup, when a URL is sent."""
+        return None if v is None else _clean_url(v)
 
 
 class APIResponse(BaseModel):
@@ -53,6 +84,7 @@ class SourceResponse(BaseModel):
     last_fetched: datetime | None = Field(None, description="Last fetch timestamp")
     error_count: int = Field(0, description="Number of consecutive errors")
     last_error: str | None = Field(None, description="Last error message")
+    naughty: bool = Field(default=False, description=_NAUGHTY_DESCRIPTION)
 
     @field_serializer("last_fetched")
     def _serialize_last_fetched(self, v: datetime | None) -> str | None:

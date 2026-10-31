@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS sources (
     last_error TEXT,
     last_fetched_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'),
-    updated_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00')
+    updated_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'),
+    naughty INTEGER NOT NULL DEFAULT 0  -- 1: every request for this source sends the browser user-agent
 );
 
 -- Many-to-many relationship between sources and categories

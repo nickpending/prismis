@@ -63,7 +63,7 @@ def test_find_source_by_id_does_not_match_on_substring() -> None:
 def test_format_source_row_truncates_a_long_name() -> None:
     """Names over 25 chars are cut to 22 plus an ellipsis, so the column stays aligned."""
     source = {"id": "1", "type": "rss", "name": "x" * 40, "active": True}
-    _, _, name, _, _, _ = format_source_row(source)
+    _, _, name, _, _, _, _ = format_source_row(source)
     assert name == "x" * 22 + "..."
     assert len(name) == 25
 
@@ -118,3 +118,20 @@ def test_format_source_row_renders_a_never_fetched_source() -> None:
         "last_fetched": None,
     }
     assert format_source_row(source)[5] == "Never"
+
+
+@pytest.mark.parametrize(
+    ("source_fields", "expected"),
+    [
+        pytest.param({"naughty": True}, "browser", id="marked"),
+        pytest.param({"naughty": False}, "prismis", id="unmarked"),
+        pytest.param({}, "prismis", id="daemon-without-the-field"),
+    ],
+)
+def test_format_source_row_names_the_user_agent_the_source_sends(
+    source_fields: dict, expected: str
+) -> None:
+    """The seventh column names which user-agent the daemon sends for the source; a
+    daemon older than the flag sends no `naughty`, and its sources send prismis's."""
+    source = {"id": "1", "type": "rss", "name": "n", "active": True, **source_fields}
+    assert format_source_row(source)[6] == expected

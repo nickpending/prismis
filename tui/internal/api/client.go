@@ -42,11 +42,14 @@ type APIClient struct {
 	httpClient *http.Client
 }
 
-// SourceRequest represents a request to add a source
+// SourceRequest represents a request to add a source. Naughty is omitted when false:
+// the daemon then stores an added source unmarked and leaves an updated one's mark as
+// it was, so a rename from the TUI never clears it.
 type SourceRequest struct {
-	URL  string  `json:"url"`
-	Type string  `json:"type,omitempty"`
-	Name *string `json:"name,omitempty"`
+	URL     string  `json:"url"`
+	Type    string  `json:"type,omitempty"`
+	Name    *string `json:"name,omitempty"`
+	Naughty bool    `json:"naughty,omitempty"`
 }
 
 // APIResponse represents the standard API response format
@@ -66,6 +69,7 @@ type Source struct {
 	LastFetched *time.Time `json:"last_fetched,omitempty"`
 	ErrorCount  int        `json:"error_count"`
 	LastError   *string    `json:"last_error,omitempty"`
+	Naughty     bool       `json:"naughty"` // the daemon sends a browser user-agent for it
 }
 
 // SourceListResponse represents the response from GET /api/sources

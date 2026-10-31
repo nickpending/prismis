@@ -23,6 +23,39 @@ from ..readability import (
 logger = logging.getLogger(__name__)
 
 
+def _author_names(authors: object) -> list[str]:
+    """The stripped name, or the email when there is no name, of each author dict."""
+    if not isinstance(authors, list):
+        return []
+    names = []
+    for author in authors:
+        if not isinstance(author, dict):
+            continue
+        name = str(author.get("name") or "").strip()
+        name = name or str(author.get("email") or "").strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def _entry_author(entry: dict, feed: dict) -> str | None:
+    """Who wrote `entry`: its own authors, or an Atom feed's, joined with ", ".
+
+    Reads feedparser's `authors` list, never `entry.author`, which holds only the last
+    of several authors and keeps RSS 2.0's raw `email (Name)` form. An Atom entry with
+    no author of its own inherits the feed's (RFC 4287 section 4.2.1), which feedparser
+    does not copy down. An RSS entry never inherits: feedparser fills an RSS feed's
+    `authors` from managingEditor, which names an editor, not each item's writer.
+
+    Returns:
+        The names joined with ", ", or None when there are none
+    """
+    names = _author_names(entry.get("authors"))
+    if not names and str(feed.get("version") or "").startswith("atom"):
+        names = _author_names((feed.get("feed") or {}).get("authors"))
+    return ", ".join(names) or None
+
+
 class RSSFetcher:
     """Fetches and processes RSS feed content with full article extraction.
 
@@ -168,6 +201,10 @@ class RSSFetcher:
                             hn_id, url, content
                         )
 
+                    # Stored where Reddit stores its author, so search's author
+                    # filter reads one key for both.
+                    author = _entry_author(entry, feed)
+
                     # Create ContentItem (use fetched_at if no published_at)
                     fetched_at = datetime.now(UTC)
                     item = ContentItem(
@@ -190,6 +227,7 @@ class RSSFetcher:
                                     if comments_outcome
                                     else {}
                                 ),
+                                **({"metrics": {"author": author}} if author else {}),
                             }
                             or None
                         ),

@@ -541,6 +541,12 @@ Search content using semantic similarity (embeddings). Results are ranked by
 - `min_score` (number 0.0–1.0, default: 0.1): Minimum `relevance_score`; the default filters
   near-zero noise, and `0.0` disables the filter
 - `source` (string, optional): Filter by source name (case-insensitive substring)
+- `author` (string, optional): Filter by author (case-insensitive substring of
+  `analysis.metrics.author`). Reddit posts carry their poster's username, and RSS items
+  fetched from now on carry their entry's authors, or for an Atom entry that names none,
+  the feed's. Items without an author (YouTube, file sources, RSS items stored before
+  authors were captured, and RSS entries that name no author) never match. Constrains the
+  KNN candidate query like `kind`, and combines with `source` and `kind`.
 - `compact` (boolean, default: false): Compact format for LLM consumption. Each item carries only
   `id`, `title`, `url`, `priority`, `kind`, `title_only`, `title_only_reason`, `relevance_score`,
   `published_at`, `source_name` and `summary`; every other field (including `read`, `favorited`,
@@ -575,7 +581,7 @@ Search content using semantic similarity (embeddings). Results are ranked by
     ],
     "total": 1,
     "query": "distributed systems",
-    "filters_applied": {"limit": 20, "min_score": 0.1, "source": null, "kind": null, "compact": false}
+    "filters_applied": {"limit": 20, "min_score": 0.1, "source": null, "kind": null, "author": null, "compact": false}
   }
 }
 ```

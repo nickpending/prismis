@@ -2009,6 +2009,7 @@ class Storage:
         min_score: float = 0.0,
         source_filter: str | None = None,
         kind_filter: list[str] | None = None,
+        author_filter: str | None = None,
     ) -> list[dict[str, Any]]:
         """Semantic search using similarity-first ranking with source authority.
 
@@ -2027,6 +2028,9 @@ class Storage:
                 so a filter on anything outside the unfiltered top-100 nearest
                 neighbours still finds its matches -- filtering the top 100
                 afterward (the original defect) would silently drop them instead.
+            author_filter: Optional substring of analysis.metrics.author
+                (case-insensitive). Constrains the KNN candidate query like
+                kind_filter; an item with no stored author never matches.
 
         Returns:
             List of content dicts with relevance_score field
@@ -2038,10 +2042,10 @@ class Storage:
             # First get top candidates by similarity from vec_content
             embedding_json = json.dumps(query_embedding)
 
-            # SC-1: kind/source filters constrain the KNN candidate query itself, not
-            # the top-100 pool after the fact. The candidate subquery is only added
-            # when a filter is actually given, so the unfiltered path (today's
-            # behaviour) is untouched.
+            # SC-1: kind/source/author filters constrain the KNN candidate query
+            # itself, not the top-100 pool after the fact. The candidate subquery is
+            # only added when a filter is actually given, so the unfiltered path
+            # (today's behaviour) is untouched.
             knn_query = """
                 SELECT
                     content_id,
@@ -2051,7 +2055,7 @@ class Storage:
             """
             knn_params: list[Any] = [embedding_json]
 
-            if source_filter or kind_filter:
+            if source_filter or kind_filter or author_filter:
                 candidate_query = (
                     "SELECT c.id FROM content c "
                     "LEFT JOIN sources s ON c.source_id = s.id WHERE 1=1"
@@ -2060,6 +2064,12 @@ class Storage:
                     candidate_query += " AND LOWER(s.name) LIKE '%' || LOWER(?) || '%'"
                     knn_params.append(source_filter)
                 candidate_query += self._kind_filter_sql(kind_filter, knn_params)
+                if author_filter:
+                    candidate_query += (
+                        " AND LOWER(json_extract(c.analysis, '$.metrics.author'))"
+                        " LIKE '%' || LOWER(?) || '%'"
+                    )
+                    knn_params.append(author_filter)
                 knn_query += " AND content_id IN (" + candidate_query + ")"
 
             knn_query += " ORDER BY distance LIMIT 100"
@@ -2071,9 +2081,9 @@ class Storage:
             if not candidates:
                 return []
 
-            # Get content details for candidates. The kind/source filters already
-            # narrowed the candidate set above, so this query needs no filter of
-            # its own -- every content_id here already matched.
+            # Get content details for candidates. The kind/source/author filters
+            # already narrowed the candidate set above, so this query needs no filter
+            # of its own -- every content_id here already matched.
             content_ids = [row["content_id"] for row in candidates]
 
             # Build safe IN clause with parameterized placeholders

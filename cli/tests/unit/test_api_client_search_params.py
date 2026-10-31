@@ -4,9 +4,14 @@ Protects:
 - INV: min_score=0.0 is included in params (not dropped by falsy guard)
 - INV: min_score=None omits the param (server default applies)
 - INV: explicit min_score value is sent as-is to the API
+- INV: author is sent when given, and no `author` key is sent when it is absent
 
-The critical line is api_client.py:606 `if min_score is not None:`.
-A falsy guard `if min_score:` would silently drop 0.0, breaking the override path.
+The critical line is the `if min_score is not None:` guard in api_client.py's
+`search` method. A falsy guard `if min_score:` would silently drop 0.0, breaking the
+override path.
+
+The probe parses with keep_blank_values, so an empty `author=` still counts as a key
+the request carried rather than vanishing in the parse.
 
 Tests bypass APIClient.__init__ (avoids config-file dependency) and drive the real
 APIClient.search() over a real loopback socket against `param_probe`: a real local
@@ -46,7 +51,7 @@ class _ParamProbeHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         query = urllib.parse.urlparse(self.path).query
-        params = urllib.parse.parse_qs(query)
+        params = urllib.parse.parse_qs(query, keep_blank_values=True)
         payload = {
             "success": True,
             "data": {
@@ -54,6 +59,8 @@ class _ParamProbeHandler(http.server.BaseHTTPRequestHandler):
                     {
                         "has_min_score": "min_score" in params,
                         "min_score_value": params.get("min_score", [None])[0],
+                        "has_author": "author" in params,
+                        "author_value": params.get("author", [None])[0],
                     }
                 ]
             },
@@ -140,3 +147,28 @@ def test_explicit_min_score_sent_as_is(param_probe: str) -> None:
     assert results[0]["min_score_value"] == "0.15", (
         f"min_score=0.15 must reach API unchanged, got: {results[0]['min_score_value']}"
     )
+
+
+def test_author_sent_when_given(param_probe: str) -> None:
+    """
+    INVARIANT: author='jane' reaches the request as the `author` param unchanged.
+    BREAKS: The server never sees the filter and returns every author's items.
+    """
+    client = _make_client(param_probe)
+
+    results = client.search("test query", author="jane")
+
+    assert results[0]["has_author"] is True, results[0]
+    assert results[0]["author_value"] == "jane", results[0]
+
+
+def test_author_absent_omits_param(param_probe: str) -> None:
+    """
+    INVARIANT: with no author, the request carries no `author` key at all.
+    BREAKS: An empty `author=` param reaches the server on every plain search.
+    """
+    client = _make_client(param_probe)
+
+    results = client.search("test query")
+
+    assert results[0]["has_author"] is False, results[0]

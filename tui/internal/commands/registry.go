@@ -43,6 +43,7 @@ func NewRegistry() *Registry {
 	r.Register("up", cmdUpvote)
 	r.Register("down", cmdDownvote)
 	r.Register("open", cmdOpen)
+	r.Register("agent", cmdAgent)
 	r.Register("yank", cmdYank)
 	r.Register("copy", cmdCopy)
 
@@ -340,6 +341,13 @@ func cmdOpen(args []string) tea.Cmd {
 	}
 }
 
+// cmdAgent opens the current article in the configured agent (prismis-cli open)
+func cmdAgent(args []string) tea.Cmd {
+	return func() tea.Msg {
+		return AgentMsg{}
+	}
+}
+
 // cmdYank copies current article URL to clipboard
 func cmdYank(args []string) tea.Cmd {
 	return func() tea.Msg {
@@ -530,6 +538,9 @@ type DownvoteMsg struct{}
 
 // OpenMsg signals to open URL in browser
 type OpenMsg struct{}
+
+// AgentMsg signals to open the current article in the configured agent
+type AgentMsg struct{}
 
 // YankMsg signals to copy URL to clipboard
 type YankMsg struct{}

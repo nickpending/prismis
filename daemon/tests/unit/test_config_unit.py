@@ -293,3 +293,28 @@ def test_fetch_allow_private_hosts_defaults_to_empty_and_reads_the_key() -> None
             )
         )
         assert Config.from_file(with_key).fetch_allow_private_hosts == ["127.0.0.1"]
+
+
+def test_an_agent_section_is_ignored_without_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    INVARIANT: a config.toml with an [agent] table of all four keys loads to the same
+               Config as the file without it, and logs no warning
+    BREAKS: configuring `prismis-cli open` stops the daemon from starting, or fills its
+            log with a warning about a section that belongs to the CLI
+    """
+    without = _write_config(tmp_path, fetch_interval=45)
+    with_section = tmp_path / "with-agent.toml"
+    with_section.write_text(
+        without.read_text()
+        + '\n[agent]\ntarget = "herdr"\ncommand = "ember claude"\nkind = "pi"\n'
+        'prompt = "Summarise it."\n'
+    )
+
+    with caplog.at_level(logging.WARNING):
+        loaded_with = Config.from_file(with_section)
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert loaded_with == Config.from_file(without)
+    assert loaded_with.fetch_interval == 45

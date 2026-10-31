@@ -175,6 +175,8 @@ func (m HelpModal) View(theme StyleTheme) string {
 	content.WriteString(format2Col("i", "View upvoted items", ":open", "Open in browser"))
 	content.WriteString("\n")
 	content.WriteString(format2Col(":yank/:copy", "Copy URL/field", ":fabric <pattern>", "AI analysis"))
+	content.WriteString("\n")
+	content.WriteString(format2Col("A / :agent", "Open in agent", "", ""))
 	content.WriteString("\n\n")
 
 	// SOURCE COMMANDS section

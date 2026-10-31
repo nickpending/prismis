@@ -471,6 +471,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, clearStatusAfterDelay(2*time.Second))
 		}
 
+	case commands.AgentMsg:
+		// Open the article in the configured agent (same as A)
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			return m, operations.OpenInAgent(m.items[m.cursor].ID, m.remoteURL)
+		}
+
 	case commands.YankMsg:
 		// Copy URL to clipboard (works in both list and reader views)
 		if len(m.items) > 0 && m.cursor < len(m.items) {
@@ -833,6 +839,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sourceModal.Show()
 				m.sourceModal.UpdateContent()
 			}
+		// Open the article in the configured agent (list and reader views alike)
+		case "A":
+			if len(m.items) > 0 && m.cursor < len(m.items) {
+				return m, operations.OpenInAgent(m.items[m.cursor].ID, m.remoteURL)
+			}
 		// Open help modal
 		case "?":
 			if m.view == "list" && !m.sourceModal.IsVisible() {
@@ -1071,6 +1082,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = "Context file closed"
 		}
 		cmds = append(cmds, clearStatusAfterDelay(3*time.Second))
+
+	case operations.AgentDoneMsg:
+		// Outcome of prismis-cli open: its own line, else the run's error
+		switch {
+		case msg.Line != "":
+			m.statusMessage = msg.Line
+		case msg.Err != nil:
+			m.statusMessage = fmt.Sprintf("prismis-cli open failed: %v", msg.Err)
+		default:
+			m.statusMessage = "agent closed"
+		}
+		cmds = append(cmds, clearStatusAfterDelay(5*time.Second))
 
 	case operations.AudioOperationMsg:
 		// Handle audio briefing generation message from operations package

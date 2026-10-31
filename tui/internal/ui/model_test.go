@@ -2,15 +2,21 @@ package ui
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nickpending/prismis/internal/commands"
 	"github.com/nickpending/prismis/internal/db"
+	"github.com/nickpending/prismis/internal/ui/operations"
 )
 
 // remoteTestConfig points XDG_CONFIG_HOME at a temp config.toml with a
@@ -544,6 +550,268 @@ func TestModelView(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// agentOutcomeLine is what the stub prismis-cli reports, the shape of a herdr launch.
+const agentOutcomeLine = "opened prismis-abcd1234 in pane w9:p9"
+
+// observedState is the Model a running Program reached after one message.
+type observedState struct {
+	msg   tea.Msg
+	model Model
+}
+
+// observedModel runs the real Model inside a tea.Program and reports every state it
+// reaches, so a test waits on an outcome instead of sleeping. Init returns nothing: the
+// items a test gives the Model stay its items, with no fetch replacing them.
+type observedModel struct {
+	Model
+	states chan observedState
+}
+
+func (o observedModel) Init() tea.Cmd { return nil }
+
+func (o observedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := o.Model.Update(msg)
+	o.Model = next.(Model)
+	o.states <- observedState{msg: msg, model: o.Model}
+	return o, cmd
+}
+
+// agentProgram runs m in a real tea.Program whose input is the read end of an os.Pipe,
+// which ExecProcess needs to hand the terminal to a child and take it back. It returns
+// the pipe's write end, for keys, and the stream of states.
+func agentProgram(t *testing.T, m Model) (*os.File, chan observedState) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := make(chan observedState, 1024)
+	p := tea.NewProgram(observedModel{Model: m, states: states}, tea.WithInput(r), tea.WithOutput(io.Discard))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = p.Run()
+	}()
+	t.Cleanup(func() {
+		p.Quit()
+		<-done
+		_ = w.Close()
+		_ = r.Close()
+	})
+	return w, states
+}
+
+// waitFor returns the first state reached after a message that match accepts, and
+// false when none arrives within 5 s.
+func waitFor(states chan observedState, match func(tea.Msg) bool) (Model, bool) {
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case s := <-states:
+			if match(s.msg) {
+				return s.model, true
+			}
+		case <-deadline:
+			return Model{}, false
+		}
+	}
+}
+
+func isAgentDone(msg tea.Msg) bool {
+	_, ok := msg.(operations.AgentDoneMsg)
+	return ok
+}
+
+// typeKeys writes each key to the Program's input in turn and waits for the Model to
+// receive it before writing the next, as keys typed by hand arrive one at a time. It
+// returns the state after the last key.
+func typeKeys(t *testing.T, w *os.File, states chan observedState, keys ...string) Model {
+	t.Helper()
+	var got Model
+	for _, key := range keys {
+		if _, err := w.WriteString(key); err != nil {
+			t.Fatal(err)
+		}
+		var ok bool
+		got, ok = waitFor(states, func(msg tea.Msg) bool {
+			_, isKey := msg.(tea.KeyMsg)
+			return isKey
+		})
+		if !ok {
+			t.Fatalf("key %q never reached the Model", key)
+		}
+	}
+	return got
+}
+
+var colonAgent = []string{":", "a", "g", "e", "n", "t", "\r"}
+
+// stubAgentCLI puts a stub prismis-cli alone on PATH. Each run appends its argv,
+// NUL-separated and ended by a newline, to the returned record file, writes line to
+// the path after --status-file, and exits with code. TMPDIR is a fresh directory, so
+// the status file the TUI creates is the only file that can appear in it.
+func stubAgentCLI(t *testing.T, line string, code int) (record, tmpDir string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script stub needs a POSIX shell")
+	}
+	binDir := t.TempDir()
+	tmpDir = t.TempDir()
+	record = filepath.Join(t.TempDir(), "argv.record")
+	script := "#!/bin/sh\n" +
+		"printf '%s\\0' \"$@\" >> '" + record + "'\n" +
+		"printf '\\n' >> '" + record + "'\n" +
+		"prev=''\n" +
+		"for a in \"$@\"; do\n" +
+		"  if [ \"$prev\" = '--status-file' ]; then printf '%s\\n' '" + line + "' > \"$a\"; fi\n" +
+		"  prev=\"$a\"\n" +
+		"done\n" +
+		fmt.Sprintf("exit %d\n", code)
+	if err := os.WriteFile(filepath.Join(binDir, "prismis-cli"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+	t.Setenv("TMPDIR", tmpDir)
+	return record, tmpDir
+}
+
+// recordedRuns returns the argv of every recorded stub run.
+func recordedRuns(t *testing.T, record string) [][]string {
+	t.Helper()
+	data, err := os.ReadFile(record)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runs [][]string
+	for run := range strings.SplitSeq(strings.TrimSuffix(string(data), "\n"), "\n") {
+		runs = append(runs, strings.Split(strings.TrimSuffix(run, "\x00"), "\x00"))
+	}
+	return runs
+}
+
+// agentTestModel is a remote-mode Model over ds with two items, the cursor on the
+// first, and a working command mode for `:agent`.
+func agentTestModel(ds *detailServer) Model {
+	m := remoteModel(ds, slimItem(hydrateItemID), slimItem("item-2"))
+	m.commandMode = NewCommandMode()
+	return m
+}
+
+// TestOpenInAgent_HandsTheFocusedItemToPrismisCLI drives `A` and `:agent` through the
+// real Model in a real Program and checks the argv the stub prismis-cli ran with, the
+// status line the Program shows afterwards, and that the status file is gone.
+func TestOpenInAgent_HandsTheFocusedItemToPrismisCLI(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		remote bool
+		keys   []string
+	}{
+		{"A in remote mode", true, []string{"A"}},
+		{":agent in remote mode", true, colonAgent},
+		{"A in local mode", false, []string{"A"}},
+		{":agent in local mode", false, colonAgent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			remoteTestConfig(t)
+			ds := newDetailServer(t)
+			record, tmpDir := stubAgentCLI(t, agentOutcomeLine, 0)
+			m := agentTestModel(ds)
+			if !tc.remote {
+				m.remoteURL = ""
+			}
+			w, states := agentProgram(t, m)
+
+			typeKeys(t, w, states, tc.keys...)
+			got, done := waitFor(states, isAgentDone)
+
+			runs := recordedRuns(t, record)
+			if len(runs) != 1 {
+				t.Fatalf("prismis-cli ran %d times, want 1: %q", len(runs), runs)
+			}
+			if !done {
+				t.Fatal("no AgentDoneMsg within 5 s of the run")
+			}
+			argv := runs[0]
+			want := []string{"open", hydrateItemID, "--status-file"}
+			if tc.remote {
+				want = append([]string{"--remote", ds.URL}, want...)
+			}
+			if len(argv) != len(want)+1 || !reflect.DeepEqual(argv[:len(want)], want) {
+				t.Fatalf("argv = %q, want %q followed by a status-file path", argv, want)
+			}
+			statusPath := argv[len(want)]
+			if got.statusMessage != agentOutcomeLine {
+				t.Errorf("status line = %q, want %q", got.statusMessage, agentOutcomeLine)
+			}
+			if !strings.Contains(got.View(), agentOutcomeLine) {
+				t.Errorf("rendered view does not show the outcome line:\n%s", got.View())
+			}
+			if _, err := os.Stat(statusPath); !os.IsNotExist(err) {
+				t.Errorf("status file %s still exists (stat err %v)", statusPath, err)
+			}
+			if left, _ := os.ReadDir(tmpDir); len(left) != 0 {
+				t.Errorf("TMPDIR still holds %d file(s)", len(left))
+			}
+		})
+	}
+}
+
+// TestOpenInAgent_ShowsTheCLIFailureAndKeepsTheTUIWorking checks that the CLI's own
+// failure line reaches the status line, and that the TUI still answers keys after.
+func TestOpenInAgent_ShowsTheCLIFailureAndKeepsTheTUIWorking(t *testing.T) {
+	const failure = `No agent configured: set [agent] target = "claude", "pi" or "herdr" in config.toml`
+	remoteTestConfig(t)
+	ds := newDetailServer(t)
+	record, _ := stubAgentCLI(t, failure, 1)
+	w, states := agentProgram(t, agentTestModel(ds))
+
+	typeKeys(t, w, states, "A")
+	got, done := waitFor(states, isAgentDone)
+
+	if runs := recordedRuns(t, record); len(runs) != 1 {
+		t.Fatalf("prismis-cli ran %d times, want 1", len(runs))
+	}
+	if !done {
+		t.Fatal("no AgentDoneMsg within 5 s of the run")
+	}
+	if got.statusMessage != failure {
+		t.Errorf("status line = %q, want %q", got.statusMessage, failure)
+	}
+
+	got = typeKeys(t, w, states, "j")
+	if got.cursor != 1 {
+		t.Errorf("cursor after j = %d, want 1", got.cursor)
+	}
+}
+
+// TestOpenInAgent_WithoutPrismisCLIRunsNothing checks that with no prismis-cli on PATH
+// the TUI says so, and creates no status file for a run that cannot happen.
+func TestOpenInAgent_WithoutPrismisCLIRunsNothing(t *testing.T) {
+	remoteTestConfig(t)
+	ds := newDetailServer(t)
+	tmpDir := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("TMPDIR", tmpDir)
+	w, states := agentProgram(t, agentTestModel(ds))
+
+	typeKeys(t, w, states, "A")
+	got, done := waitFor(states, isAgentDone)
+
+	want := "prismis-cli is not installed; `A` needs it"
+	if !done {
+		t.Fatalf("no AgentDoneMsg within 5 s; want the status line %q", want)
+	}
+	if got.statusMessage != want {
+		t.Errorf("status line = %q, want %q", got.statusMessage, want)
+	}
+	if left, _ := os.ReadDir(tmpDir); len(left) != 0 {
+		t.Errorf("TMPDIR holds %d file(s); no status file should be created", len(left))
 	}
 }
 

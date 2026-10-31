@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import Any
 
 import tomllib
 
@@ -15,6 +16,40 @@ def set_remote_url(url: str | None) -> None:
     _remote_url = url
 
 
+def explicit_remote_url() -> str | None:
+    """Return the URL given with --remote, or None when the flag was not used."""
+    return _remote_url
+
+
+def config_toml_path() -> Path:
+    """Path of config.toml: $XDG_CONFIG_HOME/prismis, else ~/.config/prismis."""
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+    return Path(xdg_config_home) / "prismis" / "config.toml"
+
+
+def read_config_toml() -> dict[str, Any]:
+    """Read and parse config.toml.
+
+    Returns:
+        The parsed config, or {} when there is no config.toml.
+
+    Raises:
+        RuntimeError: If config.toml exists but cannot be read or parsed. Treating a
+            broken file as empty would send a command to the wrong daemon, or report
+            a section as missing when the file holding it is unreadable.
+    """
+    config_path = config_toml_path()
+
+    if not config_path.exists():
+        return {}
+
+    try:
+        with open(config_path, "rb") as f:
+            return tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+        raise RuntimeError(f"Failed to read {config_path}: {e}") from e
+
+
 def _load_remote_config() -> tuple[str | None, str | None]:
     """Load [remote] config from config.toml if present.
 
@@ -23,24 +58,14 @@ def _load_remote_config() -> tuple[str | None, str | None]:
         [remote] section.
 
     Raises:
-        RuntimeError: If config.toml exists but cannot be read or parsed. Falling back
-            to localhost with no key would send the command to the wrong daemon.
+        RuntimeError: If config.toml exists but cannot be read or parsed (from
+            read_config_toml), or its [remote] is not a table.
     """
-    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
-    config_path = Path(xdg_config_home) / "prismis" / "config.toml"
-
-    if not config_path.exists():
-        return None, None
-
-    try:
-        with open(config_path, "rb") as f:
-            config = tomllib.load(f)
-    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
-        raise RuntimeError(f"Failed to read {config_path}: {e}") from e
+    config = read_config_toml()
 
     remote = config.get("remote", {})
     if not isinstance(remote, dict):
-        raise RuntimeError(f"Invalid {config_path}: [remote] must be a table")
+        raise RuntimeError(f"Invalid {config_toml_path()}: [remote] must be a table")
     return remote.get("url"), remote.get("key")
 
 

@@ -115,6 +115,57 @@ key = "partial-key"
 	}
 }
 
+// TestLoadConfig_IgnoresAgentSection verifies an [agent] table, which only prismis-cli
+// reads, neither fails the TUI's config load nor changes the [remote] it resolves.
+func TestLoadConfig_IgnoresAgentSection(t *testing.T) {
+	base := `[daemon]
+fetch_interval = 30
+
+[llm]
+light_service = "openrouter"
+
+[reddit]
+client_id = "env:REDDIT_CLIENT_ID"
+
+[archival]
+enabled = true
+
+[remote]
+url = "http://cerebro:8989"
+key = "remote-key"
+`
+	withAgent := base + `
+[agent]
+target = "herdr"
+command = "ember claude"
+kind = "pi"
+prompt = "Summarise it."
+`
+	var got [][2]string
+	for _, content := range []string{base, withAgent} {
+		tmpDir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", tmpDir)
+		configDir := filepath.Join(tmpDir, "prismis")
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		config, err := LoadConfig()
+		if err != nil {
+			t.Fatalf("LoadConfig() failed: %v", err)
+		}
+		got = append(got, [2]string{config.GetRemoteURL(), config.GetRemoteKey()})
+	}
+
+	want := [2]string{"http://cerebro:8989", "remote-key"}
+	if got[0] != want || got[1] != want {
+		t.Errorf("remote without [agent] = %v, with = %v, want both %v", got[0], got[1], want)
+	}
+}
+
 func TestGetRefreshInterval(t *testing.T) {
 	config := &Config{
 		TUI: struct {

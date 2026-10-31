@@ -138,6 +138,32 @@ key = "the daemon's [api] key"
 The daemon listens on port 8989. With `[remote]` set, both `prismis-cli` and the TUI talk to that
 daemon instead of localhost; `prismis --remote http://server:8989` does the same for one run.
 
+## Opening an article in an agent
+
+`A` (or `:agent`) in the TUI, and `prismis-cli open <id>` from a shell, start an agent with a
+prompt naming the article (id, title, URL, summary), the two `prismis-cli get` commands that fetch
+the rest of it, and a starter line:
+
+```toml
+[agent]
+target = "claude"        # "claude", "pi" or "herdr"; no default: unset, nothing starts
+# command = "claude"     # default: the target's name; split on spaces, the prompt goes last
+# kind = "claude"        # herdr only, default "claude": the agent herdr starts ("pi" too)
+# prompt = "..."         # the starter line that ends the prompt
+```
+
+`command` is how a wrapper runs the engine: `command = "ember claude"` runs `ember claude <prompt>`.
+The default `prompt` is "I just read this. Help me dig into it: what matters, what is
+questionable, and where to go next."
+
+`claude` and `pi` take over the terminal until you exit them; the TUI then comes back with the
+outcome in its status line. `herdr` opens the agent in a pane to the right without taking focus, and
+the next `A` on the same article focuses that agent instead of opening another. herdr picks the
+executable itself from `kind`, so `command` does not apply to it.
+
+`A` runs `prismis-cli open`, so it needs prismis-cli on your PATH, and prismis-cli reaches the
+daemon over its API even when the TUI reads the database directly.
+
 ## New HIGH items on a Mac
 
 The daemon sends no desktop notifications. On a Mac, the Prismis menu-bar app shows unread HIGH

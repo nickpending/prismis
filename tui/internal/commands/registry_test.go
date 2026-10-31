@@ -129,3 +129,13 @@ func TestCmdPruneForce_InvalidAge(t *testing.T) {
 		t.Errorf("expected message %q, got %q", want, errMsg.Message)
 	}
 }
+
+// TestRegistry_AgentCommand verifies :agent is registered and produces an AgentMsg,
+// the message the Model answers by opening the current article in the agent.
+func TestRegistry_AgentCommand(t *testing.T) {
+	msg := NewRegistry().Execute("agent", nil)()
+
+	if _, ok := msg.(AgentMsg); !ok {
+		t.Fatalf("expected AgentMsg, got %T (%+v)", msg, msg)
+	}
+}

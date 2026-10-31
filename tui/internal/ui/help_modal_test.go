@@ -27,6 +27,22 @@ func TestHelpModal_ListsKindControls(t *testing.T) {
 	}
 }
 
+// TestHelpModal_ListsOpenInAgent verifies ARTICLE COMMANDS documents the `A` key and
+// the `:agent` command, the in-app discovery path for opening an article in an agent.
+func TestHelpModal_ListsOpenInAgent(t *testing.T) {
+	modal := NewHelpModal()
+	modal.Show()
+	modal.SetSize(120, 40)
+
+	output := modal.View(CleanCyberTheme)
+
+	for _, want := range []string{"A / :agent", "Open in agent"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("Expected help modal to contain %q. Got: %s", want, output)
+		}
+	}
+}
+
 // TestHelpModal_PriorityRow verifies 0, 1, 2, 3 and 4 share one key row, so the
 // unprioritized view is discoverable beside the floors it complements.
 func TestHelpModal_PriorityRow(t *testing.T) {

@@ -13,6 +13,7 @@ daemon_src = Path(__file__).parent.parent.parent.parent / "daemon" / "src"
 sys.path.insert(0, str(daemon_src))
 
 from cli import (  # noqa: E402 - must follow the sys.path setup above
+    agent,
     analyze,
     archive,
     context,
@@ -79,6 +80,9 @@ app.add_typer(analyze.app, name="analyze", help="Content analysis and repair")
 
 # Add single-command modules as direct commands
 app.command(name="get", help="Retrieve content entries")(get.get)
+app.command(name="open", help="Open a content entry in your configured agent")(
+    agent.open_entry
+)
 app.command(name="list", help="List content entries")(list.list)
 app.command(name="export", help="Export content to JSON/CSV")(export.export)
 app.command(name="extract", help="Backfill deep extractions for existing content")(

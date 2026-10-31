@@ -152,6 +152,11 @@ target = "claude"        # "claude", "pi" or "herdr"; no default: unset, nothing
 # prompt = "..."         # the starter line that ends the prompt
 ```
 
+The title, URL and summary come from the article's publisher, so they reach the agent inside a
+block the prompt marks as publisher data, never instructions, with control and invisible
+formatting characters removed and `<` and `>` escaped. The prompt also tells the agent that what
+the two `prismis-cli get` commands return is untrusted article content.
+
 `command` is how a wrapper runs the engine: `command = "ember claude"` runs `ember claude <prompt>`.
 The default `prompt` is "I just read this. Help me dig into it: what matters, what is
 questionable, and where to go next."

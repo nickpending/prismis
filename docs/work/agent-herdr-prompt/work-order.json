@@ -1,0 +1,120 @@
+{
+  "workOrder": "agent-herdr-prompt",
+  "what": "`prismis-cli open` with the herdr target starts the agent bare, retrying while the new pane's shell is not yet ready, and submits the prompt with `herdr agent prompt --wait --until working --until blocked`. It waits up to 120 s for a startup question to be answered in the new pane, and closes the pane it split when any other later step fails.",
+  "why": "docs/work/agent-herdr-prompt/design.md — open-agent's C5 walk failed: herdr refuses the multi-line prompt as an `agent start` argument, so no agent starts and the split pane is left as a bare shell.",
+  "criteria": [
+    {
+      "id": "C1",
+      "reproduces": true,
+      "given": "live_daemon with one seeded item, `[agent] target = \"herdr\"` and `kind = \"pi\"`, HERDR_ENV=1, and the stub herdr answering as herdr 0.9.5 does (errors as JSON on stderr, exit 1; a multi-line argument after `--` on `agent start` refused with invalid_agent_argument), recording every invocation's argv",
+      "when": "`prismis-cli open <id> --status-file <tmp>` runs",
+      "then": "Failing first, on the defect: at abb0caf the run exits 1, its outcome contains `invalid_agent_argument`, and no `pane close` is recorded, which is open-agent's failed C5 walk. After the fix, the invocations are exactly, in order: [`agent`,`list`]; [`pane`,`split`,`--current`,`--direction`,`right`,`--cwd`,<agent cwd>,`--no-focus`]; [`agent`,`start`,`prismis-<8>`,`--kind`,`pi`,`--pane`,`w9:p9`]; [`agent`,`prompt`,`prismis-<8>`,<the item's multi-line prompt>,`--wait`,`--until`,`working`,`--until`,`blocked`,`--timeout`,`30000`]. The run exits 0, and the status file holds `opened prismis-<8> in pane w9:p9`.",
+      "mutations": [
+        {
+          "id": "C1-M1",
+          "change": "Pass the prompt to `agent start` after `--` again: the stub refuses it and C1 goes red."
+        },
+        {
+          "id": "C1-M2",
+          "change": "Drop `--wait --until working --until blocked` from the prompt call: the recorded prompt invocation differs and C1 goes red."
+        }
+      ]
+    },
+    {
+      "id": "C2",
+      "given": "live_daemon with one seeded item, `[agent] target = \"herdr\"` and `kind = \"pi\"`, HERDR_ENV=1, and the stub herdr answering as herdr 0.9.5 does (errors as JSON on stderr, exit 1; a multi-line argument after `--` on `agent start` refused with invalid_agent_argument), recording every invocation's argv, with `agent start` answering agent_pane_busy twice and then succeeding; and separately answering agent_pane_busy every time",
+      "when": "`prismis-cli open <id>` runs in each case",
+      "then": "Failing first: at abb0caf, a busy answer ends the run at once. After the fix:\n- In the first case, three `agent start` invocations are recorded, then the prompt invocation, and the run exits 0.\n- In the second, exactly 20 `agent start` invocations are recorded, then [`pane`,`close`,`w9:p9`]. The outcome names agent start and the run exits 1.",
+      "mutations": [
+        {
+          "id": "C2-M1",
+          "change": "Remove the agent_pane_busy retry: the first case records one start and goes red."
+        }
+      ]
+    },
+    {
+      "id": "C3",
+      "given": "live_daemon with one seeded item, `[agent] target = \"herdr\"` and `kind = \"pi\"`, HERDR_ENV=1, and the stub herdr answering as herdr 0.9.5 does (errors as JSON on stderr, exit 1; a multi-line argument after `--` on `agent start` refused with invalid_agent_argument), recording every invocation's argv, with `agent start` answering agent_not_ready and `agent wait` answering success",
+      "when": "`prismis-cli open <id>` runs",
+      "then": "Failing first: at abb0caf, agent_not_ready ends the run as a failure. After the fix:\n- stderr carries one line naming `prismis-<8>`, pane `w9:p9` and a startup question to answer in that pane.\n- After the start, the invocations are [`agent`,`wait`,`prismis-<8>`,`--until`,`idle`,`--timeout`,`120000`], then the prompt invocation.\n- The run exits 0.",
+      "mutations": [
+        {
+          "id": "C3-M1",
+          "change": "Treat agent_not_ready like any other start failure: no wait is recorded, the pane is closed, and C3 goes red."
+        }
+      ]
+    },
+    {
+      "id": "C4",
+      "given": "live_daemon with one seeded item, `[agent] target = \"herdr\"` and `kind = \"pi\"`, HERDR_ENV=1, and the stub herdr answering as herdr 0.9.5 does (errors as JSON on stderr, exit 1; a multi-line argument after `--` on `agent start` refused with invalid_agent_argument), recording every invocation's argv, with `agent start` answering agent_not_ready and `agent wait` answering exit 1 with `{\"error\":{\"code\":\"timeout\"}}` on stderr",
+      "when": "`prismis-cli open <id> --status-file <tmp>` runs",
+      "then": "Failing first: at abb0caf, the run never reaches a wait. After the fix:\n- The status file holds `prismis-<8> did not get past its startup question within 120 s; it stays open in pane w9:p9 without the article prompt`.\n- The run exits 1.\n- Neither `agent prompt` nor `pane close` is recorded.",
+      "mutations": [
+        {
+          "id": "C4-M1",
+          "change": "Close the pane when the startup wait times out: a `pane close` is recorded and C4 goes red."
+        }
+      ]
+    },
+    {
+      "id": "C5",
+      "given": "live_daemon with one seeded item, `[agent] target = \"herdr\"` and `kind = \"pi\"`, HERDR_ENV=1, and the stub herdr answering as herdr 0.9.5 does (errors as JSON on stderr, exit 1; a multi-line argument after `--` on `agent start` refused with invalid_agent_argument), recording every invocation's argv, in turn: `agent start` answering another error code; `agent prompt` answering agent_prompt_stalled; `pane split` failing",
+      "when": "`prismis-cli open <id>` runs in each case",
+      "then": "Failing first: at abb0caf, no `pane close` is ever recorded. After the fix, each case exits 1 and its outcome names the failed step:\n- the start failure and the stalled prompt each record [`pane`,`close`,`w9:p9`] right after the failed call;\n- the failed split records no `pane close`.",
+      "mutations": [
+        {
+          "id": "C5-M1",
+          "change": "Remove the pane close after a failed step: the start-failure case records no close and C5 goes red."
+        }
+      ]
+    },
+    {
+      "id": "C6",
+      "given": "the existing herdr tests: already-open focus, HERDR_ENV unset, and the `agent list` that hangs past the timeout",
+      "when": "they run against the change, with the stub writing errors to stderr",
+      "then": "They pass, with their recorded invocations and outcomes unchanged, apart from the failed-split test reading herdr's error text from stderr."
+    },
+    {
+      "id": "C7",
+      "given": "docs/configuration.md's agent section",
+      "when": "the docs gate check runs and the section is read",
+      "then": "The section says the first launch in the agent directory may ask a startup question in the new pane, and that `A` waits up to 120 s for it to be answered there. The docs check passes."
+    }
+  ],
+  "issues": [],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "When the operator does not answer the startup question within 120 s, the agent stays open without the article prompt, and a later `A` on that article only focuses it (the already-open path sends no prompt).",
+      "frequency": {
+        "kind": "not-a-case",
+        "reason": "Only when the operator leaves the startup question unanswered for 120 s, and the question appears once per agent directory, which is one fixed directory by default since abb0caf."
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "While the startup question is pending, the TUI stays suspended for up to 120 s, because `prismis-cli open` runs inside its ExecProcess hand-off.",
+      "frequency": {
+        "kind": "not-a-case",
+        "reason": "Once per agent directory, on the first launch there, and the default agent directory is one fixed path since abb0caf."
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "Closing the pane after a failed prompt submission also ends the agent that had started in it.",
+      "frequency": {
+        "kind": "not-a-case",
+        "reason": "Only when herdr rejects a prompt submission. No submission failed in this session's real-herdr probes, and the orchestrator ruled that no pane is left behind on failure."
+      }
+    }
+  ],
+  "stakes": [
+    "Reproducing the defect: the stub rejects a multi-line `agent start` argument exactly as herdr 0.9.5 does, and an item is seeded through live_daemon with `target = \"herdr\"`, `kind = \"pi\"` and HERDR_ENV=1.\n- At abb0caf, `prismis-cli open <id>` exits 1 with an outcome containing `invalid_agent_argument`, and records no `pane close`, so a bare pane would be left behind.\n- After the fix the invocations are exactly, in order: [`agent`,`list`]; [`pane`,`split`,`--current`,`--direction`,`right`,`--cwd`,<agent cwd>,`--no-focus`]; [`agent`,`start`,`prismis-<8>`,`--kind`,`pi`,`--pane`,`w9:p9`]; [`agent`,`prompt`,`prismis-<8>`,<the multi-line prompt>,`--wait`,`--until`,`working`,`--until`,`blocked`,`--timeout`,`30000`].\n- The run exits 0 with `opened prismis-<8> in pane w9:p9`.",
+    "Busy pane: when the stub answers `agent start` with agent_pane_busy twice and then succeeds, three start invocations are recorded and the prompt follows. When it answers agent_pane_busy on every attempt, exactly 20 start invocations are recorded, then `pane close w9:p9`, and the outcome names agent start, with exit 1.",
+    "Startup question: when the stub answers `agent start` with agent_not_ready and `agent wait` with success, stderr carries the line naming `prismis-<8>`, pane `w9:p9` and the startup question. The invocations continue [`agent`,`wait`,`prismis-<8>`,`--until`,`idle`,`--timeout`,`120000`], then the prompt invocation, and the run exits 0.",
+    "Unanswered startup question: when the stub answers `agent wait` with exit 1 and `{\"error\":{\"code\":\"timeout\"}}`, the outcome reads `prismis-<8> did not get past its startup question within 120 s; it stays open in pane w9:p9 without the article prompt`. The run exits 1, and neither `agent prompt` nor `pane close` is recorded.",
+    "Cleanup: a `pane close w9:p9` invocation follows the failed call, and the outcome names the failed step, with exit 1, in each of these cases:\n- the stub fails `agent start` with another error code;\n- it fails `agent prompt` with agent_prompt_stalled.\nA failed `pane split` records no `pane close`.",
+    "Unchanged paths: the already-open focus path, the HERDR_ENV-unset path and the timeout test for a hanging `agent list` pass unchanged.",
+    "Docs: configuration.md's agent section says the first launch may ask a startup question in the new pane and that `A` waits up to 120 s for it, and the docs gate check passes."
+  ]
+}

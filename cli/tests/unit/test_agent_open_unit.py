@@ -11,12 +11,17 @@ Invariants protected:
   - the engine and the herdr pane start in [agent] cwd (`~` expanded, created if
     missing), by default $XDG_DATA_HOME/prismis/agent, never the launch directory
   - with the herdr target the CLI lists agents, then focuses the article's live agent
-    or splits a pane and starts one, and stops at the first herdr call that fails,
-    answers without the expected field, or outlives HERDR_TIMEOUT_SECONDS
+    or splits a pane, starts the agent bare and submits the prompt with `agent prompt`;
+    it stops at the first herdr call that fails, answers without the expected field, or
+    outlives HERDR_TIMEOUT_SECONDS
+  - a new pane that is still busy is retried up to 20 starts, a startup question gets
+    a 120 s `agent wait`, and any other failure after the split closes that pane, while
+    an unanswered startup question leaves the agent open in it
   - no target, an unknown target, an unreadable config.toml or an id the daemon lacks
     starts nothing and exits 1 with one outcome line
 
-The CLI runs as a real subprocess (in-process through CliRunner for the timeout case)
+The CLI runs as a real subprocess (in-process through CliRunner where a test shortens a
+timing constant: the hanging call and the 20 busy starts)
 against live_daemon: the daemon's own app over real Storage. The engines and herdr are
 the external boundary. Each stub, first on PATH, records every invocation's argv
 NUL-separated in a file of its own, numbered in call order.
@@ -63,8 +68,23 @@ n = len(list(record.glob("{name}-*.argv")))
 (record / f"{name}-{{n:03d}}.cwd").write_text(os.getcwd())
 """
 
-# herdr's answers, keyed on the first two arguments. AGENTS is filled per test.
+# herdr's answers, keyed on the first two arguments, as herdr 0.9.5 gives them: success
+# JSON on stdout, an error as JSON on stderr with exit 1. AGENTS and each `on_*` step are
+# filled per test; a step calls fail(code) to answer with that error, and earlier(sub)
+# counts the calls to `sub` made before this one.
 _HERDR_BODY = """
+def fail(code, message="refused"):
+    error = {{"error": {{"code": code, "message": message}}, "id": "cli:" + ":".join(args[:2])}}
+    sys.stderr.write(json.dumps(error, separators=(",", ":")) + "\\n")
+    sys.exit(1)
+
+
+def earlier(sub):
+    prefix = b"".join(os.fsencode(a) + b"\\0" for a in sub)
+    calls = sorted(record.glob("herdr-*.argv"))[:n]
+    return sum(p.read_bytes().startswith(prefix) for p in calls)
+
+
 AGENTS = {agents}
 if args[:2] == ["agent", "list"]:
     {on_list}
@@ -72,6 +92,24 @@ if args[:2] == ["agent", "list"]:
 elif args[:2] == ["pane", "split"]:
     {on_split}
     print('{{"result":{{"pane":{{"pane_id":"w9:p9"}}}}}}')
+elif args[:2] == ["agent", "start"]:
+    after = args[args.index("--") + 1 :] if "--" in args else []
+    if any("\\n" in a for a in after):
+        fail(
+            "invalid_agent_argument",
+            "agent arguments cannot be encoded safely for the target shell",
+        )
+    {on_start}
+    print(json.dumps({{"id": "cli:agent:start", "result": {{"agent": {{"name": args[2]}}}}}}))
+elif args[:2] == ["agent", "prompt"]:
+    {on_prompt}
+    print('{{"id":"cli:agent:prompt","result":{{"status":"working"}}}}')
+elif args[:2] == ["agent", "wait"]:
+    {on_wait}
+    print('{{"id":"cli:agent:wait","result":{{"status":"idle"}}}}')
+elif args[:2] == ["pane", "close"]:
+    {on_close}
+    print('{{"id":"cli:pane:close","result":{{}}}}')
 """
 
 _OTHER_AGENTS = [
@@ -121,9 +159,38 @@ def _herdr_stub(
     agents: list[dict[str, str]],
     on_list: str = "pass",
     on_split: str = "pass",
+    on_start: str = "pass",
+    on_prompt: str = "pass",
+    on_wait: str = "pass",
+    on_close: str = "pass",
 ) -> None:
-    body = _HERDR_BODY.format(agents=repr(agents), on_list=on_list, on_split=on_split)
+    body = _HERDR_BODY.format(
+        agents=repr(agents),
+        on_list=on_list,
+        on_split=on_split,
+        on_start=on_start,
+        on_prompt=on_prompt,
+        on_wait=on_wait,
+        on_close=on_close,
+    )
     _stub(bin_dir, record_dir, "herdr", body)
+
+
+def _split_call() -> list[str]:
+    """The `pane split` invocation, at the default agent directory."""
+    split = ["pane", "split", "--current", "--direction", "right"]
+    return [*split, "--cwd", str(_default_agent_dir()), "--no-focus"]
+
+
+def _start_call(name: str) -> list[str]:
+    """The bare `agent start` invocation in the split pane."""
+    return ["agent", "start", name, "--kind", "pi", "--pane", "w9:p9"]
+
+
+def _prompt_call(name: str, prompt: str) -> list[str]:
+    """The `agent prompt` invocation that submits the prompt and waits for it to land."""
+    until = ["--until", "working", "--until", "blocked"]
+    return ["agent", "prompt", name, prompt, "--wait", *until, "--timeout", "30000"]
 
 
 def _invocations(record_dir: Path, name: str) -> list[list[str]]:
@@ -478,7 +545,7 @@ def test_command_and_prompt_override_and_remote_reaches_the_fetch_lines(
     assert local.stdout == "pi session ended\n"
 
 
-def test_herdr_splits_a_pane_and_starts_the_agent_in_it(
+def test_herdr_starts_the_agent_bare_and_submits_the_prompt_through_agent_prompt(
     live_daemon: LiveDaemon,
     isolated_xdg_env: Path,
     bin_dir: Path,
@@ -487,15 +554,20 @@ def test_herdr_splits_a_pane_and_starts_the_agent_in_it(
     tmp_path: Path,
 ) -> None:
     """
-    INVARIANT: list, split right without focus at the agent directory, then start
-               prismis-<8> in the new pane with the prompt after `--`
-    BREAKS: the agent starts in an unknown pane, takes focus, or gets no prompt
+    INVARIANT: list, split right without focus at the agent directory, start
+               prismis-<8> bare in the new pane, then submit the multi-line prompt as
+               one `agent prompt` argument that waits until the agent is working or
+               blocked
+    BREAKS: herdr refuses the multi-line prompt as an `agent start` argument
+            (invalid_agent_argument), so no agent starts and a bare shell pane is left
     """
     item_id = _seed(live_daemon, title="Rates and taxes", summary="Short.")
     _add_agent_section(isolated_xdg_env, 'target = "herdr"\nkind = "pi"\n')
     _herdr_stub(bin_dir, record_dir, agents=_OTHER_AGENTS)
     status_file = tmp_path / "status.txt"
     name = f"prismis-{item_id[:8]}"
+    prompt = _prompt(item_id, "Rates and taxes", "Short.", DEFAULT_STARTER)
+    assert "\n" in prompt
 
     result = _run_open(
         ["open", item_id, "--status-file", str(status_file)],
@@ -506,30 +578,256 @@ def test_herdr_splits_a_pane_and_starts_the_agent_in_it(
 
     assert _invocations(record_dir, "herdr") == [
         ["agent", "list"],
-        [
-            "pane",
-            "split",
-            "--current",
-            "--direction",
-            "right",
-            "--cwd",
-            str(_default_agent_dir()),
-            "--no-focus",
-        ],
-        [
-            "agent",
-            "start",
-            name,
-            "--kind",
-            "pi",
-            "--pane",
-            "w9:p9",
-            "--",
-            _prompt(item_id, "Rates and taxes", "Short.", DEFAULT_STARTER),
-        ],
+        _split_call(),
+        _start_call(name),
+        _prompt_call(name, prompt),
     ], result.stderr
     assert result.returncode == 0, result.stderr
     assert status_file.read_text() == f"opened {name} in pane w9:p9\n"
+
+
+def test_herdr_retries_start_while_the_new_pane_is_busy(
+    live_daemon: LiveDaemon,
+    isolated_xdg_env: Path,
+    bin_dir: Path,
+    record_dir: Path,
+    work_dir: Path,
+) -> None:
+    """
+    INVARIANT: agent_pane_busy from `agent start` is retried, and the prompt follows
+               the start that succeeds
+    BREAKS: a freshly split pane, whose shell has not reached its prompt yet, ends the
+            run at the first start
+    """
+    item_id = _seed(live_daemon, title="Rates and taxes", summary="Short.")
+    _add_agent_section(isolated_xdg_env, 'target = "herdr"\nkind = "pi"\n')
+    _herdr_stub(
+        bin_dir,
+        record_dir,
+        agents=_OTHER_AGENTS,
+        on_start='if earlier(["agent", "start"]) < 2: fail("agent_pane_busy")',
+    )
+    name = f"prismis-{item_id[:8]}"
+    prompt = _prompt(item_id, "Rates and taxes", "Short.", DEFAULT_STARTER)
+
+    result = _run_open(
+        ["open", item_id], bin_dir=bin_dir, cwd=work_dir, env={"HERDR_ENV": "1"}
+    )
+
+    assert _invocations(record_dir, "herdr")[2:] == [
+        _start_call(name),
+        _start_call(name),
+        _start_call(name),
+        _prompt_call(name, prompt),
+    ], result.stderr
+    assert result.returncode == 0, result.stderr
+
+
+def test_herdr_closes_the_pane_still_busy_after_twenty_starts(
+    live_daemon: LiveDaemon,
+    isolated_xdg_env: Path,
+    bin_dir: Path,
+    record_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    INVARIANT: `agent start` is tried exactly 20 times while the pane stays busy, then
+               the split pane is closed and the outcome names agent start
+    BREAKS: the retry never ends, or gives up leaving a bare shell pane behind
+
+    In-process, with the pause between attempts set to zero so the 20 attempts do not
+    spend 9.5 s of sleep.
+    """
+    item_id = _seed(live_daemon, title="Rates and taxes", summary="Short.")
+    _add_agent_section(isolated_xdg_env, 'target = "herdr"\nkind = "pi"\n')
+    _herdr_stub(
+        bin_dir, record_dir, agents=_OTHER_AGENTS, on_start='fail("agent_pane_busy")'
+    )
+    monkeypatch.setattr("cli.agent.START_RETRY_SECONDS", 0)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.setenv("HERDR_ENV", "1")
+    name = f"prismis-{item_id[:8]}"
+
+    result = CliRunner().invoke(app, ["open", item_id])
+
+    assert _invocations(record_dir, "herdr")[2:] == [
+        *[_start_call(name)] * 20,
+        ["pane", "close", "w9:p9"],
+    ], result.output
+    assert result.exit_code == 1, result.output
+    assert result.stderr.startswith("herdr agent start failed: "), result.stderr
+    assert "agent_pane_busy" in result.stderr
+
+
+def test_herdr_waits_for_the_startup_question_to_be_answered_in_the_pane(
+    live_daemon: LiveDaemon,
+    isolated_xdg_env: Path,
+    bin_dir: Path,
+    record_dir: Path,
+    work_dir: Path,
+) -> None:
+    """
+    INVARIANT: agent_not_ready from `agent start` tells the operator on stderr to answer
+               the startup question in the new pane, waits up to 120 s for the agent to
+               go idle, then submits the prompt
+    BREAKS: a first launch in the agent directory, where the agent asks a startup
+            question (folder trust), fails and closes the pane under the question
+    """
+    item_id = _seed(live_daemon, title="Rates and taxes", summary="Short.")
+    _add_agent_section(isolated_xdg_env, 'target = "herdr"\nkind = "pi"\n')
+    _herdr_stub(
+        bin_dir, record_dir, agents=_OTHER_AGENTS, on_start='fail("agent_not_ready")'
+    )
+    name = f"prismis-{item_id[:8]}"
+    prompt = _prompt(item_id, "Rates and taxes", "Short.", DEFAULT_STARTER)
+
+    result = _run_open(
+        ["open", item_id], bin_dir=bin_dir, cwd=work_dir, env={"HERDR_ENV": "1"}
+    )
+
+    assert _invocations(record_dir, "herdr")[2:] == [
+        _start_call(name),
+        ["agent", "wait", name, "--until", "idle", "--timeout", "120000"],
+        _prompt_call(name, prompt),
+    ], result.stderr
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == (
+        f"{name} in pane w9:p9 is asking a startup question: answer it in that pane"
+        " (prismis waits up to 120 s)\n"
+    )
+    assert result.stdout == f"opened {name} in pane w9:p9\n"
+
+
+def test_herdr_leaves_the_pane_open_when_the_startup_question_goes_unanswered(
+    live_daemon: LiveDaemon,
+    isolated_xdg_env: Path,
+    bin_dir: Path,
+    record_dir: Path,
+    work_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """
+    INVARIANT: when the startup wait times out, the run exits 1 saying the agent stays
+               open without the prompt, and neither prompts nor closes the pane
+    BREAKS: the agent the operator is still looking at is closed under them, or gets a
+            prompt typed into its unanswered question
+    """
+    item_id = _seed(live_daemon, title="Rates and taxes", summary="Short.")
+    _add_agent_section(isolated_xdg_env, 'target = "herdr"\nkind = "pi"\n')
+    _herdr_stub(
+        bin_dir,
+        record_dir,
+        agents=_OTHER_AGENTS,
+        on_start='fail("agent_not_ready")',
+        on_wait='sys.stderr.write(\'{"error":{"code":"timeout"}}\\n\'); sys.exit(1)',
+    )
+    status_file = tmp_path / "status.txt"
+    name = f"prismis-{item_id[:8]}"
+
+    result = _run_open(
+        ["open", item_id, "--status-file", str(status_file)],
+        bin_dir=bin_dir,
+        cwd=work_dir,
+        env={"HERDR_ENV": "1"},
+    )
+
+    assert status_file.read_text() == (
+        f"{name} did not get past its startup question within 120 s; it stays open"
+        " in pane w9:p9 without the article prompt\n"
+    )
+    assert result.returncode == 1
+    assert _invocations(record_dir, "herdr")[2:] == [
+        _start_call(name),
+        ["agent", "wait", name, "--until", "idle", "--timeout", "120000"],
+    ], result.stderr
+
+
+@pytest.mark.parametrize(
+    ("on_start", "on_prompt", "on_close", "failed", "codes"),
+    [
+        pytest.param(
+            'fail("agent_exited")',
+            "pass",
+            "pass",
+            "agent start",
+            ["agent_exited"],
+            id="start-fails",
+        ),
+        pytest.param(
+            "pass",
+            'fail("agent_prompt_stalled")',
+            "pass",
+            "agent prompt",
+            ["agent_prompt_stalled"],
+            id="prompt-stalls",
+        ),
+        pytest.param(
+            'fail("agent_exited")',
+            "pass",
+            'fail("pane_not_found")',
+            "agent start",
+            ["agent_exited", "pane_not_found"],
+            id="close-fails-too",
+        ),
+    ],
+)
+def test_herdr_closes_the_split_pane_when_a_later_step_fails(
+    live_daemon: LiveDaemon,
+    isolated_xdg_env: Path,
+    bin_dir: Path,
+    record_dir: Path,
+    work_dir: Path,
+    tmp_path: Path,
+    on_start: str,
+    on_prompt: str,
+    on_close: str,
+    failed: str,
+    codes: list[str],
+) -> None:
+    """
+    INVARIANT: a failed start or prompt submission is followed at once by `pane close`
+               on the split pane, and the run exits 1 naming the failed step; a close
+               that fails too is added to the same outcome line
+    BREAKS: a failed launch leaves a bare shell pane behind in the operator's tab
+    """
+    item_id = _seed(live_daemon, title="Rates and taxes", summary="Short.")
+    _add_agent_section(isolated_xdg_env, 'target = "herdr"\nkind = "pi"\n')
+    _herdr_stub(
+        bin_dir,
+        record_dir,
+        agents=_OTHER_AGENTS,
+        on_start=on_start,
+        on_prompt=on_prompt,
+        on_close=on_close,
+    )
+    status_file = tmp_path / "status.txt"
+    name = f"prismis-{item_id[:8]}"
+    prompt = _prompt(item_id, "Rates and taxes", "Short.", DEFAULT_STARTER)
+    steps = [_start_call(name)]
+    if failed == "agent prompt":
+        steps.append(_prompt_call(name, prompt))
+
+    result = _run_open(
+        ["open", item_id, "--status-file", str(status_file)],
+        bin_dir=bin_dir,
+        cwd=work_dir,
+        env={"HERDR_ENV": "1"},
+    )
+
+    assert _invocations(record_dir, "herdr")[2:] == [
+        *steps,
+        ["pane", "close", "w9:p9"],
+    ], result.stderr
+    assert result.returncode == 1
+    outcome = status_file.read_text()
+    assert outcome.startswith(f"herdr {failed} failed: "), outcome
+    assert outcome.count("\n") == 1, outcome
+    head, _, tail = outcome.partition("; closing pane w9:p9 also failed: ")
+    assert codes[0] in head, outcome
+    if len(codes) > 1:
+        assert codes[1] in tail, outcome
+    else:
+        assert tail == "", outcome
 
 
 def test_herdr_focuses_the_article_agent_that_is_already_open(
@@ -619,9 +917,7 @@ def test_herdr_failed_split_stops_before_start(
         bin_dir,
         record_dir,
         agents=_OTHER_AGENTS,
-        on_split=(
-            'print(\'{"error":{"code":"x","message":"split refused"}}\'); sys.exit(1)'
-        ),
+        on_split='fail("x", "split refused")',
     )
     status_file = tmp_path / "status.txt"
 

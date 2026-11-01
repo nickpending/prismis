@@ -8,9 +8,10 @@ import dataclasses
 import json
 import os
 import subprocess
+import time
 import unicodedata
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import typer
 
@@ -27,8 +28,19 @@ NOT_CONFIGURED = (
     'No agent configured: set [agent] target = "claude", "pi" or "herdr" in config.toml'
 )
 
-# Covers `herdr agent start`'s own 30 s wait for the agent to be ready for input.
+# Covers herdr's own 30 s waits inside one call: `agent start` for the agent to be ready
+# for input, `agent prompt --timeout` for it to take the prompt.
 HERDR_TIMEOUT_SECONDS = 45
+PROMPT_WAIT_MS = 30000
+
+# A freshly split pane answers `agent start` with agent_pane_busy until its shell has
+# reached its prompt: the start is retried this many times, this far apart.
+START_ATTEMPTS = 20
+START_RETRY_SECONDS = 0.5
+
+# How long `agent wait` gives the operator to answer a first-launch startup question
+# (Claude Code's folder trust) in the new pane.
+STARTUP_QUESTION_SECONDS = 120
 
 
 @dataclasses.dataclass(frozen=True)
@@ -55,6 +67,19 @@ def default_agent_cwd() -> Path:
 
 class OpenFailed(Exception):
     """A run that ends before the agent starts; its message is the outcome line."""
+
+
+class HerdrFailed(OpenFailed):
+    """A herdr call that exited non-zero.
+
+    `code` is herdr's `.error.code` from the error JSON it writes to stderr, or None when
+    stderr holds no such field; `detail` is herdr's own text.
+    """
+
+    def __init__(self, message: str, *, code: str | None, detail: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.detail = detail
 
 
 def load_agent_config() -> AgentConfig:
@@ -150,29 +175,46 @@ def build_prompt(entry: dict[str, Any], starter: str, remote_url: str | None) ->
     return "\n".join(lines)
 
 
-def run_herdr(args: list[str]) -> str:
-    """Run one herdr call, bounded by HERDR_TIMEOUT_SECONDS, and return its stdout.
+def _herdr_error_code(stderr: str) -> str | None:
+    """`.error.code` from the error JSON herdr writes to stderr, or None."""
+    try:
+        answer: object = json.loads(stderr)
+    except json.JSONDecodeError:
+        return None
+    error = answer.get("error") if isinstance(answer, dict) else None
+    code = error.get("code") if isinstance(error, dict) else None
+    return code if isinstance(code, str) else None
+
+
+def run_herdr(args: list[str], *, timeout_seconds: float | None = None) -> str:
+    """Run one herdr call and return its stdout.
+
+    The call is bounded by `timeout_seconds`, by default HERDR_TIMEOUT_SECONDS.
 
     Raises:
-        OpenFailed: If herdr is missing, does not answer in time, or exits non-zero.
+        HerdrFailed: If herdr exits non-zero.
+        OpenFailed: If herdr is missing or does not answer in time.
     """
+    limit = HERDR_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
     sub = " ".join(args[:2])
     try:
         proc = subprocess.run(
             ["herdr", *args],
             capture_output=True,
             text=True,
-            timeout=HERDR_TIMEOUT_SECONDS,
+            timeout=limit,
         )
     except FileNotFoundError as e:
         raise OpenFailed("Error: herdr not found") from e
     except subprocess.TimeoutExpired as e:
-        raise OpenFailed(
-            f"herdr {sub} did not answer within {HERDR_TIMEOUT_SECONDS} s"
-        ) from e
+        raise OpenFailed(f"herdr {sub} did not answer within {limit} s") from e
     if proc.returncode != 0:
         detail = proc.stdout.strip() or proc.stderr.strip()
-        raise OpenFailed(f"herdr {sub} failed: {detail}")
+        raise HerdrFailed(
+            f"herdr {sub} failed: {detail}",
+            code=_herdr_error_code(proc.stderr),
+            detail=detail,
+        )
     return proc.stdout
 
 
@@ -194,7 +236,12 @@ def _herdr_field(args: list[str], path: tuple[str, ...]) -> object:
 
 
 def _open_in_herdr(name: str, kind: str, prompt: str, cwd: Path) -> str:
-    """Focus the article's live herdr agent, or start one in a new pane beside this one."""
+    """Focus the article's live herdr agent, or start one in a new pane beside this one.
+
+    A new agent starts bare and then gets the prompt through `agent prompt`. Any failed
+    step after the split closes the pane it made, except an unanswered startup
+    question, which leaves the agent open in it.
+    """
     if os.environ.get("HERDR_ENV") != "1":
         raise OpenFailed("herdr is not available (HERDR_ENV is not set)")
 
@@ -211,8 +258,94 @@ def _open_in_herdr(name: str, kind: str, prompt: str, cwd: Path) -> str:
     )
     if not isinstance(pane_id, str):
         raise OpenFailed("herdr pane split answered without result.pane.pane_id")
-    run_herdr(["agent", "start", name, "--kind", kind, "--pane", pane_id, "--", prompt])
+
+    try:
+        asking = _start_bare(name, kind, pane_id)
+    except OpenFailed as e:
+        _close_after(pane_id, e)
+    if asking:
+        _await_startup_question(name, pane_id)
+    # The prompt goes through `agent prompt`, which herdr pastes into the agent's input,
+    # never as an `agent start` argument, which herdr types into a shell and refuses
+    # when it spans lines. The wait returns once the agent is seen working on it.
+    until = ["--until", "working", "--until", "blocked"]
+    try:
+        run_herdr(
+            ["agent", "prompt", name, prompt, "--wait", *until]
+            + ["--timeout", str(PROMPT_WAIT_MS)]
+        )
+    except OpenFailed as e:
+        _close_after(pane_id, e)
     return f"opened {name} in pane {pane_id}"
+
+
+def _start_bare(name: str, kind: str, pane_id: str) -> bool:
+    """Start the agent in the pane with no arguments; True if it asks a startup question.
+
+    agent_pane_busy is retried until START_ATTEMPTS starts have run, START_RETRY_SECONDS
+    apart; the last busy answer, like any other failure, is raised.
+    """
+    for _ in range(START_ATTEMPTS - 1):
+        try:
+            return _start_once(name, kind, pane_id)
+        except HerdrFailed as e:
+            if e.code != "agent_pane_busy":
+                raise
+        time.sleep(START_RETRY_SECONDS)
+    return _start_once(name, kind, pane_id)
+
+
+def _start_once(name: str, kind: str, pane_id: str) -> bool:
+    """One `agent start`; True if herdr answers agent_not_ready (a startup question)."""
+    try:
+        run_herdr(["agent", "start", name, "--kind", kind, "--pane", pane_id])
+    except HerdrFailed as e:
+        if e.code == "agent_not_ready":
+            return True
+        raise
+    return False
+
+
+def _await_startup_question(name: str, pane_id: str) -> None:
+    """Tell the operator to answer the startup question in the pane, and wait for it.
+
+    The TUI is suspended while this runs, so stderr is the operator's terminal.
+
+    Raises:
+        OpenFailed: If the agent is not idle within STARTUP_QUESTION_SECONDS; the pane
+            stays open, with the agent in it, and gets no prompt.
+    """
+    limit = STARTUP_QUESTION_SECONDS
+    typer.echo(
+        f"{name} in pane {pane_id} is asking a startup question: answer it in that"
+        f" pane (prismis waits up to {limit} s)",
+        err=True,
+    )
+    try:
+        run_herdr(
+            ["agent", "wait", name, "--until", "idle", "--timeout", str(limit * 1000)],
+            timeout_seconds=limit + 15,
+        )
+    except OpenFailed as e:
+        raise OpenFailed(
+            f"{name} did not get past its startup question within {limit} s; it stays"
+            f" open in pane {pane_id} without the article prompt"
+        ) from e
+
+
+def _close_after(pane_id: str, failed: OpenFailed) -> NoReturn:
+    """Close the pane the split made, then raise the failed step's outcome.
+
+    A close that fails too is added to the outcome, so no pane is left unreported.
+    """
+    try:
+        run_herdr(["pane", "close", pane_id])
+    except OpenFailed as e:
+        text = e.detail if isinstance(e, HerdrFailed) else str(e)
+        raise OpenFailed(
+            f"{failed}; closing pane {pane_id} also failed: {text}"
+        ) from failed
+    raise failed
 
 
 def _open(entry_id: str) -> tuple[int, str]:

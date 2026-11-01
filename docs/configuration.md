@@ -170,7 +170,11 @@ questionable, and where to go next."
 `claude` and `pi` take over the terminal until you exit them; the TUI then comes back with the
 outcome in its status line. `herdr` opens the agent in a pane to the right without taking focus, and
 the next `A` on the same article focuses that agent instead of opening another. herdr picks the
-executable itself from `kind`, so `command` does not apply to it.
+executable itself from `kind`, so `command` does not apply to it. On the first launch in the agent
+directory, the agent may ask a startup question in the new pane (Claude Code's folder trust):
+answer it there, and `A` waits up to 120 s for that before it sends the prompt. Left unanswered,
+the agent stays open in its pane without the prompt. If a later herdr step fails, the new pane is
+closed again.
 
 `A` runs `prismis-cli open`, so it needs prismis-cli on your PATH, and prismis-cli reaches the
 daemon over its API even when the TUI reads the database directly.

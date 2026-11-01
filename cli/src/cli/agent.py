@@ -261,10 +261,15 @@ def _open_in_herdr(name: str, kind: str, prompt: str, cwd: Path) -> str:
 
     try:
         asking = _start_bare(name, kind, pane_id)
+        answered = not asking or _await_startup_question(name, pane_id)
     except OpenFailed as e:
         _close_after(pane_id, e)
-    if asking:
-        _await_startup_question(name, pane_id)
+    if not answered:
+        raise OpenFailed(
+            f"{name} did not get past its startup question within"
+            f" {STARTUP_QUESTION_SECONDS} s; it stays open in pane {pane_id} without"
+            " the article prompt"
+        )
     # The prompt goes through `agent prompt`, which herdr pastes into the agent's input,
     # never as an `agent start` argument, which herdr types into a shell and refuses
     # when it spans lines. The wait returns once the agent is seen working on it.
@@ -306,14 +311,17 @@ def _start_once(name: str, kind: str, pane_id: str) -> bool:
     return False
 
 
-def _await_startup_question(name: str, pane_id: str) -> None:
+def _await_startup_question(name: str, pane_id: str) -> bool:
     """Tell the operator to answer the startup question in the pane, and wait for it.
 
-    The TUI is suspended while this runs, so stderr is the operator's terminal.
+    The TUI is suspended while this runs, so stderr is the operator's terminal. Returns
+    True once the agent is idle, False when herdr answers `timeout` because it was not
+    idle within STARTUP_QUESTION_SECONDS.
 
     Raises:
-        OpenFailed: If the agent is not idle within STARTUP_QUESTION_SECONDS; the pane
-            stays open, with the agent in it, and gets no prompt.
+        OpenFailed: If the wait fails any other way (the agent exited, herdr broke or
+            did not answer); that is a failed step like any other, not a question still
+            waiting.
     """
     limit = STARTUP_QUESTION_SECONDS
     typer.echo(
@@ -326,11 +334,11 @@ def _await_startup_question(name: str, pane_id: str) -> None:
             ["agent", "wait", name, "--until", "idle", "--timeout", str(limit * 1000)],
             timeout_seconds=limit + 15,
         )
-    except OpenFailed as e:
-        raise OpenFailed(
-            f"{name} did not get past its startup question within {limit} s; it stays"
-            f" open in pane {pane_id} without the article prompt"
-        ) from e
+    except HerdrFailed as e:
+        if e.code == "timeout":
+            return False
+        raise
+    return True
 
 
 def _close_after(pane_id: str, failed: OpenFailed) -> NoReturn:

@@ -743,6 +743,64 @@ def test_herdr_leaves_the_pane_open_when_the_startup_question_goes_unanswered(
 
 
 @pytest.mark.parametrize(
+    ("on_wait", "text"),
+    [
+        pytest.param('fail("agent_exited")', "agent_exited", id="agent-exited"),
+        pytest.param(
+            'sys.stderr.write("server not running\\n"); sys.exit(1)',
+            "server not running",
+            id="no-error-json",
+        ),
+    ],
+)
+def test_herdr_closes_the_pane_when_the_startup_wait_fails_other_than_timing_out(
+    live_daemon: LiveDaemon,
+    isolated_xdg_env: Path,
+    bin_dir: Path,
+    record_dir: Path,
+    work_dir: Path,
+    tmp_path: Path,
+    on_wait: str,
+    text: str,
+) -> None:
+    """
+    INVARIANT: only herdr's `timeout` answer to the startup `agent wait` reads as an
+               unanswered startup question; any other wait failure closes the pane and
+               exits 1 with herdr's own `agent wait` error
+    BREAKS: an agent that exited, or a herdr that broke, is reported as a question still
+            waiting in the pane, and its bare shell pane is left behind
+    """
+    item_id = _seed(live_daemon, title="Rates and taxes", summary="Short.")
+    _add_agent_section(isolated_xdg_env, 'target = "herdr"\nkind = "pi"\n')
+    _herdr_stub(
+        bin_dir,
+        record_dir,
+        agents=_OTHER_AGENTS,
+        on_start='fail("agent_not_ready")',
+        on_wait=on_wait,
+    )
+    status_file = tmp_path / "status.txt"
+    name = f"prismis-{item_id[:8]}"
+
+    result = _run_open(
+        ["open", item_id, "--status-file", str(status_file)],
+        bin_dir=bin_dir,
+        cwd=work_dir,
+        env={"HERDR_ENV": "1"},
+    )
+
+    assert _invocations(record_dir, "herdr")[2:] == [
+        _start_call(name),
+        ["agent", "wait", name, "--until", "idle", "--timeout", "120000"],
+        ["pane", "close", "w9:p9"],
+    ], result.stderr
+    assert result.returncode == 1
+    outcome = status_file.read_text()
+    assert outcome.startswith("herdr agent wait failed: "), outcome
+    assert text in outcome, outcome
+
+
+@pytest.mark.parametrize(
     ("on_start", "on_prompt", "on_close", "failed", "codes"),
     [
         pytest.param(

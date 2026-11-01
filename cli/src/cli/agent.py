@@ -39,6 +39,18 @@ class AgentConfig:
     command: list[str]
     kind: str
     prompt: str
+    cwd: Path
+
+
+def default_agent_cwd() -> Path:
+    """Where every agent starts unless [agent] cwd names another directory.
+
+    One prismis-owned directory, so each article's session lands in the same place
+    (one Claude project, one pi session directory) whatever directory the TUI or the
+    shell was started from: $XDG_DATA_HOME/prismis/agent, else ~/.local/share.
+    """
+    data_home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(data_home) / "prismis" / "agent"
 
 
 class OpenFailed(Exception):
@@ -57,7 +69,7 @@ def load_agent_config() -> AgentConfig:
         raise RuntimeError(f"Invalid {config_toml_path()}: [agent] must be a table")
 
     values: dict[str, str | None] = {}
-    for key in ("target", "command", "kind", "prompt"):
+    for key in ("target", "command", "kind", "prompt", "cwd"):
         value = section.get(key)
         if value is not None and not isinstance(value, str):
             raise RuntimeError(
@@ -73,6 +85,7 @@ def load_agent_config() -> AgentConfig:
         command=words,
         kind=values["kind"] or DEFAULT_KIND,
         prompt=values["prompt"] or DEFAULT_PROMPT,
+        cwd=Path(values["cwd"]).expanduser() if values["cwd"] else default_agent_cwd(),
     )
 
 
@@ -180,7 +193,7 @@ def _herdr_field(args: list[str], path: tuple[str, ...]) -> object:
     return value
 
 
-def _open_in_herdr(name: str, kind: str, prompt: str) -> str:
+def _open_in_herdr(name: str, kind: str, prompt: str, cwd: Path) -> str:
     """Focus the article's live herdr agent, or start one in a new pane beside this one."""
     if os.environ.get("HERDR_ENV") != "1":
         raise OpenFailed("herdr is not available (HERDR_ENV is not set)")
@@ -194,7 +207,7 @@ def _open_in_herdr(name: str, kind: str, prompt: str) -> str:
 
     split = ["pane", "split", "--current", "--direction", "right"]
     pane_id = _herdr_field(
-        [*split, "--cwd", os.getcwd(), "--no-focus"], ("result", "pane", "pane_id")
+        [*split, "--cwd", str(cwd), "--no-focus"], ("result", "pane", "pane_id")
     )
     if not isinstance(pane_id, str):
         raise OpenFailed("herdr pane split answered without result.pane.pane_id")
@@ -219,10 +232,15 @@ def _open(entry_id: str) -> tuple[int, str]:
         return 1, f"Error: {e}"
     prompt = build_prompt(entry, config.prompt, explicit_remote_url())
 
+    try:
+        config.cwd.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return 1, f"Error: cannot use [agent] cwd {config.cwd}: {e.strerror or e}"
+
     if config.target == "herdr":
         name = f"prismis-{entry_id[:8].lower()}"
         try:
-            return 0, _open_in_herdr(name, config.kind, prompt)
+            return 0, _open_in_herdr(name, config.kind, prompt, config.cwd)
         except OpenFailed as e:
             return 1, str(e)
 
@@ -231,7 +249,12 @@ def _open(entry_id: str) -> tuple[int, str]:
     try:
         # One argv element per word of `command`, then the prompt as one more: no
         # shell ever sees the article's text.
-        code = subprocess.run([*config.command, prompt]).returncode
+        argv = [*config.command, prompt]
+        proc = subprocess.run(
+            argv,  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args -- the only environment value here is XDG_DATA_HOME, which picks cwd; argv is the configured command and the prompt, a list no shell parses
+            cwd=config.cwd,
+        )
+        code = proc.returncode
     except FileNotFoundError:
         return 1, f"Error: {config.command[0]} not found"
     return code, f"{config.target} session ended"

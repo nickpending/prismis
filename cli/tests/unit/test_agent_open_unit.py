@@ -8,6 +8,8 @@ Invariants protected:
     and the prompt marks what the fetch commands return as untrusted too
   - `command` and `prompt` shape the engine's argv and the starter line, the engine
     inherits the CLI's environment, and `--remote` is carried into the fetch lines
+  - the engine and the herdr pane start in [agent] cwd (`~` expanded, created if
+    missing), by default $XDG_DATA_HOME/prismis/agent, never the launch directory
   - with the herdr target the CLI lists agents, then focuses the article's live agent
     or splits a pane and starts one, and stops at the first herdr call that fails,
     answers without the expected field, or outlives HERDR_TIMEOUT_SECONDS
@@ -58,6 +60,7 @@ n = len(list(record.glob("{name}-*.argv")))
 (record / f"{name}-{{n:03d}}.argv").write_bytes(
     b"".join(os.fsencode(a) + b"\\0" for a in args)
 )
+(record / f"{name}-{{n:03d}}.cwd").write_text(os.getcwd())
 """
 
 # herdr's answers, keyed on the first two arguments. AGENTS is filled per test.
@@ -130,6 +133,16 @@ def _invocations(record_dir: Path, name: str) -> list[list[str]]:
         parts = path.read_bytes().split(b"\0")[:-1]
         calls.append([os.fsdecode(p) for p in parts])
     return calls
+
+
+def _cwds(record_dir: Path, name: str) -> list[str]:
+    """The working directory of each recorded invocation of `name`, in call order."""
+    return [p.read_text() for p in sorted(record_dir.glob(f"{name}-*.cwd"))]
+
+
+def _default_agent_dir() -> Path:
+    """[agent] cwd's default under the sealed XDG_DATA_HOME isolated_xdg_env sets."""
+    return Path(os.environ["XDG_DATA_HOME"]) / "prismis" / "agent"
 
 
 def _seed(
@@ -254,6 +267,74 @@ def test_claude_gets_the_prompt_as_one_literal_argument(
     assert result.returncode == 0, result.stderr
     assert status_file.read_text() == "claude session ended\n"
     assert result.stdout == "claude session ended\n"
+
+
+def test_the_engine_starts_in_the_agent_directory_not_the_launch_directory(
+    live_daemon: LiveDaemon,
+    isolated_xdg_env: Path,
+    bin_dir: Path,
+    record_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """
+    INVARIANT: with no [agent] cwd the engine starts in $XDG_DATA_HOME/prismis/agent,
+               created on first use, whichever directory prismis-cli was run from
+    BREAKS: each article's session lands wherever the TUI happened to be started
+    """
+    item_id = _seed(live_daemon, title="Rates and taxes", summary="Short.")
+    _add_agent_section(isolated_xdg_env, 'target = "claude"\n')
+    _stub(bin_dir, record_dir, "claude")
+    agent_dir = _default_agent_dir()
+    assert not agent_dir.exists()
+    one, two = tmp_path / "one", tmp_path / "two"
+    one.mkdir()
+    two.mkdir()
+
+    first = _run_open(["open", item_id], bin_dir=bin_dir, cwd=one)
+    second = _run_open(["open", item_id], bin_dir=bin_dir, cwd=two)
+
+    assert (first.returncode, second.returncode) == (0, 0), first.stderr + second.stderr
+    assert _cwds(record_dir, "claude") == [os.path.realpath(agent_dir)] * 2
+
+
+def test_agent_cwd_names_the_directory_the_engine_starts_in(
+    live_daemon: LiveDaemon,
+    isolated_xdg_env: Path,
+    bin_dir: Path,
+    record_dir: Path,
+    work_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """
+    INVARIANT: [agent] cwd, `~` expanded, is created if missing and is where pi starts;
+               a cwd that is an existing file starts nothing and says so
+    BREAKS: the setting is ignored, `~` is taken literally, or a bad path starts the
+            engine somewhere else
+    """
+    item_id = _seed(live_daemon, title="Rates and taxes", summary="Short.")
+    _stub(bin_dir, record_dir, "pi")
+    home = Path(os.environ["HOME"])
+    _add_agent_section(isolated_xdg_env, 'target = "pi"\ncwd = "~/notes/agents"\n')
+
+    ok = _run_open(["open", item_id], bin_dir=bin_dir, cwd=work_dir)
+
+    assert ok.returncode == 0, ok.stderr
+    assert _cwds(record_dir, "pi") == [os.path.realpath(home / "notes" / "agents")]
+
+    blocker = tmp_path / "a-file"
+    blocker.write_text("not a directory")
+    config = isolated_xdg_env / "config.toml"
+    config.write_text(
+        config.read_text().replace('cwd = "~/notes/agents"', f'cwd = "{blocker}"')
+    )
+
+    bad = _run_open(["open", item_id], bin_dir=bin_dir, cwd=work_dir)
+
+    assert bad.returncode == 1
+    assert bad.stderr.startswith(f"Error: cannot use [agent] cwd {blocker}:"), (
+        bad.stderr
+    )
+    assert len(_invocations(record_dir, "pi")) == 1
 
 
 def test_a_url_with_line_breaks_cannot_add_lines_to_the_prompt(
@@ -406,7 +487,7 @@ def test_herdr_splits_a_pane_and_starts_the_agent_in_it(
     tmp_path: Path,
 ) -> None:
     """
-    INVARIANT: list, split right without focus at the CLI's cwd, then start
+    INVARIANT: list, split right without focus at the agent directory, then start
                prismis-<8> in the new pane with the prompt after `--`
     BREAKS: the agent starts in an unknown pane, takes focus, or gets no prompt
     """
@@ -432,7 +513,7 @@ def test_herdr_splits_a_pane_and_starts_the_agent_in_it(
             "--direction",
             "right",
             "--cwd",
-            os.path.realpath(work_dir),
+            str(_default_agent_dir()),
             "--no-focus",
         ],
         [

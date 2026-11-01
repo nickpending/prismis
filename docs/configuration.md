@@ -150,7 +150,13 @@ target = "claude"        # "claude", "pi" or "herdr"; no default: unset, nothing
 # command = "claude"     # default: the target's name; split on spaces, the prompt goes last
 # kind = "claude"        # herdr only, default "claude": the agent herdr starts ("pi" too)
 # prompt = "..."         # the starter line that ends the prompt
+# cwd = "~/..."          # where the agent starts, created if missing; default
+#                        # ~/.local/share/prismis/agent ($XDG_DATA_HOME/prismis/agent)
 ```
+
+Every agent starts in that one directory, whichever directory the TUI or shell was started
+from, so each article's session lands in the same place: one Claude Code project, one pi
+session directory, and the herdr pane opens there too.
 
 The title, URL and summary come from the article's publisher, so they reach the agent inside a
 block the prompt marks as publisher data, never instructions, with control and invisible

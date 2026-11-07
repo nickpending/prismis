@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // setupRemoteConfig points api.NewClient() at serverURL by writing a
@@ -277,6 +279,48 @@ func TestResumeSource_Success(t *testing.T) {
 	want := "▶ Resumed source: source"
 	if msg.Message != want {
 		t.Errorf("expected message %q, got %q", want, msg.Message)
+	}
+}
+
+// TestKeepAndUnkeepSource: each operation sends its PATCH route and reports success,
+// and a daemon refusing the keep (400, nothing to keep) reports its message as failure.
+func TestKeepAndUnkeepSource(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		op     func(string) tea.Cmd
+		route  string
+		status int
+		want   string
+		ok     bool
+	}{
+		{"keep", KeepSource, "/keep", 200, "✓ Kept source: source", true},
+		{"unkeep", UnkeepSource, "/unkeep", 200, "✓ Unkept source: source", true},
+		{"keep refused", KeepSource, "/keep", 400, "Failed to keep source: Source has nothing to keep", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/sources/"+testSourceID+tc.route || r.Method != http.MethodPatch {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				if tc.ok {
+					fmt.Fprint(w, `{"success":true,"message":"ok"}`)
+				} else {
+					fmt.Fprint(w, `{"success":false,"message":"Source has nothing to keep"}`)
+				}
+			}))
+			defer server.Close()
+			setupRemoteConfig(t, server.URL)
+
+			msg, ok := tc.op(testSourceID)().(SourceOperationMsg)
+			if !ok {
+				t.Fatal("expected SourceOperationMsg")
+			}
+			if msg.Success != tc.ok || msg.Message != tc.want {
+				t.Errorf("want (%v, %q), got (%v, %q)", tc.ok, tc.want, msg.Success, msg.Message)
+			}
+		})
 	}
 }
 

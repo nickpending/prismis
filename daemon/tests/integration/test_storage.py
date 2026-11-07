@@ -1,7 +1,7 @@
 """Integration tests for Storage class with real database."""
 
 from pathlib import Path
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from prismis_daemon.storage import Storage
 from prismis_daemon.models import ContentItem
@@ -38,14 +38,16 @@ def test_source_management_workflow(test_db: Path) -> None:
     assert rss_source["error_count"] == 0
 
     # Update source status after successful fetch
-    storage.update_source_fetch_status(source_id, True)
+    at = datetime.now(UTC)
+    storage.record_fetch_success(source_id, 3, at, at)
     sources = storage.get_active_sources()
     rss_source = next(s for s in sources if s["type"] == "rss")
     assert rss_source["error_count"] == 0
     assert rss_source["last_fetched_at"] is not None
+    assert rss_source["entries_served"] == 3
 
     # Update source status after failed fetch
-    storage.update_source_fetch_status(source_id, False, "Connection timeout")
+    storage.record_fetch_failure(source_id, "Connection timeout", at, 30)
     sources = storage.get_active_sources()
     rss_source = next(s for s in sources if s["type"] == "rss")
     assert rss_source["error_count"] == 1
@@ -162,46 +164,36 @@ def test_priority_based_retrieval_and_marking_read(test_db: Path) -> None:
     assert marked_missing is False
 
 
-def test_source_error_tracking_and_auto_deactivation(test_db: Path) -> None:
-    """Test that sources are auto-deactivated after 5 consecutive errors."""
+def test_source_failures_back_off_and_never_deactivate(test_db: Path) -> None:
+    """
+    INVARIANT: each recorded failure counts, keeps the source active and sets
+               next_fetch_at to the failure time plus 30 x 2^(n-1) minutes capped at
+               1440; a recorded success clears the count, the error and the wait
+    BREAKS: a failing source is switched off, or a recovered one stays on its wait
+    """
     storage = Storage(test_db)
-
-    # Add a source
     source_id = storage.add_source("https://example.com/feed", "rss", "Test")
+    at = datetime(2026, 11, 1, tzinfo=UTC)
 
-    # Simulate 4 failures - should still be active
-    for i in range(4):
-        storage.update_source_fetch_status(source_id, False, f"Error {i + 1}")
+    waits = []
+    for i in range(8):
+        storage.record_fetch_failure(source_id, f"Error {i + 1}", at, 30)
+        (source,) = storage.get_active_sources()
+        assert source["active"] is True
+        assert source["error_count"] == i + 1
+        assert source["last_error"] == f"Error {i + 1}"
+        waits.append(datetime.fromisoformat(source["next_fetch_at"]) - at)
+    assert waits == [
+        timedelta(minutes=m) for m in (30, 60, 120, 240, 480, 960, 1440, 1440)
+    ]
 
-    sources = storage.get_active_sources()
-    assert len(sources) == 1
-    assert sources[0]["error_count"] == 4
-    assert sources[0]["active"] is True
-
-    # 5th failure should deactivate
-    storage.update_source_fetch_status(source_id, False, "Error 5")
-
-    # Should no longer appear in active sources
-    sources = storage.get_active_sources()
-    assert len(sources) == 0
-
-    # Verify it's deactivated (would need a get_all_sources method)
-    # For now, we just verify it's not in active sources
-
-    # Test that success resets error count
-    source_id2 = storage.add_source("https://example.com/feed2", "rss", "Test2")
-
-    # Add 3 errors
-    for i in range(3):
-        storage.update_source_fetch_status(source_id2, False, f"Error {i + 1}")
-
-    sources = storage.get_active_sources()
-    assert sources[0]["error_count"] == 3
-
-    # Success should reset error count
-    storage.update_source_fetch_status(source_id2, True)
-    sources = storage.get_active_sources()
-    assert sources[0]["error_count"] == 0
+    storage.record_fetch_success(source_id, None, None, at)
+    (source,) = storage.get_active_sources()
+    assert (source["error_count"], source["last_error"], source["next_fetch_at"]) == (
+        0,
+        None,
+        None,
+    )
 
 
 def test_add_source_returns_existing_id_for_duplicate(test_db: Path) -> None:

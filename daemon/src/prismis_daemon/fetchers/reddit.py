@@ -17,7 +17,7 @@ from ..article_extractor import extract_article
 from ..config import REDDIT_NOT_CONFIGURED, Config
 from ..http_deadline import DeadlineAdapter, deadline_session
 from ..praw_defaults import pin_praw_defaults
-from ..models import ContentItem
+from ..models import ContentItem, FetchedItems
 from ..observability import log as obs_log
 from ..readability import (
     format_discussion,
@@ -117,7 +117,7 @@ class RedditFetcher:
 
     def fetch_content(
         self, source: dict[str, Any], known_readable_ids: set[str] | None = None
-    ) -> list[ContentItem]:
+    ) -> FetchedItems:
         """Fetch hot posts from a subreddit.
 
         Args:
@@ -149,7 +149,11 @@ class RedditFetcher:
         if not subreddit_name:
             raise ValueError(f"Could not parse subreddit from URL: {source_url}")
 
-        items = []
+        items = FetchedItems()
+        # Every listing entry walked, and the newest of their creation times, read
+        # before the stickied, media and lookback filters.
+        walked = 0
+        newest_post: datetime | None = None
 
         # The client outlives this call, so its deadline is restarted per fetch.
         self._deadline.rearm(self.fetch_budget)
@@ -173,6 +177,13 @@ class RedditFetcher:
             for submission in subreddit.hot(
                 limit=self.max_items + 50  # Extra for filtering old posts
             ):
+                walked += 1
+                created = self._created_at(submission)
+                if created is not None and (
+                    newest_post is None or created > newest_post
+                ):
+                    newest_post = created
+
                 # Skip stickied posts
                 if submission.stickied:
                     logger.debug(f"Skipping stickied post: {submission.title}")
@@ -184,14 +195,7 @@ class RedditFetcher:
                     continue
 
                 # Apply date filter
-                post_date = None
-                if hasattr(submission, "created_utc"):
-                    try:
-                        post_date = datetime.fromtimestamp(
-                            submission.created_utc, tz=UTC
-                        )
-                    except _TIMESTAMP_ERRORS as e:
-                        logger.debug(f"Could not parse post date: {e}")
+                post_date = created
 
                 # Skip posts older than cutoff
                 if post_date and post_date < cutoff_date:
@@ -213,6 +217,8 @@ class RedditFetcher:
                 post_count += 1
                 if post_count >= self.max_items:
                     break
+
+            items.report_served(walked, newest_post)
 
             if filtered_count > 0:
                 logger.info(
@@ -318,6 +324,17 @@ class RedditFetcher:
                 return match.group(1)
 
         return ""
+
+    @staticmethod
+    def _created_at(submission) -> datetime | None:
+        """The post's creation time from created_utc, or None when it has none."""
+        if not hasattr(submission, "created_utc"):
+            return None
+        try:
+            return datetime.fromtimestamp(submission.created_utc, tz=UTC)
+        except _TIMESTAMP_ERRORS as e:
+            logger.debug(f"Could not parse post date: {e}")
+            return None
 
     def _is_image_post(self, submission) -> bool:
         """Check if a Reddit post is primarily an image/video post.

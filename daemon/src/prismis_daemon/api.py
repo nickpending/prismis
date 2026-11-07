@@ -634,6 +634,14 @@ async def get_sources(storage: Storage = Depends(get_storage)) -> dict:
                     error_count=source.get("error_count", 0),
                     last_error=source.get("last_error"),
                     naughty=source.get("naughty", False),
+                    health=source.get("health"),
+                    attention=source.get("attention", False),
+                    entries_served=source.get("entries_served"),
+                    newest_item_at=source.get("newest_item_at"),
+                    next_fetch_at=source.get("next_fetch_at"),
+                    kept_health=source.get("kept_health"),
+                    kept_at=source.get("kept_at"),
+                    created_at=source.get("created_at"),
                 )
             )
 
@@ -870,6 +878,63 @@ async def resume_source(
         raise  # Re-raise our custom errors
     except Exception as e:
         raise _server_error("Failed to resume source", e) from e
+
+
+@app.patch(
+    "/api/sources/{source_id}/keep",
+    response_model=APIResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+async def keep_source(
+    source_id: str, storage: Storage = Depends(get_storage)
+) -> APIResponse:
+    """Keep a flagged source's current health so it stops raising the warning.
+
+    The keep answers that one state: the next change of the source's health ends it.
+    A source with nothing flagged answers 400.
+    """
+    try:
+        try:
+            kept = storage.keep_source(source_id)
+        except ValueError as e:
+            raise APIError(
+                400, f"Source {source_id} has nothing to keep: it raises no warning"
+            ) from e
+
+        if not kept:
+            raise NotFoundError("Source", source_id)
+
+        return APIResponse(
+            success=True, message="Source kept successfully", data={"id": source_id}
+        )
+
+    except APIError:
+        raise  # Re-raise our custom errors
+    except Exception as e:
+        raise _server_error("Failed to keep source", e) from e
+
+
+@app.patch(
+    "/api/sources/{source_id}/unkeep",
+    response_model=APIResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+async def unkeep_source(
+    source_id: str, storage: Storage = Depends(get_storage)
+) -> APIResponse:
+    """Clear a source's keep, so a flagged health raises the warning again."""
+    try:
+        if not storage.unkeep_source(source_id):
+            raise NotFoundError("Source", source_id)
+
+        return APIResponse(
+            success=True, message="Source unkept successfully", data={"id": source_id}
+        )
+
+    except APIError:
+        raise  # Re-raise our custom errors
+    except Exception as e:
+        raise _server_error("Failed to unkeep source", e) from e
 
 
 # Fields a compact item keeps, and the only ones it carries: compact responses dump

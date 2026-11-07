@@ -211,8 +211,29 @@ func TestWarningClearsOnTheRefreshAfterTheCheckStopsFlagging(t *testing.T) {
 }
 
 // localDB points the db package at a real SQLite file holding the tables the local
-// refresh reads, with drift_checks taken from the daemon's schema.sql.
+// refresh reads, with drift_checks taken from the daemon's schema.sql. Its sources
+// table predates the health columns.
 func localDB(t *testing.T) *sql.DB {
+	t.Helper()
+	raw := openLocalDB(t)
+	for _, stmt := range []string{
+		`CREATE TABLE sources (id TEXT PRIMARY KEY, name TEXT, type TEXT, url TEXT NOT NULL, active BOOLEAN DEFAULT 1)`,
+		`CREATE TABLE content (id TEXT PRIMARY KEY, source_id TEXT REFERENCES sources(id), title TEXT NOT NULL,
+			url TEXT NOT NULL, content TEXT, summary TEXT, analysis TEXT, priority TEXT, published_at TIMESTAMP,
+			read BOOLEAN DEFAULT 0, favorited BOOLEAN DEFAULT 0, interesting_override BOOLEAN DEFAULT 0,
+			user_feedback TEXT, archived_at TIMESTAMP)`,
+		daemonTableDDL(t, "drift_checks"),
+	} {
+		if _, err := raw.Exec(stmt); err != nil {
+			t.Fatalf("create schema: %v", err)
+		}
+	}
+	return raw
+}
+
+// openLocalDB points XDG_DATA_HOME, and the db package's pool, at a fresh empty
+// prismis.db and opens it.
+func openLocalDB(t *testing.T) *sql.DB {
 	t.Helper()
 	dataHome := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)
@@ -224,35 +245,141 @@ func localDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.CloseDB() })
 
-	schema, err := os.ReadFile(filepath.Join("..", "..", "..", "daemon", "src", "prismis_daemon", "schema.sql"))
-	if err != nil {
-		t.Fatalf("read daemon schema: %v", err)
-	}
-	text := string(schema)
-	start := strings.Index(text, "CREATE TABLE IF NOT EXISTS drift_checks")
-	end := strings.Index(text[start:], ");")
-	if start < 0 || end < 0 {
-		t.Fatal("daemon schema.sql has no complete drift_checks statement")
-	}
-
 	raw, err := sql.Open("sqlite3", filepath.Join(dataHome, "prismis", "prismis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { raw.Close() })
-	for _, stmt := range []string{
-		`CREATE TABLE sources (id TEXT PRIMARY KEY, name TEXT, type TEXT, url TEXT NOT NULL, active BOOLEAN DEFAULT 1)`,
-		`CREATE TABLE content (id TEXT PRIMARY KEY, source_id TEXT REFERENCES sources(id), title TEXT NOT NULL,
-			url TEXT NOT NULL, content TEXT, summary TEXT, analysis TEXT, priority TEXT, published_at TIMESTAMP,
-			read BOOLEAN DEFAULT 0, favorited BOOLEAN DEFAULT 0, interesting_override BOOLEAN DEFAULT 0,
-			user_feedback TEXT, archived_at TIMESTAMP)`,
-		text[start : start+end+2],
-	} {
-		if _, err := raw.Exec(stmt); err != nil {
-			t.Fatalf("create schema: %v", err)
+	return raw
+}
+
+// daemonTableDDL is the daemon schema.sql's CREATE TABLE statement for table.
+func daemonTableDDL(t *testing.T, table string) string {
+	t.Helper()
+	schema, err := os.ReadFile(filepath.Join("..", "..", "..", "daemon", "src", "prismis_daemon", "schema.sql"))
+	if err != nil {
+		t.Fatalf("read daemon schema: %v", err)
+	}
+	text := string(schema)
+	start := strings.Index(text, "CREATE TABLE IF NOT EXISTS "+table+" (")
+	if start < 0 {
+		t.Fatalf("daemon schema.sql has no %s statement", table)
+	}
+	end := strings.Index(text[start:], ");")
+	if end < 0 {
+		t.Fatalf("daemon schema.sql's %s statement is not terminated", table)
+	}
+	return text[start : start+end+2]
+}
+
+const sourcesWarning = "⚠ Sources: 1 broken, 2 empty"
+
+// healthDB is a local database at the daemon's current schema holding one broken and
+// two empty sources that need attention, and one dormant source the operator kept.
+func healthDB(t *testing.T) *sql.DB {
+	t.Helper()
+	raw := openLocalDB(t)
+	for _, table := range []string{"sources", "content", "drift_checks"} {
+		if _, err := raw.Exec(daemonTableDDL(t, table)); err != nil {
+			t.Fatalf("create %s: %v", table, err)
 		}
 	}
+	if _, err := raw.Exec(`INSERT INTO sources (id, url, type, name, health, kept_health, attention) VALUES
+		('dead', 'https://a.example/feed', 'rss', 'Dead', 'broken', NULL, 1),
+		('hollow-1', 'https://b.example/feed', 'rss', 'Hollow 1', 'empty', NULL, 1),
+		('hollow-2', 'https://c.example/feed', 'rss', 'Hollow 2', 'empty', NULL, 1),
+		('quiet', 'https://d.example/feed', 'rss', 'Quiet', 'dormant', 'dormant', 0)`); err != nil {
+		t.Fatalf("insert sources: %v", err)
+	}
 	return raw
+}
+
+// assertSourcesWarning fails unless header carries the sources line, with no dormant
+// count, left of the view-state segment, and view has as many rows as a plain header's.
+func assertSourcesWarning(t *testing.T, header, view string, plainRows int) {
+	t.Helper()
+	if !strings.Contains(header, sourcesWarning) {
+		t.Fatalf("header %q lacks %q", header, sourcesWarning)
+	}
+	if strings.Contains(header, "dormant") {
+		t.Errorf("a kept dormant source must not be counted: %q", header)
+	}
+	if strings.Index(header, sourcesWarning) > strings.Index(header, "◆") {
+		t.Errorf("the sources line must sit left of the view-state segment: %q", header)
+	}
+	if rows := strings.Count(view, "\n"); rows != plainRows {
+		t.Errorf("the sources line must not change the row count: %d vs %d", rows, plainRows)
+	}
+}
+
+func TestLocalHeaderCarriesAndClearsTheSourcesWarning(t *testing.T) {
+	raw := healthDB(t)
+	plainRows := strings.Count(RenderList(listModel("")), "\n")
+
+	var m Model
+	for name, load := range map[string]func(Model) any{"refresh": refreshLoad, "initial": initialLoad} {
+		t.Run(name, func(t *testing.T) {
+			m = loaded(t, listModel(""), load)
+			header, view := headerOf(m)
+			assertSourcesWarning(t, header, view, plainRows)
+		})
+	}
+
+	if _, err := raw.Exec("UPDATE sources SET attention = 0"); err != nil {
+		t.Fatal(err)
+	}
+	m = loaded(t, m, refreshLoad)
+	if header, _ := headerOf(m); strings.Contains(header, "Sources:") {
+		t.Fatalf("with no source needing attention the header must carry no sources line: %q", header)
+	}
+}
+
+// sourcesServer answers /api/sources with the given status and body, /api/drift with no
+// check, and /api/entries with an empty feed.
+func sourcesServer(t *testing.T, status int, body string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/sources":
+			w.WriteHeader(status)
+			fmt.Fprint(w, body)
+		case "/api/drift":
+			fmt.Fprint(w, nullBody)
+		default:
+			fmt.Fprint(w, `{"success":true,"message":"","data":{"items":[],"total":0}}`)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+const fourSourcesBody = `{"success":true,"message":"ok","data":{"total":4,"sources":[
+	{"id":"dead","url":"https://a.example/feed","type":"rss","active":true,"error_count":5,"health":"broken","attention":true},
+	{"id":"hollow-1","url":"https://b.example/feed","type":"rss","active":true,"error_count":0,"health":"empty","attention":true},
+	{"id":"hollow-2","url":"https://c.example/feed","type":"rss","active":true,"error_count":0,"health":"empty","attention":true},
+	{"id":"quiet","url":"https://d.example/feed","type":"rss","active":true,"error_count":0,"health":"dormant","kept_health":"dormant","attention":false}]}}`
+
+func TestRemoteHeaderCarriesTheSourcesWarning(t *testing.T) {
+	remoteTestConfig(t)
+	plainRows := strings.Count(RenderList(listModel("http://unused")), "\n")
+
+	for name, load := range map[string]func(Model) any{"refresh": refreshLoad, "initial": initialLoad} {
+		t.Run(name, func(t *testing.T) {
+			server := sourcesServer(t, 200, fourSourcesBody)
+			m := loaded(t, listModel(server.URL), load)
+			header, view := headerOf(m)
+			assertSourcesWarning(t, header, view, plainRows)
+		})
+	}
+
+	t.Run("500", func(t *testing.T) {
+		server := sourcesServer(t, 500, `{"detail":"boom"}`)
+		m := loaded(t, listModel(server.URL), refreshLoad)
+		if header, _ := headerOf(m); strings.Contains(header, "Sources:") {
+			t.Fatalf("a failed sources read must leave no sources line: %q", header)
+		}
+	})
 }
 
 func storeDrift(t *testing.T, raw *sql.DB, flaggedRow int, share, baseline any) {

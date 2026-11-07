@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -331,20 +332,82 @@ func getDefaultDBPath() (string, error) {
 	return dbPath, nil
 }
 
-// Source represents a content source
+// Source represents a content source. The health fields are the daemon's stored
+// classification and its evidence, read as stored; a database that predates them
+// leaves them zero.
 type Source struct {
-	ID          string
-	URL         string
-	Name        string
-	Type        string // "rss", "reddit", "youtube", "file"
-	Active      bool
-	UnreadCount int
-	LastFetched *time.Time // When this source was last fetched
-	ErrorCount  int        // Number of errors
-	Naughty     bool       // Fetched with a browser user-agent
+	ID            string
+	URL           string
+	Name          string
+	Type          string // "rss", "reddit", "youtube", "file"
+	Active        bool
+	UnreadCount   int
+	LastFetched   *time.Time // When this source was last fetched
+	ErrorCount    int        // Consecutive failed fetches
+	LastError     string     // The last failure's message, as the daemon stored it
+	Naughty       bool       // Fetched with a browser user-agent
+	Health        string     // "healthy", "broken", "empty", "dormant", or "" when unclassified
+	Attention     bool       // The daemon flags it: active, broken/empty/dormant and not kept
+	EntriesServed *int       // Entries the last successful fetch served (nil: unknown)
+	NewestItemAt  *time.Time // Newest item time the daemon has seen
+	NextFetchAt   *time.Time // Earliest next fetch of a failing source (nil: every cycle)
+	KeptHealth    string     // The health the operator kept, or ""
+	KeptAt        *time.Time // When it was kept
+	CreatedAt     *time.Time // When the source was added
 }
 
-// GetSourcesWithCounts fetches all sources with their unread item counts
+// Kept reports whether the operator's keep answers the source's current health.
+func (s Source) Kept() bool {
+	return s.KeptHealth != "" && s.KeptHealth == s.Health
+}
+
+// sourcesQuery reads every source with its unread count. The health columns come
+// after the columns every schema has, so the fallback below scans a prefix.
+const sourcesQuery = `
+		SELECT
+			s.id, s.url, s.name, s.type, s.active,
+			COUNT(CASE WHEN c.read = 0 THEN 1 END) as unread_count,
+			s.last_fetched_at, s.error_count, s.last_error, s.naughty,
+			s.health, s.attention, s.entries_served, s.newest_item_at, s.next_fetch_at,
+			s.kept_health, s.kept_at, s.created_at
+		FROM sources s
+		LEFT JOIN content c ON s.id = c.source_id
+		GROUP BY s.id
+		ORDER BY s.type, s.name
+	`
+
+// sourcesQueryBeforeHealth is sourcesQuery for a database the daemon has not yet
+// migrated to the health columns (a TUI upgraded before its daemon restarted).
+const sourcesQueryBeforeHealth = `
+		SELECT
+			s.id, s.url, s.name, s.type, s.active,
+			COUNT(CASE WHEN c.read = 0 THEN 1 END) as unread_count,
+			s.last_fetched_at, s.error_count, s.last_error, s.naughty
+		FROM sources s
+		LEFT JOIN content c ON s.id = c.source_id
+		GROUP BY s.id
+		ORDER BY s.type, s.name
+	`
+
+// isMissingColumn reports whether err is SQLite refusing a column the schema lacks.
+func isMissingColumn(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such column")
+}
+
+// parseStoredTime reads a stored RFC3339 timestamp; NULL or unparseable is nil.
+func parseStoredTime(s sql.NullString) *time.Time {
+	if !s.Valid {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339, s.String)
+	if err != nil {
+		return nil
+	}
+	return &parsed
+}
+
+// GetSourcesWithCounts fetches all sources with their unread item counts and stored
+// health. A database without the health columns is read without them.
 func GetSourcesWithCounts() ([]Source, error) {
 	// Use singleton connection pool for efficiency
 	db, err := GetDB()
@@ -353,24 +416,12 @@ func GetSourcesWithCounts() ([]Source, error) {
 	}
 	// Note: Don't close the pool connection - it's managed globally
 
-	query := `
-		SELECT 
-			s.id,
-			s.url,
-			s.name,
-			s.type,
-			s.active,
-			COUNT(CASE WHEN c.read = 0 THEN 1 END) as unread_count,
-			s.last_fetched_at,
-			s.error_count,
-			s.naughty
-		FROM sources s
-		LEFT JOIN content c ON s.id = c.source_id
-		GROUP BY s.id, s.url, s.name, s.type, s.active, s.last_fetched_at, s.error_count, s.naughty
-		ORDER BY s.type, s.name
-	`
-
-	rows, err := db.Query(query)
+	withHealth := true
+	rows, err := db.Query(sourcesQuery)
+	if isMissingColumn(err) {
+		withHealth = false
+		rows, err = db.Query(sourcesQueryBeforeHealth)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sources: %w", err)
 	}
@@ -379,43 +430,96 @@ func GetSourcesWithCounts() ([]Source, error) {
 	var sources []Source
 	for rows.Next() {
 		var source Source
-		var name sql.NullString
-		var lastFetchedStr sql.NullString
+		var name, lastFetched, lastError sql.NullString
 		var errorCount sql.NullInt64
+		var health, keptHealth, newestItemAt, nextFetchAt, keptAt, createdAt sql.NullString
+		var attention sql.NullBool
+		var entriesServed sql.NullInt64
 
-		err := rows.Scan(
-			&source.ID,
-			&source.URL,
-			&name,
-			&source.Type,
-			&source.Active,
-			&source.UnreadCount,
-			&lastFetchedStr,
-			&errorCount,
-			&source.Naughty,
-		)
-		if err != nil {
+		dest := []any{
+			&source.ID, &source.URL, &name, &source.Type, &source.Active,
+			&source.UnreadCount, &lastFetched, &errorCount, &lastError, &source.Naughty,
+		}
+		if withHealth {
+			dest = append(dest, &health, &attention, &entriesServed, &newestItemAt,
+				&nextFetchAt, &keptHealth, &keptAt, &createdAt)
+		}
+		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		if name.Valid {
-			source.Name = name.String
+		source.Name = name.String
+		source.LastFetched = parseStoredTime(lastFetched)
+		source.ErrorCount = int(errorCount.Int64)
+		source.LastError = lastError.String
+		source.Health = health.String
+		source.Attention = attention.Bool
+		if entriesServed.Valid {
+			served := int(entriesServed.Int64)
+			source.EntriesServed = &served
 		}
-
-		if lastFetchedStr.Valid {
-			if parsed, err := time.Parse(time.RFC3339, lastFetchedStr.String); err == nil {
-				source.LastFetched = &parsed
-			}
-		}
-
-		if errorCount.Valid {
-			source.ErrorCount = int(errorCount.Int64)
-		}
+		source.NewestItemAt = parseStoredTime(newestItemAt)
+		source.NextFetchAt = parseStoredTime(nextFetchAt)
+		source.KeptHealth = keptHealth.String
+		source.KeptAt = parseStoredTime(keptAt)
+		source.CreatedAt = parseStoredTime(createdAt)
 
 		sources = append(sources, source)
 	}
 
-	return sources, nil
+	return sources, rows.Err()
+}
+
+// SourceAttention counts the sources the daemon flags for the operator, by health.
+type SourceAttention struct {
+	Broken  int
+	Empty   int
+	Dormant int
+}
+
+// Any reports whether any source needs attention.
+func (a *SourceAttention) Any() bool {
+	return a != nil && a.Broken+a.Empty+a.Dormant > 0
+}
+
+// Add counts n flagged sources under their health; other healths are not counted.
+func (a *SourceAttention) Add(health string, n int) {
+	switch health {
+	case "broken":
+		a.Broken += n
+	case "empty":
+		a.Empty += n
+	case "dormant":
+		a.Dormant += n
+	}
+}
+
+// SourcesNeedingAttention counts the sources whose stored attention flag is set, by
+// health. A database without the column has no flagged source: zero counts, no error.
+func SourcesNeedingAttention() (*SourceAttention, error) {
+	db, err := GetDB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	counts := &SourceAttention{}
+	rows, err := db.Query("SELECT health, COUNT(*) FROM sources WHERE attention = 1 GROUP BY health")
+	if isMissingColumn(err) {
+		return counts, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sources needing attention: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var health sql.NullString
+		var n int
+		if err := rows.Scan(&health, &n); err != nil {
+			return nil, fmt.Errorf("failed to scan attention count: %w", err)
+		}
+		counts.Add(health.String, n)
+	}
+	return counts, rows.Err()
 }
 
 // getDBPath returns the path to the SQLite database

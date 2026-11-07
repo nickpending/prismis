@@ -1,8 +1,9 @@
 """Data models for Prismis daemon."""
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional, Dict, Any
 
 
@@ -46,6 +47,36 @@ class ContentItem:
             "favorited": self.favorited,
             "notes": self.notes,
         }
+
+
+class FetchedItems(list[ContentItem]):
+    """What one successful fetch returned: its items, plus what the source served.
+
+    A list, so every caller that reads the result as one is unchanged. `served` is how
+    many entries the source answered with before any filter of the pipeline's own (the
+    item limit, the lookback, dedup), or None when the fetcher cannot say;
+    `newest_entry_at` is the newest entry time among them, never later than now.
+    """
+
+    def __init__(
+        self,
+        items: Iterable[ContentItem] = (),
+        served: int | None = None,
+        newest_entry_at: datetime | None = None,
+    ) -> None:
+        super().__init__(items)
+        self.served: int | None = None
+        self.newest_entry_at: datetime | None = None
+        self.report_served(served, newest_entry_at)
+
+    def report_served(
+        self, served: int | None, newest_entry_at: datetime | None
+    ) -> None:
+        """Record what the source served; a newest time in the future reads as now."""
+        self.served = served
+        self.newest_entry_at = (
+            None if newest_entry_at is None else min(newest_entry_at, datetime.now(UTC))
+        )
 
 
 @dataclass

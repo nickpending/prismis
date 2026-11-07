@@ -258,6 +258,36 @@ class APIClient:
         self._send_json("PATCH", f"/api/sources/{source_id}/resume")
         return True
 
+    def keep_source(self, source_id: str) -> bool:
+        """Keep a flagged source's current health via API.
+
+        Args:
+            source_id: UUID of source to keep
+
+        Returns:
+            True if successful
+
+        Raises:
+            RuntimeError: If API request fails, including a source with nothing to keep
+        """
+        self._send_json("PATCH", f"/api/sources/{source_id}/keep")
+        return True
+
+    def unkeep_source(self, source_id: str) -> bool:
+        """Clear a source's keep via API.
+
+        Args:
+            source_id: UUID of source to unkeep
+
+        Returns:
+            True if successful
+
+        Raises:
+            RuntimeError: If API request fails
+        """
+        self._send_json("PATCH", f"/api/sources/{source_id}/unkeep")
+        return True
+
     def count_unprioritized(self, days: int | None = None) -> int:
         """Count unprioritized content items.
 

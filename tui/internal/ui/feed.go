@@ -105,6 +105,25 @@ func driftWarningText(check *db.DriftCheck) string {
 	return fmt.Sprintf("⚠ Drift: %s, usual is %s", measured, usual)
 }
 
+// sourcesWarningText is the header's sources line, or "" when no source needs
+// attention: each nonzero count of the daemon's flagged states, in the order broken,
+// empty, dormant.
+func sourcesWarningText(attention *db.SourceAttention) string {
+	if !attention.Any() {
+		return ""
+	}
+	var parts []string
+	for _, state := range []struct {
+		name  string
+		count int
+	}{{"broken", attention.Broken}, {"empty", attention.Empty}, {"dormant", attention.Dormant}} {
+		if state.count > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", state.count, state.name))
+		}
+	}
+	return "⚠ Sources: " + strings.Join(parts, ", ")
+}
+
 // RenderList renders the feed view with clean cyber styling
 func RenderList(m Model) string {
 	// Use defaults if WindowSizeMsg hasn't arrived yet
@@ -140,13 +159,16 @@ func RenderList(m Model) string {
 	stateTimeString := fmt.Sprintf("%s  ◆ %s ", stateString, timeString) // Add space for right padding
 	availableWidth := width - len(title) - len(stateTimeString)
 
-	// While the latest drift check is flagged, the warning sits between the title and
-	// the state segment on this same line; the gradient render truncates on the right.
-	warning := ""
-	if text := driftWarningText(m.drift); text != "" {
-		warning = "  " + text
-		availableWidth -= utf8.RuneCountInString(warning)
+	// While the latest drift check is flagged, and while a source needs attention, the
+	// warnings sit between the title and the state segment on this same line, drift
+	// first; the gradient render truncates on the right.
+	var warning strings.Builder
+	for _, text := range []string{driftWarningText(m.drift), sourcesWarningText(m.sourceAttention)} {
+		if text != "" {
+			warning.WriteString("  " + text)
+		}
 	}
+	availableWidth -= utf8.RuneCountInString(warning.String())
 
 	var spacing string
 	if availableWidth > 0 {
@@ -156,7 +178,7 @@ func RenderList(m Model) string {
 	}
 
 	// Combine all parts to full width
-	headerContent := fmt.Sprintf("%s%s%s%s", title, warning, spacing, stateTimeString)
+	headerContent := fmt.Sprintf("%s%s%s%s", title, warning.String(), spacing, stateTimeString)
 
 	// Create gradient background for the full width header (no additional styling)
 	header := RenderWithGradientBackground(headerContent, width, string(theme.Cyan), string(theme.VibrantPurple))

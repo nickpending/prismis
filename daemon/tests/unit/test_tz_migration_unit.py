@@ -321,10 +321,13 @@ def test_migration_unconvertible_cell_fails_postcondition_and_rolls_back(
     assert _backup(db).exists()
     conn = _connect(db)
     try:
+        # The updated_at triggers are the ones this migration drops and recreates;
+        # schema.sql's other triggers are created before it runs and stay as written.
         trigger_sql = [
             sql
             for (sql,) in conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type='trigger'"
+                " AND name LIKE 'update_%_timestamp'"
             )
         ]
     finally:

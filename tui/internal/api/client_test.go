@@ -609,6 +609,73 @@ func TestGetSourcesCarriesTheNaughtyFlag(t *testing.T) {
 	}
 }
 
+// TestGetSourcesCarriesTheStoredHealth: the daemon's health fields reach Source as
+// sent, and a daemon older than them (no fields) reads as unclassified, not flagged.
+func TestGetSourcesCarriesTheStoredHealth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"total":2,"sources":[
+			{"id":"dead","url":"https://a.example","type":"rss","active":true,"error_count":5,
+			 "last_error":"HTTP 404","health":"broken","attention":true,"entries_served":null,
+			 "newest_item_at":"2026-07-01T00:00:00+00:00","next_fetch_at":"2026-11-08T10:00:00+00:00",
+			 "kept_health":"broken","kept_at":"2026-11-07T09:00:00+00:00","created_at":"2026-01-01T00:00:00+00:00"},
+			{"id":"old-daemon","url":"https://b.example","type":"rss","active":true,"error_count":0}]}}`))
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	resp, err := client.GetSources()
+	if err != nil {
+		t.Fatalf("GetSources failed: %v", err)
+	}
+	if len(resp.Sources) != 2 {
+		t.Fatalf("want two sources, got %+v", resp.Sources)
+	}
+	dead, old := resp.Sources[0], resp.Sources[1]
+	if dead.Health == nil || *dead.Health != "broken" || !dead.Attention || dead.KeptHealth == nil ||
+		*dead.KeptHealth != "broken" || dead.NextFetchAt == nil || dead.NewestItemAt == nil ||
+		dead.KeptAt == nil || dead.CreatedAt == nil || dead.EntriesServed != nil {
+		t.Errorf("health fields did not decode: %+v", dead)
+	}
+	if old.Health != nil || old.Attention || old.KeptHealth != nil {
+		t.Errorf("a daemon without health must read unclassified: %+v", old)
+	}
+}
+
+// TestKeepAndUnkeepSourceRequests: each sends PATCH to its own route, and a 400 (a
+// source with nothing to keep) is an error carrying the daemon's message.
+func TestKeepAndUnkeepSourceRequests(t *testing.T) {
+	var got []string
+	status := http.StatusOK
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Method+" "+r.URL.Path)
+		w.WriteHeader(status)
+		if status == http.StatusOK {
+			_, _ = w.Write([]byte(`{"success":true,"message":"ok"}`))
+		} else {
+			_, _ = w.Write([]byte(`{"success":false,"message":"Source src-1 has nothing to keep"}`))
+		}
+	}))
+	defer server.Close()
+
+	client := &APIClient{baseURL: server.URL, apiKey: "test", httpClient: &http.Client{Timeout: 5 * time.Second}}
+	if _, err := client.KeepSource("src-1"); err != nil {
+		t.Fatalf("KeepSource failed: %v", err)
+	}
+	if _, err := client.UnkeepSource("src-1"); err != nil {
+		t.Fatalf("UnkeepSource failed: %v", err)
+	}
+	want := []string{"PATCH /api/sources/src-1/keep", "PATCH /api/sources/src-1/unkeep"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("want %v, got %v", want, got)
+	}
+
+	status = http.StatusBadRequest
+	if _, err := client.KeepSource("src-1"); err == nil || !strings.Contains(err.Error(), "nothing to keep") {
+		t.Errorf("a refused keep must error with the daemon's message, got %v", err)
+	}
+}
+
 // TestSourceRequestSendsNaughtyOnlyWhenSet: a marked request carries naughty:true and
 // round-trips; an unmarked one leaves the field out, so the TUI's rename (which never
 // sets the flag) does not clear a source's mark through PATCH.

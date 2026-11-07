@@ -139,11 +139,69 @@ def _migrate_3_source_naughty(conn: sqlite3.Connection) -> None:
         )
 
 
+# The source-health columns in schema.sql's order, each with the DDL that adds it.
+_SOURCE_HEALTH_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("next_fetch_at", "next_fetch_at TEXT"),
+    ("entries_served", "entries_served INTEGER"),
+    ("newest_item_at", "newest_item_at TEXT"),
+    (
+        "health",
+        "health TEXT CHECK(health IN ('healthy', 'broken', 'empty', 'dormant'))",
+    ),
+    ("kept_health", "kept_health TEXT"),
+    ("kept_at", "kept_at TEXT"),
+    ("attention", "attention INTEGER NOT NULL DEFAULT 0"),
+)
+
+_SOURCES_ATTENTION_TRIGGER_DDL = """
+CREATE TRIGGER IF NOT EXISTS update_sources_attention
+AFTER UPDATE OF active, health, kept_health ON sources
+BEGIN
+    UPDATE sources SET attention = CASE
+        WHEN NEW.active = 1
+         AND NEW.health IN ('broken', 'empty', 'dormant')
+         AND (NEW.kept_health IS NULL OR NEW.kept_health != NEW.health)
+        THEN 1 ELSE 0 END
+    WHERE id = NEW.id;
+END
+"""
+
+
+def _migrate_4_source_health(conn: sqlite3.Connection) -> None:
+    """Add the source-health columns and attention trigger, and undo the five-strike rule.
+
+    Each column is added only when absent, like _migrate_3_source_naughty. Then:
+    sources with active 0 and error_count >= 5 are turned back on, since only the
+    five-strike rule could have left that pair (resume zeroes error_count, and a paused
+    source is never fetched, so it never counts a failure); and each source's
+    newest_item_at is backfilled from its newest stored item. The updated_at trigger is
+    dropped around those UPDATEs and recreated, so no other cell changes.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(sources)")}
+    for name, ddl in _SOURCE_HEALTH_COLUMNS:
+        if name not in columns:
+            conn.execute(f"ALTER TABLE sources ADD COLUMN {ddl}")  # nosec B608 -- the DDL comes from _SOURCE_HEALTH_COLUMNS, not input
+    conn.execute(_SOURCES_ATTENTION_TRIGGER_DDL)
+
+    conn.execute("DROP TRIGGER IF EXISTS update_sources_timestamp")
+    conn.execute("UPDATE sources SET active = 1 WHERE active = 0 AND error_count >= 5")
+    conn.execute(
+        "UPDATE sources SET newest_item_at = ("
+        " SELECT MAX(published_at) FROM content WHERE content.source_id = sources.id)"
+        " WHERE newest_item_at IS NULL"
+    )
+    conn.execute(
+        "CREATE TRIGGER update_sources_timestamp AFTER UPDATE ON sources BEGIN "  # nosec B608 -- the expression is the module's own constant
+        f"UPDATE sources SET updated_at = {_TZ_TRIGGER_EXPR} WHERE id = NEW.id; END"
+    )
+
+
 # Numbered migrations: entry N takes a database from user_version N-1 to N.
 _MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _migrate_1_tz_aware_timestamps,
     _migrate_2_drift_checks,
     _migrate_3_source_naughty,
+    _migrate_4_source_health,
 ]
 
 

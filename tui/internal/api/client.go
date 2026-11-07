@@ -59,17 +59,27 @@ type APIResponse struct {
 	Data    map[string]any `json:"data,omitempty"`
 }
 
-// Source represents a content source
+// Source represents a content source. The health fields are the daemon's stored
+// classification and its evidence; a daemon older than them sends none, and they
+// read zero.
 type Source struct {
-	ID          string     `json:"id"`
-	URL         string     `json:"url"`
-	Type        string     `json:"type"`
-	Name        *string    `json:"name,omitempty"`
-	Active      bool       `json:"active"`
-	LastFetched *time.Time `json:"last_fetched,omitempty"`
-	ErrorCount  int        `json:"error_count"`
-	LastError   *string    `json:"last_error,omitempty"`
-	Naughty     bool       `json:"naughty"` // the daemon sends a browser user-agent for it
+	ID            string     `json:"id"`
+	URL           string     `json:"url"`
+	Type          string     `json:"type"`
+	Name          *string    `json:"name,omitempty"`
+	Active        bool       `json:"active"`
+	LastFetched   *time.Time `json:"last_fetched,omitempty"`
+	ErrorCount    int        `json:"error_count"`
+	LastError     *string    `json:"last_error,omitempty"`
+	Naughty       bool       `json:"naughty"` // the daemon sends a browser user-agent for it
+	Health        *string    `json:"health,omitempty"`
+	Attention     bool       `json:"attention"`
+	EntriesServed *int       `json:"entries_served,omitempty"`
+	NewestItemAt  *time.Time `json:"newest_item_at,omitempty"`
+	NextFetchAt   *time.Time `json:"next_fetch_at,omitempty"`
+	KeptHealth    *string    `json:"kept_health,omitempty"`
+	KeptAt        *time.Time `json:"kept_at,omitempty"`
+	CreatedAt     *time.Time `json:"created_at,omitempty"`
 }
 
 // SourceListResponse represents the response from GET /api/sources
@@ -496,17 +506,28 @@ func (c *APIClient) UpdateSource(sourceID string, request SourceRequest) (*APIRe
 
 // PauseSource pauses a content source (sets inactive)
 func (c *APIClient) PauseSource(sourceID string) (*APIResponse, error) {
-	status, body, err := c.doRequest("PATCH", "/api/sources/"+sourceID+"/pause", nil, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	return successOnlyResult(status, body)
+	return c.patchSourceAction(sourceID, "pause")
 }
 
 // ResumeSource resumes a paused content source (sets active)
 func (c *APIClient) ResumeSource(sourceID string) (*APIResponse, error) {
-	status, body, err := c.doRequest("PATCH", "/api/sources/"+sourceID+"/resume", nil, 0)
+	return c.patchSourceAction(sourceID, "resume")
+}
+
+// KeepSource keeps a flagged source's current health, so it stops raising the warning
+// until its health changes. The daemon answers 400 for a source with nothing to keep.
+func (c *APIClient) KeepSource(sourceID string) (*APIResponse, error) {
+	return c.patchSourceAction(sourceID, "keep")
+}
+
+// UnkeepSource clears a source's keep, so a flagged health raises the warning again.
+func (c *APIClient) UnkeepSource(sourceID string) (*APIResponse, error) {
+	return c.patchSourceAction(sourceID, "unkeep")
+}
+
+// patchSourceAction sends PATCH /api/sources/{id}/{action}, a bodyless source action.
+func (c *APIClient) patchSourceAction(sourceID, action string) (*APIResponse, error) {
+	status, body, err := c.doRequest("PATCH", "/api/sources/"+sourceID+"/"+action, nil, 0)
 	if err != nil {
 		return nil, err
 	}

@@ -14,7 +14,7 @@ from typing import Any
 
 from ..article_extractor import ArticleResult
 from ..config import Config
-from ..models import ContentItem
+from ..models import ContentItem, FetchedItems
 from ..observability import log as obs_log
 from ..readability import format_youtube_no_transcript
 
@@ -76,7 +76,7 @@ class YouTubeFetcher:
 
     def fetch_content(
         self, source: dict[str, Any], known_readable_ids: set[str] | None = None
-    ) -> list[ContentItem]:
+    ) -> FetchedItems:
         """Fetch videos with transcripts from a YouTube channel.
 
         Args:
@@ -87,7 +87,10 @@ class YouTubeFetcher:
                 result anyway.
 
         Returns:
-            List of ContentItem objects with video transcripts
+            The videos with transcripts, serving the count discovery returned and
+            their newest upload time. A discovery that returns nothing serves None:
+            it is date-filtered, so it cannot tell a channel with no videos from one
+            with none recent.
         """
         known_readable_ids = known_readable_ids or set()
 
@@ -109,14 +112,19 @@ class YouTubeFetcher:
 
             if not videos:
                 logger.info(f"No recent videos found for channel: {channel_url}")
-                return []
+                return FetchedItems()
 
             logger.info(
                 f"Found {len(videos)} videos from the last {self.config.max_days_lookback} days"
             )
 
             # Process each video to get transcript
-            items = []
+            upload_times = [
+                t for t in (self._published_at(v) for v in videos) if t is not None
+            ]
+            items = FetchedItems(
+                served=len(videos), newest_entry_at=max(upload_times, default=None)
+            )
             for i, video in enumerate(videos[: self.max_items], 1):
                 try:
                     video_start = time.time()

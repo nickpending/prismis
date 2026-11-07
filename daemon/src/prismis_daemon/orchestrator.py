@@ -2,6 +2,8 @@
 
 import logging
 import time
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
@@ -13,9 +15,10 @@ from .deep_extractor import ContentDeepExtractor
 from .drift import run_drift_check
 from .evaluator import ContentEvaluator
 from .kind_classifier import KindClassifier
-from .models import ContentItem
+from .models import ContentItem, FetchedItems
 from .observability import log as obs_log
 from .readability import is_readable
+from .source_health import is_due
 from .storage import Storage
 from .summarizer import ContentSummarizer
 
@@ -24,6 +27,11 @@ if TYPE_CHECKING:
 
 console = Console()
 logger = logging.getLogger(__name__)
+
+
+def _utc_now() -> datetime:
+    """The system clock, in UTC: the orchestrator's default cycle clock."""
+    return datetime.now(UTC)
 
 
 class DaemonOrchestrator:
@@ -43,6 +51,7 @@ class DaemonOrchestrator:
         embedder: "Embedder | None" = None,
         deep_extractor: ContentDeepExtractor | None = None,
         kind_classifier: KindClassifier | None = None,
+        clock: Callable[[], datetime] | None = None,
     ):
         """Initialize orchestrator with dependencies.
 
@@ -61,6 +70,8 @@ class DaemonOrchestrator:
                 HIGH-priority items. None disables deep extraction.
             kind_classifier: Optional KindClassifier for tagging each item's primary
                 kind (gh #77). None disables kind classification.
+            clock: Returns the current UTC time; a cycle reads it once, at its start,
+                for every backoff and health decision. Defaults to the system clock.
         """
         self.storage = storage
         self.rss_fetcher = rss_fetcher
@@ -80,6 +91,7 @@ class DaemonOrchestrator:
         self.embedder = embedder
         self.deep_extractor = deep_extractor
         self.kind_classifier = kind_classifier
+        self.clock: Callable[[], datetime] = clock or _utc_now
         # The context.md text scoring uses: the startup copy until a cycle re-reads it.
         self.context = config.context
 
@@ -341,6 +353,10 @@ class DaemonOrchestrator:
             "items_updated": 0,
             "errors": [],
             "fetch_error": None,  # Set when the source itself failed, not one item
+            # What the source served before the pipeline's filters (FetchedItems);
+            # None when the fetcher could not say.
+            "served": None,
+            "newest_entry_at": None,
             # Items kept at the light summary because deep extraction failed; kept out
             # of "errors", which counts pipeline failures (INV-002).
             "deep_extract_failures": [],
@@ -393,6 +409,9 @@ class DaemonOrchestrator:
                     source, known_readable_ids=known_readable_ids
                 )
             stats["items_fetched"] = len(all_items)
+            if isinstance(all_items, FetchedItems):
+                stats["served"] = all_items.served
+                stats["newest_entry_at"] = all_items.newest_entry_at
 
             if not all_items:
                 self.console.print(
@@ -579,6 +598,9 @@ class DaemonOrchestrator:
             Dict with stats: total_items, total_analyzed, total_new, total_updated, errors
         """
         start_time = time.time()
+        # Every backoff and health decision of this cycle reads this one instant.
+        cycle_start = self.clock()
+        fetch_interval = self.config.fetch_interval
 
         stats: dict[str, Any] = {
             "total_items": 0,
@@ -610,8 +632,16 @@ class DaemonOrchestrator:
 
         # Process each source with deduplication
         for source_num, source in enumerate(sources, 1):
+            label = source["name"] or source["url"]
+            next_fetch_at = source.get("next_fetch_at")
+            if not is_due(next_fetch_at, cycle_start, fetch_interval):
+                self.console.print(
+                    f"\n[dim]Skipping source {escape(str(source_num))}/{escape(str(len(sources)))}: {escape(str(label))} (backing off after {escape(str(source['error_count']))} failures, next due {escape(str(next_fetch_at))})[/dim]"
+                )
+                continue
+
             self.console.print(
-                f"\n[bold cyan]Processing source {escape(str(source_num))}/{escape(str(len(sources)))}: {escape(str(source['name'] or source['url']))}[/bold cyan]"
+                f"\n[bold cyan]Processing source {escape(str(source_num))}/{escape(str(len(sources)))}: {escape(str(label))}[/bold cyan]"
             )
 
             try:
@@ -634,11 +664,19 @@ class DaemonOrchestrator:
                 # fetch_source_content reports a failed fetch in its stats rather than
                 # raising, so the except below never sees it (#75).
                 if source_stats["fetch_error"] is not None:
-                    self.storage.update_source_fetch_status(
-                        source["id"], False, source_stats["fetch_error"]
+                    self.storage.record_fetch_failure(
+                        source["id"],
+                        source_stats["fetch_error"],
+                        cycle_start,
+                        fetch_interval,
                     )
                 else:
-                    self.storage.update_source_fetch_status(source["id"], True)
+                    self.storage.record_fetch_success(
+                        source["id"],
+                        source_stats["served"],
+                        source_stats["newest_entry_at"],
+                        cycle_start,
+                    )
 
             except Exception as e:
                 # Per-source boundary: one source's failure never stops the cycle.
@@ -646,8 +684,9 @@ class DaemonOrchestrator:
                 logger.exception(error_msg)
                 self.console.print(f"  [red]{escape(str(error_msg))}[/red]")
                 stats["errors"].append(error_msg)
-                # Update source fetch status (failure)
-                self.storage.update_source_fetch_status(source["id"], False, str(e))
+                self.storage.record_fetch_failure(
+                    source["id"], str(e), cycle_start, fetch_interval
+                )
 
         # Summary with enhanced stats
         self.console.print("\n[bold green]✅ Processing complete[/bold green]")
@@ -660,6 +699,7 @@ class DaemonOrchestrator:
             self.console.print("🔄 Force refetch was enabled")
 
         self._record_drift_check()
+        self._record_source_health(cycle_start)
 
         # Log cycle complete
         duration_ms = int((time.time() - start_time) * 1000)
@@ -697,6 +737,23 @@ class DaemonOrchestrator:
                 )
         except Exception:
             logger.exception("Drift check failed")
+
+    def _record_source_health(self, cycle_start: datetime) -> None:
+        """Classify every active source, store each change, and say what changed.
+
+        Cycle boundary: a failure is logged with its traceback and never fails the cycle
+        that already fetched and scored its items.
+        """
+        try:
+            changes = self.storage.record_health(
+                cycle_start, self.config.fetch_interval
+            )
+            for source_id, old, new in changes:
+                self.console.print(
+                    f"[yellow]Source {escape(str(source_id))}: health {escape(str(old or 'unclassified'))} -> {escape(str(new or 'unclassified'))}[/yellow]"
+                )
+        except Exception:
+            logger.exception("Source health classification failed")
 
     def _merge_analysis(self, existing_analysis: dict, llm_analysis: dict) -> dict:
         """Merge existing fetcher analysis with new LLM analysis.

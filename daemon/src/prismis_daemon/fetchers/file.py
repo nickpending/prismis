@@ -11,7 +11,7 @@ import httpx
 
 from ..article_extractor import user_agent
 from ..config import Config
-from ..models import ContentItem
+from ..models import ContentItem, FetchedItems
 from ..observability import log as obs_log
 from ..storage import Storage
 
@@ -48,14 +48,16 @@ class FileFetcher:
         self.storage = storage if storage else Storage()
         self.client = httpx.Client(timeout=timeout)
 
-    def fetch_content(self, source: dict[str, Any]) -> list[ContentItem]:
+    def fetch_content(self, source: dict[str, Any]) -> FetchedItems:
         """Fetch file content and detect changes.
 
         Args:
             source: Source dict with 'url' (file URL) and 'id' (source UUID)
 
         Returns:
-            List with 0 or 1 ContentItem (only if content changed)
+            0 or 1 ContentItem (only if content changed), serving 1 when the file
+            held a non-empty text body, changed or not, and 0 for an empty or
+            non-text body
 
         Raises:
             Exception: If the GET fails or answers non-2xx (wrapped with context)
@@ -79,7 +81,7 @@ class FileFetcher:
                 status="skipped",
                 reason="missing_params",
             )
-            return []
+            return FetchedItems()
 
         # Fetch current content
         try:
@@ -99,7 +101,7 @@ class FileFetcher:
                 logger.warning(
                     f"Skipping non-text file: {url} (Content-Type: {content_type})"
                 )
-                return []
+                return FetchedItems(served=0)
 
             current_content = response.text
 
@@ -118,6 +120,8 @@ class FileFetcher:
             # The source's failure, for the orchestrator to record: an empty list would
             # read as an unchanged file.
             raise Exception(f"Failed to fetch file {url}: {e}") from e
+
+        served = 1 if current_content.strip() else 0
 
         # Calculate content hash
         current_hash = hashlib.sha256(current_content.encode()).hexdigest()
@@ -147,7 +151,7 @@ class FileFetcher:
                     status="success",
                     reason="no_changes",
                 )
-                return []
+                return FetchedItems(served=served)
 
             # Content changed - generate diff
             previous_content = (
@@ -193,7 +197,7 @@ class FileFetcher:
                 change_type="update",
                 diff_stats=diff_stats,
             )
-            return [item]
+            return FetchedItems([item], served=served)
 
         else:
             # First fetch - no previous version to diff against
@@ -227,7 +231,7 @@ class FileFetcher:
                 change_type="first_fetch",
                 content_size=len(current_content),
             )
-            return [item]
+            return FetchedItems([item], served=served)
 
     def _generate_external_id(self, url: str, content_hash: str) -> str:
         """Generate unique external ID from URL and content hash.

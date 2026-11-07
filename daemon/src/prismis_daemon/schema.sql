@@ -28,7 +28,14 @@ CREATE TABLE IF NOT EXISTS sources (
     last_fetched_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'),
     updated_at TIMESTAMP DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00'),
-    naughty INTEGER NOT NULL DEFAULT 0  -- 1: every request for this source sends the browser user-agent
+    naughty INTEGER NOT NULL DEFAULT 0,  -- 1: every request for this source sends the browser user-agent
+    next_fetch_at TEXT,  -- earliest time a failing source is fetched again; NULL: every cycle
+    entries_served INTEGER,  -- entries the last successful fetch served; NULL: the fetcher could not say
+    newest_item_at TEXT,  -- newest item time the daemon has seen for the source, never lowered
+    health TEXT CHECK(health IN ('healthy', 'broken', 'empty', 'dormant')),  -- NULL until first classified
+    kept_health TEXT,  -- the health the operator kept; any change of health clears it
+    kept_at TEXT,
+    attention INTEGER NOT NULL DEFAULT 0  -- written only by update_sources_attention
 );
 
 -- Many-to-many relationship between sources and categories
@@ -116,6 +123,19 @@ CREATE TRIGGER IF NOT EXISTS update_sources_timestamp
 AFTER UPDATE ON sources
 BEGIN
     UPDATE sources SET updated_at = strftime('%Y-%m-%dT%H:%M:%f','now') || '+00:00' WHERE id = NEW.id;
+END;
+
+-- The one definition of the sources warning: an active source whose health is flagged
+-- and not the state the operator kept.
+CREATE TRIGGER IF NOT EXISTS update_sources_attention
+AFTER UPDATE OF active, health, kept_health ON sources
+BEGIN
+    UPDATE sources SET attention = CASE
+        WHEN NEW.active = 1
+         AND NEW.health IN ('broken', 'empty', 'dormant')
+         AND (NEW.kept_health IS NULL OR NEW.kept_health != NEW.health)
+        THEN 1 ELSE 0 END
+    WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_categories_timestamp

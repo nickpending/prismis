@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -16,6 +17,122 @@ import (
 // naughtyMarker follows the name of a source the daemon fetches with a browser
 // user-agent (`prismis-cli source update <id> --naughty` sets it).
 const naughtyMarker = " [browser UA]"
+
+// sourceMark is the one status mark for a source, read from the daemon's stored state
+// alone: paused, then kept, then its health. The sources screen and the main view's
+// source list both draw it, so the two never disagree.
+func sourceMark(source db.Source) (glyph string, state string) {
+	switch {
+	case !source.Active:
+		return "○", "paused"
+	case source.Kept():
+		return "□", "kept"
+	}
+	switch source.Health {
+	case "healthy":
+		return "●", "healthy"
+	case "broken":
+		return "✗", "broken"
+	case "empty":
+		return "◇", "empty"
+	case "dormant":
+		return "◐", "dormant"
+	}
+	return "·", "unclassified"
+}
+
+// renderSourceMark draws sourceMark in its state's colour from theme.
+func renderSourceMark(source db.Source, theme StyleTheme) string {
+	glyph, state := sourceMark(source)
+	color := map[string]lipgloss.Color{
+		"paused":  theme.Red,
+		"kept":    theme.Gray,
+		"healthy": theme.Green,
+		"broken":  theme.Red,
+		"empty":   theme.Orange,
+		"dormant": theme.Orange,
+	}[state]
+	if color == "" {
+		color = theme.Gray
+	}
+	return lipgloss.NewStyle().Foreground(color).Render(glyph)
+}
+
+// maxEvidenceError bounds the error text in an evidence line, so the next try that
+// follows it stays near the start of the line.
+const maxEvidenceError = 60
+
+// singleLine strips every terminal control from s - C0 controls, ESC, DEL and C1
+// controls - and flattens it to one line: line breaks and tabs become spaces and runs
+// of spaces collapse. Text from a feed's server passes through here before it is drawn.
+func singleLine(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == '\r' || r == '\n' || r == '\t':
+			b.WriteRune(' ')
+		case r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == utf8.RuneError:
+			// dropped
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+// sourceEvidence is the one line under a source on the sources screen saying why its
+// mark reads as it does, or "" for a source with no attention, failures or keep.
+func sourceEvidence(source db.Source) string {
+	date := func(t *time.Time) string { return t.Local().Format("2006-01-02") }
+	switch {
+	case source.Kept():
+		since := ""
+		if source.KeptAt != nil {
+			since = " since " + date(source.KeptAt)
+		}
+		return fmt.Sprintf("kept (%s)%s", source.KeptHealth, since)
+	case source.Health == "empty":
+		fetched := "never fetched"
+		if source.LastFetched != nil {
+			fetched = "fetched " + source.LastFetched.Local().Format("2006-01-02 15:04")
+		}
+		return "served 0 entries · " + fetched
+	case source.Health == "dormant":
+		if source.NewestItemAt != nil {
+			return "newest item " + date(source.NewestItemAt)
+		}
+		if source.CreatedAt != nil {
+			return "nothing dated since added " + date(source.CreatedAt)
+		}
+		return "nothing dated seen"
+	case source.Health == "broken" || source.ErrorCount > 0:
+		return failureEvidence(source)
+	}
+	return ""
+}
+
+// failureEvidence is "N failures · <last error> · next try <time> · last success
+// <date or never>", the error stripped of controls and bounded.
+func failureEvidence(source db.Source) string {
+	parts := []string{fmt.Sprintf("%d failure%s", source.ErrorCount, pluralize(source.ErrorCount))}
+	if text := singleLine(source.LastError); text != "" {
+		if runes := []rune(text); len(runes) > maxEvidenceError {
+			text = string(runes[:maxEvidenceError-1]) + "…"
+		}
+		parts = append(parts, text)
+	}
+	switch {
+	case !source.Active:
+		parts = append(parts, "paused")
+	case source.NextFetchAt != nil:
+		parts = append(parts, "next try "+source.NextFetchAt.Local().Format("2006-01-02 15:04"))
+	}
+	success := "never"
+	if source.LastFetched != nil {
+		success = source.LastFetched.Local().Format("2006-01-02")
+	}
+	return strings.Join(append(parts, "last success "+success), " · ")
+}
 
 // SourceModal represents the source management modal
 type SourceModal struct {
@@ -171,6 +288,19 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 						return m, operations.PauseSource(source.ID)
 					} else {
 						return m, operations.ResumeSource(source.ID)
+					}
+				}
+			case "K":
+				// Keep a flagged source's current health; unkeep a kept one
+				if len(m.sources) > 0 && m.cursor < len(m.sources) {
+					source := m.sources[m.cursor]
+					switch {
+					case source.Kept():
+						return m, operations.UnkeepSource(source.ID)
+					case source.Attention:
+						return m, operations.KeepSource(source.ID)
+					default:
+						m.errorMsg = "Nothing to keep: this source raises no warning"
 					}
 				}
 			case "d":
@@ -448,7 +578,7 @@ func (m SourceModal) View(theme StyleTheme) string {
 		// Show commands when no status message
 		switch m.mode {
 		case "list":
-			statusContent = "[a]dd [↵] edit [d]elete [esc] close"
+			statusContent = "[a]dd [↵] edit [p]ause [K]eep [d]elete [esc] close"
 		case "add", "edit":
 			statusContent = "[tab] switch [↵] save [esc] cancel"
 		case "confirm_remove":
@@ -489,15 +619,8 @@ func (m SourceModal) renderListContentOnly(theme StyleTheme) string {
 		lines = append(lines, "", theme.MutedStyle().Render("Press [a] to add your first source"))
 	} else {
 		for i, source := range m.sources {
-			// Status indicator
-			var status string
-			if !source.Active {
-				status = theme.ErrorStyle().Render("○") // Red - inactive
-			} else if source.ErrorCount > 3 {
-				status = lipgloss.NewStyle().Foreground(theme.Orange).Render("●") // Orange - errors
-			} else {
-				status = theme.SuccessStyle().Render("●") // Green - healthy
-			}
+			// Status indicator: the daemon's stored state, as the main view draws it
+			status := renderSourceMark(source, theme)
 
 			// Selection indicator
 			selector := "  "
@@ -563,6 +686,9 @@ func (m SourceModal) renderListContentOnly(theme StyleTheme) string {
 			)
 
 			lines = append(lines, line)
+			if evidence := sourceEvidence(source); evidence != "" {
+				lines = append(lines, "    "+theme.MutedStyle().Render(evidence))
+			}
 		}
 	}
 

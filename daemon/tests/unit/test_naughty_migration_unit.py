@@ -2,8 +2,8 @@
 
 Invariant protected:
   - an existing database gains sources.naughty with every source row's fields intact
-    and the flag reading 0, a backup beside it, and user_version 3; a database created
-    from schema.sql already carries the column and runs no migration
+    and the flag reading 0, a backup beside it, and the latest user_version; a database
+    created from schema.sql already carries the column and runs no migration
 
 Success criteria covered: C3.
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import sqlite_vec
 
-from prismis_daemon.database import init_db
+from prismis_daemon.database import _MIGRATIONS, init_db
 from prismis_daemon.storage import Storage
 
 OLD_SCHEMA = (
@@ -49,7 +49,9 @@ _OLD_SOURCES = [
         "reddit",
         "r/python",
         0,
-        5,
+        # Below five: an inactive source with five failures is the one the
+        # source-health migration turns back on, which this upgrade also runs.
+        3,
         "HTTP 403",
         None,
         "2026-08-01T00:00:00+00:00",
@@ -100,7 +102,7 @@ def test_opening_a_previous_release_database_adds_naughty_and_keeps_every_source
     """
     INVARIANT: init_db on a user_version 2 database adds sources.naughty, reads 0 for
                every existing source, keeps every other field and content row, writes a
-               backup beside the file, and stamps user_version 3
+               backup beside the file, and stamps the latest user_version
     BREAKS: the upgraded daemon's first source read raises on the missing column and
             no source is fetched, or the upgrade rewrites a user's sources
     """
@@ -117,9 +119,9 @@ def test_opening_a_previous_release_database_adds_naughty_and_keeps_every_source
     assert sources["src-1"]["naughty"] is False
     assert sources["src-2"]["naughty"] is False
     assert sources["src-2"]["last_error"] == "HTTP 403"
-    assert sources["src-2"]["error_count"] == 5
+    assert sources["src-2"]["error_count"] == 3
 
-    assert _scalar(db, "PRAGMA user_version") == 3
+    assert _scalar(db, "PRAGMA user_version") == len(_MIGRATIONS)
     assert db.with_name(db.name + ".bak-tz").exists(), "no backup beside the database"
     conn = _connect(db)
     try:
@@ -138,7 +140,7 @@ def test_opening_a_previous_release_database_adds_naughty_and_keeps_every_source
 def test_a_fresh_database_has_the_column_and_runs_no_migration(tmp_path: Path) -> None:
     """
     INVARIANT: a database created from schema.sql carries sources.naughty NOT NULL
-               DEFAULT 0, is stamped user_version 3, and leaves no backup
+               DEFAULT 0, is stamped the latest user_version, and leaves no backup
     BREAKS: every new install backs itself up and migrates on its first start, or a
             fresh database lacks the column the source reads select
     """
@@ -146,7 +148,7 @@ def test_a_fresh_database_has_the_column_and_runs_no_migration(tmp_path: Path) -
 
     init_db(db)
 
-    assert _scalar(db, "PRAGMA user_version") == 3
+    assert _scalar(db, "PRAGMA user_version") == len(_MIGRATIONS)
     assert not db.with_name(db.name + ".bak-tz").exists()
     conn = _connect(db)
     try:

@@ -6,6 +6,7 @@ import subprocess
 from conftest import configure_local_services, strip_ansi
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -199,7 +200,9 @@ def test_daemon_handles_source_errors_gracefully(test_db) -> None:
     # Test error tracking at storage level
     # Update source with error
     bad_source = next(s for s in sources if "invalid-url" in s["url"])
-    storage.update_source_fetch_status(bad_source["id"], False, "Connection failed")
+    storage.record_fetch_failure(
+        bad_source["id"], "Connection failed", datetime.now(UTC), 30
+    )
 
     # Verify error was tracked
     sources = storage.get_active_sources()

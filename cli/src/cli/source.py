@@ -53,14 +53,24 @@ def find_source_by_id(sources: list[dict], source_id: str) -> dict | None:
     return None
 
 
-def format_source_row(source: dict) -> tuple[str, str, str, str, str, str, str]:
-    """Render one API source dict as the seven columns of the `source list` table.
+def format_source_row(source: dict) -> tuple[str, str, str, str, str, str, str, str]:
+    """Render one API source dict as the eight columns of the `source list` table.
 
     Returns:
-        (id, type, name, active, errors, last_fetched, ua) as display strings; ua is
-        "browser" for a source marked naughty and "prismis" otherwise, including a
-        source from a daemon that predates the flag and sends no `naughty`
+        (id, type, name, active, errors, last_fetched, ua, health) as display strings;
+        ua is "browser" for a source marked naughty and "prismis" otherwise, including
+        a source from a daemon that predates the flag and sends no `naughty`; health is
+        the daemon's stored health, with " (kept)" when the operator kept that same
+        state, and "—" before the first classification or from an older daemon
     """
+    health = source.get("health")
+    if not health:
+        health_str = "—"
+    elif source.get("kept_health") == health:
+        health_str = f"{health} (kept)"
+    else:
+        health_str = health
+
     active_str = "✅ Yes" if source.get("active") else "❌ No"
     error_str = str(source.get("error_count", 0)) if source.get("error_count") else "—"
 
@@ -82,6 +92,7 @@ def format_source_row(source: dict) -> tuple[str, str, str, str, str, str, str]:
         error_str,
         str(last_fetched),
         "browser" if source.get("naughty") else "prismis",
+        health_str,
     )
 
 
@@ -184,6 +195,7 @@ def list_sources(
         table.add_column("Errors", style="red")
         table.add_column("Last Fetched", style="dim")
         table.add_column("UA", style="yellow")
+        table.add_column("Health", style="white")
 
         for source in sources:
             table.add_row(*format_source_row(source))
@@ -283,6 +295,37 @@ def resume(
         raise
     except Exception as e:
         console.print(f"[red]❌ Failed to resume source:[/red] {escape(str(e))}")
+        raise typer.Exit(1) from e
+
+
+@app.command()
+def keep(
+    source_id: str = typer.Argument(..., help="UUID of the source to keep"),
+) -> None:
+    """Keep a flagged source's current health: it stops raising the warning until its
+    health changes."""
+    try:
+        api_client = APIClient()
+        api_client.keep_source(source_id)
+        console.print(f"[green]✅ Kept source:[/green] {escape(str(source_id))}")
+
+    except Exception as e:
+        console.print(f"[red]❌ Failed to keep source:[/red] {escape(str(e))}")
+        raise typer.Exit(1) from e
+
+
+@app.command()
+def unkeep(
+    source_id: str = typer.Argument(..., help="UUID of the source to unkeep"),
+) -> None:
+    """Clear a source's keep, so a flagged health raises the warning again."""
+    try:
+        api_client = APIClient()
+        api_client.unkeep_source(source_id)
+        console.print(f"[green]✅ Unkept source:[/green] {escape(str(source_id))}")
+
+    except Exception as e:
+        console.print(f"[red]❌ Failed to unkeep source:[/red] {escape(str(e))}")
         raise typer.Exit(1) from e
 
 

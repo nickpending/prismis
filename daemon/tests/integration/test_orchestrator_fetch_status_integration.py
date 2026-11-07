@@ -32,15 +32,17 @@ def _cycle(url: str, tmp_path: Path) -> dict:
 
 def test_a_failed_fetch_is_recorded_as_a_failure(tmp_path: Path) -> None:
     """
-    INVARIANT: A source whose fetch raises gets error_count incremented and last_error set
+    INVARIANT: A source whose fetch raises gets error_count incremented, last_error set
+               and a next_fetch_at to back off to
     BREAKS: The failure is stamped as a success every cycle, so a dead source reads as
-            healthy everywhere and the five-strike deactivation can never fire
+            healthy everywhere and never backs off or reads broken
     """
     row = _cycle("http://127.0.0.1:1/feed.xml", tmp_path)
 
     assert row["error_count"] == 1, f"a failed fetch must count, got {row}"
     assert row["last_error"], "the failure's cause must be stored"
     assert row["last_fetched_at"] is None, "a failed fetch is not a fetch"
+    assert row["next_fetch_at"] is not None, "a failed fetch must set its wait"
 
 
 def test_a_successful_fetch_is_recorded_as_a_success(
@@ -55,3 +57,5 @@ def test_a_successful_fetch_is_recorded_as_a_success(
     assert row["error_count"] == 0, f"a clean fetch must not count, got {row}"
     assert row["last_error"] is None
     assert row["last_fetched_at"] is not None, "a clean fetch must be stamped"
+    assert row["next_fetch_at"] is None, "a clean fetch waits for nothing"
+    assert row["entries_served"], "a clean fetch records what the feed served"

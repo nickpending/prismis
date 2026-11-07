@@ -115,50 +115,48 @@ func RemoveSource(identifier string) tea.Cmd {
 
 // PauseSource pauses a source by ID, URL, or name
 func PauseSource(identifier string) tea.Cmd {
-	return func() tea.Msg {
-		apiClient, sourceID, sourceName, errMsg := clientAndLookupOrErrMsg(identifier)
-		if errMsg != nil {
-			return errMsg
-		}
-
-		// Pause the source
-		_, err := apiClient.PauseSource(sourceID)
-		if err != nil {
-			return SourceOperationMsg{
-				Message: fmt.Sprintf("Failed to pause source: %v", err),
-				Success: false,
-				Error:   err,
-			}
-		}
-
-		return SourceOperationMsg{
-			Message: fmt.Sprintf("⏸ Paused source: %s", sourceName),
-			Success: true,
-			Error:   nil,
-		}
-	}
+	return sourceAction(identifier, (*api.APIClient).PauseSource, "pause", "⏸ Paused")
 }
 
 // ResumeSource resumes a paused source by ID, URL, or name
 func ResumeSource(identifier string) tea.Cmd {
+	return sourceAction(identifier, (*api.APIClient).ResumeSource, "resume", "▶ Resumed")
+}
+
+// KeepSource keeps a flagged source's current health by ID, URL, or name, so it stops
+// raising the warning until its health changes
+func KeepSource(identifier string) tea.Cmd {
+	return sourceAction(identifier, (*api.APIClient).KeepSource, "keep", "✓ Kept")
+}
+
+// UnkeepSource clears a source's keep by ID, URL, or name
+func UnkeepSource(identifier string) tea.Cmd {
+	return sourceAction(identifier, (*api.APIClient).UnkeepSource, "unkeep", "✓ Unkept")
+}
+
+// sourceAction looks a source up and runs one bodyless API action on it, reporting
+// "Failed to <verb> source: <err>" or "<done> source: <name>".
+func sourceAction(
+	identifier string,
+	call func(*api.APIClient, string) (*api.APIResponse, error),
+	verb, done string,
+) tea.Cmd {
 	return func() tea.Msg {
 		apiClient, sourceID, sourceName, errMsg := clientAndLookupOrErrMsg(identifier)
 		if errMsg != nil {
 			return errMsg
 		}
 
-		// Resume the source
-		_, err := apiClient.ResumeSource(sourceID)
-		if err != nil {
+		if _, err := call(apiClient, sourceID); err != nil {
 			return SourceOperationMsg{
-				Message: fmt.Sprintf("Failed to resume source: %v", err),
+				Message: fmt.Sprintf("Failed to %s source: %v", verb, err),
 				Success: false,
 				Error:   err,
 			}
 		}
 
 		return SourceOperationMsg{
-			Message: fmt.Sprintf("▶ Resumed source: %s", sourceName),
+			Message: fmt.Sprintf("%s source: %s", done, sourceName),
 			Success: true,
 			Error:   nil,
 		}

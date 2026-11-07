@@ -11,7 +11,7 @@ import httpx
 from ..article_extractor import extract_article, user_agent
 from ..config import Config
 from ..hackernews import fetch_discussion, is_item_link, story_id
-from ..models import ContentItem
+from ..models import ContentItem, FetchedItems
 from ..observability import log as obs_log
 from ..readability import (
     RSS_NO_CONTENT_FALLBACK,
@@ -87,7 +87,7 @@ class RSSFetcher:
 
     def fetch_content(
         self, source: dict, known_readable_ids: set[str] | None = None
-    ) -> list[ContentItem]:
+    ) -> FetchedItems:
         """Fetch RSS feed and extract full content for each item.
 
         Args:
@@ -98,7 +98,9 @@ class RSSFetcher:
                 drops the result anyway, so the fetch would only be discarded work.
 
         Returns:
-            List of ContentItem objects with full content extracted
+            The items with full content extracted, serving every entry the feed
+            holds and the newest of their dates, both read before the item limit
+            and the lookback filter
 
         Raises:
             Exception: If feed parsing fails (wrapped with context)
@@ -107,7 +109,7 @@ class RSSFetcher:
         source_url = source.get("url", "")
         source_id = source.get("id", "")
         browser_ua = bool(source.get("naughty"))
-        items = []
+        items = FetchedItems()
 
         start_time = time.time()
 
@@ -143,6 +145,15 @@ class RSSFetcher:
 
             # Process feed entries with date filtering and max items limit
             entries = feed.entries if hasattr(feed, "entries") else []
+
+            # What the feed served, before this pipeline's own filters: an empty feed
+            # and a quiet one read differently only from here.
+            entry_dates = [
+                date
+                for date in (self._parse_published_date(e) for e in entries)
+                if date is not None
+            ]
+            items.report_served(len(entries), max(entry_dates, default=None))
 
             # Apply max items limit for RSS feeds
             max_items = self.config.get_max_items("rss")

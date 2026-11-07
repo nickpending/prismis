@@ -2,12 +2,184 @@ package ui
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/nickpending/prismis/internal/db"
 )
+
+// healthSources holds one source per mark, each with more than three failures, where
+// the old rules coloured a source by its error count and its last fetch's age.
+func healthSources() []db.Source {
+	next := time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC)
+	newest := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	keptAt := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	zero := 0
+	return []db.Source{
+		{ID: "h", Name: "Healthy Feed", Type: "rss", Active: true, Health: "healthy", ErrorCount: 4},
+		{ID: "b", Name: "Broken Feed", Type: "rss", Active: true, Health: "broken", Attention: true, ErrorCount: 5,
+			LastError: "HTTP 404\x1b[31m Not\r\nFound\u009b", NextFetchAt: &next},
+		{ID: "e", Name: "Empty Feed", Type: "rss", Active: true, Health: "empty", Attention: true, ErrorCount: 4,
+			EntriesServed: &zero},
+		{ID: "d", Name: "Dormant Feed", Type: "rss", Active: true, Health: "dormant", Attention: true, ErrorCount: 4,
+			NewestItemAt: &newest},
+		{ID: "k", Name: "Kept Feed", Type: "rss", Active: true, Health: "dormant", KeptHealth: "dormant", ErrorCount: 4,
+			NewestItemAt: &newest, KeptAt: &keptAt},
+		{ID: "p", Name: "Paused Feed", Type: "rss", Active: false, Health: "broken", ErrorCount: 4},
+	}
+}
+
+// markAndNext finds the line naming name, and returns the mark drawn before the name
+// and the line after it.
+func markAndNext(t *testing.T, rendered, name string) (string, string) {
+	t.Helper()
+	lines := strings.Split(rendered, "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, name) {
+			continue
+		}
+		fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "▸"))
+		next := ""
+		if i+1 < len(lines) {
+			next = lines[i+1]
+		}
+		return fields[0], next
+	}
+	t.Fatalf("%q is not rendered in:\n%s", name, rendered)
+	return "", ""
+}
+
+// TestSourceMarksAndEvidenceFollowTheStoredHealth: the sources screen and the main
+// view's source list draw the same mark for each source, read from its health, keep
+// and paused state alone; the sources screen's evidence line says why, on one line
+// with no terminal control from the stored error text.
+func TestSourceMarksAndEvidenceFollowTheStoredHealth(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+
+	sources := healthSources()
+	modal := NewSourceModal()
+	modal.LoadSources(sources)
+	screen := modal.renderListContentOnly(CleanCyberTheme)
+	main := Model{sources: sources, sourcesViewport: viewport.New(60, 30), theme: CleanCyberTheme}
+	list := main.buildSourcesContent(CleanCyberTheme)
+
+	want := map[string]string{
+		"Healthy Feed": "●", "Broken Feed": "✗", "Empty Feed": "◇",
+		"Dormant Feed": "◐", "Kept Feed": "□", "Paused Feed": "○",
+	}
+	evidence := map[string]string{}
+	for name, mark := range want {
+		onScreen, next := markAndNext(t, screen, name)
+		inList, _ := markAndNext(t, list, name)
+		if onScreen != mark || inList != mark {
+			t.Errorf("%s: want mark %q in both renderers, got %q on the sources screen and %q in the main list",
+				name, mark, onScreen, inList)
+		}
+		evidence[name] = next
+	}
+
+	broken := evidence["Broken Feed"]
+	for _, part := range []string{"5 failures", "HTTP 404", "Not Found",
+		"next try " + time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC).Local().Format("2006-01-02 15:04")} {
+		if !strings.Contains(broken, part) {
+			t.Errorf("broken evidence %q lacks %q", broken, part)
+		}
+	}
+	for _, r := range broken {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			t.Errorf("broken evidence %q carries control %U", broken, r)
+		}
+	}
+	if !strings.Contains(evidence["Empty Feed"], "served 0 entries") {
+		t.Errorf("empty evidence %q lacks the served count", evidence["Empty Feed"])
+	}
+	newest := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC).Local().Format("2006-01-02")
+	if !strings.Contains(evidence["Dormant Feed"], "newest item "+newest) {
+		t.Errorf("dormant evidence %q lacks its newest item date", evidence["Dormant Feed"])
+	}
+	if !strings.Contains(evidence["Kept Feed"], "kept (dormant)") {
+		t.Errorf("kept evidence %q lacks its kept state", evidence["Kept Feed"])
+	}
+}
+
+// remoteConfigAt points api.NewClient at serverURL through a temp XDG_CONFIG_HOME.
+func remoteConfigAt(t *testing.T, serverURL string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "prismis"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := fmt.Sprintf("[remote]\nurl = %q\nkey = \"test-key\"\n", serverURL)
+	if err := os.WriteFile(filepath.Join(dir, "prismis", "config.toml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+}
+
+// TestSourceModal_KKeepsAFlaggedSourceAndUnkeepsAKeptOne: K on a source that raises the
+// warning asks the daemon to keep it, K on a kept source asks it to unkeep, and the
+// list's help line names K.
+func TestSourceModal_KKeepsAFlaggedSourceAndUnkeepsAKeptOne(t *testing.T) {
+	const flaggedID = "11111111-1111-1111-1111-111111111111"
+	const keptID = "22222222-2222-2222-2222-222222222222"
+	var mu sync.Mutex
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"success":true,"message":"ok","data":{}}`)
+	}))
+	t.Cleanup(server.Close)
+	remoteConfigAt(t, server.URL)
+
+	modal := NewSourceModal()
+	modal.SetSize(120, 40)
+	modal.visible = true
+	modal.mode = "list"
+	modal.LoadSources([]db.Source{
+		{ID: flaggedID, Name: "Flagged", Type: "rss", Active: true, Health: "empty", Attention: true},
+		{ID: keptID, Name: "Kept", Type: "rss", Active: true, Health: "dormant", KeptHealth: "dormant"},
+	})
+	if !strings.Contains(modal.View(CleanCyberTheme), "[K]eep") {
+		t.Errorf("the list's help line must name K")
+	}
+
+	press := func(m SourceModal, key rune) (SourceModal, tea.Cmd) {
+		return m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+	}
+	modal, cmd := press(modal, 'K')
+	if cmd == nil {
+		t.Fatal("K on a flagged source sent nothing")
+	}
+	cmd()
+	modal, _ = press(modal, 'j')
+	_, cmd = press(modal, 'K')
+	if cmd == nil {
+		t.Fatal("K on a kept source sent nothing")
+	}
+	cmd()
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"PATCH /api/sources/" + flaggedID + "/keep", "PATCH /api/sources/" + keptID + "/unkeep"}
+	if strings.Join(requests, "\n") != strings.Join(want, "\n") {
+		t.Errorf("want requests %q, got %q", want, requests)
+	}
+}
 
 func TestSourceModal_LoadSources_UpdatesContent(t *testing.T) {
 	// Create a new source modal

@@ -85,9 +85,36 @@ class SourceResponse(BaseModel):
     error_count: int = Field(0, description="Number of consecutive errors")
     last_error: str | None = Field(None, description="Last error message")
     naughty: bool = Field(default=False, description=_NAUGHTY_DESCRIPTION)
+    health: Literal["healthy", "broken", "empty", "dormant"] | None = Field(
+        default=None, description="Stored health; null until first classified"
+    )
+    attention: bool = Field(
+        default=False,
+        description="The source is active, flagged broken, empty or dormant, and not kept",
+    )
+    entries_served: int | None = Field(
+        default=None,
+        description="Entries the last successful fetch served; null when unknown",
+    )
+    newest_item_at: datetime | None = Field(
+        default=None, description="Newest item time the daemon has seen"
+    )
+    next_fetch_at: datetime | None = Field(
+        default=None,
+        description="Earliest next fetch of a failing source; null: every cycle",
+    )
+    kept_health: str | None = Field(
+        default=None, description="The health the operator kept"
+    )
+    kept_at: datetime | None = Field(default=None, description="When it was kept")
+    created_at: datetime | None = Field(
+        default=None, description="When the source was added"
+    )
 
-    @field_serializer("last_fetched")
-    def _serialize_last_fetched(self, v: datetime | None) -> str | None:
+    @field_serializer(
+        "last_fetched", "newest_item_at", "next_fetch_at", "kept_at", "created_at"
+    )
+    def _serialize_datetimes(self, v: datetime | None) -> str | None:
         return _rfc3339(v)
 
 

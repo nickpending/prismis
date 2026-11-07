@@ -14,6 +14,7 @@ from .database import get_db_connection
 from .models import ContentItem
 from .observability import log as obs_log
 from .readability import is_readable
+from .source_health import backoff_minutes, classify
 
 
 def utc_now_iso() -> str:
@@ -136,13 +137,27 @@ class Storage:
         params.extend(kind_filter)
         return f" AND json_extract(c.analysis, '$.kind') IN ({placeholders})"
 
+    # The columns every source read selects; _source_row_to_dict maps them.
+    _SOURCE_COLUMNS = (
+        "id, url, type, name, active, error_count, last_error, last_fetched_at,"
+        " created_at, updated_at, naughty, next_fetch_at, entries_served,"
+        " newest_item_at, health, kept_health, kept_at, attention"
+    )
+
+    # What a URL change clears: the old URL's failures, wait, evidence, health and keep.
+    _FETCH_RECORD_RESET = (
+        ", error_count = 0, last_error = NULL, next_fetch_at = NULL,"
+        " entries_served = NULL, newest_item_at = NULL, health = NULL,"
+        " kept_health = NULL, kept_at = NULL"
+    )
+
     @staticmethod
     def _source_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         """Map a `sources` row to its canonical dict.
 
         get_active_sources and get_all_sources run different WHERE/ORDER BY
-        clauses over the same 11-column SELECT and used to hand-copy this same
-        dict literal each; one mapper, both callers.
+        clauses over the same _SOURCE_COLUMNS SELECT and used to hand-copy this
+        same dict literal each; one mapper, both callers.
         """
         return {
             "id": row["id"],
@@ -156,6 +171,13 @@ class Storage:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "naughty": bool(row["naughty"]),
+            "next_fetch_at": row["next_fetch_at"],
+            "entries_served": row["entries_served"],
+            "newest_item_at": row["newest_item_at"],
+            "health": row["health"],
+            "kept_health": row["kept_health"],
+            "kept_at": row["kept_at"],
+            "attention": bool(row["attention"]),
         }
 
     def _content_item_from_dict(self, item: dict[str, Any]) -> ContentItem:
@@ -357,6 +379,19 @@ class Storage:
                 now,
             ),
         )
+        # A stored item is an item the daemon has seen: it raises its source's
+        # newest_item_at, which covers sources whose feed entries carry no date.
+        if item.published_at is not None:
+            published = item.published_at
+            if published.tzinfo is None:
+                published = published.replace(tzinfo=UTC)
+            seen = min(published, datetime.now(UTC)).isoformat()
+            conn.execute(
+                "UPDATE sources SET newest_item_at = ? WHERE id = ?"
+                " AND (newest_item_at IS NULL"
+                " OR julianday(newest_item_at) < julianday(?))",
+                (seen, item.source_id, seen),
+            )
 
     def _log_update_result(
         self,
@@ -452,13 +487,8 @@ class Storage:
         """
         try:
             cursor = self.conn.execute(
-                """
-                SELECT id, url, type, name, active, error_count, 
-                       last_error, last_fetched_at, created_at, updated_at, naughty
-                FROM sources
-                WHERE active = 1
-                ORDER BY id
-                """
+                "SELECT " + self._SOURCE_COLUMNS + " FROM sources"  # nosec B608 -- the column list is the class constant
+                " WHERE active = 1 ORDER BY id"
             )
 
             sources = [self._source_row_to_dict(row) for row in cursor.fetchall()]
@@ -1272,76 +1302,233 @@ class Storage:
             self.conn.rollback()
             raise sqlite3.Error(f"Failed to mark content as read: {e}") from e
 
-    def update_source_fetch_status(
-        self, source_id: str, success: bool, error_message: str | None = None
+    def _record_fetch(
+        self, operation: str, sql: str, params: dict[str, Any], status: str
     ) -> None:
-        """Update source after fetch attempt.
+        """Run one fetch-outcome UPDATE on a source, commit, and log db.update.
 
-        Args:
-            source_id: UUID of the source
-            success: Whether fetch was successful
-            error_message: Error message if fetch failed
+        Raises:
+            sqlite3.Error: If database operation fails
         """
         start_time = time.time()
         try:
-            now = utc_now_iso()
-            if success:
-                cursor = self.conn.execute(
-                    """
-                    UPDATE sources
-                    SET last_fetched_at = ?,
-                        error_count = 0,
-                        last_error = NULL,
-                        updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (now, now, source_id),
-                )
-            else:
-                cursor = self.conn.execute(
-                    """
-                    UPDATE sources
-                    SET error_count = error_count + 1,
-                        last_error = ?,
-                        updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (error_message, now, source_id),
-                )
-
-                # Deactivate source after 5 consecutive errors
-                self.conn.execute(
-                    """
-                    UPDATE sources
-                    SET active = 0
-                    WHERE id = ? AND error_count >= 5
-                    """,
-                    (source_id,),
-                )
-
+            cursor = self.conn.execute(sql, params)
             self.conn.commit()
-            duration_ms = int((time.time() - start_time) * 1000)
             obs_log(
                 "db.update",
                 table="sources",
-                operation="update_source_fetch_status",
+                operation=operation,
                 row_count=cursor.rowcount,
-                duration_ms=duration_ms,
-                status="success" if success else "error_tracked",
+                duration_ms=int((time.time() - start_time) * 1000),
+                status=status,
             )
-
         except sqlite3.Error as e:
             self.conn.rollback()
-            duration_ms = int((time.time() - start_time) * 1000)
             obs_log(
                 "db.update",
                 table="sources",
-                operation="update_source_fetch_status",
+                operation=operation,
                 error=str(e),
-                duration_ms=duration_ms,
+                duration_ms=int((time.time() - start_time) * 1000),
                 status="error",
             )
             raise sqlite3.Error(f"Failed to update source status: {e}") from e
+
+    def record_fetch_success(
+        self,
+        source_id: str,
+        served: int | None,
+        newest_entry_at: datetime | None,
+        at: datetime,
+    ) -> None:
+        """Record a successful fetch: the source is back on every cycle.
+
+        Clears error_count, last_error and next_fetch_at, stamps last_fetched_at,
+        stores what the fetch served, and raises newest_item_at to the newest entry
+        time it served (never lowers it).
+
+        Args:
+            source_id: UUID of the source
+            served: Entries the source served, or None when the fetcher cannot say
+            newest_entry_at: The newest entry time it served, or None
+            at: The cycle's start
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        self._record_fetch(
+            "record_fetch_success",
+            """
+            UPDATE sources
+            SET last_fetched_at = :at,
+                error_count = 0,
+                last_error = NULL,
+                next_fetch_at = NULL,
+                entries_served = :served,
+                newest_item_at = CASE
+                    WHEN :newest IS NOT NULL AND (newest_item_at IS NULL
+                         OR julianday(:newest) > julianday(newest_item_at))
+                    THEN :newest ELSE newest_item_at END,
+                updated_at = :now
+            WHERE id = :id
+            """,
+            {
+                "at": at.isoformat(),
+                "served": served,
+                "newest": newest_entry_at.isoformat() if newest_entry_at else None,
+                "now": utc_now_iso(),
+                "id": source_id,
+            },
+            "success",
+        )
+
+    def record_fetch_failure(
+        self, source_id: str, error: str, at: datetime, fetch_interval: int
+    ) -> None:
+        """Record a failed fetch: count it and set when the source is fetched next.
+
+        The nth consecutive failure sets next_fetch_at to `at` plus fetch_interval x
+        2^(n-1) minutes, capped at a day. Nothing here writes active: a failing
+        source backs off, it is never switched off.
+
+        Args:
+            source_id: UUID of the source
+            error: Why the fetch failed
+            at: The cycle's start
+            fetch_interval: The daemon's fetch interval in minutes
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        row = self.conn.execute(
+            "SELECT error_count FROM sources WHERE id = ?", (source_id,)
+        ).fetchone()
+        failures = (row["error_count"] or 0) + 1 if row else 1
+        due = at + timedelta(minutes=backoff_minutes(failures, fetch_interval))
+        self._record_fetch(
+            "record_fetch_failure",
+            """
+            UPDATE sources
+            SET error_count = :failures,
+                last_error = :error,
+                next_fetch_at = :due,
+                updated_at = :now
+            WHERE id = :id
+            """,
+            {
+                "failures": failures,
+                "error": error,
+                "due": due.isoformat(),
+                "now": utc_now_iso(),
+                "id": source_id,
+            },
+            "error_tracked",
+        )
+
+    def record_health(
+        self, now: datetime, fetch_interval: int
+    ) -> list[tuple[str, str | None, str | None]]:
+        """Classify every active source and store each health that changed.
+
+        A changed health ends a keep that answered another state: kept_health and
+        kept_at are cleared when kept_health differs from the new health. A source
+        whose health did not change is not written, so its keep stands. The
+        attention flag follows from the schema's trigger.
+
+        Args:
+            now: The time the classification is made at (the cycle's start)
+            fetch_interval: The daemon's fetch interval in minutes
+
+        Returns:
+            (source_id, old_health, new_health) for each source whose health changed
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        rows = self.conn.execute(
+            "SELECT id, health, error_count, entries_served, newest_item_at,"
+            " created_at, last_fetched_at FROM sources WHERE active = 1"
+        ).fetchall()
+        changes = []
+        try:
+            for row in rows:
+                health = classify(dict(row), now, fetch_interval)
+                if health == row["health"]:
+                    continue
+                self.conn.execute(
+                    """
+                    UPDATE sources
+                    SET health = :health,
+                        kept_at = CASE WHEN kept_health IS NOT :health
+                                       THEN NULL ELSE kept_at END,
+                        kept_health = CASE WHEN kept_health IS NOT :health
+                                           THEN NULL ELSE kept_health END,
+                        updated_at = :now
+                    WHERE id = :id
+                    """,
+                    {"health": health, "now": utc_now_iso(), "id": row["id"]},
+                )
+                changes.append((row["id"], row["health"], health))
+            self.conn.commit()
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            raise sqlite3.Error(f"Failed to record source health: {e}") from e
+        for source_id, old, new in changes:
+            obs_log("source.health", source_id=source_id, old=old, new=new)
+        return changes
+
+    def keep_source(self, source_id: str) -> bool:
+        """Keep a flagged source's current health: it no longer raises the warning.
+
+        The keep answers this one state; the next change of health ends it.
+
+        Args:
+            source_id: UUID of the source to keep
+
+        Returns:
+            True if the source was kept, False if not found
+
+        Raises:
+            ValueError: If the source has nothing to keep (no warning is raised for it)
+            sqlite3.Error: If database operation fails
+        """
+        kept = self._execute_source_update(
+            "UPDATE sources SET kept_health = health, kept_at = ?, updated_at = ?"
+            " WHERE id = ? AND attention = 1",
+            (utc_now_iso(), utc_now_iso(), source_id),
+            "keep source",
+        )
+        if kept:
+            return True
+        row = self.conn.execute(
+            "SELECT health, kept_health FROM sources WHERE id = ?", (source_id,)
+        ).fetchone()
+        if row is None:
+            return False
+        raise ValueError(
+            f"Source {source_id} has nothing to keep: its health is"
+            f" {row['health'] or 'unclassified'}"
+            + (f", already kept as {row['kept_health']}" if row["kept_health"] else "")
+        )
+
+    def unkeep_source(self, source_id: str) -> bool:
+        """Clear a source's keep, so its health raises the warning again if flagged.
+
+        Args:
+            source_id: UUID of the source to unkeep
+
+        Returns:
+            True if the source was found, False if not
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        return self._execute_source_update(
+            "UPDATE sources SET kept_health = NULL, kept_at = NULL, updated_at = ?"
+            " WHERE id = ?",
+            (utc_now_iso(), source_id),
+            "unkeep source",
+        )
 
     def update_source(self, source_id: str, update_data: dict) -> bool:
         """Update source properties (name, URL and/or naughty).
@@ -1349,7 +1536,9 @@ class Storage:
         Args:
             source_id: UUID of the source to update
             update_data: Dict with fields to update (name, url, naughty); a field
-                absent from it keeps its stored value
+                absent from it keeps its stored value. A url is a fix: it also
+                resets the source's fetch record and health, so the new URL is
+                fetched next cycle and judged afresh.
 
         Returns:
             True if update was successful, False otherwise
@@ -1362,6 +1551,8 @@ class Storage:
             int(update_data[c]) if c == "naughty" else update_data[c] for c in columns
         ]
         assignments = ", ".join(f"{c} = ?" for c in columns)
+        if "url" in columns:
+            assignments += self._FETCH_RECORD_RESET
         try:
             # String concatenation, not an f-string -- this file's pattern for a
             # hardcoded (never user-input) dynamic SQL fragment.
@@ -1388,12 +1579,8 @@ class Storage:
         """
         try:
             cursor = self.conn.execute(
-                """
-                SELECT id, url, type, name, active, error_count, 
-                       last_error, last_fetched_at, created_at, updated_at, naughty
-                FROM sources
-                ORDER BY created_at DESC
-                """
+                "SELECT " + self._SOURCE_COLUMNS + " FROM sources"  # nosec B608 -- the column list is the class constant
+                " ORDER BY created_at DESC"
             )
 
             sources = [self._source_row_to_dict(row) for row in cursor.fetchall()]
@@ -1435,7 +1622,7 @@ class Storage:
             raise sqlite3.Error(f"Failed to {action}: {e}") from e
 
     def resume_source(self, source_id: str) -> bool:
-        """Resume a paused content source (set active and reset errors).
+        """Resume a paused content source (set active, reset errors and any wait).
 
         Args:
             source_id: UUID of the source to resume
@@ -1448,7 +1635,7 @@ class Storage:
         """
         return self._execute_source_update(
             "UPDATE sources SET active = 1, error_count = 0, last_error = NULL,"
-            " updated_at = ? WHERE id = ?",
+            " next_fetch_at = NULL, updated_at = ? WHERE id = ?",
             (utc_now_iso(), source_id),
             "resume source",
         )

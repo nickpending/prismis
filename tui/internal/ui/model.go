@@ -29,13 +29,14 @@ type Model struct {
 	view              string // "list", "reader"
 	loading           bool
 	err               error
-	viewport          viewport.Model // For scrollable content in reader view
-	ready             bool           // Viewport ready flag
-	width             int            // Terminal width
-	height            int            // Terminal height
-	showUnprioritized bool           // Show items with null/empty priority (default false)
-	hiddenCount       int            // Count of hidden unprioritized items
-	drift             *db.DriftCheck // Latest drift check from the last item reload (nil = none or unreadable)
+	viewport          viewport.Model      // For scrollable content in reader view
+	ready             bool                // Viewport ready flag
+	width             int                 // Terminal width
+	height            int                 // Terminal height
+	showUnprioritized bool                // Show items with null/empty priority (default false)
+	hiddenCount       int                 // Count of hidden unprioritized items
+	drift             *db.DriftCheck      // Latest drift check from the last item reload (nil = none or unreadable)
+	sourceAttention   *db.SourceAttention // Sources needing attention from the last item reload (nil = none or unreadable)
 	// View state fields for header display
 	showAll         bool     // Show all items vs unread only (default false - unread only)
 	showArchived    bool     // Show archived items only (default false - exclude archived)
@@ -88,15 +89,16 @@ type hydratedFields struct {
 
 // itemsLoadedMsg represents content items loaded from database
 type itemsLoadedMsg struct {
-	items          []db.ContentItem
-	hiddenCount    int      // Count of unprioritized items that were filtered out
-	availableKinds []string // Kind values present in the data, for the kind filter cycle
-	err            error
-	driftRead      bool           // True when this load read the latest drift check; false leaves the held one alone
-	drift          *db.DriftCheck // The check that read returned (nil = none or unreadable)
-	preserveCursor bool           // If true, try to preserve cursor position
-	targetItemID   string         // Item ID to position cursor on (if preserveCursor is true)
-	isAutoRefresh  bool           // If true, this was triggered by auto-refresh timer
+	items           []db.ContentItem
+	hiddenCount     int      // Count of unprioritized items that were filtered out
+	availableKinds  []string // Kind values present in the data, for the kind filter cycle
+	err             error
+	driftRead       bool                // True when this load read drift and source attention; false leaves the held ones alone
+	drift           *db.DriftCheck      // The check that read returned (nil = none or unreadable)
+	sourceAttention *db.SourceAttention // The attention counts that read returned (nil = unreadable)
+	preserveCursor  bool                // If true, try to preserve cursor position
+	targetItemID    string              // Item ID to position cursor on (if preserveCursor is true)
+	isAutoRefresh   bool                // If true, this was triggered by auto-refresh timer
 	// Remote mode fields
 	allItems    []db.ContentItem // Unfiltered items for caching (remote mode only)
 	updateCache bool             // If true, update cache and lastSync
@@ -890,6 +892,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.availableKinds = msg.availableKinds
 			if msg.driftRead {
 				m.drift = msg.drift
+				m.sourceAttention = msg.sourceAttention
 			}
 
 			// The saved kind is judged once, against the first data that loads: a kind the
@@ -1285,12 +1288,13 @@ func fetchItemsWithState(m Model, refreshData bool) tea.Cmd {
 			kinds = nil
 		}
 		return itemsLoadedMsg{
-			items:          applyFiltersClientSide(allItems, m),
-			hiddenCount:    countHiddenUnprioritized(allItems, m),
-			availableKinds: kinds,
-			driftRead:      true,
-			drift:          localDrift(),
-			err:            nil,
+			items:           applyFiltersClientSide(allItems, m),
+			hiddenCount:     countHiddenUnprioritized(allItems, m),
+			availableKinds:  kinds,
+			driftRead:       true,
+			drift:           localDrift(),
+			sourceAttention: localSourceAttention(),
+			err:             nil,
 		}
 	}
 }
@@ -1313,6 +1317,33 @@ func remoteDrift(client *api.APIClient) *db.DriftCheck {
 		return nil
 	}
 	return check
+}
+
+// localSourceAttention counts the sources the daemon flags, from the local database.
+// A read error is no count: the feed loads and renders as it does without the line.
+func localSourceAttention() *db.SourceAttention {
+	counts, err := db.SourcesNeedingAttention()
+	if err != nil {
+		return nil
+	}
+	return counts
+}
+
+// remoteSourceAttention counts the sources GET /api/sources marks with attention, by
+// their stored health. A read error is no count, for the same reason as
+// localSourceAttention.
+func remoteSourceAttention(client *api.APIClient) *db.SourceAttention {
+	resp, err := client.GetSources()
+	if err != nil {
+		return nil
+	}
+	counts := &db.SourceAttention{}
+	for _, source := range resp.Sources {
+		if source.Attention && source.Health != nil {
+			counts.Add(*source.Health, 1)
+		}
+	}
+	return counts
 }
 
 // buildRefreshCmd returns a tea.Cmd that reloads items and preserves the
@@ -1345,12 +1376,13 @@ func (m *Model) buildRefreshCmd(isAutoRefresh bool) tea.Cmd {
 					kinds = nil
 				}
 				result = itemsLoadedMsg{
-					items:          applyFiltersClientSide(allItems, *m),
-					hiddenCount:    countHiddenUnprioritized(allItems, *m),
-					availableKinds: kinds,
-					driftRead:      true,
-					drift:          localDrift(),
-					err:            nil,
+					items:           applyFiltersClientSide(allItems, *m),
+					hiddenCount:     countHiddenUnprioritized(allItems, *m),
+					availableKinds:  kinds,
+					driftRead:       true,
+					drift:           localDrift(),
+					sourceAttention: localSourceAttention(),
+					err:             nil,
 				}
 			}
 		}
@@ -1464,16 +1496,17 @@ func fetchItemsRemote(m Model) itemsLoadedMsg {
 
 	// Return both filtered items (for display) and all items (for caching)
 	return itemsLoadedMsg{
-		items:          filtered,
-		hiddenCount:    countHiddenUnprioritized(allItems, m),
-		availableKinds: distinctKindsFromItems(allItems),
-		allItems:       allItems,
-		updateCache:    true,
-		newLastSync:    newestChange,
-		mergedIDs:      mergedIDs,
-		driftRead:      true,
-		drift:          remoteDrift(client),
-		err:            nil,
+		items:           filtered,
+		hiddenCount:     countHiddenUnprioritized(allItems, m),
+		availableKinds:  distinctKindsFromItems(allItems),
+		allItems:        allItems,
+		updateCache:     true,
+		newLastSync:     newestChange,
+		mergedIDs:       mergedIDs,
+		driftRead:       true,
+		drift:           remoteDrift(client),
+		sourceAttention: remoteSourceAttention(client),
+		err:             nil,
 	}
 }
 
@@ -1664,6 +1697,14 @@ func fetchSources(remoteURL string) tea.Cmd {
 	}
 }
 
+// deref reads an optional API string; absent is "".
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // fetchSourcesRemote fetches sources from the remote API
 func fetchSourcesRemote(remoteURL string) sourcesLoadedMsg {
 	client, err := api.NewClientWithURL(remoteURL)
@@ -1679,20 +1720,25 @@ func fetchSourcesRemote(remoteURL string) sourcesLoadedMsg {
 	// Convert API sources to DB format
 	sources := make([]db.Source, 0, len(apiSources.Sources))
 	for _, apiSource := range apiSources.Sources {
-		name := ""
-		if apiSource.Name != nil {
-			name = *apiSource.Name
-		}
 		sources = append(sources, db.Source{
-			ID:          apiSource.ID,
-			URL:         apiSource.URL,
-			Name:        name,
-			Type:        apiSource.Type,
-			Active:      apiSource.Active,
-			UnreadCount: 0, // API doesn't provide unread counts
-			LastFetched: apiSource.LastFetched,
-			ErrorCount:  apiSource.ErrorCount,
-			Naughty:     apiSource.Naughty,
+			ID:            apiSource.ID,
+			URL:           apiSource.URL,
+			Name:          deref(apiSource.Name),
+			Type:          apiSource.Type,
+			Active:        apiSource.Active,
+			UnreadCount:   0, // API doesn't provide unread counts
+			LastFetched:   apiSource.LastFetched,
+			ErrorCount:    apiSource.ErrorCount,
+			LastError:     deref(apiSource.LastError),
+			Naughty:       apiSource.Naughty,
+			Health:        deref(apiSource.Health),
+			Attention:     apiSource.Attention,
+			EntriesServed: apiSource.EntriesServed,
+			NewestItemAt:  apiSource.NewestItemAt,
+			NextFetchAt:   apiSource.NextFetchAt,
+			KeptHealth:    deref(apiSource.KeptHealth),
+			KeptAt:        apiSource.KeptAt,
+			CreatedAt:     apiSource.CreatedAt,
 		})
 	}
 
@@ -1790,25 +1836,8 @@ func (m *Model) buildSourcesContent(theme StyleTheme) string {
 func (m *Model) formatSourceLine(source db.Source, theme StyleTheme) string {
 	ls := lipgloss.NewStyle()
 
-	// Determine status icon and color
-	var statusIcon string
-	var statusColor lipgloss.Color
-
-	if !source.Active {
-		statusIcon = "○" // Paused/inactive
-		statusColor = theme.Red
-	} else if source.ErrorCount > 3 {
-		statusIcon = "●" // Has errors
-		statusColor = theme.Red
-	} else if source.LastFetched == nil || time.Since(*source.LastFetched) > 24*time.Hour {
-		statusIcon = "●" // Stale
-		statusColor = theme.Orange
-	} else {
-		statusIcon = "●" // Healthy
-		statusColor = theme.Green
-	}
-
-	status := ls.Foreground(statusColor).Render(statusIcon)
+	// The mark is the daemon's stored state, drawn as the sources screen draws it.
+	status := renderSourceMark(source, theme)
 	count := ls.Foreground(theme.White).Render(fmt.Sprintf("[%d]", source.UnreadCount))
 
 	// Truncate name to fit viewport (like original code did with width-12)

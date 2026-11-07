@@ -117,9 +117,9 @@ func TestReaderBodyOpensInTheActiveTheme(t *testing.T) {
 func TestSourceModalDrawsEveryModeInTheThemeItIsGiven(t *testing.T) {
 	forceTrueColor(t)
 	sources := []db.Source{
-		{ID: "1", Name: "Healthy", Type: "rss", Active: true},
+		{ID: "1", Name: "Healthy", Type: "rss", Active: true, Health: "healthy"},
 		{ID: "2", Name: "Paused", Type: "reddit", Active: false},
-		{ID: "3", Name: "Failing", Type: "youtube", Active: true, ErrorCount: 5},
+		{ID: "3", Name: "Failing", Type: "youtube", Active: true, ErrorCount: 5, Health: "broken", Attention: true},
 	}
 	for _, mode := range []string{"list", "add", "edit", "confirm_remove"} {
 		t.Run(mode, func(t *testing.T) {

@@ -77,7 +77,7 @@ def _listed(source_id: str) -> dict[str, Any]:
 def _ua_cell(source_id: str) -> str:
     """The UA cell of `source_id`'s row in the `source list` table."""
     (row,) = [line for line in _invoke("list").splitlines() if source_id in line]
-    return row.split("│")[-2].strip()
+    return row.split("│")[-3].strip()
 
 
 def test_the_naughty_flag_through_add_list_and_update(live_daemon: LiveDaemon) -> None:

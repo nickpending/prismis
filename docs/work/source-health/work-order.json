@@ -1,0 +1,298 @@
+{
+  "workOrder": "source-health",
+  "what": "Replace the five-strike deactivation with per-source backoff and a daemon-owned stored health classification (healthy, broken, empty, dormant) with its evidence, shown as one TUI main-screen line and per-source evidence on the sources screen, with an operator keep remembered against the state it answered.",
+  "why": "Eight of the operator's 49 sources produce nothing and prismis says nothing about any of them, while the one rule that acts switches a source off permanently and silently after one bad day; the design is docs/work/source-health/design.md.",
+  "issues": [
+    111
+  ],
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "a real RSS source in a real Storage over a sealed database, pointed at a real local HTTP server that answers 404, and the production orchestrator from build_orchestrator with fetch_interval 120 and an injected clock",
+      "when": "run_once runs six times, the clock advanced before each run to the source's stored next_fetch_at (or one fetch interval when it is null)",
+      "then": "Failing first: before the change the source row reads active = 0 after the fifth run and the sixth run never requests the feed. After it, the server receives six requests, the row reads active = 1 with error_count 6 after the sixth run, and no run writes active.",
+      "reproduces": true,
+      "mutations": [
+        {
+          "id": "C1-M1",
+          "change": "Restore the UPDATE sources SET active = 0 WHERE error_count >= 5 after a failure: the row reads active = 0 after the fifth run and the sixth request never arrives."
+        }
+      ]
+    },
+    {
+      "id": "C2",
+      "given": "a real RSS source pointed at a real local HTTP server that answers 500 to every request and counts them, the production orchestrator with fetch_interval 360 and an injected clock, and cycles run every 360 minutes of that clock from minute 0 to minute 4320",
+      "when": "each cycle runs run_once",
+      "then": "Failing first: without backoff the server receives a request on every one of the 13 cycles. With it, requests arrive only on the cycles at minutes 0, 360, 1080, 2520 and 3960 (waits of 360, 720, then 1440 twice: doubling from the interval, capped at 1440), and after each failure the row's next_fetch_at is that cycle's start plus the wait.",
+      "mutations": [
+        {
+          "id": "C2-M1",
+          "change": "Drop the cap so the wait keeps doubling: the cycle at minute 3960 sends no request (the uncapped wait after the third failure is 1440, after the fourth 2880)."
+        },
+        {
+          "id": "C2-M2",
+          "change": "Make run_once ignore next_fetch_at: every cycle sends a request."
+        }
+      ]
+    },
+    {
+      "id": "C3",
+      "given": "the C2 setup after its fourth failure, with the server switched to serve a valid RSS feed of three recent entries",
+      "when": "the cycle at the source's next_fetch_at runs, then the next cycle one fetch interval later runs",
+      "then": "Failing first: if success did not reset the backoff the second cycle would send no request. After it, both cycles request the feed, and after the first the row reads error_count 0, last_error null and next_fetch_at null.",
+      "mutations": [
+        {
+          "id": "C3-M1",
+          "change": "Leave next_fetch_at set on success: the second cycle sends no request."
+        }
+      ]
+    },
+    {
+      "id": "C4",
+      "given": "a source whose stored next_fetch_at is T, the production orchestrator with fetch_interval 120 and an injected clock",
+      "when": "a cycle starts at T minus 1 second, and in a second run a cycle starts at T minus 61 minutes, and in a third at T minus 59 minutes",
+      "then": "Failing first: a due check of next_fetch_at <= cycle start skips the source at T minus 1 second, pushing it a whole cycle late. After the change, the cycles at T minus 1 second and T minus 59 minutes (less than half an interval early) fetch the source, and the cycle at T minus 61 minutes does not.",
+      "mutations": [
+        {
+          "id": "C4-M1",
+          "change": "Compare next_fetch_at to the cycle start with no tolerance: the cycle at T minus 1 second does not fetch the source."
+        }
+      ]
+    },
+    {
+      "id": "C5",
+      "given": "a real RSS source that fetched successfully once from a real local HTTP server, which then answers 404, and the production orchestrator with an injected clock advanced to each next_fetch_at",
+      "when": "consecutive failing cycles run, once with fetch_interval 120 and once with fetch_interval 30",
+      "then": "Failing first: a fixed count, or no classification, does not track the interval. After the change, at fetch_interval 120 the row reads health healthy and attention 0 after the fourth failure and health broken and attention 1 after the fifth; at fetch_interval 30 it reads healthy after the sixth failure and broken after the seventh, the failure whose wait first reaches the 1440-minute cap.",
+      "mutations": [
+        {
+          "id": "C5-M1",
+          "change": "Hard-code broken at five failures: the fetch_interval 30 rows read broken after the fifth failure."
+        }
+      ]
+    },
+    {
+      "id": "C6",
+      "given": "a real RSS source pointed at a real local HTTP server answering 200 with a valid RSS feed of zero entries, and the production orchestrator",
+      "when": "run_once runs once",
+      "then": "Failing first: before the change the row is indistinguishable from a healthy one (error_count 0, no health). After it, the row reads entries_served 0, health empty and attention 1."
+    },
+    {
+      "id": "C7",
+      "given": "a real RSS source pointed at a real local HTTP server serving a valid feed of eight entries, the newest dated more than 90 days before the injected clock, and the production orchestrator with the default lookback",
+      "when": "run_once runs once",
+      "then": "Failing first: before the change no item is stored, error_count is 0 and nothing says the source is quiet. After it, no item is stored, and the row reads entries_served 8, newest_item_at equal to the newest entry's date, health dormant and attention 1.",
+      "mutations": [
+        {
+          "id": "C7-M1",
+          "change": "Take newest_item_at only from stored items: it stays null and, the source being new, health reads healthy instead of dormant."
+        }
+      ]
+    },
+    {
+      "id": "C8",
+      "given": "a real RSS source pointed at a real local HTTP server serving a valid feed whose entries are all older than the lookback but the newest is newer than 90 days before the injected clock, and a second source serving recent entries that are all already stored",
+      "when": "run_once runs once",
+      "then": "Failing first: judging from items fetched after the pipeline's filters would read both sources as serving zero and call them empty. After the change, both rows read health healthy and attention 0, the first with entries_served equal to its entry count and newest_item_at equal to its newest entry's date."
+    },
+    {
+      "id": "C9",
+      "given": "a source classified broken after C5's fifth failure at fetch_interval 120, its server then switched to serve a valid feed of recent entries",
+      "when": "the cycle at its next_fetch_at runs",
+      "then": "Failing first: a warning that waited for the operator would still read attention 1. After the change, the row reads health healthy, error_count 0 and attention 0, with no operator action."
+    },
+    {
+      "id": "C10",
+      "given": "the real daemon API on a real loopback socket (the CLI suite's live daemon) over a database holding a source classified empty, and the CLI's real APIClient",
+      "when": "`prismis-cli source keep <id>` runs, then run_once runs a cycle in which the feed still serves zero entries",
+      "then": "Failing first: before the change the command does not exist. After it, the command exits 0, GET /api/sources returns the source with kept_health empty and attention false, and after the cycle it still reads attention false.",
+      "mutations": [
+        {
+          "id": "C10-M1",
+          "change": "Have the cycle clear kept_health on every classification, changed or not: attention reads true after the cycle."
+        }
+      ]
+    },
+    {
+      "id": "C11",
+      "given": "the C10 source after it was kept as empty",
+      "when": "a cycle runs in which the feed serves recent entries, then a cycle in which it serves zero entries again",
+      "then": "Failing first: a keep remembered forever would leave the second empty unflagged. After the change, the first cycle reads health healthy with kept_health null, and the second reads health empty with attention 1."
+    },
+    {
+      "id": "C12",
+      "given": "the real daemon API on a real loopback socket over a database holding one healthy source and no source with a given unknown id",
+      "when": "PATCH /api/sources/{id}/keep is sent for the healthy source, and for the unknown id, and PATCH /api/sources/{id}/unkeep is sent for a kept source",
+      "then": "Failing first: before the change both keep routes answer 404 or 405 as unrouted. After it, keep on the healthy source answers 400 naming that it has nothing to keep and leaves kept_health null, keep on the unknown id answers 404, and unkeep on the kept source clears kept_health so attention reads true again."
+    },
+    {
+      "id": "C13",
+      "given": "the real daemon API on a real loopback socket over a database holding a source classified broken (error_count 5, next_fetch_at set, kept_health broken)",
+      "when": "a PATCH /api/sources/{id} changes its url to a local server serving a valid recent feed, then run_once runs one cycle, and separately a PATCH changes only another broken source's name",
+      "then": "Failing first: before the change a URL edit keeps error_count 5 and the stale health. After it, the URL edit leaves error_count 0, next_fetch_at null, health null, kept_health null and attention 0, the cycle fetches the new URL and reads health healthy, and the name-only edit leaves that source's error_count, health and next_fetch_at unchanged."
+    },
+    {
+      "id": "C14",
+      "given": "a copy of the pre-change schema at user_version 3 holding source A (active 0, error_count 5), source B (active 0, error_count 0, paused by the operator) and source C (active 1) with two stored content rows, the newer published at P",
+      "when": "init_db opens it",
+      "then": "Failing first: before the change A stays inactive and nothing records C's newest item. After it, user_version is 4, a backup sits beside the database, A reads active 1, B reads active 0, C reads newest_item_at P, and every pre-existing column of every row is unchanged.",
+      "mutations": [
+        {
+          "id": "C14-M1",
+          "change": "Reactivate on active = 0 alone: B reads active 1."
+        }
+      ]
+    },
+    {
+      "id": "C15",
+      "given": "the real daemon API over a database whose sources were classified by a real run_once (one broken, one empty, one healthy)",
+      "when": "GET /api/sources is requested",
+      "then": "Failing first: before the change the response carries no health. After it, every source carries health, attention, entries_served, newest_item_at, next_fetch_at and kept_health matching its row, and every field the response carried before keeps its name and value."
+    },
+    {
+      "id": "C16",
+      "given": "the real TUI Model in local mode over a real SQLite database at the current schema holding one source with health broken and attention 1, two with health empty and attention 1, and one with health dormant and kept_health dormant (attention 0)",
+      "when": "the item load that reads drift runs and the list view renders, and again after the attention rows are set to 0",
+      "then": "Failing first: before the change the header carries no sources text. After it, the header reads `⚠ Sources: 1 broken, 2 empty` left of the view-state segment, with no dormant count, the view's row count is unchanged, and after the reset the header carries no `Sources:` text.",
+      "mutations": [
+        {
+          "id": "C16-M1",
+          "change": "Count sources by health without reading attention: the header reads `1 broken, 2 empty, 1 dormant`."
+        }
+      ]
+    },
+    {
+      "id": "C17",
+      "given": "the real TUI Model in remote mode over an httptest server answering GET /api/sources with the daemon's envelope holding the same four sources as C16, and in a second run the same server answering 500",
+      "when": "the item load runs and the list view renders",
+      "then": "Failing first: before the change the remote header carries no sources text. After it, the header reads `⚠ Sources: 1 broken, 2 empty`; with the 500 the item load still succeeds and the header carries no `Sources:` text."
+    },
+    {
+      "id": "C18",
+      "given": "a real SQLite database at the pre-change schema (no health columns) holding two sources",
+      "when": "the TUI's local source read and local attention read run",
+      "then": "Failing first: selecting the new columns from an old database fails the read and empties the sources screen. After the change, the sources read returns both sources with empty health and no error, and the attention read returns no counts and no error."
+    },
+    {
+      "id": "C19",
+      "given": "the real SourceModal and the main view's source list over sources with health healthy, broken (error_count 5, a last_error containing ESC, a CR LF pair and a C1 control, and next_fetch_at), empty, dormant, kept (kept_health equal to health) and paused (active 0), each with error_count above 3 where the old rules would have coloured it",
+      "when": "both render",
+      "then": "Failing first: before the change both renderers colour by error_count and the 24-hour rule and show no evidence. After it, each source's mark follows its health, kept and paused state alone, identically in both renderers; the broken source's evidence line shows its failure count, its error text and its next try on one line with no ESC, CR, LF or C1 byte; the empty source shows that it served 0 entries; the dormant one shows its newest item date; the kept one shows `kept (` and its state.",
+      "mutations": [
+        {
+          "id": "C19-M1",
+          "change": "Render last_error without the control-stripping helper: the rendered line contains the ESC byte."
+        }
+      ]
+    },
+    {
+      "id": "C20",
+      "given": "the real SourceModal in list mode with the cursor on a flagged source, then on a kept source, and a recording API stub standing in for the daemon",
+      "when": "K is pressed on each",
+      "then": "Failing first: before the change K is unbound and no request is sent. After it, K on the flagged source sends PATCH /api/sources/{id}/keep, K on the kept source sends PATCH /api/sources/{id}/unkeep, and the help line names K."
+    },
+    {
+      "id": "C21",
+      "given": "the real daemon API on a real loopback socket over sources classified healthy, empty and empty-but-kept, and the CLI's real APIClient",
+      "when": "`prismis-cli source list` runs",
+      "then": "Failing first: before the change the table has no health column. After it, the table has a Health column reading healthy, empty, and empty (kept) for the three sources."
+    }
+  ],
+  "outOfScope": [
+    {
+      "kind": "cost",
+      "summary": "The stored evidence is each source's latest state, not a per-fetch history; a history of what was tried is left to #112's record.",
+      "frequency": {
+        "kind": "not-a-case",
+        "reason": "What the stored record holds is a property of the design, not a case a use of prismis runs into; #112 owns history."
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "A retry lands on the cycle nearest its due time, so a wait can run up to half a fetch interval short of or past fetch_interval x 2^(n-1), and past the daily cap by under half an interval when the interval does not divide a day.",
+      "frequency": {
+        "kind": "measured",
+        "command": "1440 % fetch_interval over the operator's configured fetch_interval (120 minutes, measured on the daemon host 2026-11-01 and relayed in the brief)",
+        "records": "the operator's daemon host configuration",
+        "count": 0,
+        "total": 1
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "A YouTube channel whose discovery returns nothing reports no served count, so a YouTube source is never classified empty, and its newest video beyond the lookback is unknown, so its dormancy rests on items stored and its age.",
+      "frequency": {
+        "kind": "measured",
+        "command": "docs/work/source-health/shape/host-measurement-2026-11-06.txt",
+        "records": "sources on the operator's daemon host, grouped by type (youtube active 12)",
+        "count": 12,
+        "total": 49
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "A source failing below the broken threshold raises no main-screen line, so a dead site at the operator's 120-minute interval is announced at its fifth failure, 30 hours after the first (waits of 2, 4, 8 and 16 hours between them), not at once.",
+      "frequency": {
+        "kind": "measured",
+        "command": "docs/work/source-health/shape/host-measurement-2026-11-06.txt",
+        "records": "active sources on the operator's daemon host carrying any consecutive failure (the query's error_count > 0 rows that are active)",
+        "count": 0,
+        "total": 48
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "The migration turns back on the sources the five-strike rule switched off without asking the operator first; the main-screen line is how they learn of it.",
+      "frequency": {
+        "kind": "measured",
+        "command": "docs/work/source-health/shape/host-measurement-2026-11-06.txt",
+        "records": "sources on the operator's daemon host with active = 0 and error_count >= 5",
+        "count": 1,
+        "total": 49
+      }
+    },
+    {
+      "kind": "cost",
+      "summary": "A manual --once run honours backoff, so it does not fetch a source still waiting; pause then resume, or a URL change, clears the wait and retries at the next cycle.",
+      "frequency": {
+        "kind": "measured",
+        "command": "docs/work/source-health/shape/host-measurement-2026-11-06.txt",
+        "records": "active sources on the operator's daemon host that would be waiting in backoff today (active with error_count > 0)",
+        "count": 0,
+        "total": 48
+      }
+    }
+  ],
+  "walks": [
+    {
+      "criterion": "C14",
+      "when": "after merge and deployment to the operator's daemon host, the daemon restarts and opens its database",
+      "then": "NCC Group reads active 1, no other source changed active, and a backup sits beside prismis.db.",
+      "by": "operator"
+    },
+    {
+      "criterion": "C17",
+      "when": "after the first daemon cycle on the deployed host, the operator opens the TUI against it",
+      "then": "The header carries a `⚠ Sources:` line naming at least 1 broken and 2 empty, and the sources screen lists NCC Group as broken with its 404 in the evidence, Hnsecurity and SpecterOps as empty, and Nahamsec, Sean Heelan, Steipete, Evilsocket and Spaceraccoon as dormant.",
+      "by": "operator"
+    },
+    {
+      "criterion": "C20",
+      "when": "the operator presses K on NCC Group in the sources screen, then returns to the main screen after the next refresh",
+      "then": "NCC Group shows as kept and the header's broken count drops by one.",
+      "by": "operator"
+    }
+  ],
+  "stakes": [
+    "The daemon never writes active; the five-strike UPDATE is deleted, and the one source it switched off on the operator's host comes back under backoff and shows broken.",
+    "A failing source's next fetch waits fetch_interval x 2^(n-1) after its nth consecutive failure, capped at 1440 minutes, landing on the cycle nearest that time; one successful fetch returns it to every cycle.",
+    "A source is broken at the failure whose backoff wait first reaches the daily cap, computed from the fetch interval; before that its failures are evidence only.",
+    "Empty means the last successful fetch served zero entries; dormant means the newest item the daemon has seen is more than 90 days old, or nothing dated has been seen in the source's first 90 days; both read what the fetch served before the pipeline's own filters, so empty and quiet differ.",
+    "Health, its evidence and the warning flag live in the sources row; the warning rule is one trigger in the schema; the TUI, CLI and API read those columns and judge nothing themselves.",
+    "The main screen carries one sources line beside the drift line, in local and remote mode, present exactly while a source has attention.",
+    "Keep answers one state: any change of health ends it, and a source that returns to healthy on its own clears its warning.",
+    "Fix is a URL change, which resets the source's fetch record so the new URL is judged afresh; keep and unkeep are one API route each, called by the TUI's K and the CLI.",
+    "Every change is additive: new columns with defaults, new response fields, new routes; old clients keep reading sources unchanged, and a new TUI reads an old database without failing.",
+    "Error text the sources screen shows is stripped of terminal controls and flattened to one line."
+  ]
+}

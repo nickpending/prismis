@@ -1041,6 +1041,31 @@ func TestSourcesScreen_TallStoredErrorIsCutToTheWindow(t *testing.T) {
 	}
 }
 
+// TestSourcesScreen_StoredTextNeverReachesTheTerminalRaw: a stored name and type carrying
+// terminal escapes and a line break are drawn stripped and flattened on the list and on
+// the delete confirmation that names the source.
+func TestSourcesScreen_StoredTextNeverReachesTheTerminalRaw(t *testing.T) {
+	set := hostSet(t)
+	set[0].Name = "Evil\nFeed\x1b]52;c;ZXZpbA==\x07 Name"
+	set[0].Type = "rss\x1b[2J"
+	m := openScreen(t, 188, 51, set)
+
+	if view := m.View(); strings.ContainsAny(view, "\x1b\x07") {
+		t.Errorf("list view carries a terminal control from the stored name or type: %q", view)
+	}
+	m = step(t, m, key("d"))
+	if m.sourceModal.mode != "confirm_remove" {
+		t.Fatalf("d opened mode %q, want confirm_remove", m.sourceModal.mode)
+	}
+	view := m.View()
+	if strings.ContainsAny(view, "\x1b\x07") {
+		t.Errorf("delete confirmation carries a terminal control from the stored name: %q", view)
+	}
+	if !strings.Contains(view, "Delete source: Evil Feed]52;c;ZXZpbA== Name") {
+		t.Errorf("delete confirmation does not name the source on one row:\n%s", view)
+	}
+}
+
 // TestSourcesScreen_NameWithControlsDrawsOneRow: a stored name carrying a line break and
 // a terminal escape is drawn on its source's one row, flattened and stripped of controls,
 // so the screen keeps its height.

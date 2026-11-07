@@ -681,7 +681,8 @@ func (m SourceModal) listRows(theme StyleTheme, width, maxRows int) ([]string, [
 			}
 
 			// Format source type (right-aligned)
-			typeStr := strings.ToUpper(source.Type)
+			typeText := strings.ToUpper(singleLine(source.Type))
+			typeStr := typeText
 			if i == m.cursor {
 				typeStr = theme.TagStyle().Render(typeStr)
 			} else {
@@ -721,7 +722,7 @@ func (m SourceModal) listRows(theme StyleTheme, width, maxRows int) ([]string, [
 
 			// Calculate padding from the unstyled text's display width
 			titlePadding := max(titleWidth-ansi.StringWidth(displayName)-ansi.StringWidth(markerText), 0)
-			typePadding := max(typeWidth-ansi.StringWidth(strings.ToUpper(source.Type)), 0)
+			typePadding := max(typeWidth-ansi.StringWidth(typeText), 0)
 
 			// Build columnar line
 			line := fmt.Sprintf("%s%s %s%s %s%s %s",
@@ -825,7 +826,7 @@ func (m SourceModal) renderConfirmContentOnly(theme StyleTheme) string {
 
 	nameStyle := lipgloss.NewStyle().Foreground(theme.White).Bold(true)
 
-	lines = append(lines, fmt.Sprintf("Delete source: %s", nameStyle.Render(source.Name)))
+	lines = append(lines, fmt.Sprintf("Delete source: %s", nameStyle.Render(singleLine(source.Name))))
 	lines = append(lines, "")
 	lines = append(lines, theme.MutedStyle().Render("This cannot be undone."))
 

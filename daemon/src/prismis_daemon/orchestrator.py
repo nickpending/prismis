@@ -635,6 +635,21 @@ class DaemonOrchestrator:
             label = source["name"] or source["url"]
             next_fetch_at = source.get("next_fetch_at")
             if not is_due(next_fetch_at, cycle_start, fetch_interval):
+                # The retry decision is recorded where it is made: an unattended
+                # cycle that does not fetch a source leaves why, and until when.
+                obs_log(
+                    "source.backoff",
+                    source_id=source["id"],
+                    error_count=source["error_count"],
+                    next_fetch_at=next_fetch_at,
+                    cycle_start=cycle_start.isoformat(),
+                )
+                logger.info(
+                    "Skipping source %s: backing off after %s failures, next due %s",
+                    source["id"],
+                    source["error_count"],
+                    next_fetch_at,
+                )
                 self.console.print(
                     f"\n[dim]Skipping source {escape(str(source_num))}/{escape(str(len(sources)))}: {escape(str(label))} (backing off after {escape(str(source['error_count']))} failures, next due {escape(str(next_fetch_at))})[/dim]"
                 )

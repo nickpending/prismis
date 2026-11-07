@@ -18,6 +18,8 @@ HTTP server, and the real daemon API on a loopback socket. The LLM is the local 
 attribute, so a test runs days of cycles in seconds.
 """
 
+import json
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -284,6 +286,44 @@ def test_a_retry_lands_on_the_cycle_nearest_its_due_time(harness: _Harness) -> N
         harness.clock.now = failed_at
 
     assert outcomes == {"T-1s": True, "T-59m": True, "T-61m": False}
+
+
+def test_a_skipped_source_leaves_a_backoff_event(harness: _Harness) -> None:
+    """
+    INVARIANT: a cycle that skips a source still waiting out its backoff writes one
+               source.backoff event naming the source, its failure count, its next
+               fetch time and the cycle start
+    BREAKS: an unattended cycle decides not to fetch a source and leaves only a console
+            line, so nothing queryable says why the source went unfetched or when it
+            is next tried
+    """
+    harness.serve("waiting", 404)
+    source = harness.add("waiting")
+    harness.run(120)
+    due = harness.row(source).get("next_fetch_at")
+    harness.clock.now += timedelta(minutes=30)
+    before = harness.hits("waiting")
+
+    harness.run(120)
+
+    assert harness.hits("waiting") == before, "the source must be skipped"
+    log_dir = Path(os.environ["XDG_DATA_HOME"]) / "prismis" / "observability"
+    events = [
+        json.loads(line)
+        for log in log_dir.glob("*.jsonl")
+        for line in log.read_text().splitlines()
+        if line.strip()
+    ]
+    skipped = [
+        e
+        for e in events
+        if e.get("event") == "source.backoff" and e.get("source_id") == source
+    ]
+    assert len(skipped) == 1, f"want one source.backoff event, got {skipped}"
+    (event,) = skipped
+    assert event.get("error_count") == 1
+    assert event.get("next_fetch_at") == due
+    assert event.get("cycle_start") == harness.clock.now.isoformat()
 
 
 def _fail_after_one_success(

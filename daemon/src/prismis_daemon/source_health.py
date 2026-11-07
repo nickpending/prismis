@@ -17,11 +17,6 @@ from typing import Any
 DORMANT_DAYS = 90
 BACKOFF_CAP_MINUTES = 1440
 
-HEALTH_STATES = ("healthy", "broken", "empty", "dormant")
-# The states that raise the main-screen warning; the schema's attention trigger spells
-# the same three.
-FLAGGED_STATES = ("broken", "empty", "dormant")
-
 # 2^MAX_DOUBLINGS minutes already exceeds the cap at a one-minute interval, so a larger
 # failure count never needs a larger power.
 _MAX_DOUBLINGS = 11

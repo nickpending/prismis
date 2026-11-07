@@ -454,13 +454,16 @@ func windowStart(first, last, offset, height, total int) int {
 // the offset that keeps the selected source's rows in view, padded to the rows the
 // error leaves - then the error's rows, and that offset.
 func (m SourceModal) listWindow(theme StyleTheme) ([]string, int) {
-	errorRows := m.errorRows(theme)
-	height := max(m.listHeight()-len(errorRows), 1)
 	rows, spans := m.listRows(theme, m.listWidth())
 	first, last := 0, 0
 	if m.cursor < len(spans) {
 		first, last = spans[m.cursor].first, spans[m.cursor].last
 	}
+	// The error takes the rows the selected source leaves, and always its blank row and
+	// one more, so neither the source's rows nor the error's start leave the screen
+	listHeight := m.listHeight()
+	errorRows := m.errorRows(theme, min(max(listHeight-(last-first+1), 2), listHeight-1))
+	height := listHeight - len(errorRows)
 	offset := windowStart(first, last, m.offset, height, len(rows))
 	drawn := slices.Clone(rows[offset:min(offset+height, len(rows))])
 	for len(drawn) < height {
@@ -469,14 +472,21 @@ func (m SourceModal) listWindow(theme StyleTheme) ([]string, int) {
 	return append(drawn, errorRows...), offset
 }
 
-// errorRows is a blank row and the error wrapped to the list's width, or none when
-// there is no error.
-func (m SourceModal) errorRows(theme StyleTheme) []string {
+// errorRows is a blank row and the error wrapped to the list's width, at most maxRows
+// rows in all, its last row ending in an ellipsis when the error is cut; none when there
+// is no error.
+func (m SourceModal) errorRows(theme StyleTheme, maxRows int) []string {
 	if m.errorMsg == "" {
 		return nil
 	}
+	width := m.listWidth()
+	wrapped := strings.Split(ansi.Wrap("⚠ "+singleLine(m.errorMsg), width, ""), "\n")
+	if keep := max(maxRows-1, 1); len(wrapped) > keep {
+		wrapped = wrapped[:keep]
+		wrapped[keep-1] = ansi.Truncate(wrapped[keep-1], width-1, "") + "…"
+	}
 	rows := []string{""}
-	for row := range strings.SplitSeq(ansi.Wrap("⚠ "+singleLine(m.errorMsg), m.listWidth(), ""), "\n") {
+	for _, row := range wrapped {
 		rows = append(rows, theme.ErrorStyle().Render(row))
 	}
 	return rows
@@ -681,7 +691,7 @@ func (m SourceModal) listRows(theme StyleTheme, width int) ([]string, []sourceSp
 			typeWidth := 8
 
 			// Cut the title to its column by display width, then style it
-			displayName := ansi.Truncate(source.Name, titleWidth, "...")
+			displayName := ansi.Truncate(singleLine(source.Name), titleWidth, "...")
 
 			// Apply styling to the truncated name
 			var nameStr string

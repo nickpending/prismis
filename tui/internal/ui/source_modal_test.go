@@ -955,3 +955,59 @@ func TestSourcesScreen_ColumnsAlignWhateverTheName(t *testing.T) {
 			column["€€€"], column["Plain"], view)
 	}
 }
+
+// TestSourcesScreen_LongErrorLeavesTheSelectedSourceInView: at 60x30 with the cursor on
+// NCC Group, whose evidence is the longest, an error that wraps to more rows than the
+// list holds is cut so the source's row and all its evidence stay drawn, the error's
+// start stays visible, and the screen keeps its height.
+func TestSourcesScreen_LongErrorLeavesTheSelectedSourceInView(t *testing.T) {
+	// The help screen's rule at 60x30: 22 rows, plus the border.
+	const boxRows = 24
+	set := hostSet(t)
+	m := openScreen(t, 60, 30, set)
+	for range hostBroken {
+		m = step(t, m, key("j"))
+	}
+	failure := "Source failure:" + strings.Repeat(" the daemon's reply runs on for row after row", 30) + " ENDOFREPLY"
+	m = step(t, m, operations.SourceOperationMsg{Success: false, Message: failure})
+
+	view := m.View()
+	if fault := selectedRowFault(view, "NCC Group"); fault != "" {
+		t.Fatalf("%s; view:\n%s", fault, view)
+	}
+	got := compact(strings.Join(evidenceUnderSelected(t, view), ""))
+	if want := compact(sourceEvidence(set[hostBroken])); got != want {
+		t.Errorf("evidence in view is\n%q\nwant\n%q\nview:\n%s", got, want, view)
+	}
+	if !strings.Contains(view, "Source failure:") {
+		t.Errorf("view lacks the error's start:\n%s", view)
+	}
+	if strings.Contains(view, "ENDOFREPLY") {
+		t.Errorf("the error is drawn whole, so it cannot have been cut to the rows left:\n%s", view)
+	}
+	if rows := len(screenBox(t, view)); rows != boxRows {
+		t.Errorf("sources screen is %d rows, want %d; view:\n%s", rows, boxRows, view)
+	}
+}
+
+// TestSourcesScreen_NameWithControlsDrawsOneRow: a stored name carrying a line break and
+// a terminal escape is drawn on its source's one row, flattened and stripped of controls,
+// so the screen keeps its height.
+func TestSourcesScreen_NameWithControlsDrawsOneRow(t *testing.T) {
+	// The help screen's rule at 188x51: 43 rows, plus the border.
+	const boxRows = 45
+	set := hostSet(t)
+	set[0].Name = "Evil\nFeed\x1b[31m Name"
+	m := openScreen(t, 188, 51, set)
+
+	view := m.View()
+	if strings.Contains(view, "\x1b") {
+		t.Errorf("view carries an ESC byte from the name: %q", view)
+	}
+	if fault := selectedRowFault(view, "Evil Feed[31m Name"); fault != "" {
+		t.Errorf("%s; view:\n%s", fault, view)
+	}
+	if rows := len(screenBox(t, view)); rows != boxRows {
+		t.Errorf("sources screen is %d rows, want %d; view:\n%s", rows, boxRows, view)
+	}
+}

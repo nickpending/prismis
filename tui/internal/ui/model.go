@@ -272,8 +272,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	}
 
-	// Handle source modal updates if it's visible
-	if m.sourceModal.IsVisible() {
+	// Handle source modal updates if it's visible; reloaded sources go on to the
+	// sourcesLoadedMsg case below, which hands them to the modal
+	_, reload := msg.(sourcesLoadedMsg)
+	if m.sourceModal.IsVisible() && !reload {
 		m.sourceModal, cmd = m.sourceModal.Update(msg)
 		// If modal was closed, refresh sources
 		if !m.sourceModal.IsVisible() {

@@ -23,23 +23,7 @@ func NewHelpModal() HelpModal {
 
 // SetSize updates the modal size based on terminal dimensions
 func (m *HelpModal) SetSize(width, height int) {
-	// Calculate modal size - more conservative for help modal
-	modalWidth := int(float64(width) * 0.75) // 75% instead of 85%
-	modalHeight := height - 8
-
-	// Minimum reasonable size
-	if modalWidth < 50 {
-		modalWidth = 50
-	}
-	if modalHeight < 20 {
-		modalHeight = 20
-	}
-
-	// But don't exceed terminal size
-	if modalWidth > width-4 {
-		modalWidth = width - 4
-	}
-
+	modalWidth, modalHeight := modalSize(width, height)
 	m.width = modalWidth
 	m.height = modalHeight
 	m.Modal.width = modalWidth

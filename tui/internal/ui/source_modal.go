@@ -2,14 +2,15 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/nickpending/prismis/internal/db"
 	"github.com/nickpending/prismis/internal/ui/operations"
 )
@@ -57,10 +58,6 @@ func renderSourceMark(source db.Source, theme StyleTheme) string {
 	}
 	return lipgloss.NewStyle().Foreground(color).Render(glyph)
 }
-
-// maxEvidenceError bounds the error text in an evidence line, so the next try that
-// follows it stays near the start of the line.
-const maxEvidenceError = 60
 
 // singleLine strips every terminal control from s - C0 controls, ESC, DEL and C1
 // controls - and flattens it to one line: line breaks and tabs become spaces and runs
@@ -112,13 +109,10 @@ func sourceEvidence(source db.Source) string {
 }
 
 // failureEvidence is "N failures · <last error> · next try <time> · last success
-// <date or never>", the error stripped of controls and bounded.
+// <date or never>", the whole error stripped of controls and flattened to one line.
 func failureEvidence(source db.Source) string {
 	parts := []string{fmt.Sprintf("%d failure%s", source.ErrorCount, pluralize(source.ErrorCount))}
 	if text := singleLine(source.LastError); text != "" {
-		if runes := []rune(text); len(runes) > maxEvidenceError {
-			text = string(runes[:maxEvidenceError-1]) + "…"
-		}
 		parts = append(parts, text)
 	}
 	switch {
@@ -151,9 +145,9 @@ type SourceModal struct {
 	// Status message for temporary feedback (like main/reader modal)
 	statusMessage string // Temporary status message to display
 
-	// Viewport for scrolling content
-	viewport viewport.Model
-	ready    bool // Whether viewport is ready
+	// offset is the first list row the screen draws; UpdateContent and View derive it
+	// from the selected source's rows (windowStart).
+	offset int
 
 	// Remote mode support
 	remoteURL string // If non-empty, use API instead of local DB
@@ -161,8 +155,6 @@ type SourceModal struct {
 
 // NewSourceModal creates a new SourceModal instance
 func NewSourceModal() SourceModal {
-	vp := viewport.New(0, 0)
-
 	// Create URL input
 	urlInput := textinput.New()
 	urlInput.Placeholder = "https://example.com/feed.xml"
@@ -181,8 +173,6 @@ func NewSourceModal() SourceModal {
 		urlInput:    urlInput,
 		nameInput:   nameInput,
 		activeField: "url", // Default to URL field
-		viewport:    vp,
-		ready:       false,
 	}
 }
 
@@ -191,31 +181,22 @@ func (m *SourceModal) SetRemoteURL(url string) {
 	m.remoteURL = url
 }
 
-// SetSize updates the modal size based on terminal dimensions
+// SetSize sizes the modal by the help screen's rule for a width x height terminal
 func (m *SourceModal) SetSize(width, height int) {
-	// Small fixed size for source modal
-	modalWidth := 45
-	modalHeight := 12
+	m.width, m.height = modalSize(width, height)
+	m.UpdateContent()
+}
 
-	// Only adjust if terminal is really small
-	if width < 50 {
-		modalWidth = width - 5
-	}
-	if height < 15 {
-		modalHeight = height - 3
-	}
+// listWidth is the columns the list draws in: the box's width less its padding.
+func (m SourceModal) listWidth() int {
+	return max(m.width-4, 1)
+}
 
-	m.width = modalWidth
-	m.height = modalHeight
-	m.Modal.width = modalWidth
-	m.Modal.height = modalHeight
-
-	// Update viewport size to fill the modal
-	// Account for: border (2) + padding (2) + header (2) + status bar (1) = 7
-	vpHeight := max(modalHeight-7, 3)
-	m.viewport.Width = modalWidth - 4 // Account for padding
-	m.viewport.Height = vpHeight
-	m.ready = true
+// listHeight is the rows the list and its error share: the box's height less its
+// padding (2), the title and the blank row under it (2), and the status bar with the
+// two blank rows above it (3).
+func (m SourceModal) listHeight() int {
+	return max(m.height-7, 3)
 }
 
 // LoadSources updates the modal with fresh source data
@@ -225,18 +206,12 @@ func (m *SourceModal) LoadSources(sources []db.Source) {
 	if m.cursor >= len(m.sources) && len(m.sources) > 0 {
 		m.cursor = len(m.sources) - 1
 	}
-	// Update the modal content to reflect the new sources if visible and in list mode
-	if m.visible && m.mode == "list" {
-		m.UpdateContent()
-	}
-	// Ensure viewport is initialized if not ready
-	if !m.ready && m.height > 0 {
-		vpHeight := max(m.height-7, 3)
-		m.viewport.Width = m.width - 4
-		m.viewport.Height = vpHeight
-		m.ready = true
-		m.UpdateContent()
-	}
+	m.UpdateContent()
+}
+
+// moveCursor moves the cursor delta sources, staying on the list.
+func (m *SourceModal) moveCursor(delta int) {
+	m.cursor = max(min(m.cursor+delta, len(m.sources)-1), 0)
 }
 
 // Update handles input for the source modal
@@ -251,13 +226,9 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 		case "list":
 			switch msg.String() {
 			case "j", "down":
-				if m.cursor < len(m.sources)-1 {
-					m.cursor++
-				}
+				m.moveCursor(1)
 			case "k", "up":
-				if m.cursor > 0 {
-					m.cursor--
-				}
+				m.moveCursor(-1)
 			case "a":
 				m.mode = "add"
 				// Reset textinput fields
@@ -433,28 +404,82 @@ func (m SourceModal) Update(msg tea.Msg) (SourceModal, tea.Cmd) {
 		// Update content to refresh status bar
 		m.UpdateContent()
 		return m, nil
+
+	case tea.MouseMsg:
+		// The wheel moves the cursor, so the window follows it like j and k
+		if m.mode == "list" && msg.Action == tea.MouseActionPress {
+			switch msg.Button {
+			case tea.MouseButtonWheelDown:
+				m.moveCursor(1)
+			case tea.MouseButtonWheelUp:
+				m.moveCursor(-1)
+			}
+		}
 	}
 
 	// Update the modal content based on current mode
 	m.UpdateContent()
 
-	// Also update viewport if in list mode
-	if m.mode == "list" {
-		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
-	}
-
 	return m, nil
 }
 
-// UpdateContent refreshes the modal content based on current mode (exported for testing)
+// UpdateContent keeps the selected source in the list's window after anything that
+// moves the cursor or changes the rows, the size, the error or the status (exported
+// for testing).
 func (m *SourceModal) UpdateContent() {
 	if m.mode == "list" {
-		// The viewport needs the list's lines to scroll; View redraws them in the
-		// active theme, so no theme is needed here.
-		m.viewport.SetContent(m.renderListContentOnly(StyleTheme{}))
+		// Row widths and counts do not depend on colour, so no theme is needed here.
+		_, m.offset = m.listWindow(StyleTheme{})
 	}
+}
+
+// windowStart is the first of total rows to draw in a window of height rows so rows
+// first..last are inside it, moved from offset as little as possible: up to first when
+// first is above the window, down until last is its bottom row when last is below, never
+// past the page that ends at the last row. When the rows outgrow the window, first stays
+// in view.
+func windowStart(first, last, offset, height, total int) int {
+	height = max(height, 1)
+	offset = max(min(offset, total-height), 0)
+	if last >= offset+height {
+		offset = last - height + 1
+	}
+	if first < offset {
+		offset = first
+	}
+	return max(offset, 0)
+}
+
+// listWindow is the list rows the screen draws under the title - the fitted rows from
+// the offset that keeps the selected source's rows in view, padded to the rows the
+// error leaves - then the error's rows, and that offset.
+func (m SourceModal) listWindow(theme StyleTheme) ([]string, int) {
+	errorRows := m.errorRows(theme)
+	height := max(m.listHeight()-len(errorRows), 1)
+	rows, spans := m.listRows(theme, m.listWidth())
+	first, last := 0, 0
+	if m.cursor < len(spans) {
+		first, last = spans[m.cursor].first, spans[m.cursor].last
+	}
+	offset := windowStart(first, last, m.offset, height, len(rows))
+	drawn := slices.Clone(rows[offset:min(offset+height, len(rows))])
+	for len(drawn) < height {
+		drawn = append(drawn, "")
+	}
+	return append(drawn, errorRows...), offset
+}
+
+// errorRows is a blank row and the error wrapped to the list's width, or none when
+// there is no error.
+func (m SourceModal) errorRows(theme StyleTheme) []string {
+	if m.errorMsg == "" {
+		return nil
+	}
+	rows := []string{""}
+	for row := range strings.SplitSeq(ansi.Wrap("⚠ "+singleLine(m.errorMsg), m.listWidth(), ""), "\n") {
+		rows = append(rows, theme.ErrorStyle().Render(row))
+	}
+	return rows
 }
 
 // handleFieldTab switches the active add/edit form field between "url" and "name",
@@ -545,14 +570,8 @@ func (m SourceModal) View(theme StyleTheme) string {
 	if m.mode == "list" {
 		// The error sits below the scrolled list, not inside it (gh #87): inside,
 		// an empty or long list pushed it out of the visible window.
-		vp := m.viewport
-		vp.SetContent(m.renderListContentOnly(theme))
-		errorLines := appendErrorLine(theme, nil, m.errorMsg)
-		vp.Height = max(vp.Height-len(errorLines), 1)
-		content.WriteString(vp.View())
-		for _, line := range errorLines {
-			content.WriteString("\n" + line)
-		}
+		rows, _ := m.listWindow(theme)
+		content.WriteString(strings.Join(rows, "\n"))
 		mainContentStr = content.String()
 	} else {
 		// For other modes, render content directly
@@ -569,11 +588,14 @@ func (m SourceModal) View(theme StyleTheme) string {
 		mainContentStr = content.String()
 	}
 
-	// Create status bar
+	// Create status bar: one row, its text cut to the bar's width less its padding, so
+	// a long message never adds rows to the screen
+	statusWidth := max(m.width-6, 1)
 	var statusContent string
 	if m.statusMessage != "" {
 		// Show status message in cyan like main/reader modal
-		statusContent = lipgloss.NewStyle().Foreground(theme.Cyan).Bold(true).Render(m.statusMessage)
+		statusContent = lipgloss.NewStyle().Foreground(theme.Cyan).Bold(true).
+			Render(ansi.Truncate(singleLine(m.statusMessage), statusWidth, "…"))
 	} else {
 		// Show commands when no status message
 		switch m.mode {
@@ -584,6 +606,7 @@ func (m SourceModal) View(theme StyleTheme) string {
 		case "confirm_remove":
 			statusContent = "[y] delete [n] cancel"
 		}
+		statusContent = ansi.Truncate(statusContent, statusWidth, "…")
 	}
 
 	statusStyle := lipgloss.NewStyle().
@@ -608,15 +631,24 @@ func (m SourceModal) View(theme StyleTheme) string {
 	return modalStyle.Render(modalContent)
 }
 
-// renderListContentOnly renders just the list content without header/commands
-func (m SourceModal) renderListContentOnly(theme StyleTheme) string {
+// sourceSpan is the first and last of one source's rows in the list.
+type sourceSpan struct {
+	first, last int
+}
+
+// listRows is the list as rows that each fit in width columns, and each source's span
+// of them: the source's own row cut to width, then its evidence wrapped to the width
+// less its four-column indent, a word longer than that broken across rows. Evidence is
+// styled after it is wrapped, so no style runs across a row break.
+func (m SourceModal) listRows(theme StyleTheme, width int) ([]string, []sourceSpan) {
 	var lines []string
+	var spans []sourceSpan
 
 	// Source list
 	if len(m.sources) == 0 {
 		noSourcesStyle := theme.MutedStyle().Italic(true)
-		lines = append(lines, "", noSourcesStyle.Render("No sources configured"))
-		lines = append(lines, "", theme.MutedStyle().Render("Press [a] to add your first source"))
+		lines = append(lines, "", noSourcesStyle.Render(ansi.Truncate("No sources configured", width, "…")))
+		lines = append(lines, "", theme.MutedStyle().Render(ansi.Truncate("Press [a] to add your first source", width, "…")))
 	} else {
 		for i, source := range m.sources {
 			// Status indicator: the daemon's stored state, as the main view draws it
@@ -648,11 +680,8 @@ func (m SourceModal) renderListContentOnly(theme StyleTheme) string {
 			titleWidth := 25
 			typeWidth := 8
 
-			// Truncate title if needed and apply styling after truncation
-			displayName := source.Name
-			if len(displayName) > titleWidth {
-				displayName = displayName[:titleWidth-3] + "..."
-			}
+			// Cut the title to its column by display width, then style it
+			displayName := ansi.Truncate(source.Name, titleWidth, "...")
 
 			// Apply styling to the truncated name
 			var nameStr string
@@ -670,9 +699,9 @@ func (m SourceModal) renderListContentOnly(theme StyleTheme) string {
 				nameStr += theme.MutedStyle().Render(markerText)
 			}
 
-			// Calculate padding based on actual string length (not styled width)
-			titlePadding := max(titleWidth-len(displayName)-len(markerText), 0)
-			typePadding := max(typeWidth-len(strings.ToUpper(source.Type)), 0)
+			// Calculate padding from the unstyled text's display width
+			titlePadding := max(titleWidth-ansi.StringWidth(displayName)-ansi.StringWidth(markerText), 0)
+			typePadding := max(typeWidth-ansi.StringWidth(strings.ToUpper(source.Type)), 0)
 
 			// Build columnar line
 			line := fmt.Sprintf("%s%s %s%s %s%s %s",
@@ -685,14 +714,19 @@ func (m SourceModal) renderListContentOnly(theme StyleTheme) string {
 				countStr,
 			)
 
-			lines = append(lines, line)
+			span := sourceSpan{first: len(lines)}
+			lines = append(lines, ansi.Truncate(line, width, "…"))
 			if evidence := sourceEvidence(source); evidence != "" {
-				lines = append(lines, "    "+theme.MutedStyle().Render(evidence))
+				for row := range strings.SplitSeq(ansi.Wrap(evidence, max(width-4, 1), ""), "\n") {
+					lines = append(lines, "    "+theme.MutedStyle().Render(row))
+				}
 			}
+			span.last = len(lines) - 1
+			spans = append(spans, span)
 		}
 	}
 
-	return strings.Join(lines, "\n")
+	return lines, spans
 }
 
 // appendErrorLine appends a blank line and the rendered error when there is one;

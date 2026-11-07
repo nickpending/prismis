@@ -1,21 +1,27 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 	"github.com/nickpending/prismis/internal/db"
+	"github.com/nickpending/prismis/internal/ui/operations"
 )
 
 // healthSources holds one source per mark, each with more than three failures, where
@@ -40,7 +46,7 @@ func healthSources() []db.Source {
 }
 
 // markAndNext finds the line naming name, and returns the mark drawn before the name
-// and the line after it.
+// and the line after it. A box border around the line is not part of it.
 func markAndNext(t *testing.T, rendered, name string) (string, string) {
 	t.Helper()
 	lines := strings.Split(rendered, "\n")
@@ -48,7 +54,7 @@ func markAndNext(t *testing.T, rendered, name string) (string, string) {
 		if !strings.Contains(line, name) {
 			continue
 		}
-		fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "▸"))
+		fields := strings.Fields(strings.TrimPrefix(strings.Trim(line, " │"), "▸"))
 		next := ""
 		if i+1 < len(lines) {
 			next = lines[i+1]
@@ -70,8 +76,10 @@ func TestSourceMarksAndEvidenceFollowTheStoredHealth(t *testing.T) {
 
 	sources := healthSources()
 	modal := NewSourceModal()
+	modal.SetSize(188, 51)
+	modal.Show()
 	modal.LoadSources(sources)
-	screen := modal.renderListContentOnly(CleanCyberTheme)
+	screen := modal.View(CleanCyberTheme)
 	main := Model{sources: sources, sourcesViewport: viewport.New(60, 30), theme: CleanCyberTheme}
 	list := main.buildSourcesContent(CleanCyberTheme)
 
@@ -501,5 +509,449 @@ func TestSourceModal_Update_EditMode_TabTextInputAndEsc(t *testing.T) {
 	}
 	if updated.urlInput.Focused() || updated.nameInput.Focused() {
 		t.Errorf("expected both textinputs blurred after returning to list")
+	}
+}
+
+// real404Error is the error the RSS fetcher stored against a local server answering 404:
+// the fixture's first line is the error as a JSON string, its second the error's length.
+func real404Error(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "real-404-error.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("fixture holds %d lines, want the error and its length", len(lines))
+	}
+	var text string
+	if err := json.Unmarshal([]byte(lines[0]), &text); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := strconv.Atoi(lines[1]); err != nil || utf8.RuneCountInString(text) != n {
+		t.Fatalf("fixture error is %d runes, its length line reads %q", utf8.RuneCountInString(text), lines[1])
+	}
+	return text
+}
+
+// The host set's flagged sources, by index: among the first, middle and last ten.
+const hostBroken = 42
+
+var (
+	hostEmpty   = []int{2, 24}
+	hostDormant = []int{6, 20, 27, 45, 47}
+)
+
+// hostSet is the operator host's set at the walk: 49 sources, eight of them with an
+// evidence line - NCC Group broken with the real 404 error, error_count 6 and a next try;
+// two empty; five dormant.
+func hostSet(t *testing.T) []db.Source {
+	t.Helper()
+	next := time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC)
+	fetched := time.Date(2026, 11, 6, 9, 30, 0, 0, time.UTC)
+	newest := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	zero := 0
+	types := []string{"rss", "rss", "youtube", "rss", "reddit", "rss", "youtube", "file"}
+	sources := make([]db.Source, 49)
+	for i := range sources {
+		sources[i] = db.Source{ID: fmt.Sprintf("src-%02d", i), Name: fmt.Sprintf("Host Source %02d", i),
+			Type: types[i%len(types)], Active: true, Health: "healthy", UnreadCount: i % 7, LastFetched: &fetched}
+	}
+	for _, i := range hostEmpty {
+		sources[i].Health, sources[i].Attention, sources[i].EntriesServed = "empty", true, &zero
+	}
+	for _, i := range hostDormant {
+		sources[i].Health, sources[i].Attention, sources[i].NewestItemAt = "dormant", true, &newest
+	}
+	sources[hostBroken] = db.Source{ID: "src-ncc", Name: "NCC Group", Type: "rss", Active: true, Health: "broken",
+		Attention: true, ErrorCount: 6, LastError: real404Error(t), NextFetchAt: &next}
+	return sources
+}
+
+// hostEvidence is the indexes of the host set's sources that carry an evidence line.
+func hostEvidence() []int {
+	idx := append(append([]int{hostBroken}, hostEmpty...), hostDormant...)
+	slices.Sort(idx)
+	return idx
+}
+
+// asciiProfile renders without colour for the test, so a view's text is its bytes.
+func asciiProfile(t *testing.T) {
+	t.Helper()
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+}
+
+// step sends msg through the real Model's Update.
+func step(t *testing.T, m Model, msg tea.Msg) Model {
+	t.Helper()
+	next, _ := m.Update(msg)
+	return next.(Model)
+}
+
+// key is the message the terminal sends for a typed key.
+func key(k string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+}
+
+// openScreen is the real TUI Model sized by a width x height WindowSizeMsg, its items
+// loaded, set loaded as its sources, and the sources screen opened by S.
+func openScreen(t *testing.T, width, height int, set []db.Source) Model {
+	t.Helper()
+	asciiProfile(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	m := NewModel()
+	m = step(t, m, tea.WindowSizeMsg{Width: width, Height: height})
+	m = step(t, m, itemsLoadedMsg{})
+	m = step(t, m, sourcesLoadedMsg{sources: set})
+	m = step(t, m, key("S"))
+	if !m.sourceModal.IsVisible() {
+		t.Fatal("S did not open the sources screen")
+	}
+	return m
+}
+
+// screenBox is the rows of the modal box drawn in view, its border rows included. The
+// view's first line is the main view's header, never part of a box.
+func screenBox(t *testing.T, view string) []string {
+	t.Helper()
+	lines := strings.Split(view, "\n")
+	top, bottom := -1, -1
+	for i := 1; i < len(lines); i++ {
+		if top < 0 && strings.Contains(lines[i], "╭") {
+			top = i
+		}
+		if strings.Contains(lines[i], "╰") {
+			bottom = i
+		}
+	}
+	if top < 0 || bottom < top {
+		t.Fatalf("no box in view:\n%s", view)
+	}
+	return lines[top : bottom+1]
+}
+
+// boxText is the text of a box row inside its border and the box's two-column padding.
+func boxText(row string) string {
+	left, right := strings.Index(row, "│"), strings.LastIndex(row, "│")
+	if left < 0 || right <= left {
+		return ""
+	}
+	return strings.TrimRight(strings.TrimPrefix(row[left+len("│"):right], "  "), " ")
+}
+
+// selectedRowFault is "" when view holds exactly one ▸ row and it names name, or what
+// it holds instead.
+func selectedRowFault(view, name string) string {
+	var marked []string
+	for line := range strings.SplitSeq(view, "\n") {
+		if strings.Contains(line, "▸") {
+			marked = append(marked, strings.TrimSpace(line))
+		}
+	}
+	if len(marked) == 1 && strings.Contains(marked[0], name) {
+		return ""
+	}
+	return fmt.Sprintf("want one ▸ row naming %q, got %q", name, marked)
+}
+
+// evidenceUnderSelected is the box rows under the ▸ row that are indented as evidence.
+func evidenceUnderSelected(t *testing.T, view string) []string {
+	t.Helper()
+	rows := screenBox(t, view)
+	for i, row := range rows {
+		if !strings.Contains(row, "▸") {
+			continue
+		}
+		var evidence []string
+		for _, below := range rows[i+1:] {
+			text := boxText(below)
+			if !strings.HasPrefix(text, "    ") || strings.TrimSpace(text) == "" {
+				break
+			}
+			evidence = append(evidence, text)
+		}
+		return evidence
+	}
+	return nil
+}
+
+// compact drops every whitespace rune, so text compares across the rows it wraps onto.
+func compact(s string) string {
+	return strings.Join(strings.Fields(s), "")
+}
+
+// TestSourcesScreen_SelectedRowInViewAtEveryStep (C1): at the walk's 188x51 with the host
+// set, every view rendered while j walks the cursor to the last source and k walks it
+// back holds the ▸ marker on the selected source's row.
+func TestSourcesScreen_SelectedRowInViewAtEveryStep(t *testing.T) {
+	set := hostSet(t)
+	m := openScreen(t, 188, 51, set)
+
+	views, faults := 0, 0
+	check := func(want int, how string) {
+		views++
+		if m.sourceModal.cursor != want {
+			t.Fatalf("%s: cursor at %d, want %d", how, m.sourceModal.cursor, want)
+		}
+		view := m.View()
+		if fault := selectedRowFault(view, set[want].Name); fault != "" {
+			faults++
+			if faults == 1 {
+				t.Errorf("%s: %s; view:\n%s", how, fault, view)
+			}
+		}
+	}
+	for i := 1; i < len(set); i++ {
+		m = step(t, m, key("j"))
+		check(i, fmt.Sprintf("j to source %d", i))
+	}
+	for i := len(set) - 2; i >= 0; i-- {
+		m = step(t, m, key("k"))
+		check(i, fmt.Sprintf("k to source %d", i))
+	}
+	if views != 96 {
+		t.Errorf("rendered %d views, want 96", views)
+	}
+	if faults > 0 {
+		t.Errorf("%d of %d views lack the selected source's ▸ row", faults, views)
+	}
+}
+
+// TestSourcesScreen_SelectedEvidenceWhollyInView (C2): each source with evidence, reached
+// by j from the top and by k from the bottom, has every row of its evidence in the view,
+// under its own row.
+func TestSourcesScreen_SelectedEvidenceWhollyInView(t *testing.T) {
+	set := hostSet(t)
+	m := openScreen(t, 188, 51, set)
+	hasEvidence := map[int]bool{}
+	for _, i := range hostEvidence() {
+		hasEvidence[i] = true
+	}
+
+	stops := 0
+	check := func(how string) {
+		i := m.sourceModal.cursor
+		if !hasEvidence[i] {
+			return
+		}
+		stops++
+		view := m.View()
+		if fault := selectedRowFault(view, set[i].Name); fault != "" {
+			t.Errorf("%s to %s: %s", how, set[i].Name, fault)
+			return
+		}
+		got := compact(strings.Join(evidenceUnderSelected(t, view), ""))
+		if want := compact(sourceEvidence(set[i])); got != want {
+			t.Errorf("%s to %s: evidence in view is\n%q\nwant\n%q\nview:\n%s", how, set[i].Name, got, want, view)
+		}
+	}
+	for range len(set) - 1 {
+		m = step(t, m, key("j"))
+		check("j")
+	}
+	for range len(set) - 1 {
+		m = step(t, m, key("k"))
+		check("k")
+	}
+	if stops != 16 {
+		t.Errorf("stopped at %d sources with evidence, want 16", stops)
+	}
+}
+
+// TestSourcesScreen_BrokenSourceShowsItsWholeError (C3): with the cursor on NCC Group,
+// whose stored error is the real 404 text, the view shows the 404 and carries the whole
+// error under the source's row, with no ESC, CR or LF from the error.
+func TestSourcesScreen_BrokenSourceShowsItsWholeError(t *testing.T) {
+	set := hostSet(t)
+	m := openScreen(t, 188, 51, set)
+	for range hostBroken {
+		m = step(t, m, key("j"))
+	}
+	view := m.View()
+	if fault := selectedRowFault(view, "NCC Group"); fault != "" {
+		t.Fatalf("%s; view:\n%s", fault, view)
+	}
+	if !strings.Contains(view, "404 Not Found") {
+		t.Errorf("view lacks '404 Not Found':\n%s", view)
+	}
+	if strings.ContainsAny(view, "\x1b\r") {
+		t.Errorf("view carries an ESC or CR byte: %q", view)
+	}
+	evidence := evidenceUnderSelected(t, view)
+	if got, want := compact(strings.Join(evidence, "")), compact(real404Error(t)); !strings.Contains(got, want) {
+		t.Errorf("evidence in view\n%q\nlacks the whole error\n%q", got, want)
+	}
+	// The error's LF would start a row at the text after it; flattened, the row
+	// breaks where the width falls.
+	for _, row := range evidence {
+		if strings.HasPrefix(strings.TrimSpace(row), "For more information") {
+			t.Errorf("the error's line break starts an evidence row: %q", evidence)
+		}
+	}
+}
+
+// TestSourcesScreen_MessagesKeepTheScreenShape (C4): with the cursor on a healthy source
+// near the bottom, K's warning, a status reply longer than the box and an error longer
+// than the box each leave the selected row in view, the status bar on one row and the
+// screen as many rows tall as before the message.
+func TestSourcesScreen_MessagesKeepTheScreenShape(t *testing.T) {
+	const healthy = 46
+	set := hostSet(t)
+	if set[healthy].Health != "healthy" {
+		t.Fatalf("source %d is %s, want healthy", healthy, set[healthy].Health)
+	}
+	m := openScreen(t, 188, 51, set)
+	for range healthy {
+		m = step(t, m, key("j"))
+	}
+	before := m.View()
+	beforeRows, beforeBox := len(strings.Split(before, "\n")), len(screenBox(t, before))
+	if fault := selectedRowFault(before, set[healthy].Name); fault != "" {
+		t.Fatalf("before any message: %s", fault)
+	}
+
+	long := func(head string) string {
+		return head + strings.Repeat(" the reply runs on past the box's right edge", 6)
+	}
+	check := func(how, shows, statusHead string) {
+		view := m.View()
+		if !strings.Contains(view, shows) {
+			t.Errorf("%s: view lacks %q", how, shows)
+		}
+		if fault := selectedRowFault(view, set[healthy].Name); fault != "" {
+			t.Errorf("%s: %s; view:\n%s", how, fault, view)
+		}
+		if rows := len(strings.Split(view, "\n")); rows != beforeRows {
+			t.Errorf("%s: view is %d rows, %d before the message", how, rows, beforeRows)
+		}
+		box := screenBox(t, view)
+		if len(box) != beforeBox {
+			t.Errorf("%s: sources screen is %d rows, %d before the message; view:\n%s", how, len(box), beforeBox, view)
+		}
+		// The status bar is the row above the bottom padding row, and the row above it is blank.
+		if len(box) < 4 || !strings.Contains(box[len(box)-3], statusHead) || strings.TrimSpace(boxText(box[len(box)-4])) != "" {
+			t.Errorf("%s: status bar %q is not one row above the box's bottom padding; view:\n%s", how, statusHead, view)
+		}
+	}
+
+	m = step(t, m, key("K"))
+	check("K on a healthy source", "Nothing to keep: this source raises no warning", "[a]dd")
+
+	status := long("Source reply:")
+	m = step(t, m, operations.SourceOperationMsg{Success: true, Message: status})
+	check("a long status reply", "Source reply:", "Source reply:")
+
+	failure := long("Source failure:")
+	m = step(t, m, operations.SourceOperationMsg{Success: false, Message: failure})
+	check("a long error", "Source failure:", "Source reply:")
+}
+
+// TestSourcesScreen_NarrowTerminalDrawsEveryRowOnce (C6): at 60x30, every view rendered
+// while j walks the host set fits 60 columns, keeps the screen its height, and holds the
+// selected source's ▸ row; on NCC Group it shows the 404.
+func TestSourcesScreen_NarrowTerminalDrawsEveryRowOnce(t *testing.T) {
+	// The help screen's rule at 60x30: 50 columns (its minimum) by 22 rows, plus the border.
+	const boxRows = 24
+	set := hostSet(t)
+	m := openScreen(t, 60, 30, set)
+
+	faults := 0
+	fault := func(format string, args ...any) {
+		faults++
+		if faults <= 3 {
+			t.Errorf(format, args...)
+		}
+	}
+	for i := 1; i < len(set); i++ {
+		m = step(t, m, key("j"))
+		view := m.View()
+		for line := range strings.SplitSeq(view, "\n") {
+			if w := ansi.StringWidth(line); w > 60 {
+				fault("source %d: a line is %d columns wide: %q", i, w, line)
+			}
+		}
+		if rows := len(screenBox(t, view)); rows != boxRows {
+			fault("source %d: sources screen is %d rows, want %d; view:\n%s", i, rows, boxRows, view)
+		}
+		if f := selectedRowFault(view, set[i].Name); f != "" {
+			fault("source %d: %s; view:\n%s", i, f, view)
+		}
+		if i == hostBroken && !strings.Contains(view, "404 Not Found") {
+			fault("NCC Group: view lacks '404 Not Found':\n%s", view)
+		}
+	}
+	if faults > 0 {
+		t.Errorf("%d faults", faults)
+	}
+}
+
+// TestSourcesScreen_WheelMovesTheCursor (C7): from the first source, each wheel-down moves
+// the cursor one source down and each wheel-up one source up, and every view holds the
+// selected source's ▸ row.
+func TestSourcesScreen_WheelMovesTheCursor(t *testing.T) {
+	set := hostSet(t)
+	m := openScreen(t, 188, 51, set)
+	wheel := func(button tea.MouseButton, want int) {
+		m = step(t, m, tea.MouseMsg{Button: button, Action: tea.MouseActionPress})
+		if m.sourceModal.cursor != want {
+			t.Fatalf("after %s: cursor at %d, want %d", tea.MouseEvent{Button: button}, m.sourceModal.cursor, want)
+		}
+		if f := selectedRowFault(m.View(), set[want].Name); f != "" {
+			t.Errorf("after %s to %d: %s", tea.MouseEvent{Button: button}, want, f)
+		}
+	}
+	for i := 1; i <= 40; i++ {
+		wheel(tea.MouseButtonWheelDown, i)
+	}
+	for i := 39; i >= 0; i-- {
+		wheel(tea.MouseButtonWheelUp, i)
+	}
+}
+
+// TestSourcesScreen_ReloadReachesTheOpenScreen: sources the daemon returns while the
+// sources screen is open are the ones it draws, so a kept source shows its keep at once.
+func TestSourcesScreen_ReloadReachesTheOpenScreen(t *testing.T) {
+	set := hostSet(t)
+	m := openScreen(t, 188, 51, set)
+	keptAt := time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)
+	reloaded := slices.Clone(set)
+	reloaded[0].KeptHealth, reloaded[0].KeptAt = "healthy", &keptAt
+
+	m = step(t, m, sourcesLoadedMsg{sources: reloaded})
+	if mark, evidence := markAndNext(t, m.View(), set[0].Name); mark != "□" || !strings.Contains(evidence, "kept (healthy)") {
+		t.Errorf("after the reload %s draws mark %q and evidence %q, want □ and its keep", set[0].Name, mark, evidence)
+	}
+}
+
+// TestSourcesScreen_ColumnsAlignWhateverTheName: a long name of multi-byte runes is cut
+// to the name column by display width, so the row stays valid text and its type column
+// lines up with a plain name's.
+func TestSourcesScreen_ColumnsAlignWhateverTheName(t *testing.T) {
+	asciiProfile(t)
+	wide := strings.Repeat("€", 30)
+	modal := NewSourceModal()
+	modal.SetSize(188, 51)
+	modal.Show()
+	modal.LoadSources([]db.Source{
+		{ID: "1", Name: wide, Type: "rss", Active: true, Health: "healthy"},
+		{ID: "2", Name: "Plain", Type: "rss", Active: true, Health: "healthy"},
+	})
+	view := modal.View(CleanCyberTheme)
+	if !utf8.ValidString(view) {
+		t.Errorf("view is not valid UTF-8: %q", view)
+	}
+	column := map[string]int{}
+	for line := range strings.SplitSeq(view, "\n") {
+		for _, name := range []string{"€€€", "Plain"} {
+			if strings.Contains(line, name) {
+				column[name] = ansi.StringWidth(line[:strings.Index(line, "RSS")])
+			}
+		}
+	}
+	if column["€€€"] == 0 || column["€€€"] != column["Plain"] {
+		t.Errorf("type column at %d for the multi-byte name, %d for the plain one; view:\n%s",
+			column["€€€"], column["Plain"], view)
 	}
 }

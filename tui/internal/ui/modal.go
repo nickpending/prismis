@@ -81,6 +81,15 @@ func (m Modal) ViewWithOverlay(backgroundView string, termWidth, termHeight int,
 	return overlayModal(backgroundView, m.View(theme), termWidth, termHeight, m.width+4, 0)
 }
 
+// modalSize is the width and height of a modal box on a width x height terminal: 75
+// percent of the terminal's width and its height less 8, at least 50 by 20, never wider
+// than the terminal less 4. The help screen and the sources screen both size by it.
+func modalSize(width, height int) (int, int) {
+	modalWidth := max(int(float64(width)*0.75), 50)
+	modalHeight := max(height-8, 20)
+	return min(modalWidth, width-4), modalHeight
+}
+
 // modalFrameStyle builds the border/padding frame both Modal.View and SourceModal.View
 // render their content into - width, height and content alignment are the only things
 // that vary per caller (Modal centers its content, SourceModal left-aligns its own layout).

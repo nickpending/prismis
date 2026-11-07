@@ -108,13 +108,11 @@ func sourceEvidence(source db.Source) string {
 	return ""
 }
 
-// failureEvidence is "N failures · <last error> · next try <time> · last success
-// <date or never>", the whole error stripped of controls and flattened to one line.
+// failureEvidence is "N failures · next try <time> · last success <date or never> ·
+// <last error>", the whole error stripped of controls and flattened to one line. The
+// error comes last, so a cut to fit the screen only ever drops its end.
 func failureEvidence(source db.Source) string {
 	parts := []string{fmt.Sprintf("%d failure%s", source.ErrorCount, pluralize(source.ErrorCount))}
-	if text := singleLine(source.LastError); text != "" {
-		parts = append(parts, text)
-	}
 	switch {
 	case !source.Active:
 		parts = append(parts, "paused")
@@ -125,7 +123,11 @@ func failureEvidence(source db.Source) string {
 	if source.LastFetched != nil {
 		success = source.LastFetched.Local().Format("2006-01-02")
 	}
-	return strings.Join(append(parts, "last success "+success), " · ")
+	parts = append(parts, "last success "+success)
+	if text := singleLine(source.LastError); text != "" {
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, " · ")
 }
 
 // SourceModal represents the source management modal
@@ -454,14 +456,20 @@ func windowStart(first, last, offset, height, total int) int {
 // the offset that keeps the selected source's rows in view, padded to the rows the
 // error leaves - then the error's rows, and that offset.
 func (m SourceModal) listWindow(theme StyleTheme) ([]string, int) {
-	rows, spans := m.listRows(theme, m.listWidth())
+	// A source takes at most the list's rows less the error's least two, so the selected
+	// source's rows always fit beside the error
+	listHeight := m.listHeight()
+	sourceRows := listHeight
+	if m.errorMsg != "" {
+		sourceRows -= 2
+	}
+	rows, spans := m.listRows(theme, m.listWidth(), sourceRows)
 	first, last := 0, 0
 	if m.cursor < len(spans) {
 		first, last = spans[m.cursor].first, spans[m.cursor].last
 	}
 	// The error takes the rows the selected source leaves, and always its blank row and
 	// one more, so neither the source's rows nor the error's start leave the screen
-	listHeight := m.listHeight()
 	errorRows := m.errorRows(theme, min(max(listHeight-(last-first+1), 2), listHeight-1))
 	height := listHeight - len(errorRows)
 	offset := windowStart(first, last, m.offset, height, len(rows))
@@ -648,9 +656,11 @@ type sourceSpan struct {
 
 // listRows is the list as rows that each fit in width columns, and each source's span
 // of them: the source's own row cut to width, then its evidence wrapped to the width
-// less its four-column indent, a word longer than that broken across rows. Evidence is
-// styled after it is wrapped, so no style runs across a row break.
-func (m SourceModal) listRows(theme StyleTheme, width int) ([]string, []sourceSpan) {
+// less its four-column indent, a word longer than that broken across rows. A source's
+// rows number at most maxRows: longer evidence is cut, its last row ending in an
+// ellipsis, which drops the end of a failure's error. Evidence is styled after it is
+// wrapped, so no style runs across a row break.
+func (m SourceModal) listRows(theme StyleTheme, width, maxRows int) ([]string, []sourceSpan) {
 	var lines []string
 	var spans []sourceSpan
 
@@ -727,7 +737,15 @@ func (m SourceModal) listRows(theme StyleTheme, width int) ([]string, []sourceSp
 			span := sourceSpan{first: len(lines)}
 			lines = append(lines, ansi.Truncate(line, width, "…"))
 			if evidence := sourceEvidence(source); evidence != "" {
-				for row := range strings.SplitSeq(ansi.Wrap(evidence, max(width-4, 1), ""), "\n") {
+				evidenceWidth := max(width-4, 1)
+				wrapped := strings.Split(ansi.Wrap(evidence, evidenceWidth, ""), "\n")
+				if keep := max(maxRows-1, 0); len(wrapped) > keep {
+					wrapped = wrapped[:keep]
+					if keep > 0 {
+						wrapped[keep-1] = ansi.Truncate(wrapped[keep-1], evidenceWidth-1, "") + "…"
+					}
+				}
+				for _, row := range wrapped {
 					lines = append(lines, "    "+theme.MutedStyle().Render(row))
 				}
 			}

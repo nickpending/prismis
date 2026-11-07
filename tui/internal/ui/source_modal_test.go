@@ -990,6 +990,57 @@ func TestSourcesScreen_LongErrorLeavesTheSelectedSourceInView(t *testing.T) {
 	}
 }
 
+// TestSourcesScreen_TallStoredErrorIsCutToTheWindow: at 60x30, a broken source whose
+// stored error is 1,000 characters draws its failure count, next try and last success
+// first, then as much of its error as the window leaves, its end cut with an ellipsis,
+// so every row of the selected source is drawn - with and without a list error under it -
+// and the screen keeps its height.
+func TestSourcesScreen_TallStoredErrorIsCutToTheWindow(t *testing.T) {
+	// The help screen's rule at 60x30: 22 rows, plus the border.
+	const boxRows = 24
+	set := hostSet(t)
+	stored := "Daemon said:" + strings.Repeat(" the stored message runs on and on", 29)
+	stored += strings.Repeat(".", 1000-len(stored))
+	if len(stored) != 1000 {
+		t.Fatalf("stored error is %d characters, want 1000", len(stored))
+	}
+	set[hostBroken].LastError = stored
+	m := openScreen(t, 60, 30, set)
+	for range hostBroken {
+		m = step(t, m, key("j"))
+	}
+	facts := "6 failures · next try " + set[hostBroken].NextFetchAt.Local().Format("2006-01-02 15:04") +
+		" · last success never · Daemon said:"
+
+	check := func(how string) {
+		view := m.View()
+		if fault := selectedRowFault(view, "NCC Group"); fault != "" {
+			t.Fatalf("%s: %s; view:\n%s", how, fault, view)
+		}
+		evidence := evidenceUnderSelected(t, view)
+		if len(evidence) == 0 {
+			t.Fatalf("%s: no evidence under NCC Group; view:\n%s", how, view)
+		}
+		if got := compact(strings.Join(evidence, "")); !strings.HasPrefix(got, compact(facts)) {
+			t.Errorf("%s: evidence opens\n%q\nwant it to open with\n%q", how, got, compact(facts))
+		}
+		// The window draws the selected source's last row, which is the cut error's end.
+		if last := strings.TrimSpace(evidence[len(evidence)-1]); !strings.HasSuffix(last, "…") {
+			t.Errorf("%s: the last evidence row drawn %q does not end the cut error; view:\n%s", how, last, view)
+		}
+		if rows := len(screenBox(t, view)); rows != boxRows {
+			t.Errorf("%s: sources screen is %d rows, want %d; view:\n%s", how, rows, boxRows, view)
+		}
+	}
+	check("no list error")
+
+	m = step(t, m, operations.SourceOperationMsg{Success: false, Message: "Source failure: the daemon refused"})
+	check("a list error")
+	if view := m.View(); !strings.Contains(view, "Source failure: the daemon refused") {
+		t.Errorf("view lacks the list error:\n%s", view)
+	}
+}
+
 // TestSourcesScreen_NameWithControlsDrawsOneRow: a stored name carrying a line break and
 // a terminal escape is drawn on its source's one row, flattened and stripped of controls,
 // so the screen keeps its height.

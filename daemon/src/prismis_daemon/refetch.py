@@ -53,9 +53,11 @@ logger = logging.getLogger(__name__)
 # already is.
 REFETCH_TYPES = ("youtube", "rss", "reddit")
 
-# The obs_log "action" values a summarize+evaluate+classify_kind pass through
-# analyze_and_store_item can log (llm_call.py, kind_classifier.py) -- the three
-# the dry-run cost estimate sums the 99th percentile of.
+# The obs_log "action" values of the one-call-per-item steps of
+# analyze_and_store_item (llm_call.py, kind_classifier.py) -- the three the
+# dry-run cost estimate sums the 99th percentile of. The injection check makes one
+# call per chunk instead, so it is bounded per whole check (injection_check.py's
+# injection.check event), not per call.
 _COST_ACTIONS = ("summarize", "evaluate", "classify_kind")
 
 
@@ -137,6 +139,23 @@ def upper_bound_cost_estimate(
             costs[entry["action"]].append(float(entry["cost_usd"]))
 
     return sum(_percentile_99(values) for values in costs.values() if values)
+
+
+def upper_bound_injection_check_cost(base_dir: Path) -> float:
+    """Upper-bound per-item injection-check cost: the 99th percentile of the summed
+    real cost of whole, successful checks (injection.check events) across every
+    observability file in `base_dir`. A check asks one call per 4,000-character
+    chunk, and the items a refetch recovers are the long ones, so one call's cost is
+    no bound. With no priced check on record, 0.
+    """
+    costs = [
+        float(entry["cost_usd"])
+        for entry in _iter_events(base_dir)
+        if entry.get("event") == "injection.check"
+        and entry.get("status") == "success"
+        and isinstance(entry.get("cost_usd"), (int, float))
+    ]
+    return _percentile_99(costs) if costs else 0.0
 
 
 def _percentile_99(values: list[float]) -> float:
@@ -325,7 +344,11 @@ def run_refetch(
     )
 
     if dry_run:
-        per_item_cost = upper_bound_cost_estimate(get_obs_logger().base_dir)
+        base_dir = get_obs_logger().base_dir
+        per_item_cost = upper_bound_cost_estimate(base_dir)
+        # analyze_and_store_item runs the injection check only when one is wired.
+        if orchestrator.injection_checker is not None:
+            per_item_cost += upper_bound_injection_check_cost(base_dir)
         return RefetchReport(
             source_type=source_type,
             dry_run=True,

@@ -125,8 +125,8 @@ def build_orchestrator(config: Config, storage: Storage) -> DaemonOrchestrator:
 
     Shared by run_scheduler and the --once branch of main: both built the same
     fetchers, summarizer, evaluator and optional deep_extractor/
-    kind_classifier from the same config fields, in the same order, then diverged
-    only after (one calls build_scheduler, the other calls run_once()).
+    kind_classifier/injection_checker from the same config fields, in the same order,
+    then diverged only after (one calls build_scheduler, the other calls run_once()).
     """
     rss_fetcher = RSSFetcher(config=config)
     reddit_fetcher = RedditFetcher(config=config)
@@ -143,12 +143,16 @@ def build_orchestrator(config: Config, storage: Storage) -> DaemonOrchestrator:
 
         deep_extractor = ContentDeepExtractor(config.llm_deep_service)
 
-    # Optional kind classifier (gh #77) — only when llm_kind_service is configured.
+    # Optional kind classifier (gh #77) and injection checker — only when
+    # llm_kind_service is configured; both ask that one decisions service.
     kind_classifier = None
+    injection_checker = None
     if config.llm_kind_service:
+        from .injection_check import InjectionChecker
         from .kind_classifier import KindClassifier
 
         kind_classifier = KindClassifier(config.llm_kind_service)
+        injection_checker = InjectionChecker(config.llm_kind_service)
 
     return DaemonOrchestrator(
         storage=storage,
@@ -162,6 +166,7 @@ def build_orchestrator(config: Config, storage: Storage) -> DaemonOrchestrator:
         console=console,
         deep_extractor=deep_extractor,
         kind_classifier=kind_classifier,
+        injection_checker=injection_checker,
     )
 
 
@@ -377,8 +382,9 @@ def validate_llm_config(config: Config) -> None:
         elif result["kind"] == "unreachable":
             console.print(
                 f"[yellow]⚠️  Kind service: {escape(str(config.llm_kind_service))} unreachable — "
-                f"items are stored without a kind and the failure is counted in "
-                f"kind_classify_failures[/yellow]"
+                f"items are stored without a kind or an injection judgement and the "
+                f"failures are counted in kind_classify_failures and "
+                f"injection_check_failures[/yellow]"
             )
         else:
             console.print("[dim]Kind service: not configured[/dim]")

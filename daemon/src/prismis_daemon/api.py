@@ -1863,9 +1863,19 @@ async def analyze_context(
         ServerError: If LLM analysis fails
     """
     try:
-        # Get flagged items (limit to 50 for token efficiency)
-        flagged_items = storage.get_flagged_items(limit=50)
+        # Get flagged items (limit to 50 for token efficiency). With the injection
+        # check configured, only items checked and found clean reach the model.
+        check_enabled = bool(config.llm_kind_service)
+        flagged_items = storage.get_flagged_items(
+            limit=50, checked_clean_only=check_enabled
+        )
 
+        if not flagged_items and check_enabled and storage.get_flagged_items(limit=1):
+            raise ValidationError(
+                "No upvoted item is both checked and clean: each is either not yet "
+                "checked for instructions aimed at AI systems or flagged as holding "
+                "them. Run 'prismis-cli analyze injection --upvoted' to check them."
+            )
         if not flagged_items:
             raise ValidationError(
                 "No items flagged for context analysis. "

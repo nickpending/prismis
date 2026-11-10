@@ -21,6 +21,10 @@ app = typer.Typer()  # Sub-typer for analyze commands
 # OpenRouter's decisions model) -- see the work order's measured 3.4k-items/$0.14.
 _KIND_COST_PER_ITEM = 0.00004
 
+# One injection-check call, one chunk of an item, costs about this much: Jev's 2,999
+# calls cost $0.1653 in the injection-flag experiment (2026-11-07).
+_INJECTION_COST_PER_CALL = 0.000055
+
 
 def _check_local_mode(command: str) -> None:
     """Check if running in remote mode and exit with guidance."""
@@ -398,6 +402,138 @@ def kinds(
     except Exception as e:
         console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
+
+
+@app.command(name="injection")
+def injection(
+    limit: int = typer.Option(100, "--limit", "-n", help="Maximum items to check"),
+    since_days: Optional[int] = typer.Option(
+        None, "--since-days", help="Only check items fetched in the last N days"
+    ),
+    upvoted: bool = typer.Option(
+        False,
+        "--upvoted",
+        help="Only check upvoted items (what :context suggest reads)",
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
+) -> None:
+    """Check already-analysed items with no injection judgement for text aimed at AI.
+
+    Selects unarchived items with a summary and no injection judgement in their
+    analysis -- never checked, or their check failed -- newest first, at most --limit,
+    optionally narrowed to the last --since-days days and to upvoted items. Each is
+    checked through the same InjectionChecker the daemon runs at ingest, and its
+    judgement stored. A failed item is left unchecked for the next run. With the
+    check configured, the audio briefing and context suggestions withhold every item
+    without a clean judgement, so this is how items stored before the check, or whose
+    check failed, get one.
+    """
+    _check_local_mode("analyze injection")
+
+    from prismis_daemon.config import Config
+
+    config = Config.from_file()
+    if not config.llm_kind_service:
+        console.print(
+            "[yellow]'analyze injection' requires a kind_service configured under "
+            "[llm] in config.toml.[/yellow]\n"
+            "[dim]Set kind_service to a service defined in the services tables of "
+            "config.toml.[/dim]"
+        )
+        raise typer.Exit(1)
+
+    failed = 0
+    try:
+        from prismis_daemon.injection_check import InjectionChecker, chunk_spans
+        from prismis_daemon.observability import log as obs_log
+        from prismis_daemon.storage import Storage
+
+        with Storage() as storage:
+            items = storage.get_content_needing_injection_check(
+                limit=limit, since_days=since_days, upvoted=upvoted
+            )
+
+            if not items:
+                console.print("[green]✓ No items need an injection check[/green]")
+                return
+
+            total = len(items)
+            calls = sum(len(chunk_spans(len(i.get("content") or ""))) for i in items)
+            noun = "item" if total == 1 else "items"
+            console.print(
+                f"[bold]Found {escape(str(total))} {escape(noun)} needing an injection check[/bold]"
+            )
+            if not force:
+                cost_estimate = calls * _INJECTION_COST_PER_CALL
+                console.print(
+                    f"[dim]Estimated cost: ${escape(f'{cost_estimate:.4f}')} "
+                    f"({escape(str(calls))} calls)[/dim]\n"
+                )
+                if not Confirm.ask(f"Check {total} {noun}?", default=False):
+                    console.print("[yellow]Aborted[/yellow]")
+                    return
+
+            checker = InjectionChecker(config.llm_kind_service)
+            start_time = time.time()
+            obs_log("cli.injection.start", source="cli", items=total, limit=limit)
+
+            checked = 0
+            flagged = 0
+            for idx, item in enumerate(items, 1):
+                console.print(
+                    f"\n[bold][{escape(str(idx))}/{escape(str(total))}][/bold] {escape(str(item['title']))}"
+                )
+                try:
+                    judgement = checker.check(
+                        title=item["title"],
+                        source_type=item.get("source_type") or "rss",
+                        source_name=item.get("source_name") or "",
+                        content=item.get("content") or "",
+                    )
+                except Exception as e:
+                    # Per-item boundary: one item's failure never stops the run, and
+                    # the item stays unchecked so the next run selects it again.
+                    logger.warning(
+                        "Injection check failed for %s", item["title"], exc_info=True
+                    )
+                    console.print(f"  [red]✗ Failed: {escape(str(e))}[/red]")
+                    failed += 1
+                    continue
+
+                updated_analysis = dict(item.get("analysis") or {})
+                updated_analysis["injection"] = judgement
+                storage.update_analysis(item["id"], updated_analysis)
+                checked += 1
+                score = f"{judgement['score']:.2f}"
+                if judgement["flagged"]:
+                    flagged += 1
+                    console.print(f"  [yellow]⚠ flagged ({escape(score)})[/yellow]")
+                else:
+                    console.print(f"  [green]✓ clean ({escape(score)})[/green]")
+
+            obs_log(
+                "cli.injection.complete",
+                source="cli",
+                duration_ms=int((time.time() - start_time) * 1000),
+                checked=checked,
+                flagged=flagged,
+                failed=failed,
+                total=total,
+            )
+
+            console.print("\n[bold]Injection Check Complete[/bold]")
+            console.print(f"  ✓ Checked: [green]{escape(str(checked))}[/green] items")
+            console.print(f"  ⚠ Flagged: [yellow]{escape(str(flagged))}[/yellow] items")
+            if failed > 0:
+                console.print(f"  ✗ Failed: [red]{escape(str(failed))}[/red] items")
+
+    except Exception as e:
+        console.print(f"[red]✗ Error: {escape(str(e))}[/red]")
+        raise typer.Exit(1) from e
+    # Outside the try: typer.Exit subclasses RuntimeError, and the except above
+    # would report it as a second error.
+    if failed:
+        raise typer.Exit(1)
 
 
 @app.command(name="priority")

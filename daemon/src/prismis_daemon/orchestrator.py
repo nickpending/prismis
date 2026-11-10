@@ -14,6 +14,7 @@ from .config import Config, read_context_text
 from .deep_extractor import ContentDeepExtractor
 from .drift import run_drift_check
 from .evaluator import ContentEvaluator
+from .injection_check import InjectionChecker
 from .kind_classifier import KindClassifier
 from .models import ContentItem, FetchedItems
 from .observability import log as obs_log
@@ -52,6 +53,7 @@ class DaemonOrchestrator:
         deep_extractor: ContentDeepExtractor | None = None,
         kind_classifier: KindClassifier | None = None,
         clock: Callable[[], datetime] | None = None,
+        injection_checker: InjectionChecker | None = None,
     ):
         """Initialize orchestrator with dependencies.
 
@@ -72,6 +74,8 @@ class DaemonOrchestrator:
                 kind (gh #77). None disables kind classification.
             clock: Returns the current UTC time; a cycle reads it once, at its start,
                 for every backoff and health decision. Defaults to the system clock.
+            injection_checker: Optional InjectionChecker storing each item's judgement
+                of whether its text addresses an AI reader. None disables the check.
         """
         self.storage = storage
         self.rss_fetcher = rss_fetcher
@@ -91,6 +95,7 @@ class DaemonOrchestrator:
         self.embedder = embedder
         self.deep_extractor = deep_extractor
         self.kind_classifier = kind_classifier
+        self.injection_checker = injection_checker
         self.clock: Callable[[], datetime] = clock or _utc_now
         # The context.md text scoring uses: the startup copy until a cycle re-reads it.
         self.context = config.context
@@ -149,12 +154,12 @@ class DaemonOrchestrator:
 
         The per-item pipeline shared by the fetch loop and (job 2) refetch:
         summarize, evaluate, build_llm_analysis, merge with fetcher metrics,
-        kind classification, the deep-extraction gate (skipped for a
-        title_only item), create_or_update_content, embedding.
+        kind classification, the injection check, the deep-extraction gate
+        (skipped for a title_only item), create_or_update_content, embedding.
 
-        Kind classification and deep extraction failures never raise
-        (INV-002): each is caught here and reported back in the return dict
-        for the caller to fold into its own stats, rather than failing the
+        Kind classification, injection check and deep extraction failures never
+        raise (INV-002): each is caught here and reported back in the return
+        dict for the caller to fold into its own stats, rather than failing the
         item.
 
         Args:
@@ -166,8 +171,8 @@ class DaemonOrchestrator:
             None if summarization returned nothing (nothing was stored,
             mirroring the fetch loop's own skip). Otherwise a dict with
             content_id, is_new, item_dict, priority, evaluation,
-            merged_analysis, kind_classify_failure and deep_extract_failure
-            (the last two None when nothing failed).
+            merged_analysis, kind_classify_failure, injection_check_failure and
+            deep_extract_failure (the last three None when nothing failed).
         """
         source_type = source.get("type", "rss")
 
@@ -237,6 +242,31 @@ class DaemonOrchestrator:
                     style="yellow",
                 )
                 # Do NOT re-raise — pipeline continues without a kind (INV-002)
+
+        # Injection check, after the kind question: the stored judgement the audio
+        # briefing, the context analyzer and the agent handoff read. It never decides
+        # whether or how the item is stored. A failed or malformed check stores no
+        # judgement (_merge_analysis never carries one over from older content) and is
+        # returned for the caller to record; `prismis-cli analyze injection` retries it.
+        injection_check_failure: str | None = None
+        if self.injection_checker:
+            try:
+                merged_analysis["injection"] = self.injection_checker.check(
+                    title=item.title,
+                    source_type=source_type,
+                    source_name=source.get("name", ""),
+                    content=item.content or "",
+                )
+            except Exception as e:
+                injection_check_failure = (
+                    f"Injection check failed for '{item.title}': {e}"
+                )
+                logger.warning(injection_check_failure, exc_info=True)
+                self.console.print(
+                    f"       ⚠️  Injection check failed: {escape(str(e))}",
+                    style="yellow",
+                )
+                # Do NOT re-raise — the item stores without a judgement (INV-002)
 
         item_dict = item.to_dict()
         # File sources always HIGH priority (user explicitly added)
@@ -325,6 +355,7 @@ class DaemonOrchestrator:
             "evaluation": evaluation,
             "merged_analysis": merged_analysis,
             "kind_classify_failure": kind_classify_failure,
+            "injection_check_failure": injection_check_failure,
             "deep_extract_failure": deep_extract_failure,
         }
 
@@ -363,6 +394,9 @@ class DaemonOrchestrator:
             # Items stored without a kind because the classifier call itself failed;
             # kept out of "errors" for the same reason (INV-002).
             "kind_classify_failures": [],
+            # Items stored without an injection judgement because the check failed or
+            # was answered malformed; kept out of "errors" for the same reason.
+            "injection_check_failures": [],
         }
 
         try:
@@ -539,6 +573,10 @@ class DaemonOrchestrator:
                         stats["kind_classify_failures"].append(
                             result["kind_classify_failure"]
                         )
+                    if result["injection_check_failure"]:
+                        stats["injection_check_failures"].append(
+                            result["injection_check_failure"]
+                        )
                     if result["deep_extract_failure"]:
                         stats["deep_extract_failures"].append(
                             result["deep_extract_failure"]
@@ -610,6 +648,7 @@ class DaemonOrchestrator:
             "errors": [],
             "deep_extract_failures": [],
             "kind_classify_failures": [],
+            "injection_check_failures": [],
         }
 
         # Score this cycle against context.md as it is on disk now.
@@ -675,6 +714,9 @@ class DaemonOrchestrator:
                 stats["kind_classify_failures"].extend(
                     source_stats["kind_classify_failures"]
                 )
+                stats["injection_check_failures"].extend(
+                    source_stats["injection_check_failures"]
+                )
 
                 # fetch_source_content reports a failed fetch in its stats rather than
                 # raising, so the except below never sees it (#75).
@@ -727,6 +769,7 @@ class DaemonOrchestrator:
             errors=len(stats["errors"]),
             deep_extract_failures=len(stats["deep_extract_failures"]),
             kind_classify_failures=len(stats["kind_classify_failures"]),
+            injection_check_failures=len(stats["injection_check_failures"]),
         )
 
         return stats
@@ -792,11 +835,13 @@ class DaemonOrchestrator:
 
             # Preserve any other fetcher-specific data. `content_basis` is not the
             # fetcher's: a fresh analysis without it means the article is now present,
-            # so a stored one must not survive.
+            # so a stored one must not survive. Nor is `injection`: a judgement is about
+            # the content it was made on, and this analysis is of the content now.
             for key, value in existing_analysis.items():
                 if key not in merged and key not in (
                     "metrics",
                     "content_basis",
+                    "injection",
                     # Retired by the removal of vote learning: nothing writes it any more.
                     "preference_influenced",
                 ):

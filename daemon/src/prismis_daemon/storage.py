@@ -13,6 +13,7 @@ from typing import Any, ClassVar, TypedDict, Unpack
 from .database import get_db_connection
 from .models import ContentItem
 from .observability import log as obs_log
+from .publisher import KEEP_SQL
 from .readability import is_readable
 from .source_health import backoff_minutes, classify
 
@@ -1804,7 +1805,10 @@ class Storage:
             raise sqlite3.Error(f"Failed to flag content as interesting: {e}") from e
 
     def get_flagged_items(
-        self, limit: int = 50, kind_filter: list[str] | None = None
+        self,
+        limit: int = 50,
+        kind_filter: list[str] | None = None,
+        checked_clean_only: bool = False,
     ) -> list[dict[str, Any]]:
         """Get content items flagged for context analysis (upvoted items).
 
@@ -1819,6 +1823,9 @@ class Storage:
             kind_filter: Optional list of kind values (SC-2), applied in the SQL
                 WHERE clause before `LIMIT`, so a flagged item of the requested
                 kind older than the newest `limit` flagged items is still found.
+            checked_clean_only: Keep only items publisher.KEEP_SQL keeps -- checked
+                for instructions aimed at AI systems and found clean -- applied
+                before `LIMIT`, so withheld items never shrink the window.
 
         Returns:
             List of content dictionaries with source information
@@ -1837,6 +1844,8 @@ class Storage:
             """
             params: list[Any] = []
             query += self._kind_filter_sql(kind_filter, params)
+            if checked_clean_only:
+                query += f" AND {KEEP_SQL}"
             query += " ORDER BY c.fetched_at DESC LIMIT ?"
             params.append(limit)
 
@@ -2469,6 +2478,29 @@ class Storage:
         except sqlite3.Error as e:
             raise sqlite3.Error(
                 f"Failed to get content needing kind classification: {e}"
+            ) from e
+
+    def get_content_needing_injection_check(
+        self, limit: int = 100, since_days: int | None = None, upvoted: bool = False
+    ) -> list[dict[str, Any]]:
+        """Get already-analysed content items with no injection judgement yet.
+
+        A qualifying item carries a summary and an analysis with no `injection` key
+        at all: never checked, or its check failed. Newest fetched_at first, at most
+        `limit`, narrowed to items fetched within the last `since_days` days when
+        given, and to upvoted items when `upvoted`.
+
+        Raises:
+            sqlite3.Error: If database operation fails
+        """
+        condition = "json_type(c.analysis, '$.injection') IS NULL"
+        if upvoted:
+            condition += " AND c.user_feedback = 'up'"
+        try:
+            return self._analysed_content(condition, limit, since_days)
+        except sqlite3.Error as e:
+            raise sqlite3.Error(
+                f"Failed to get content needing an injection check: {e}"
             ) from e
 
     def get_content_for_rescore(

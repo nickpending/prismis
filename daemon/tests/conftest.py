@@ -14,7 +14,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -1223,6 +1223,115 @@ def configure_local_services(cfg_home: Path, base_url: str) -> None:
             f'\n[services.{name}]\nbase_url = "{base_url}/v1"\nmodel = "stub-model"'
         )
     path.write_text("\n".join(out) + "\n")
+
+
+# Decisions-endpoint stand-in ----------------------------------------------------------
+# Jev, OpenRouter's decisions model, answers a POST of `{model, state, questions}` with
+# `{answers: {<question name>: {...}}, usage: {cost}}`. `decisions_server` answers the
+# same way over a real loopback socket, so a test drives the real submit_decision and
+# its httpx request instead of standing in for the function.
+LOCAL_DECISIONS_SERVICE = "prismis-decisions-stub"
+DECISIONS_MODEL = "typesafe/jev-1.13"
+DECISION_COST = 0.00005
+# Content holding this string scores 0.95 on the injection question; anything else 0.02.
+INJECTION_MARKER = "SYSTEM INSTRUCTION FOR LLMS"
+
+DecisionAnswer = tuple[int, dict[str, Any]]
+
+
+def jev_answer(body: dict[str, Any]) -> DecisionAnswer:
+    """What Jev answers by default: release at 0.9 for the kind question, and for the
+    injection question a noul of 0.95 when the state's content holds INJECTION_MARKER,
+    else 0.02."""
+    questions = body.get("questions") or {}
+    answers: dict[str, Any] = {}
+    if "kind" in questions:
+        answers["kind"] = {"type": "choice", "choice": "release", "confidence": 0.9}
+    if "injection" in questions:
+        content = str((body.get("state") or {}).get("content", ""))
+        score = 0.95 if INJECTION_MARKER in content else 0.02
+        answers["injection"] = {"type": "noul", "noul": score, "confidence": 0.9}
+    return 200, {
+        "model": DECISIONS_MODEL,
+        "answers": answers,
+        "usage": {"cost": DECISION_COST},
+    }
+
+
+class DecisionsServer:
+    """A loopback decisions endpoint; `requests` lists each body it was sent, in order.
+
+    `answer` decides each reply from the request body; a test replaces it to script a
+    failure (an HTTP 500, a refusal, an out-of-range score) on chosen requests.
+    """
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self.requests: list[dict[str, Any]] = []
+        self.answer: Callable[[dict[str, Any]], DecisionAnswer] = jev_answer
+
+    @property
+    def injection_requests(self) -> list[dict[str, Any]]:
+        """The requests that asked the injection question, in arrival order."""
+        return [r for r in self.requests if "injection" in (r.get("questions") or {})]
+
+    @property
+    def kind_requests(self) -> list[dict[str, Any]]:
+        """The requests that asked the kind question, in arrival order."""
+        return [r for r in self.requests if "kind" in (r.get("questions") or {})]
+
+
+@pytest.fixture
+def decisions_server() -> Iterator[DecisionsServer]:
+    """A loopback server answering the decisions endpoint as Jev does (`jev_answer`)."""
+    import http.server
+
+    lock = threading.Lock()
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length))
+            with lock:
+                handle.requests.append(body)
+                status, payload = handle.answer(body)
+            raw = json.dumps(payload).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    host, port = server.server_address[0], server.server_address[1]
+    handle = DecisionsServer(f"http://{host!s}:{port}/api/v1/decisions")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield handle
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+
+
+def configure_decisions_service(cfg_home: Path, url: str) -> None:
+    """Set the sealed config's [llm] kind_service to a keyless service at `url`."""
+    path = cfg_home / "prismis" / "config.toml"
+    text = path.read_text()
+    marker = "auto_extract = "
+    assert marker in text, "the sealed config template must still hold this key"
+    text = text.replace(
+        marker, f'kind_service = "{LOCAL_DECISIONS_SERVICE}"\n{marker}', 1
+    )
+    text += (
+        f'\n[services.{LOCAL_DECISIONS_SERVICE}]\nbase_url = "{url}"\n'
+        f'model = "{DECISIONS_MODEL}"\n'
+    )
+    path.write_text(text)
 
 
 @pytest.fixture

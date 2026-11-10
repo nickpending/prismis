@@ -99,7 +99,8 @@ def article_prompt(
     remote: str | None = None,
     url: str = ARTICLE_URL,
 ) -> str:
-    """The prompt as docs/work/open-agent-framing/design.md's Form 1 writes it out."""
+    """The prompt as docs/work/open-agent-framing/design.md's Form 1 writes it out, for
+    an item with no injection judgement: the seeded items carry none."""
     cli = "prismis-cli" if remote is None else f"prismis-cli --remote {remote}"
     return (
         f"I'm reading an article in prismis (item {item_id}).\n"
@@ -111,6 +112,7 @@ def article_prompt(
         f"URL: {url}\n"
         f"Summary: {summary}\n"
         "</article>\n"
+        "prismis has not checked this article for instructions aimed at AI systems.\n"
         "\n"
         "For more, run:\n"
         f"  {cli} get {item_id} --json   # the full analysis: reading summary, quotes, deep synthesis\n"

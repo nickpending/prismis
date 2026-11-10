@@ -27,6 +27,7 @@ from typer.testing import CliRunner
 from prismis_daemon.__main__ import app
 from prismis_daemon.config import Config
 from prismis_daemon.evaluator import ContentEvaluator
+from prismis_daemon.injection_check import InjectionChecker
 from prismis_daemon.models import ContentItem
 from prismis_daemon.observability import get_logger as get_obs_logger
 from prismis_daemon.orchestrator import DaemonOrchestrator
@@ -66,9 +67,13 @@ class _PoisonFetcher:
 
 
 def _build_orchestrator(
-    config: Config, storage: Storage, poison: _PoisonFetcher
+    config: Config,
+    storage: Storage,
+    poison: _PoisonFetcher,
+    injection_checker: InjectionChecker | None = None,
 ) -> DaemonOrchestrator:
     return DaemonOrchestrator(
+        injection_checker=injection_checker,
         storage=storage,
         rss_fetcher=poison,
         reddit_fetcher=poison,
@@ -189,6 +194,62 @@ def test_dry_run_cost_estimate_with_no_history_is_zero(
 
     assert report.selected == 1
     assert report.estimated_cost == 0.0
+
+
+def _log_check_history() -> None:
+    """A summarize call, single chunk calls, and three whole checks whose p99 is 0.004."""
+    logger = get_obs_logger()
+    logger.log("llm.call", action="summarize", status="success", cost_usd=0.01)
+    for _ in range(3):
+        logger.log(
+            "llm.call", action="check_injection", status="success", cost_usd=0.00005
+        )
+    for cost, chunks in ((0.0001, 2), (0.004, 80), (0.0002, 4)):
+        logger.log("injection.check", status="success", cost_usd=cost, chunks=chunks)
+    # A failed check bills nothing whole and must not set the bound.
+    logger.log("injection.check", status="error", cost_usd=9.0, chunks=1)
+
+
+def test_dry_run_cost_estimate_bounds_a_whole_injection_check_when_it_runs(
+    test_db: Path, isolated_xdg_env: Path
+) -> None:
+    """
+    INVARIANT: with the injection check configured, each item's estimate adds the
+               99th-percentile cost of a whole check, all of its chunk calls together
+    BREAKS: the estimate omits the check, or bounds it by one chunk call, and
+            understates a refetch whose recovered articles run to many chunks
+    """
+    config = Config.from_file()
+    storage = Storage(test_db)
+    orchestrator = _build_orchestrator(
+        config, storage, _PoisonFetcher(), InjectionChecker("unused-decisions")
+    )
+    _log_check_history()
+    _seed_unreadable_youtube_item(storage, "one")
+    _seed_unreadable_youtube_item(storage, "two")
+
+    report = run_refetch(orchestrator, "youtube", limit=50, dry_run=True)
+
+    assert report.estimated_cost == pytest.approx((0.01 + 0.004) * 2)
+
+
+def test_dry_run_cost_estimate_leaves_out_the_check_when_it_does_not_run(
+    test_db: Path, isolated_xdg_env: Path
+) -> None:
+    """
+    INVARIANT: with no injection check configured, no check cost is estimated
+    BREAKS: an install that never runs the check is quoted for it
+    """
+    config = Config.from_file()
+    storage = Storage(test_db)
+    orchestrator = _build_orchestrator(config, storage, _PoisonFetcher())
+    _log_check_history()
+    _seed_unreadable_youtube_item(storage, "one")
+    _seed_unreadable_youtube_item(storage, "two")
+
+    report = run_refetch(orchestrator, "youtube", limit=50, dry_run=True)
+
+    assert report.estimated_cost == pytest.approx(0.01 * 2)
 
 
 def test_refetch_extraction_honours_the_configured_allow_list(

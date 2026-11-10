@@ -1,0 +1,6 @@
+[
+  {
+    "files": ["cli/src/cli/agent.py", "daemon/src/prismis_daemon/publisher.py"],
+    "heldBy": "cli/tests/unit/test_publisher_parity_unit.py"
+  }
+]

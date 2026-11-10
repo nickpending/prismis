@@ -111,15 +111,31 @@ def _build_state(
     }
 
 
+_KIND_QUESTIONS: dict[str, Any] = {
+    _QUESTION_NAME: {
+        "type": "choice",
+        "instructions": "Pick the single kind of information this item primarily is.",
+        "criteria": KINDS,
+    }
+}
+
+
 def submit_decision(
-    state: dict[str, str], *, service: str, model: str | None = None
+    state: dict[str, str],
+    *,
+    service: str,
+    model: str | None = None,
+    questions: dict[str, Any] | None = None,
 ) -> DecisionCall:
     """Submit a Decisions request to OpenRouter's alpha decisions endpoint.
 
+    `questions` is the request's question map, the kind question when not given: this
+    is the one builder of a decisions request, whichever question it asks.
+
     Raises on anything that means the call itself failed -- unresolvable service,
     missing key, unreachable endpoint, non-2xx status, a body that isn't even JSON.
-    A response that parses as JSON but doesn't carry the shape classify() expects is
-    not this function's problem: it is handed back as-is and classify() fails closed.
+    A response that parses as JSON but doesn't carry the shape the caller expects is
+    not this function's problem: it is handed back as-is for the caller to judge.
     """
     svc = resolve_service(service)
     api_key = load_api_key(svc)
@@ -140,15 +156,7 @@ def submit_decision(
     payload = {
         "model": resolved_model,
         "state": state,
-        "questions": {
-            _QUESTION_NAME: {
-                "type": "choice",
-                "instructions": (
-                    "Pick the single kind of information this item primarily is."
-                ),
-                "criteria": KINDS,
-            }
-        },
+        "questions": _KIND_QUESTIONS if questions is None else questions,
     }
 
     start = time.monotonic()
@@ -292,46 +300,52 @@ class KindClassifier:
             reading_summary=reading_summary,
             raw_content=raw_content,
         )
-
-        # Check circuit breaker before the call, like the other LLM-backed steps.
-        circuit = get_circuit_breaker(self.service_name)
-        if not circuit.check_can_proceed():
-            status = circuit.get_status()
-            obs_log(
-                "llm.call",
-                action="classify_kind",
-                model=self.service_name,
-                status="circuit_open",
-            )
-            raise RuntimeError(
-                f"LLM circuit breaker is open (quota exhausted). "
-                f"Recovery in {status.get('recovery_in_seconds', 'unknown')}s"
-            )
-
-        try:
-            result = submit_decision(state, service=self.service_name)
-
-            obs_log(
-                "llm.call",
-                action="classify_kind",
-                model=result.model,
-                cost_usd=result.cost,
-                duration_ms=result.duration_ms,
-                status="success",
-            )
-
-            circuit.record_success()
-
-        except Exception as e:
-            circuit.record_failure(e)
-
-            obs_log(
-                "llm.call",
-                action="classify_kind",
-                model=self.service_name,
-                status="error",
-                error=str(e),
-            )
-            raise
-
+        result = decide(state, service=self.service_name, action="classify_kind")
         return _parse_kind(result.answers)
+
+
+def decide(
+    state: dict[str, str],
+    *,
+    service: str,
+    action: str,
+    questions: dict[str, Any] | None = None,
+) -> DecisionCall:
+    """One decisions call behind the service's circuit breaker, logged as an llm.call.
+
+    The wrapper every decisions question goes through: the breaker check before the
+    call, one `llm.call` event with `action` and the billed cost (or the error), and the
+    breaker's success or failure. `questions` is passed to submit_decision only when
+    given, so the kind question's call is the one submit_decision always made.
+
+    Raises when the circuit is open and on anything submit_decision raises.
+    """
+    circuit = get_circuit_breaker(service)
+    if not circuit.check_can_proceed():
+        status = circuit.get_status()
+        obs_log("llm.call", action=action, model=service, status="circuit_open")
+        raise RuntimeError(
+            f"LLM circuit breaker is open (quota exhausted). "
+            f"Recovery in {status.get('recovery_in_seconds', 'unknown')}s"
+        )
+
+    try:
+        if questions is None:
+            result = submit_decision(state, service=service)
+        else:
+            result = submit_decision(state, service=service, questions=questions)
+    except Exception as e:
+        circuit.record_failure(e)
+        obs_log("llm.call", action=action, model=service, status="error", error=str(e))
+        raise
+
+    obs_log(
+        "llm.call",
+        action=action,
+        model=result.model,
+        cost_usd=result.cost,
+        duration_ms=result.duration_ms,
+        status="success",
+    )
+    circuit.record_success()
+    return result

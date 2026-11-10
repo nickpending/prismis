@@ -17,6 +17,29 @@ from .publisher import KEEP_SQL
 from .readability import is_readable
 from .source_health import backoff_minutes, classify
 
+# The analysis an UPDATE writes from a whole dict read earlier (the `?`, bound twice),
+# with the row's own injection judgement kept: copied over when the row has one, and
+# removed from the dict when it has none. A judgement is about the content it was made
+# on; a caller that read the row before a refetch replaced its content must not carry
+# the old text's judgement onto the new one. Only store_injection_judgement, which
+# checks the content, and create_or_update_content, which stores a freshly analysed
+# item whole, set it.
+_KEEP_ROW_INJECTION_SQL = """CASE
+    WHEN json_type(analysis, '$.injection') IS NULL
+        THEN json_remove(json(?), '$.injection')
+    ELSE json_set(json(?), '$.injection', analysis -> '$.injection')
+END"""
+_UPDATE_ANALYSIS_SQL = (
+    "UPDATE content SET analysis = "
+    + _KEEP_ROW_INJECTION_SQL
+    + ", updated_at = ? WHERE id = ?"
+)
+_UPDATE_PRIORITY_SQL = (
+    "UPDATE content SET priority = ?, analysis = "
+    + _KEEP_ROW_INJECTION_SQL
+    + ", updated_at = ? WHERE id = ?"
+)
+
 
 def utc_now_iso() -> str:
     """Current UTC time as an ISO 8601 string with an explicit +00:00 offset.
@@ -673,6 +696,9 @@ class Storage:
         without rewriting other fields. Caller is responsible for merging
         any new sub-keys into the analysis dict before passing it in.
 
+        The row keeps its own injection judgement, or its absence, whatever
+        `analysis` says (_KEEP_ROW_INJECTION_SQL).
+
         Args:
             content_id: UUID of the content row
             analysis: Full analysis dict to persist (caller merges as needed)
@@ -686,8 +712,8 @@ class Storage:
         try:
             analysis_json = json.dumps(analysis)
             cursor = self.conn.execute(
-                "UPDATE content SET analysis = ?, updated_at = ? WHERE id = ?",
-                (analysis_json, utc_now_iso(), content_id),
+                _UPDATE_ANALYSIS_SQL,
+                (analysis_json, analysis_json, utc_now_iso(), content_id),
             )
             self.conn.commit()
             return cursor.rowcount > 0
@@ -695,13 +721,47 @@ class Storage:
             self.conn.rollback()
             raise sqlite3.Error(f"Failed to update analysis: {e}") from e
 
+    def store_injection_judgement(
+        self, content_id: str, checked_content: str | None, judgement: dict[str, Any]
+    ) -> bool:
+        """Set analysis["injection"] to `judgement`, only while the row's content is
+        still `checked_content`, the text the judgement was made on.
+
+        A judgement is about the content it was made on: a refetch that replaced the
+        content while the check ran leaves the row as the refetch stored it, with no
+        judgement, rather than vouching for text nobody checked. Only the `injection`
+        key is written, onto the analysis as stored now, so nothing else the row
+        gained meanwhile is overwritten.
+
+        Returns:
+            True if the judgement was stored; False if no row with that id still holds
+            that content.
+
+        Raises:
+            sqlite3.Error: on write failure
+        """
+        try:
+            cursor = self.conn.execute(
+                """UPDATE content
+                   SET analysis = json_set(COALESCE(analysis, '{}'), '$.injection', json(?)),
+                       updated_at = ?
+                   WHERE id = ? AND content IS ?""",
+                (json.dumps(judgement), utc_now_iso(), content_id, checked_content),
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            raise sqlite3.Error(f"Failed to store injection judgement: {e}") from e
+
     def update_priority(
         self, content_id: str, priority: str | None, analysis: dict
     ) -> bool:
         """Write a re-evaluation: the priority column and the full analysis JSON
         (caller merges the new evaluation keys into the stored analysis) in one
         commit, so a row never carries one evaluation's priority beside another's
-        matched_interests.
+        matched_interests. The row keeps its own injection judgement, or its absence,
+        whatever `analysis` says (_KEEP_ROW_INJECTION_SQL).
 
         Returns:
             True if a row was updated, False if no row matched.
@@ -710,9 +770,10 @@ class Storage:
             sqlite3.Error: on write failure
         """
         try:
+            analysis_json = json.dumps(analysis)
             cursor = self.conn.execute(
-                "UPDATE content SET priority = ?, analysis = ?, updated_at = ? WHERE id = ?",
-                (priority, json.dumps(analysis), utc_now_iso(), content_id),
+                _UPDATE_PRIORITY_SQL,
+                (priority, analysis_json, analysis_json, utc_now_iso(), content_id),
             )
             self.conn.commit()
             return cursor.rowcount > 0

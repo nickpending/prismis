@@ -500,9 +500,18 @@ def injection(
                     failed += 1
                     continue
 
-                updated_analysis = dict(item.get("analysis") or {})
-                updated_analysis["injection"] = judgement
-                storage.update_analysis(item["id"], updated_analysis)
+                # Stored only while the row still holds the text that was checked: the
+                # daemon may have refetched the item meanwhile, and its new content
+                # must stay unchecked rather than inherit this verdict.
+                if not storage.store_injection_judgement(
+                    item["id"], item.get("content"), judgement
+                ):
+                    console.print(
+                        "  [red]✗ Failed: its content changed while it was checked; "
+                        "left for the next run[/red]"
+                    )
+                    failed += 1
+                    continue
                 checked += 1
                 score = f"{judgement['score']:.2f}"
                 if judgement["flagged"]:

@@ -3,6 +3,7 @@
 import os
 import stat
 import time
+import uuid
 
 import pytest
 from pathlib import Path
@@ -10,9 +11,11 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 from prismis_daemon import api, audio
+from prismis_daemon.observability import get_logger, set_run_id
 from prismis_daemon.storage import Storage
 from prismis_daemon.models import ContentItem
-from conftest import TEST_API_KEY, configure_local_services
+from prismis_daemon.verify_chain import read_run_events
+from conftest import LlmRecorder, TEST_API_KEY, configure_local_services
 
 app = api.app
 
@@ -155,12 +158,20 @@ def test_a_hung_tts_run_fails_the_briefing_at_the_timeout(
     no_network: None,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    llm_recorder: LlmRecorder | None,
 ) -> None:
     """
     INVARIANT: an lspeak run that never finishes is killed at the engine's timeout and
                the endpoint answers with an error
     BREAKS: a hung TTS provider holds the request (and a worker thread) indefinitely
+
+    The 500 alone does not say which step failed: a refused replay of the script call
+    fails the endpoint with the same status and message, and fast. The logged cause
+    and the recorder's count of answered calls are what show the script was generated
+    from the recording and the TTS step then timed out.
     """
+    run_id = str(uuid.uuid4())
+    set_run_id(run_id)
     configure_local_services(isolated_xdg_env.parent, local_pipeline_stub)
     _install_lspeak(tmp_path / "bin", monkeypatch, hang_seconds=30)
     monkeypatch.setattr(audio, "LSPEAK_TIMEOUT_SECONDS", 1.0)
@@ -189,6 +200,18 @@ def test_a_hung_tts_run_fails_the_briefing_at_the_timeout(
     assert elapsed < 15, f"the hung lspeak held the request for {elapsed:.1f}s"
     assert response.status_code == 500, response.text
     assert "Audio generation failed" in response.json()["message"]
+    assert llm_recorder is not None
+    assert llm_recorder.calls == 1, (
+        "the script call must be answered from the recording"
+    )
+    causes = [
+        e
+        for e in read_run_events(get_logger().base_dir, run_id)
+        if e.get("event") == "api.error"
+    ]
+    assert len(causes) == 1, causes
+    assert causes[0]["error_type"] == "RuntimeError"
+    assert causes[0]["error"].startswith("Audio generation timed out"), causes[0]
 
 
 def test_audio_requires_authentication(api_client: TestClient) -> None:

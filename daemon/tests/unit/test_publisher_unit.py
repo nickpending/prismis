@@ -41,7 +41,7 @@ def _kept_by_sql() -> set[str]:
             for name, analysis in _ANALYSES.items()
         ],
     )
-    rows = conn.execute(f"SELECT c.id FROM content c WHERE {KEEP_SQL}").fetchall()
+    rows = conn.execute(f"SELECT c.id FROM content c WHERE {KEEP_SQL}").fetchall()  # nosec B608 -- KEEP_SQL is publisher's fixed constant, not input
     conn.close()
     return {row[0] for row in rows}
 
